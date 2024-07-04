@@ -45,10 +45,7 @@ User Function MBESTPES()
     Private cCadastro    := "Cadastro de Peso do Balanção"
     Private cAlias       := "ZPB"
     Private aRotina      := MenuDef()
-    /*
-    Private aGets       := {}
-    Private aTela       := {}
-    */
+    
     oBrowse := FWMBrowse():New()
     oBrowse:SetAlias( cAlias )
     oBrowse:SetMenuDef("MBESTPES")
