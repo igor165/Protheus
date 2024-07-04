@@ -1,7 +1,13 @@
-#include 'FILEIO.CH'
-#include "TOTVS.CH"
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE "TOTVS.CH"
+#INCLUDE "TBICONN.CH"
+#INCLUDE "COLORS.CH"
+#INCLUDE "RPTDEF.CH"
+#INCLUDE "FWPrintSetup.ch"
 #include "TOPCONN.CH"
 #include "RWMAKE.CH"
+#Include "TryException.ch"
+#include "fwmvcdef.ch"
 
 static oCellHorAlign    := FwXlsxCellAlignment():Horizontal()
 static oCellVertAlign   := FwXlsxCellAlignment():Vertical()
