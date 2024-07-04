@@ -1,0 +1,653 @@
+<% 
+#DEFINE cBrwDefSO 	"BrwGridSO"
+#DEFINE cBrwGrid 	"BrwGrid"
+#DEFINE nLarBrw 		"655"
+#DEFINE nAltBrw 		"250"
+#DEFINE nTamFs  		"660"
+#DEFINE nTpPor       getTpPortal()
+Local oHtml		:= WCHtml():New() 
+Local cGrids	:= "BrwGrid~BBP~Field_BenefsMat,Field_BenefsNom,Field_CodOpc,Field_VerOpc,Field_descriOpc,Field_DTAD,Field_DTLIM,|Matrícula,Nome,Recno Opcional,Opcional,Data Adesão,Data Limite,~"
+%>
+
+<%=oHtml:getDType(.T.,.T.)%>
+
+<script language="JavaScript">
+<!--  
+//-------------------------------------------------------------------
+//	Define nome do browse 
+//-------------------------------------------------------------------
+var cBrwGrid		= <%="'"+cBrwGrid+"'"%> 
+var cBrwDefSO 		= <%="'"+cBrwDefSO+"'"%>
+var nTpPor          = <%=STR(nTpPor)%>
+var cClass          = <%="'"+Alltrim(cClass)+"'"%>
+var oBrwGrid
+var oBrwGridFP
+cCampoDefault = 'Field_BenefsMat|Field_CodOpc|Field_DTAD';
+
+//-------------------------------------------------------------------
+//	Cria objeto da grid de Beneficiários x Opcionais
+//-------------------------------------------------------------------
+function fProcGrid() { 
+
+		//Monta Browse 
+		oBrwGrid = new gridData(cBrwGrid,<%=nLarBrw%>,<%=nAltBrw%>);
+	
+		makeBrwResponsive('tab'+cBrwGrid, false, false, true );
+		updGridSchemeColor();
+
+}
+
+//-------------------------------------------------------------------
+//	Checa Matricula
+//-------------------------------------------------------------------
+function fCheckMat(oObj) {
+	var lRet = true;
+	document.querySelector("#BrwGridSO").innerHTML = "";
+	document.querySelector("#RodapeBrwGridSO").innerHTML = "";
+	if ( !isEmpty( getField('Field_MATUSU') ) )	 {
+		if (lRet){
+			getGatCmp('PLGATBA1','Field_MATUSU',null,1);
+			fFilBen(oObj.value);
+		}
+	 	else return lRet;	
+	} else {
+		setField("Field_NOMUSR","");
+		$("#Field_BENEFS").empty();
+	}
+
+}
+	
+//-------------------------------------------------------------------
+//	Funcão que é chamada depois de o html estar carregado
+//-------------------------------------------------------------------
+$(function() { 
+
+		$( '#Field_DTLIM' ).datepicker({       
+			    		dateFormat: 'dd/mm/yy', 
+			    		dayNames: ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'], 
+			    		dayNamesMin: ['D','S','T','Q','Q','S','S','D'], 
+			    		dayNamesShort: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb','Dom'], 
+			    		monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'], 
+			    		monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'], 
+			    		nextText: 'Próximo', 
+			    		prevText: 'Anterior',
+						minDate: 0   
+		});	 
+}); 
+
+//-------------------------------------------------------------------
+//	Carrega Grid Opcionais
+//-------------------------------------------------------------------
+function loadOpc(cCodMat){		
+	var cWhere = ""	
+		//quando for portal empresa vai vir a matricula no parametro, e portal do beneficiario vem codigo do usuario
+		cWhere += "Field_CodMat="+cCodMat; 
+		if (cClass.length > 0){
+			cWhere += "|Field_Classe="+cClass; 	
+		}
+
+		//verifica se foi chamado pela navegacao
+		var cBuscaTReg = getGridCall(cBrwDefSO,'loadOpc');
+		//Monta campos conforme processamento							   
+		Ajax.open("W_PPLGETDGRI.APW?cFunName=PLBRWOPC&nPagina=" + getField(cBrwDefSO+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg , {
+			callback: carregaGridOpc, 
+			error: exibeErro} );		
+}
+//-------------------------------------------------------------------
+//	Exibe a grid carregada (callback loadOpc())
+//-------------------------------------------------------------------
+function carregaGridOpc(v) { 
+	var aResult = v.split("|");
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+	var nRegPagina 	= aResult[3];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nPagAtual	= aResult[8];
+    var aPesquisa	= aResult[9].split("&");
+    var lCSemafo	= eval(aResult[10]);
+
+	if (lContinua) {
+		setDisable('bProFP',false);
+
+		if (nPagAtual != "0") setField(cBrwDefSO+"nPagina",nPagAtual);
+		// Cria objeto do browse
+		oBrwGridFP = new gridData(cBrwDefSO,<%=nLarBrw%>,<%=nAltBrw%>)
+		//Monta Browse 
+		oBrwGridFP.load({	fFunName:'loadOpc',
+							nRegPagina:nRegPagina,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							lOverflow:true,
+							lShowLineNumber:false,
+							lChkBox:true,
+							aHeader: aHeader,
+							aCols: eval(aResult[5]) });
+
+		makeBrwResponsive('tab'+cBrwDefSO, false, false );
+		updGridSchemeColor();
+	}					
+	// Mensagem de alerta
+	if ( !isEmpty(cMsg) ) {  
+		alert(cMsg);		
+	}
+}
+//----------------------------------------------------------------------
+//	 Carrega informações com os beneficiarios do grupo familiar/empresa
+//----------------------------------------------------------------------	
+function fFilBen(cMatric){
+	var oObj = document.querySelector("#Field_BENEFS"); 
+	if( (cMatric === undefined) || (oObj.options[0] === undefined ) || (cMatric.substring(0,14) != (oObj.options[0].value).substring(0,14) ) ){
+		
+		cMatric = cMatric !== undefined ? "?cMatric=" + cMatric  : "";
+		$("#Field_BENEFS").empty();
+
+		Ajax.open("W_PPLCARBEN.APW"+cMatric, {
+			callback: carregaMultiCmb, 
+			error: exibeErro
+		});
+
+	}	
+}  
+
+//-------------------------------------------------------------------
+//		Carrega Combo com os beneficiarios do grupo familiar/empresa
+//-------------------------------------------------------------------
+function carregaMultiCmb(v){
+	var aResult = v.split("|");
+    var aCols 	= eval(aResult[0]);
+	var nqtdUsr = aCols.length;	
+	var nI
+    var aDadCombo = new Array(nqtdUsr);
+
+	for (nI=0; nI< nqtdUsr; nI++){
+     	aDadCombo[nI] = aCols[nI][0].value + '$'+ aCols[nI][1].value; 
+    }
+	
+	comboLoad("Field_BENEFS",aDadCombo);
+
+	if(isObject("Field_MATUSU")){
+		loadOpc($("#Field_MATUSU").val());
+	}
+
+}    
+
+//------------------------------------------------------------------------
+//	Função para incluir 1 ou N itens na grid de beneficiários X opcionais
+//------------------------------------------------------------------------
+function incluiGrid() {
+	var oTable = cBrwGrid;
+	var cObjGrid = "o" + oTable; // objeto do Grid
+	var aCfgGrd = fGetCmpGrid(oTable);
+	var cCfgRel = fGetRelGrid(oTable);
+	var aCampos = aCfgGrd[2].split("|")[0].split(',');
+	var cValores = '';
+	var lAchou = false;
+	var cTextoLin = '';
+	var cTextoTb = '';
+	var nAchou = 0;
+	var nCont = 0;
+	var nOpc = '3';
+	var nRecno = -1;
+	var nRecnoAlt = nRecno;
+	var cCmpValue = '';
+	var cTp = "I";
+	var cTexto = '';
+	var cObjOpc = oBrwGridFP; // objeto do Grid de opcionais
+	var arrDad = new Array(); 
+	var arr;
+
+	hideAllAlert();
+
+
+	cObjGrid = eval(cObjGrid);
+	if (typeof cObjGrid != "string"  && cObjGrid.aCols !== undefined && cObjGrid.aCols.length > 0) {
+		//Recupera os dados do grid
+		var oTable = eval(cObjGrid).getObjCols();
+		cTextoLin = cTextoLin.replace(/\s+/g, '');
+		//verifica se a linha já existe na grid
+		var z = 0;
+		var w = 1;
+		while ((z < oTable.rows.length)) {
+			for (var w = 1; w <= (oTable.rows[z].cells.length - 1); w++) {
+				var oCell = oTable.rows[z].cells[w];
+				if ($(oCell).find("img").length == 0) { //retirar as td com os icones de alterar e excluir
+					cTextoTb += $(oCell).text();				
+				}
+			}
+
+			cTextoTb = cTextoTb.replace(/\s+/g, '');
+			arrDad.push(cTextoTb);		
+
+			cTextoTb = '';
+			z++;
+		}
+    }
+
+	if(cValores == "")
+	{
+
+		var selectedBenefs = $("#Field_BENEFS").select2('data');
+		
+		if(selectedBenefs.length > 0){
+			if(cObjOpc.aColsCk.length > 0){
+				for(var nI = 0; nI < selectedBenefs.length; nI++){
+					for(var nJ = 0; nJ < cObjOpc.aColsCk.length; nJ++){
+						arr = getValueByKey("IDENLINHA", cObjOpc.aColsCk[nJ], cObjOpc.aCols);
+						if(arr != -1){
+							cTextoTb = '';
+							cTextoTb+=selectedBenefs[nI].id;
+							cTextoTb+=selectedBenefs[nI].text;
+							cTextoTb+=arr[0][1];
+							cTextoTb+=arr[1][1];
+							cTextoTb+=arr[2][1];
+							cTextoTb+=document.getElementById("Field_DTAD").value;
+							cTextoTb+=document.getElementById("Field_DTLIM").value;
+							cTextoTb = cTextoTb.replace(/\s+/g, '');
+							
+					        if (!((jQuery.inArray( cTextoTb, arrDad )) != -1)){				
+								cValores+="Field_BenefsMat$" + selectedBenefs[nI].id + ";";
+								cValores+="Field_BenefsNom$" + selectedBenefs[nI].text + ";";
+								cValores+="Field_CodOpc$"+arr[0][1]+";";
+								cValores+="Field_VerOpc$"+arr[1][1]+";";
+								cValores+="Field_descriOpc$" + arr[2][1] + ";";
+								cValores+="Field_DTAD$"+document.getElementById("Field_DTAD").value+";";
+								cValores+="Field_DTLIM$"+document.getElementById("Field_DTLIM").value+";";
+								cValores += "@";
+							}
+						}
+					}	
+				}
+
+				//se inseriu algum registro
+				if (cValores != "") {
+					//Chama a Funcao que monta a estrutura com os valores do grid
+					  Ajax.open("W_PPLVLOPC.APW?cGrid=BrwGrid&nOpc=" + nOpc + "&cCmp="
+			 			+ "" + "&cValores=" + cValores + "&nRecno=" + nRecno
+			 			+ "&cRelac=" + cCfgRel
+			 			+ "&lBotao=true&cSt=1"
+			 			+ "&lBtnAtuVisible=false&lBtnDelVisible=true"
+						+ "&lFromGrid=true", {
+						callback : callIncluiGrid,
+						error : exibeErro
+					});
+				}else{
+					alert('Já existe(m) o(s) beneficiário(s) com o(s) opcional(is) selecionados inseridos!');
+				}
+			}else{
+				alert('Selecione pelo menos um opcional!');
+			}
+		}else{
+			alert('Selecione pelo menos um beneficiário!');
+		}
+	} 
+}
+//-------------------------------------------------------------------
+//		Função callback do inserir itens no grid
+//-------------------------------------------------------------------
+function callIncluiGrid(v){
+	var aResult = v.split(">>");
+	if(aResult[1].trim() != ""){
+		var arr = aResult[1].split("#");
+		var elem = document.querySelector("#textoRec");
+		elem.innerHTML = "";
+		for(var i=0;i<arr.length;i++){
+			var arr1 = arr[i].split("~");		
+			elem.innerHTML += "Matrícula: " + arr1[0] + 
+								" - Nome: " + arr1[1] + 
+							" - Opcional: " + arr1[2] + " - " + arr1[3] + 
+					 "<br>Período vigente: " + arr1[4] +  " à " + arr1[5];
+			elem.innerHTML += (i<(arr.length-1)) ? "<hr style='margin-top:10px;margin-bottom:10px;'>" : "";
+		}
+
+		showAlertBS("alertOpcRec", "show");
+	}
+
+	if(aResult[2].trim() != ""){
+		var arr = aResult[2].split("#");
+		var elem = document.querySelector("#textoVldEspe");
+		elem.innerHTML = "";
+		for(var i=0;i<arr.length;i++){
+			var arr1 = arr[i].split("~");		
+			elem.innerHTML +=    "Motivo: " + arr1[0] + "<br>" + 
+							  "Matrícula: " + arr1[1] + 
+								" - Nome: " + arr1[2] + 
+							" - Opcional: " + arr1[3] + " - " + arr1[4];
+			elem.innerHTML += (i<(arr.length-1)) ? "<hr style='margin-top:10px;margin-bottom:10px;'>" : "";
+		}
+
+		showAlertBS("alertVldEspe", "show");
+	}
+
+	if(aResult[3].trim() != ""){
+		var arr = aResult[3].split("#");
+		var elem = document.querySelector("#textoOpcTit");
+		elem.innerHTML = "";
+		for(var i=0;i<arr.length;i++){
+			var arr1 = arr[i].split("~");		
+			elem.innerHTML += "Opcional: " + arr1[0] + " - " + arr1[1] + " - " + arr1[2];
+			elem.innerHTML += (i<(arr.length-1)) ? "<hr style='margin-top:10px;margin-bottom:10px;'>" : "";
+		}
+
+		showAlertBS("alertOpcTit", "show");
+	}
+	
+	
+	if(aResult[0].trim() != "")
+		carregaGridDatGen(aResult[0]);
+}  
+
+//-------------------------------------------------------------------
+// Confirma os dados e realiza gravação
+//-------------------------------------------------------------------
+function fGrvBenOpc() {
+	var cObjOpc = cBrwGrid; // objeto do Grid de opcionais
+	
+	if ((typeof oBrwGrid  == 'undefined') || (typeof oBrwGrid.aCols == 'undefined') || (oBrwGrid.aCols.length <= 0) ) { 
+		alert('Inserir pelo menos um Beneficiário x Opcional!');		
+	}else{
+	
+		Ajax.open("W_PPLGRVOP.APW?cClass="+cClass+"&cRotinLGPD=PPLSOLOP", {
+				callback: telaanexo, 
+				error: exibeErro} );
+	}
+
+} 
+
+//-------------------------------------------------------------------
+// Confirma os dados e realiza gravação
+//------------------------------------------------------------------- 
+function telaanexo(v) {
+		
+	var aResult = v.split("|");
+	if(aResult[0] == "anexo" ){
+		alert(aResult[1]);
+		window.location = aResult[2];
+	}else if(aResult[0] == "opctit"){
+		
+		var arr = aResult[1].split("#");
+		var elem = document.querySelector("#textoOpcTit");
+		elem.innerHTML = "";
+		for(var i=0;i<arr.length;i++){
+			var arr1 = arr[i].split("~");		
+			elem.innerHTML += "Opcional: " + arr1[0] + " - " + arr1[1] + " - " + arr1[2];
+			elem.innerHTML += (i<(arr.length-1)) ? "<hr style='margin-top:10px;margin-bottom:10px;'>" : "";
+		}
+
+		showAlertBS("alertOpcTit", "show");
+		
+	}else{
+		alert(aResult[0]);
+		window.location.reload();
+	}
+} 
+
+function fChaDoc(url){
+	alert(url);
+}                              
+//-->
+</script>
+
+<%
+
+//-------------------------------------------------------------------
+//	Instanciando o form
+//-------------------------------------------------------------------
+
+oForm := WCForm():New("Form1")  
+oForm:setTitle("Solicitação de Opcional")
+
+//-------------------------------------------------------------------
+//	Adicionando os campos hidden
+//-------------------------------------------------------------------
+
+oForm:setAddFieldHidden(alltrim('cGrids'),Alltrim(cGrids))
+
+//-------------------------------------------------------------------
+//	Tabela principal
+//-------------------------------------------------------------------
+
+oTabela := WCTable():New()
+
+	//-------------------------------------------------------------------
+	//	Criando uma linha
+	//-------------------------------------------------------------------
+
+	oLiMat := WCLine():New()
+
+		//-------------------------------------------------------------------
+		//		Criando um fieldset para os campos
+		//-------------------------------------------------------------------
+ 		oFSPar := WCFieldSet():New("Selecionar Beneficiário",nTamFs,"10","10")
+			<% If HttpSession->USR_INFO[1]:OWSUSERLOGPLS:nTpPortal==2%>    
+			
+				//-------------------------------------------------------------------
+				//		Campo F3 matrícula para o portal empresa
+				//-------------------------------------------------------------------
+				oMatUsu := WCComponent():New("F","Field_MATUSU","Clique na lupa para selecionar o beneficiário:","26","21")
+				oMatUsu:setJsFF3("return ChamaPoP('W_PPLSXF3.APW?cFunName=PLSF3BA1&F3Nome=Field_MATUSU&F3CmpDes=Field_MATUSU,Field_NOMUSR','jF3','yes');")
+				oMatUsu:setJSBlur("fCheckMat(this);")
+				oMatUsu:setObrigat(.T.)				
+				oFSPar:setAddCFS(oMatUsu)
+				
+				//-------------------------------------------------------------------
+				//		Campo Nome que recebe o retorno do F3 acima
+				//-------------------------------------------------------------------
+				oNomUsr := WCComponent():New("F","Field_NOMUSR","Nome","60")
+				oNomUsr:setReadOnly()
+				oFSPar:setAddCFS(oNomUsr)
+			<% EndIf %>
+
+
+			//-------------------------------------------------------------------
+			//		Multiselect para selecionar vários beneficiários
+			//-------------------------------------------------------------------
+			oBenefs := WCComponent():New("C","Field_BENEFS","Grupo familiar:","60")
+			oBenefs:setMultiple(.T.)
+			oBenefs:setPlaceHolder("Selecione um ou mais beneficiários")
+			oBenefs:setObrigat(.T.)	
+			oFSPar:setAddCFS(oBenefs)
+
+ 
+ 			//-------------------------------------------------------------------
+			//		Data de adesão
+			//-------------------------------------------------------------------
+			oDataAde := WCComponent():New("F","Field_DTAD","Data Adesão","8")
+			oDataAde:setReadOnly()
+			oDataAde:setValue( cValToChar(Date()))
+			oDataAde:setJSKeyPre("return TxtBoxFormat(this, event,'99/99/9999');")
+			oFSPar:setAddCFS(oDataAde)
+ 			
+ 			//-------------------------------------------------------------------
+			//		Data limite
+			//-------------------------------------------------------------------
+			oDataLim := WCComponent():New("F","Field_DTLIM","Data Limite","8")     
+			oDataLim:setData(.T.) 
+			oDataLim:setJSKeyPre("return TxtBoxFormat(this, event,'99/99/9999');")
+			oFSPar:setAddCFS(oDataLim)
+ 
+ 	//-------------------------------------------------------------------
+	//	 Adicionando o fieldset na linha
+	//-------------------------------------------------------------------
+	oLiMat:setAddComp(oFSPar)
+
+	//-------------------------------------------------------------------
+	//	Adicionando a linha na tabela principal
+	//-------------------------------------------------------------------
+	oTabela:setAddLine(oLiMat)
+
+	//-------------------------------------------------------------------
+	//	Criando outra linha
+	//-------------------------------------------------------------------
+	oLiOpc := WCLine():New()
+		
+		//-------------------------------------------------------------------
+		//	 Fieldset
+		//-------------------------------------------------------------------
+		oFSGriOpc := WCFieldSet():New("Opcionais",nTamFs,"10","10")
+			
+			//-------------------------------------------------------------------
+			//		Browse (Grid) de opcionais
+			//-------------------------------------------------------------------
+			oBrwFatSO := WCComponent():New("BW",cBrwDefSO)
+			oBrwFatSO:setBrWidth(nLarBrw)
+			oBrwFatSO:setJsFunc("loadOpc();")
+			oFSGriOpc:setAddCFS(oBrwFatSO) 
+
+		//-------------------------------------------------------------------
+		//	 Adicionando o fieldset na linha
+		//-------------------------------------------------------------------
+		oLiOpc:setAddComp(oFSGriOpc)
+ 
+		//-------------------------------------------------------------------
+		//	 Adicionando a linha na tabela principal
+		//-------------------------------------------------------------------
+		oTabela:setAddLine(oLiOpc)
+
+		//-------------------------------------------------------------------
+		//	Criando nova linha
+		//-------------------------------------------------------------------
+		oLiBtn1 := WCLine():New()
+		
+			//-------------------------------------------------------------------
+			//	Botão inserir
+			//-------------------------------------------------------------------
+			oBInc := WCComponent():New("B","BProcOpc","Inserir")
+			oBInc:setJsFunc("incluiGrid();")   
+			oBInc:setAlign('right')
+			oLiBtn1:setAddComp(oBInc)
+
+		//-------------------------------------------------------------------
+		//	Adicionando a linha na tabela principal
+		//-------------------------------------------------------------------
+		oTabela:setAddLine(oLiBtn1)
+ 
+ 		//-------------------------------------------------------------------
+		//	Nova linha
+		//-------------------------------------------------------------------
+		oLiAlerts := WCLine():New()
+
+			//-------------------------------------------------------------------
+			//	Componente de alert do bootstrap
+			//-------------------------------------------------------------------
+			oAleBS1 := WCComponent():New("ABS","alertOpcRec")
+			oAleBS1:setCss("danger")   
+			cTexto := "<strong>Ops!</strong> Beneficiários não adicionados pois já possuem os opcionais selecionados em vigência:<hr style='margin-top:10px;margin-bottom:10px;'><span id='textoRec'></span>"
+			oAleBS1:setText(cTexto)
+
+		//-------------------------------------------------------------------
+		//	Adicionando o alert na linha
+		//-------------------------------------------------------------------
+		oLiAlerts:setAddComp(oAleBS1)
+
+		  //-------------------------------------------------------------------
+		  //   Componente de alert do bootstrap
+		  //-------------------------------------------------------------------
+		  oAleBS2 := WCComponent():New("ABS","alertVldEspe")
+		  oAleBS2:setCss("danger")  
+		  cTexto := "<strong>Ops!</strong> Beneficiários não adicionados pelos seguintes motivos:<hr style='margin-top:10px;margin-bottom:10px;'><span id='textoVldEspe'></span>"
+		  oAleBS2:setText(cTexto)
+	 
+	  //-------------------------------------------------------------------
+	  //	Adicionando o alert na linha
+	  //-------------------------------------------------------------------
+	  oLiAlerts:setAddComp(oAleBS2)
+	  
+	  		//-------------------------------------------------------------------
+			//	Componente de alert do bootstrap
+			//-------------------------------------------------------------------
+			oAleBS3 := WCComponent():New("ABS","alertOpcTit")
+			oAleBS3:setCss("danger")   
+			cTexto := "<strong>Ops!</strong> Os opcionais abaixo não foram adicionados pois é necessário incluir para o titular da solicitação:<hr style='margin-top:10px;margin-bottom:10px;'><span id='textoOpcTit'></span>"
+			oAleBS3:setText(cTexto)
+
+		//-------------------------------------------------------------------
+		//	Adicionando o alert na linha
+		//-------------------------------------------------------------------
+		oLiAlerts:setAddComp(oAleBS3)
+ 
+      //-------------------------------------------------------------------
+	   //	Adicionando a linha na tabela principal
+	  //-------------------------------------------------------------------
+	  oTabela:setAddLine(oLiAlerts)
+
+		//-------------------------------------------------------------------
+		//	Criando nova linha
+	   //-------------------------------------------------------------------
+		oLiGriBO := WCLine():New()
+
+			//-------------------------------------------------------------------
+			//	Adicionando um fieldset
+	       //-------------------------------------------------------------------
+			oFSGriBO := WCFieldSet():New("Beneficiários x Opcionais",nTamFs,"10","10")
+
+				//-------------------------------------------------------------------
+				//	Browse (grid) de beneficiários e opcionais
+	  			//-------------------------------------------------------------------
+				cGrid1 := WCComponent():New("BW",cBrwGrid)
+				cGrid1:setBrWidth(nLarBrw)
+				oFSGriBO:setAddCFS(cGrid1)  
+
+		//-------------------------------------------------------------------
+		//	Adicionando o fieldset na linha
+	  	//-------------------------------------------------------------------
+		oLiGriBO:setAddComp(oFSGriBO)
+
+		 //-------------------------------------------------------------------
+		 //	 Adicionando a linha na tabela principal
+	    //-------------------------------------------------------------------
+		oTabela:setAddLine(oLiGriBO)
+
+		//-------------------------------------------------------------------
+		//	Criando nova linha
+	   //-------------------------------------------------------------------
+		oLiBtn2 := WCLine():New()
+
+			//-------------------------------------------------------------------
+			//	Criando um fieldset
+	  		//-------------------------------------------------------------------
+			oFSBtn2 := WCFieldSet():New("",nTamFs,"10","10")
+
+				//-------------------------------------------------------------------
+				//	Botão confirmar
+	  			//-------------------------------------------------------------------
+				oBCon := WCComponent():New("B","BProcGrv","Confirmar")
+				oBCon:setJsFunc("return fGrvBenOpc();")   
+				oBCon:setAlign('right')
+
+		//-------------------------------------------------------------------
+		//	Adicionando o botão na linha
+	  	//-------------------------------------------------------------------	
+		oLiBtn2:setAddComp(oBCon)
+
+		//-------------------------------------------------------------------
+		//	Adicionandoa linha na tabela principal
+	  	//-------------------------------------------------------------------
+		oTabela:setAddLine(oLiBtn2)
+
+//-------------------------------------------------------------------
+//	Adicionando a tabela principal no form
+//-------------------------------------------------------------------
+oForm:setAddTables(oTabela)
+
+//-------------------------------------------------------------------
+//	Adicionando o form no HTML
+//-------------------------------------------------------------------
+oHtml:setObj(oForm)
+
+%>
+
+<%=oHtml:loadWC()%> 
+
+<script language="JavaScript">
+<!--                 
+	BFFocus.init();
+	fProcGrid();
+	if (nTpPor != 2){
+		var cCodUsr = '<%=HttpSession->USR_INFO[1]:OWSUSERLOGPLS:CUSERLOGINCODE%>';
+		loadOpc(cCodUsr);
+		fFilBen();
+	}
+//-->
+</script>

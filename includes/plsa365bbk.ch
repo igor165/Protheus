@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Rda"
+	#define STR0002 "Visualizar"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Atención"
+	#define STR0007 "Locales de atención del prestador"
+	#define STR0008 "Especialidades del prestador"
+	#define STR0009 "Local seleccionado"
+	#define STR0010 "Camino seleccionado:"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Service Network"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "Attention"
+		#define STR0007 "Provider’s Service Locations"
+		#define STR0008 "Provider’s Specialties"
+		#define STR0009 "Selected location"
+		#define STR0010 "Selected path:"
+	#else
+		#define STR0001 "Rda"
+		#define STR0002 "Visualizar"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Atenção"
+		#define STR0007 "Locais de Atendimento do Prestador"
+		#define STR0008 "Especialidades do Prestador"
+		#define STR0009 "Local selecionado"
+		#define STR0010 "Caminho selecionado: "
+	#endif
+#endif

@@ -1,0 +1,10 @@
+SELECT top 5 R_E_C_N_O_ RECNO, ZWS_METODO, ZWS_RECEIV, ZWS_STATUS STATUS, * FROM TotvsHomo33.dbo.ZWS010 with (nolock) WHERE D_E_L_E_T_ = ' ' 
+	-- AND ZWS_STATUS = '0'
+	ORDER BY R_E_C_N_O_ DESC
+SELECT top 50 ZFL_AGENID, * FROM TotvsHomo33.dbo.ZFL010 with (nolock) WHERE D_E_L_E_T_ = ' ' ORDER BY R_E_C_N_O_ DESC
+SELECT top 50 ZPB_RCOZFL, * FROM TotvsHomo33.dbo.ZPB010 with (nolock) WHERE 
+--	ZPB_PLACA = 'EFU-2629'
+	--AND D_E_L_E_T_ = ' ' 
+
+ZPB_RCOZFL > 0 
+ORDER BY R_E_C_N_O_ DESC

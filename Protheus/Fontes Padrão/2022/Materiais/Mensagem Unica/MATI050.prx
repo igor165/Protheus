@@ -1,0 +1,525 @@
+#include "PROTHEUS.CH"                            
+#INCLUDE "FWADAPTEREAI.CH" 
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±º Funcao ³ IntegDef º Autor ³ Caio Murakami y Cruces º Data ³ 22/03/2012  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Desc.    ³ Funcao de integracao com o adapter EAI para recebimento e    º±±
+±±º          ³ envio de informações do cadastro de transportadoras (SA4)    º±±
+±±º          ³ utilizando o conceito de mensagem unica.                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Param.   ³ cXML - Variavel com conteudo xml para envio/recebimento.     º±±
+±±º          ³ nTypeTrans - Tipo de transacao. (Envio/Recebimento)          º±±
+±±º          ³ cTypeMessage - Tipo de mensagem. (Business Type, WhoIs, etc) º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Retorno  ³ aRet - Array contendo o resultado da execucao e a mensagem   º±±
+±±º          ³        Xml de retorno.                                       º±±
+±±º          ³ aRet[1] - (boolean) Indica o resultado da execução da função º±±
+±±º          ³ aRet[2] - (caracter) Mensagem Xml para envio                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Uso      ³ MATA050                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/    
+
+Function MATI050( cXML, nTypeTrans, cTypeMessage )
+
+Local aArea	  		:= GetArea()
+Local aAreaSA4		:= SA4->(GetArea())
+
+Local lRet     		:= .T.		//Status de retorno da IntegDef()
+Local cDatAtu  	  	:= ""
+Local cXMLRet  		:= ""			//Xml de retorno da IntegDef()
+Local cError		:= ""			//Mensagem de Erro no Parse do Xml recebido
+Local cWarning	 	:= ""			//Mensagem de Warning no Parse do Xml recebido
+Local nCount        := 0			//Variavel numerica para uso em contadores
+Local aCab			:= {}			//Array com os campos e os dados que serão gravados na MsExecAuto
+Local nOpcx	 		:= 0			//Operacao realizado pelo usuario ( 3-Inclusao | 4-Alteracao | 5-Exclusao )
+Local cLogErro 		:= ""			//Descricao do erro na MsExecAuto
+Local aErroAuto		:= {}			//Array com erro da MsExecAuto
+Local cEvent      	:= "upsert"	//Evento da mensagem (upsert ou delete)
+Local cValGovern	:= ""
+Local nX          	:= 0			//Variavel numerica para uso em contadores
+Local cCNPJCPF    	:= ""			//Indica o tipo de documento de acordo com a pessoa (CPF ou CNPJ)
+Local cCodEst     	:= ""			//Codigo do estado na tabela do IBGE
+Local cCodMun   	:= ""			//Codigo do municipio na tabela do IBGE 
+Local lExecAuto		:= .T.
+Local oXmlBusMsg				 		//Objeto com o conteudo apenas da BusinessMessage do Xml recebido
+//-- Variaveis utilizadas no De/Para de códigos
+Local cValInt		:= "" 		//-- Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cValExt		:= ""       //-- Codigo externo utilizada no De/Para de codigos - Tabela XXF
+Local cMarca		:= "" 		//-- Armazena a Marca (LOGIX,PROTHEUS,RM...) que enviou o XML
+Local cAlias		:= "SA4"    //-- Alias usado como referência no De/Para
+Local cCampo		:= "A4_COD" //-- Campo usado como referência no De/Para
+Local aContatos		:= {}
+Local cTel			:= ""
+Local cStringTemp   := ""
+Local cValExtbkp	:= ""
+Local cMessageName	:= "CARRIERS"
+
+
+Private oXmlM050	  		:= Nil	//Objeto que recebe o parse do Xml recebido
+Private nCountM050	  	:= 0
+Private lMsErroAuto		:= .F.	//Armazena o status da execucao da MsExecAuto
+Private lAutoErrNoFile	:= .T.	
+
+//Tratamento do recebimento de mensagens
+If ( nTypeTrans == TRANS_RECEIVE )
+	
+	//Recebimento da mensagem de negocios
+	If ( cTypeMessage == EAI_MESSAGE_BUSINESS )
+		
+		//Cria objeto com os dados do Xml
+		oXmlM050 := XmlParser( cXml, "_", @cError, @cWarning )
+		
+		If ( oXmlM050 <> Nil ) .And. ( Empty(cError) ) .And. ( Empty(cWarning) )
+			
+			oXmlBusMsg := oXmlM050:_TOTVSMessage:_BusinessMessage
+			
+			If ( XmlChildEx ( oXmlM050:_TOTVSMessage:_MessageInformation:_Product,"_NAME") <> Nil )
+				cMarca := oXmlM050:_TOTVSMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+			
+		
+			//Codigo da transportadora
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_CODE" ) <> Nil )
+				
+				cValExt := oXmlBusMsg:_BusinessContent:_Code:Text
+				//--------------------------------------------------------------------------------------
+				//-- Tratamento utilizando a tabela XXF com um De/Para de codigos   
+				//--------------------------------------------------------------------------------------
+				
+				If ( FindFunction("CFGA070INT") )	
+				   
+					cValInt := PadR(CFGA070INT( cMarca , cAlias , cCampo, cValExt ), TamSX3('A4_COD')[1]) 
+					
+					If Empty(cValInt)
+						
+						If Empty(Posicione('SX3',2,Padr('A4_COD' ,10),'X3_RELACAO'))
+							cValExtbkp 	:= Padr( cValExt, TamSX3('A4_COD')[1])
+							cValInt 	:= MATI050Num( Substr( cValExtbkp , 1, TamSX3('A4_COD')[1] ) ) 
+							aAdd( aCab, { "A4_COD" , cValInt , Nil } )
+				 		EndIf
+					
+					EndIf
+				   
+		  			SA4->(DbSetOrder(1))	//A4_FILIAL + A4_COD
+				   
+  					//Verifica o tipo de transacao (Upsert/Delete)
+					If ( Upper( oXmlBusMsg:_BusinessEvent:_Event:Text ) == "UPSERT" )
+				
+						If ( !Empty(cValInt) .And. SA4->( MsSeek( xFilial("SA4") + cValInt ) ) ) 
+							aAdd( aCab, { "A4_COD", SA4->A4_COD, Nil } )
+							nOpcx := 4
+						Else
+							//-- O campo A4_COD deve possuir inicializador padrão				
+							nOpcx := 3
+						EndIf    
+					Else
+						nOpcx := 5
+						If ( !Empty(cValInt) .And. SA4->(MsSeek( xFilial("SA4") + cValInt ) ) )
+			  				aAdd( aCab, { "A4_COD", SA4->A4_COD, Nil } )						
+						Else
+							lExecAuto	:= .F.
+						EndIf					
+					EndIf
+					
+				EndIF
+				
+			EndIf			
+			
+			//Nome da transportadora			
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_NAME" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Name:Text ) )
+				aAdd( aCab, { "A4_NOME",   oXmlBusMsg:_BusinessContent:_Name:Text, Nil } )
+			EndIf
+
+			//Nome reduzido da transportadora
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_SHORTNAME" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_ShortName:Text ) )
+				aAdd( aCab, { "A4_NREDUZ", oXmlBusMsg:_BusinessContent:_ShortName:Text, Nil } )
+			EndIf	
+			
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_ADDRESS" ) <> Nil )
+						
+				//Endereco
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_ADDRESS" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_Address:Text ) )
+					aAdd( aCab, { "A4_END", oXmlBusMsg:_BusinessContent:_Address:_Address:Text, Nil } )
+				EndIf
+				
+				//Complemento
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_COMPLEMENT" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_Complement:Text ) )
+					aAdd( aCab, { "A4_COMPLEM", oXmlBusMsg:_BusinessContent:_Address:_Complement:Text, Nil } )
+				EndIf
+				
+				//Bairro
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_DISTRICT" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_District:Text ) )
+					aAdd( aCab, { "A4_BAIRRO",  oXmlBusMsg:_BusinessContent:_Address:_District:Text, Nil } )
+				EndIf
+				
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_STATE" ) <> Nil )
+					//Codigo da UF
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address:_State, "_CODE" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_State:_Code:Text ) )
+						aAdd( aCab, { "A4_EST", oXmlBusMsg:_BusinessContent:_Address:_State:_Code:Text, Nil } )
+					EndIf
+				EndIf
+				
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_CITY" ) <> Nil )
+				
+					//Codigo da cidade
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address:_City, "_CODE" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_City:_Code:Text ) )
+				 		cCodMun := oXmlBusMsg:_BusinessContent:_Address:_City:_Code:Text
+						If Len(cCodMun) == 7
+							cCodMun := SubStr( cCodMun, 3, 7 )
+							aAdd( aCab, { "A4_COD_MUN", cCodMun , Nil } )
+						EndIf				
+					EndIf
+					
+					//Nome da cidade
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address:_City, "_DESCRIPTION" ) <> Nil ) .And. !( Empty( oXmlBusMsg:_BusinessContent:_Address:_City:_Description:Text ) )
+						aAdd( aCab, { "A4_MUN",  oXmlBusMsg:_BusinessContent:_Address:_City:_Description:Text, Nil } )
+					EndIf 
+					
+				EndIf
+				//CEP
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_Address, "_ZIPCODE" ) <> Nil )
+					If ( !Empty( oXmlBusMsg:_BusinessContent:_Address:_ZIPCode:Text ) )	//Não remover, campo possui validação NaoVazio()
+						aAdd( aCab, { "A4_CEP", oXmlBusMsg:_BusinessContent:_Address:_ZIPCode:Text, Nil } )
+					EndIf
+				EndIf
+			
+			EndIf
+			
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_GOVERNMENTALINFORMATION" ) <> Nil )
+			   
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_GovernmentalInformation, "_ID" ) <> Nil )
+					//Verifica se existe o nó GovernmentalInformation
+		 			If ( ValType( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID) <> "A" )
+					 	XmlNode2Arr( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID, "_ID" )
+					EndIf
+					
+					//Lê o nó com dados de documentos
+			  		For nX := 1 To Len( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID )
+			  				  				
+						cValGovern := oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID[nX]:TEXT 
+						
+						If ( AllTrim( Upper( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID[nX]:_Name:TEXT ) ) == 'INSCRICAO ESTADUAL' )
+							aAdd( aCab, { "A4_INSEST", cValGovern, Nil } )
+						ElseIf ( AllTrim( Upper( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID[nX]:_Name:TEXT ) ) $ 'CPF/CNPJ' )
+							aAdd( aCab, { "A4_CGC", cValGovern, Nil } )
+						ElseIf ( cPaisLoc == 'BRA' .And. AllTrim( Upper( oXmlBusMsg:_BusinessContent:_GovernmentalInformation:_ID[nX]:_Name:TEXT ) ) == 'SUFRAMA' )
+							aAdd( aCab, { "A4_SUFRAMA", cValGovern, Nil } )
+						EndIf
+					Next nX  
+				EndIf  
+				
+         EndIf 
+         
+         If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_LISTOFCOMMUNICATIONINFORMATION" ) <> Nil )
+         	If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation, "_COMMUNICATIONINFORMATION" ) <> Nil )
+         
+					//e-mail
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation, "_EMAIL" ) <> Nil )
+						aAdd( aCab, { "A4_EMAIL", oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation:_Email:Text, Nil } )
+					EndIf
+					
+					//Telefone
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation, "_PHONENUMBER" ) <> Nil )
+						cStringTemp:= RemCharEsp(oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation:_PhoneNumber:Text)
+						
+						aTelefone := RemDddTel(cStringTemp)
+						aAdd( aCab, { "A4_TEL", aTelefone[1], Nil } )
+						
+						If !Empty(aTelefone[2])
+							If Len(AllTrim(aTelefone[2])) == 2
+								aTelefone[2] := "0"+aTelefone[2]
+							Endif
+							aAdd(aCab, {"A4_DDD",aTelefone[2], Nil})
+						EndIf
+						
+						If !Empty(aTelefone[3])
+							aAdd(aCab, {"A4_DDI",aTelefone[3], Nil})
+						EndIf
+					EndIf
+					
+					//Home Page
+					If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation, "_NOMEPAGE" ) <> Nil )
+						aAdd( aCab, { "A4_HPAGE", oXmlBusMsg:_BusinessContent:_ListOfCommunicationInformation:_CommunicationInformation:_HomePage:Text, Nil } )
+					EndIf  
+					
+				EndIf		
+			EndIf			
+			//Nome do contato
+			If ( XmlChildEx( oXmlBusMsg:_BusinessContent, "_LISTOFCONTACTS" ) <> Nil )
+				If ( XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfContacts, "_CONTACT" ) <> Nil )
+				    If ValType(oXmlBusMsg:_BusinessContent:_ListOfContacts:_Contact) == "A"
+					   aContatos := oXmlBusMsg:_BusinessContent:_ListOfContacts:_Contact
+					Else
+					   aContatos := {oXmlBusMsg:_BusinessContent:_ListOfContacts:_Contact}
+					EndIf
+					If ( XmlChildEx( aContatos[1], "_NAME" ) <> Nil )
+						aAdd( aCab, { "A4_CONTATO", aContatos[1]:_Name:Text, Nil } )
+					EndIf
+				EndIf
+			EndIf
+         	        	
+         	//Inicia gravacao no banco
+			Begin Transaction
+			
+				If lExecAuto 
+				
+					//-- Exclui o De/Para tabela XXF
+					If nOpcx == 5
+						cValInt := SA4->A4_COD
+						CFGA070Mnt( , cAlias, cCampo, , cValInt, .T. )
+					EndIf
+					
+					MSExecAuto( { |x,y| MATA050(x,y) }, aCab, nOpcx )
+			   EndIf
+			   
+				If ( lMsErroAuto )
+					aErroAuto := GetAutoGRLog()
+					
+					For nCount := 1 To Len(aErroAuto)
+						cLogErro += StrTran( StrTran( aErroAuto[nCount], "<", "" ), "-", "" ) + (" ") 
+					Next nCount
+					
+					//Monta XML de Erro de execução da rotina automatica.
+					lRet := .F.
+					cXMLRet := EncodeUTF8( cLogErro )
+					
+					DisarmTransaction()
+				Else
+					
+					cValInt := SA4->A4_COD	
+								
+					If ( nOpcx <> 5 ) .And. ( !Empty(cValExt) ) .And. ( !Empty(cValInt) )	
+					
+						If CFGA070Mnt( cMarca, cAlias, cCampo, cValExt, cValInt ) 				
+							// Monta xml com status do processamento da rotina automatica OK.
+							cXMLRet += "<CarrierCode>" + cValExt + "</CarrierCode>"  //Valor recebido na tag "BusinessMessage:BusinessContent:Code"
+							cXMLRet += "<ExternalCode>" + cValInt + "</ExternalCode>" //Valor gerado								
+						EndIf 
+					EndIf
+									
+				EndIf
+				
+			End Transaction
+			
+		Else
+			// "Falha ao gerar o objeto XML"
+			lRet := .F.
+			cXMLRet := "Falha ao manipular o XML"
+		EndIf
+
+	//Message Response
+	ElseIf ( cTypeMessage == EAI_MESSAGE_RESPONSE )
+			//Gravacao do De/Para Codigo Interno X Codigo Externo  
+	  	If FindFunction("CFGA070Mnt")
+			
+			oXmlM050 := XmlParser(cXml, "_", @cError, @cWarning)
+			
+			If oXmlM050 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+				If Type("oXmlM050:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U" 					
+					cMarca := oXmlM050:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+				EndIf
+		   	If Type("oXmlM050:_TOTVSMessage:_ResponseMessage:_ReturnContent:_CarrierCode:Text") <> "U"	
+		   		cValInt := 	oXmlM050:_TOTVSMessage:_ResponseMessage:_ReturnContent:_CarrierCode:Text
+		   	EndIf
+		   	If Type("oXmlM050:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ExternalCode:Text") <> "U"	
+		   	  	cValExt := 	oXmlM050:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ExternalCode:Text
+		   	EndIf 
+		   	  
+				If  !Empty(cValExt) .And.!Empty(cValInt) 
+					If CFGA070Mnt( cMarca, cAlias, cCampo, cValExt, cValInt )
+				  		lRet    := .T.  
+				 	EndIf
+	         Else
+	         	lRet    := .F.
+	         EndIf	
+	         		   	
+		   EndIf	
+		EndIf
+		
+	//WhoIs
+	ElseIf ( cTypeMessage == EAI_MESSAGE_WHOIS )
+		cXMLRet := '1.000'
+	EndIf
+
+//Tratamento do envio de mensagem	
+ElseIf ( nTypeTrans == TRANS_SEND )
+	
+	//Verifica se é uma exclusão
+	If ( !Inclui ) .And. ( !Altera )
+		cEvent := 'delete'
+	EndIf
+	    
+  	cDatAtu := Transform(dToS(dDataBase),"@R 9999-99-99")
+  	
+  	//-- Retorna o código do estado conforme a sigla
+  	cCodEst := Tms120CdUf(SA4->A4_EST,'1')      
+  	
+  	//-- Codigo do municipio de acordo com IBGE ( 7 caracteres - Codigo do Estado + Codigo da codade )
+   cCodMun := Alltrim(cCodEst) + AllTrim(SA4->A4_COD_MUN)
+   
+	cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>Carrier</Entity>'          
+	cXMLRet +=     '<Event>' + cEvent + '</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="Code">' + SA4->A4_COD + '</key>'
+	cXMLRet +=     '</Identification>'
+	cXMLRet += '</BusinessEvent>'
+
+	cXMLRet += '<BusinessContent>'                                                                                    
+	cXMLRet += 	'<CompanyId>' + cEmpAnt + '</CompanyId>'
+	cXMLRet += 	'<Code>' + SA4->A4_COD + '</Code>'
+	cXMLRet += 	'<ShortName>' + _noTags(SA4->A4_NREDUZ) + '</ShortName>'
+	cXMLRet += 	'<Name>' + _noTags(SA4->A4_NOME) + '</Name>'
+	
+	//Verifica se o campo A4_CGC contem um CPF ou CNPJ
+  	If ( Len( AllTrim( SA4->A4_CGC ) ) == 11 ) .And. ( !Empty(SA4->A4_CGC) )
+  		cCNPJCPF := "CPF"
+  	ElseIf ( Len( AllTrim(SA4->A4_CGC) ) > 11 )
+  	   cCNPJCPF := "CNPJ"
+  	EndIf
+  	
+  	cXMLRet += 	'<GovernmentalInformation>'
+	cXMLRet += 		'<Id scope="State" name="INSCRICAO ESTADUAL" issueOn="' + cDatAtu + '" expiresOn="" >' + SA4->A4_INSEST + '</Id>'
+	cXMLRet +=			'<Id scope="Federal" name="SUFRAMA" issueOn="' + cDatAtu + '" expiresOn="" >' + IIf( cPaisLoc == 'BRA', SA4->A4_SUFRAMA, '' ) + '</Id>'
+	cXMLRet += 		'<Id scope="Federal" name="' + cCNPJCPF + '" issueOn="' + cDatAtu + '" expiresOn=""	>' + SA4->A4_CGC + '</Id>'
+	cXMLRet += 	'</GovernmentalInformation>'
+	
+	cXMLRet += 	'<Address>'
+	cXMLRet += 		'<Address>' + _noTags(trataEnd(SA4->A4_END, "L")) + '</Address>'
+	cXMLRet += 		'<Number>' + trataEnd(SA4->A4_END, "N") + '</Number>'
+	cXMLRet +=         '<Complement>' + _noTags(SA4->A4_COMPLEM) + '</Complement>'
+	cXMLRet += 		'<City>'
+	cXMLRet += 			'<Code>' + cCodMun + '</Code>'
+	cXMLRet +=        '<Description>' + _noTags(Posicione( 'CC2', 1, xFilial('CC2') + SA4->A4_EST + SA4->A4_COD_MUN, 'CC2_MUN' )) + '</Description>'
+	cXMLRet +=		'</City>'
+	cXMLRet +=     '<District>' + _noTags(SA4->A4_BAIRRO) + '</District>'
+	cXMLRet +=		'<State>'
+	cXMLRet += 			'<Code>' + SA4->A4_EST + '</Code>'
+	cXMLRet +=       	'<Description>' + _noTags(AllTrim(Posicione("SX5",1, xFilial("SX5") + "12" + SA4->A4_EST, "X5DESCRI()" ))) +  '</Description>'	
+	cXMLRet +=		'</State>'
+	cXMLRet +=		'<Country>'
+	cXMLRet += 			'<Code></Code>'
+	cXMLRet +=          	'<Description></Description>'	
+	cXMLRet +=		'</Country>'	
+	cXMLRet +=		'<ZIPCode>' + SA4->A4_CEP + '</ZIPCode>'
+	cXMLRet +=		'<Region></Region>'
+	cXMLRet +=		'<POBox></POBox>'
+	cXMLRet += 	'</Address>'
+	
+	If !Empty(SA4->A4_DDI)
+		cTel := AllTrim(SA4->A4_DDI)
+	Endif
+	
+	If !Empty(SA4->A4_DDD)
+		If !Empty(cTel)
+			cTel += AllTrim(SA4->A4_DDD)
+		Else
+			cTel := AllTrim(SA4->A4_DDD)
+		Endif
+	Endif
+	
+	If !Empty(cTel)
+		cTel += AllTrim(SA4->A4_TEL)
+	Else
+		cTel := AllTrim(SA4->A4_TEL)
+	Endif 	
+  	
+	cXMLRet += 	'<ListOfCommunicationInformation>'
+	cXMLRet +=			'<CommunicationInformation>'
+	cXMLRet +=           	'<PhoneNumber>' + cTel + '</PhoneNumber>'
+	cXMLRet +=           	'<PhoneExtension></PhoneExtension>'
+	cXMLRet +=           	'<FaxNumber></FaxNumber>'
+	cXMLRet +=           	'<FaxNumberExtension></FaxNumberExtension>'
+	cXMLRet += 			'<HomePage>' + _noTags(SA4->A4_HPAGE) + '</HomePage>'
+	cXMLRet +=				'<Email>' + _noTags(SA4->A4_EMAIL) + '</Email>'
+	cXMLRet += 		'</CommunicationInformation>'
+	cXMLRet +=		'</ListOfCommunicationInformation>'
+	
+	cXMLRet += 	'<ListOfContacts>'
+	cXMLRet +=			'<Contact>'
+	cXMLRet +=				'<Code></Code>'
+	cXMLRet +=				'<Title></Title>'
+	cXMLRet +=				'<Name>' + _noTags(SA4->A4_CONTATO) + '</Name>'
+	cXMLRet +=				'<Department></Department>'
+	
+	cXMLRet +=				'<CommunicationInformation>'
+	cXMLRet +=           		'<PhoneNumber></PhoneNumber>'
+	cXMLRet +=           		'<PhoneExtension></PhoneExtension>'
+	cXMLRet +=           		'<FaxNumber></FaxNumber>'
+	cXMLRet +=           		'<FaxNumberExtension></FaxNumberExtension>'
+	cXMLRet += 				'<HomePage></HomePage>'
+	cXMLRet +=					'<Email></Email>'
+	cXMLRet += 			'</CommunicationInformation>'
+	
+	cXMLRet += 			'<Address>'
+	cXMLRet += 				'<Address></Address>'
+	cXMLRet += 				'<Number></Number>'
+	cXMLRet +=         		'<Complement></Complement>'
+	cXMLRet += 				'<City>'
+	cXMLRet += 					'<Code></Code>'
+	cXMLRet +=          			'<Description></Description>'
+	cXMLRet +=					'</City>'
+	cXMLRet +=         		'<District></District>'
+	cXMLRet +=					'<State>'
+	cXMLRet += 					'<Code></Code>'
+	cXMLRet +=          			'<Description></Description>'	
+	cXMLRet +=					'</State>'
+	cXMLRet +=					'<Country>'
+	cXMLRet += 					'<Code></Code>'
+	cXMLRet +=          			'<Description></Description>'	
+	cXMLRet +=					'</Country>'	
+	cXMLRet +=					'<ZIPCode></ZIPCode>'
+	cXMLRet +=					'<Region></Region>'
+	cXMLRet +=					'<POBox></POBox>'
+	cXMLRet += 			'</Address>'
+	
+	cXMLRet +=			'</Contact>'
+	cXMLRet +=		'</ListOfContacts>'
+	
+	cXMLRet += '</BusinessContent>'
+	
+EndIf
+
+//Restaura ambiente
+RestArea(aAreaSA4)
+RestArea(aArea)
+
+Return { lRet, cXMLRet }
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} MATI050Num
+
+Veridica se o código truncado da transportadora, enviado por integração EAI
+Não está em duplicidade com SA4, se estiver, atribui novo numero.
+
+@sample		MATI050Num()
+
+@param		cCarrier, Character, Código da Transportadora
+
+@return		cCarrier, Character, Código da Transportadora
+
+@author		SQUAD CRM/Faturamento
+@since		11/08/2017
+@version	12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function MATI050Num( cCarrier )
+	Local aAreaNmSA4 := SA4->(GetArea())
+	Default cCarrier := " "
+	
+	DbSelectArea( "SA4" )
+	SA4->( DbSetOrder(1) ) //A4_FILIAL+A4_COD
+	
+	If SA4->(MsSeek(xFilial("SA4") + cCarrier ))
+		cCarrier := AllTrim(GetSXEnum("SA4","A4_COD"))
+	EndIf
+	
+	RestArea( aAreaNmSA4 )
+Return( cCarrier )

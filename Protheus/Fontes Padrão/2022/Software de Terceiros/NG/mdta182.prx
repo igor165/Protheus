@@ -1,0 +1,840 @@
+#INCLUDE "MDTA182.ch"
+#Include "Protheus.ch"
+
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDTA182
+Cadastro de Agentes e Limites de Tolerancia
+
+@type function
+
+@source MDTA182.prx
+
+@author Denis Hyroshi de Souza
+@since 20/11/07
+
+@sample MDTA182()
+
+@return Sempre verdadeiro.
+/*/
+//---------------------------------------------------------------------
+Function MDTA182()
+
+	//---------------------------------------------------
+	//| Armazena variaveis p/ devolucao (NGRIGHTCLICK) 	|
+	//---------------------------------------------------
+	Local aNGBEGINPRM := NGBEGINPRM(,,{ "TMA", { "TLK" , "TJC" } } )
+
+	//----------------------------------------------------------------
+	//| Define Array contendo as Rotinas a executar do programa      |
+	//| ----------- Elementos contidos por dimensao ------------     |
+	//| 1. Nome a aparecer no cabecalho                              |
+	//| 2. Nome da Rotina associada                                  |
+	//| 3. Usado pela rotina                                         |
+	//| 4. Tipo de Transa‡„o a ser efetuada                          |
+	//|    1 - Pesquisa e Posiciona em um Banco de Dados             |
+	//|    2 - Simplesmente Mostra os Campos                         |
+	//|    3 - Inclui registros no Bancos de Dados                   |
+	//|    4 - Altera o registro corrente                            |
+	//|    5 - Remove o registro corrente do Banco de Dados          |
+	//----------------------------------------------------------------
+	Private aRotina   := MenuDef()
+	Private cCadastro := OemtoAnsi(STR0001) // "Agentes"
+
+	Private aChkDel  := {}
+
+	//-------------------------------
+	//| Endereca a funcao de BROWSE |
+	//-------------------------------
+	dbSelectArea("TMA")
+	dbSetOrder(1)
+	mBrowse( 6, 1,22,75,"TMA")
+
+	//-------------------------------------------------
+	//| Devolve variaveis armazenadas (NGRIGHTCLICK)  |
+	//-------------------------------------------------
+	NGRETURNPRM(aNGBEGINPRM)
+
+Return .T.
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+Utilizacao de Menu Funcional
+
+@author Denis Hyroshi de Souza
+@since 20/11/07
+
+@sample MDTA182()
+
+@return	aRotina:
+	    	1. Nome a aparecer no cabecalho
+	    	2. Nome da Rotina associada
+	    	3. Reservado
+	    	4. Tipo de Transa‡„o a ser efetuada:
+	    		1 - Pesquisa e Posiciona em um Banco de Dados
+	    		2 - Simplesmente Mostra os Campos
+	    		3 - Inclui registros no Bancos de Dados
+	    		4 - Altera o registro corrente
+	    		5 - Remove o registro corrente do Banco de Dados
+	    	5. Nivel de acesso
+	    	6. Habilita Menu Funcional
+
+/*/
+//---------------------------------------------------------------------
+Static Function MenuDef()
+
+	//Variável de busca das informações
+	Local aRotina := { { STR0002, "AxPesqui", 0, 1 }, ;	 //"Pesquisar"
+					{ STR0003, "MDT182CAD", 0, 2 }, ;    //"Visualizar"
+					{ STR0004, "MDT182CAD", 0, 3 }, ;    //"Incluir"
+					{ STR0005, "MDT182CAD", 0, 4 }, ;    //"Alterar"
+					{ STR0006, "MDT182CAD", 0, 5, 3 }, ; //"Excluir"
+					{ STR0007, "MDT182TOL", 0, 4 } }	 //"Lim. Tolerância"
+
+Return aRotina
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182CAD
+Cadastro de Agentes.
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182CAD(cAlias, nRecno, nOpcx)
+
+	Local lSigaMdtPs 	:= GetNewPar("MV_MDTPS","N") == "S"
+	Local lProdQmc   	:= NGCADICBASE("TJC_CODPRO","A","TJC",.F.) .And. !lSigaMdtPS
+	Local cCodAgente 	:= TMA->TMA_AGENTE
+	Local nRet       	:= 0
+
+	Private bNGGrava 	:= {|| CHKMTD182() .And. If( nOpcx <> 5 , MDTObriEsoc( "TMA" , !(Inclui .Or. Altera) ) , .T. ) }
+
+	Private aChoice   	:= {}, aVarNao := {}
+	Private aTelaOld	:= If(Type("aTela") == "A" , aClone( aTela ) , Nil )
+	Private aGetsOld	:= If(Type("aGets") == "A" , aClone( aGets ) , Nil )
+	Private aOldRot		:=	If(Type("aRotina") == "A" , aClone( aRotina ) , Nil )
+
+	Private cTudoOk, cLinOk
+	Private aGetNao, cGetWhile
+	Private cGetMake, cGetKey, cGetAlias
+
+	//Definição dos Memos
+	Private aMemos		:= {}
+
+	If NGCADICBASE("TMA_PATSYP","A","TMA",.F.)
+		aAdd( aMemos , { "TMA_PATSYP" , "TMA_MPATOG" } )
+		aAdd( aMemos , { "TMA_SINSYP" , "TMA_MSINTO" } )
+	EndIf
+
+	aTela	:= {}
+	aGets	:= {}
+	aRotina	:= MenuDef()
+
+	If lProdQmc
+		cTudoOk   := "MDT182LOK()"
+		cLinOk    := "MDT182LOK()"
+		aGetNao   := { {"TJC_AGENTE", "M->TMA_AGENTE"}, {"TJC_DESAGE", " "} }
+		cGetAlias := "TJC"
+
+		If lSigaMdtPs
+			cGetWhile := "TJC->TJC_FILIAL + TJC->TJC_AGENTE == xFilial('TJC') + M->TMA_AGENTE"
+			cGetMake  := "TMA->TMA_AGENTE"
+			cGetKey   := "M->TMA_AGENTE + M->TJC_CLIENT + M->TJC_LOJA + M->TJC_CODPRO"
+
+			dbSelectArea("TJC")
+			dbSetOrder(1)
+		Else
+			cGetWhile := "TJC->TJC_FILIAL == xFilial('TJC') .And. TJC->TJC_AGENTE == M->TMA_AGENTE"
+			cGetMake  := "TMA->TMA_AGENTE"
+			cGetKey   := "M->TMA_AGENTE + M->TJC_CODPRO"
+
+			aAdd( aGetNao, {"TJC_CLIENT", " "} )
+			aAdd( aGetNao, {"TJC_LOJA"  , " "} )
+
+			dbSelectArea("TJC")
+			dbSetOrder(1)
+		Endif
+
+		nRet := NGCAD02(cAlias, nRecno, nOpcx)
+	Else
+		nRet := NGCAD01(cAlias, nRecno, nOpcx)
+	Endif
+
+	If nRet == 1 .And. nOpcx == 5
+		dbSelectArea("TLK")
+		dbSetOrder(1)
+		dbSeek(xFilial("TLK") + cCodAgente)
+		While !eof() .And. xFilial("TLK") == TLK->TLK_FILIAL .And. cCodAgente == TLK->TLK_AGENTE
+			RecLock("TLK",.F.,.T.)
+			dbDelete()
+			TLK->(MsunLock())
+			Dbskip()
+		End
+	Endif
+
+	If Type("aTelaOld") == "A"
+		aTela := aClone( aTelaOld )
+	EndIf
+	If Type("aGetsOld") == "A"
+		aGets := aClone( aGetsOld )
+	EndIf
+
+ 	If Type("aOldRot") == "A"
+		aRotina := aClone( aOldRot )
+	EndIf
+
+	dbSelectArea("TMA")
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MDT182TOL  ³ Autor³ Denis Hyroshi Souza   ³ Data ³ 20/11/07 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Cadastro dos Limites de Tolerancia                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MDTA182                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MDT182TOL(cAlias,nReg,nOpcx)
+
+	Local LVar01:=1,nLinhas:=0,bCampo,cSaveMenuh,nCnt,oPnl
+	Local GetList:={},nSavRec
+	Local oDlg, oGet, i
+	Local aNao      := { "TLK_AGENTE", "TLK_NOMAGE" }
+	Local nInd
+	Local cSeek := ''
+	Local cCond := ''
+
+	nSavRec := RecNo()
+	Private aCOLS
+	Private oMenu
+	Private aSize := MsAdvSize(,.f.,430), aObjects := {}
+	Private aTELA[0][0],aGETS[0],aHeader[0],nUsado:=0
+
+	Aadd(aObjects,{050,050,.t.,.t.})
+	Aadd(aObjects,{020,020,.t.,.t.})
+	Aadd(aObjects,{100,100,.t.,.t.})
+	aInfo := {aSize[1],aSize[2],aSize[3],aSize[4],0,0}
+	aPosObj := MsObjSize(aInfo, aObjects,.t.)
+
+	//Verifica se existe algum dado no arquivo
+	dbSelectArea(cAlias)
+	dbSetOrder(1)
+	FOR i := 1 TO FCount()
+		x   := "m->" + FieldName(i)
+		&x. := FieldGet(i)
+	Next i
+
+	//Monta a entrada de dados do arquivo
+
+	bCampo := {|nCPO| Field(nCPO) }
+
+	nInd  := 1
+	cSeek := TMA->TMA_AGENTE
+	cCond := 'TLK_FILIAL+TLK_AGENTE == "' + xFilial("TLK") + TMA->TMA_AGENTE + '"'
+
+	//Monta o aHeader e o aCols
+	FillGetDados( nOpcx, "TLK", nInd, cSeek, {||}, {||.T.}, aNao, , , , { | | NGMontaaCols( "TLK", cSeek, cCond, , nInd ) } )
+
+	If Empty( aCols )
+	   aCols := BlankGetd( aHeader )
+	EndIf
+
+	PutFileInEof("TLK")
+
+	nOpca := 0
+	DEFINE MSDIALOG oDlg TITLE cCadastro From aSize[7],0 To aSize[6],aSize[5] OF oMainWnd Pixel
+
+		oPnl := tPanel():New(,,,oDlg,,,,CLR_BLACK,CLR_WHITE,100,100)
+		oPnl:Align := CONTROL_ALIGN_ALLCLIENT
+
+			@ .3 ,.5 SAY OemtoAnsi(STR0008) Of oPnl//"Agente"
+			@ .3 ,05 MSGET TMA->TMA_AGENTE SIZE 20,10 WHEN .F. Of oPnl
+			@ .3 ,10 SAY OemToAnsi(STR0009) Of oPnl//"Nome Agente"
+			@ .3 ,15 MSGET TMA->TMA_NOMAGE SIZE 150,10 WHEN .F. Of oPnl
+
+			dbSelectArea("TLK")
+			oGet := MSGetDados():New(20,2,aPosObj[3,3],aPosObj[3,4],nOpcx,"NG182LinOk","NG182TudOk","",.t.,,,,3000,,,,,oPnl)
+
+			NGPOPUP(asMenu,@oMenu)
+			oDlg:bRClicked:= { |o,x,y| oMenu:Activate(x,y,oDlg)}
+
+	ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar(oDlg,{||nOpca:=1,if(oGet:TudoOk(),oDlg:End(),nOpca := 0)},{||oDlg:End(),nOpca := 0})
+
+	If nOpcA == 1
+		Begin Transaction
+			If NG182GRAV("TLK",nOpca)
+				//Processa Gatilhos
+				EvalTrigger()
+			EndIf
+		End Transaction
+	Endif
+
+Return .T.
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³NG182GRAV ³ Autor ³ Denis                 ³ Data ³ 11/08/00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Grava os dados na TLK                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MDTA182                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function NG182GRAV(cAlias,nOpcao)
+	Local nx ,ny ,i ,nMaxArray , aBACK := aCLONE(aCOLS)
+
+	dbSelectArea(cAlias)
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ verifica se o ultimo elemento do array esta em branco        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aCOLS := {}
+	aEVAL(aBACK, {|x| If( !Empty(x[1]),  AAdd(aCOLS,x), NIL) })
+	nMaxArray := Len(aCols)
+
+	If nMaxArray <= 0
+	Return .F.
+	Endif
+
+	nPosQtd := aSCAN(aHEADER, {|x| AllTrim(Upper(X[2])) == "TLK_DEQTDE" })
+
+	For nx := 1 to nMaxArray
+		If aCols[nx][Len(aCols[nx])]
+			dbSelectArea("TLK")
+			dbSetOrder(1)
+			If dbSeek(xFilial("TLK")+TMA->TMA_AGENTE+Str(aCols[nx][nPosQtd],9,3))
+				RecLock(cAlias,.F.,.T.)
+				dbDelete()
+				MsunLock(cALIAS)
+			EndIf
+			dbSelectArea(calias)
+			Loop
+		Endif
+
+		If !empty(aCols[nx][nPosQtd])
+			dbSelectArea("TLK")
+			dbSetOrder(1)
+			If dbSeek(xFilial("TLK")+TMA->TMA_AGENTE+Str(aCols[nx][nPosQtd],9,3))
+				RecLock(cAlias,.F.)
+			Else
+				RecLock(cAlias,.T.)
+			Endif
+
+			dbSelectArea("TLK")
+			dbSetOrder(1)
+			FOR i := 1 TO FCount()
+				If FieldName(i) == "TLK_FILIAL" .OR. FieldName(i) == "TLK_AGENTE" .OR. ;
+					FieldName(i) == "TLK_NOMAGE" .OR. FieldName(i) == "TLK_DEQTCH" .OR. ;
+					FieldName(i) == "TLK_ATQTDE" .OR.;
+					aSCAN(aHEADER, {|x| AllTrim(Upper(X[2])) == FieldName(i) }) < 1
+
+					Loop
+				EndIf
+				x   := "m->" + FieldName(i)
+				&x. := aCols[nx][aSCAN(aHEADER, {|x| AllTrim(Upper(X[2])) == FieldName(i) })]
+				y   := "TLK->" + FieldName(i)
+				&y := &x
+			Next i
+
+			TLK->TLK_FILIAL := xFilial("TLK")
+			TLK->TLK_AGENTE := TMA->TMA_AGENTE
+			TLK->TLK_DEQTCH := Str(TLK->TLK_DEQTDE,9,3)
+			TLK->(MsunLock())
+
+		Endif
+	Next nx
+
+	dbSelectArea("TLK")
+	dbSetOrder(1)
+	dbSeek(xFilial("TLK")+TMA->TMA_AGENTE)
+	While !eof() .and. xFilial("TLK") == TLK->TLK_FILIAL .and. TMA->TMA_AGENTE == TLK->TLK_AGENTE
+
+		If aSCAN(aCols,{|x| x[nPosQtd] == TLK->TLK_DEQTDE }) == 0
+			RecLock("TLK",.F.,.T.)
+			dbDelete()
+			TLK->(MsunLock())
+		Endif
+		Dbskip()
+	End
+
+Return .T.
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³NG182LinOk³ Autor ³ Denis                 ³ Data ³ 20/11/07 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Critica se a linha esta' Ok                                ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function NG182LinOk(o)
+	Local xx := 0,yy:=0, npos:= 0,lRET := .T.
+	Local nX,cEpi
+	Local cMinuto:=""
+	Local nPosx :=0
+	Local nDEQTDE,	nHRLIMI,nGRAU
+	nPOS := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_DEQTDE"})
+	nPOS1 := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_DEQTDE"})
+	nPOS2 := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_HRLIMI"})
+	nPOS3 := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_GRAU"})
+	If acols[n][len(Acols[n])]
+		Return .t.
+	EndIf
+
+	If nPOS > 0
+		For nX := 1 to Len(aCOLS)
+			If nx <> n .and. !acols[nX][len(Acols[nX])]
+				If n <> nX .And. ((aCOLS[nX][nPOS1] == aCols[ n , nPos1 ] .And. aCols[nX][nPos2] ==  aCols[ n , nPos2 ]) .Or.;
+					(aCOLS[nX][nPOS1] == aCols[ n , nPos1 ] .And. aCOLS[nX][nPOS3] == aCols[ n , nPos3 ]))
+							xx++
+				Endif
+			EndIf
+		Next nX
+	Endif
+	dbSelectArea("TLK")
+	dbSetOrder(1)
+	dbSeek(xFilial("TLK")+TMA->TMA_AGENTE)
+
+	nDEQTDE := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_DEQTDE"})
+	nHRLIMI := aSCAN( aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_HRLIMI"})
+	nGRAU := aSCAN	  (	aHEADER, { |x| Trim( Upper(x[2]) ) == "TLK_GRAU"})
+	For nX:= 1 to Len(aCols)
+		If Empty(aCols[n,nDEQTDE])
+			ShowHelpDlg(STR0015,{STR0016},1,{STR0019},2)
+			Return .F.
+		Endif
+		If Empty(aCols[n,nHRLIMI]) .Or. Empty(SubSTr(aCols[n,nHRLIMI],4,5)) .And. Empty(SubSTr(aCols[n,nHRLIMI],1,2))
+			ShowHelpDlg(STR0015,{STR0017},1,{STR0019},2)
+			Return .F.
+		Endif
+		If Empty(aCols[n,nGRAU])
+			ShowHelpDlg(STR0015,{STR0018},1,{STR0019},2)
+			Return .F.
+		Endif
+	Next nX
+	If xx > 0
+	Help(" ",1,"JAEXISTINF")
+	Return .F.
+	Endif
+Return .t.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³NG182TudOk³ Autor ³ Denis                 ³ Data ³ 20/11/07 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Critica se a nota toda esta' Ok                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function NG182TudOk(o)
+	Private nColuna := Len(aCols[n])
+
+	ASORT(aCols,,, { |x, y| x[nColuna] .and. !y[nColuna] } )
+Return .T.
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} CHKMTD182
+Funcao para verificar validacoes p/ o campo substancia ati.
+
+@author Rodrigo Soledade
+@since 11/07/11
+
+@sample CHKMTD182()
+
+@return lRet - Determina se o registro é valido
+/*/
+//---------------------------------------------------------------------
+Function CHKMTD182()
+
+	Local lRet := .t.
+	Local aAreaTN0 := {}
+
+	If ALTERA .And. M->TMA_GRISCO <> TMA->TMA_GRISCO
+		aAreaTN0 := GetArea()
+			dbSelectArea( "TN0" )
+			dbSetOrder( 2 )//TN0_FILIAL+TN0_AGENTE+TN0_NUMRIS
+			If dbSeek( xFilial( "TN0" ) + TMA->TMA_AGENTE )
+				MsgStop(STR0022,STR0010)  //"O Agente esta vinculado ao um Risco Ambiental. Não é permitido alterações do 'Grupo'."//"ATENÇÃO"
+				lRet := .f.
+			EndIf
+		RestArea( aAreaTN0 )
+	EndIf
+
+	If M->TMA_GRISCO == "2" .and. Empty(M->TMA_SUBATI)
+		MsgStop(STR0011,STR0010)  //"Para os agentes de tipo químico, é necessário informar sua substância ativa."//"ATENÇÃO"
+		lRet := .f.
+	Endif
+
+Return lRet
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182VAL
+Funcao que faz a validacao do campo TMA_GRISCO, se for diferente de Biologico
+os campos criados ter retorno falso.
+
+@author  Elynton Fellipe Bazzo
+@since  20/12/2012
+@version 01
+/*/
+//---------------------------------------------------------------------
+Function MDT182VAL()
+
+	Local lSigaMdtPs := GetNewPar("MV_MDTPS","N") == "S"
+	Local lClassif  := NGCADICBASE("TMA_CLASSI","A","TMA",.F.)
+	Local lProdQmc := NGCADICBASE("TJC_CODPRO","A","TJC",.F.) .And. !lSigaMdtPS
+
+	If lClassif
+		If M->TMA_GRISCO <> "3"
+			M->TMA_VIASTR  := Space( TAMSX3("TMA_VIASTR")[1] )
+			M->TMA_ESTUDO  := Space( TAMSX3("TMA_ESTUDO")[1] )
+			M->TMA_PERSIS  := Space( TAMSX3("TMA_PERSIS")[1] )
+			M->TMA_VIRULE  := Space( TAMSX3("TMA_VIRULE")[1] )
+			M->TMA_PATOGE  := Space( TAMSX3("TMA_PATOGE")[1] )
+			M->TMA_ENTRAD  := Space( TAMSX3("TMA_ENTRAD")[1] )
+			M->TMA_TRANSM  := Space( TAMSX3("TMA_TRANSM")[1] )
+			M->TMA_FONTES  := Space( TAMSX3("TMA_FONTES")[1] )
+			M->TMA_CLASSI  := Space( TAMSX3("TMA_CLASSI")[1] )
+		EndIf
+	Endif
+
+	If lProdQmc
+		If (IsInCallStack("MDTA182") .Or. IsInCallStack("MDTA180")) .And. Type("oGet") == "O"
+			If M->TMA_GRISCO != "2"
+				n     := 1
+				aCols := BlankGetD(aHeader)
+			Endif
+			oGet:oBrowse:Refresh()
+		Endif
+	Endif
+
+Return .T.
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182LOK
+Validcao para getdados de Agente x Produto Quimico. [TMA x TJC]
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182LOK()
+
+	Local lSigaMdtPs := GetNewPar("MV_MDTPS","N") == "S"
+	Local lProdQmc   := NGCADICBASE("TJC_CODPRO","A","TJC",.F.) .And. !lSigaMdtPS
+	Local nCodPro    := aScan( aHeader, {|x| AllTrim(x[2]) == "TJC_CODPRO" } ) // Codigo do Produto Quimico
+	Local lLinOk     := .T., nLin
+	Local nCodCli    := 0
+	Local cKey, cKeyAt
+
+	// Verificacoes de controle, e exclusao de linha
+	If !lProdQmc .Or. M->TMA_GRISCO != "2" .Or. aCols[n][Len(aCols[n])]
+		Return .T.
+	Endif
+
+	If lSigaMdtPs
+		nCodCli := aScan( aHeader, {|x| AllTrim(x[2]) == "TJC_CLIENT" } ) // Codigo do Produto Quimico
+	Endif
+
+	If Len(aCols) == 1 .And. Empty(aCols[1][nCodPro]) .And. (!lSigaMdtPs .Or. (nCodCli > 0 .And. Empty(aCols[1][nCodCli])) )
+		Return .T.
+	Endif
+
+	// Avalia campos obrigatorios
+	If lSigaMdtPs
+		If Empty(aCols[n][nCodCli]) // Codigo do Produto Quimico
+			Help(1," ","OBRIGAT2",,aHeader[nCodCli][1],3,0)
+			Return .F.
+		Endif
+	Endif
+
+	If Empty(aCols[n][nCodPro]) // Codigo do Produto Quimico
+		Help(1," ","OBRIGAT2",,aHeader[nCodPro][1],3,0)
+		Return .F.
+	Endif
+
+	// Verifica registro duplicado
+	For nLin := 1 To Len(aCols)
+		If !aCols[nLin][Len(aCols[nLin])] .And. ( n != nLin )
+
+			cKey   := aCols[nLin][nCodPro] + If(lSigaMdtPs, aCols[nLin][nCodCli], "")
+			cKeyAt := aCols[n][nCodPro]    + If(lSigaMdtPs, aCols[n][nCodCli], "")
+
+			If cKey == cKeyAt
+				Help(" ",1,"JAEXISTINF")
+				lLinOk := .F.
+				Exit
+			Endif
+		Endif
+	Next nLin
+
+	PutFileInEof("TJC")
+
+Return lLinOk
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182EXPQ
+Valida existencia de referencia do campo Produto Quimico. [TJC e TJD]
+
+@param cField Conteudo do campo a ser avaliado.
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182EXPQ(cField, lExChav)
+
+	Local cKey, nOrd, nPosCli, nPosLoj
+	Local lSigaMdtPs  := GetNewPar("MV_MDTPS","N") == "S" // Prestador de Servico
+	Local lFldGetD    := IsInCallStack("MDTA182") .Or. IsInCallStack("MDTA180") // Se o campo e proveniente de uma getdados
+	Local cCliLoj     := ""
+	Local lRet			:= .F.
+
+	Default lExChav := .F.
+
+	If Empty(cField)
+		Return .T.
+	Endif
+
+	If lSigaMdtPs
+		If lFldGetD // Se o campo e proveniente de uma getdados
+			nPosCli := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_CLIENT" } )
+			nPosLoj := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_LOJA"   } )
+
+			If nPosCli > 0 .And. nPosLoj > 0 // Se os campos de Cliente e Loja, estao na getdados
+				cCliLoj := aCols[n][nPosCli] + aCols[n][nPosLoj]
+			Endif
+		Else
+			cCliLoj := If(Type("cCliMdtPs") == "C" .And. !Empty(cCliMdtPs), cCliMdtPs, SA1->A1_COD + SA1->A1_LOJA)
+		Endif
+		cKey := cCliLoj + cField
+		nOrd := 1
+	Else
+		cKey := cField
+		nOrd := 1
+	Endif
+
+If lSigaMdtPs
+	lRet := If( !lExChav, ExistCpo("SB1",cKey,nOrd), ExistChav("TJB", cKey,nOrd) )
+Else
+	lRet := If( !lExChav, ExistCpo("TJB",cKey, nOrd), ExistChav("TJB", cKey, nOrd) )
+Endif
+
+Return lRet
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182WHPR
+Consistencia no termo When do campo Produto Quimico.
+- Agente Quimico [TMA_GRISCO == '2'].
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182WHPR
+
+	Local lEnable := .T.
+
+	If IsInCallStack("MDTA182") .OR. IsInCallStack("MDTA180")// Rotina de Agentes //Rotina de Riscos
+		lEnable := M->TMA_GRISCO == "2"
+	Endif
+
+Return lEnable
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182FTPQ
+Filtro de consulta padrao TJCPS2. [Prestador de Servico]
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182FTPQ
+
+	Local nPosCli, nPosLoj, cClicMdtPs
+	Local lSigaMdtPs := GetNewPar("MV_MDTPS","N") == "S"
+	Local lFltOk     := .F.
+
+	If IsInCallStack("MDTA182") .Or. IsInCallStack("MDTA180")// Agente // Risco
+		cClicMdtPs := TJC->TJC_CLIENT + TJC->TJC_LOJA
+		If lSigaMdtPs
+			nPosCli := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_CLIENT" } )
+			nPosLoj := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_LOJA"   } )
+			If nPosCli > 0 .And. nPosLoj > 0
+				lFltOk := !Empty(cClicMdtPs) .And. aCols[n][nPosCli] + aCols[n][nPosLoj] == cClicMdtPs
+			Endif
+		Else
+			lFltOk := Empty(cClicMdtPs)
+		Endif
+	Endif
+
+Return lFltOk
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDT182VCL
+Validacao do campo Cliente [TJC_CLIENT]. [Prestador de Servico]
+
+@author Hugo R. Pereira
+@since 07/01/2013
+@version MP10
+@return Nil
+/*/
+//---------------------------------------------------------------------
+Function MDT182VCL
+
+	Local nPosCli, nPosLoj, nPosCod, nPosDes
+
+	If !Empty(M->TJC_CLIENT) .And. !ExistCpo('SA1', M->TJC_CLIENT)
+		Return .F.
+	Endif
+
+	If IsInCallStack("MDTA182") .Or. IsInCallStack("MDTA180")// Agente // Risco
+		If Empty(M->TJC_CLIENT)
+			nPosCli := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_CLIENT" } )
+			nPosLoj := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_LOJA"   } )
+
+			If nPosLoj > 0
+				aCols[n][nPosLoj] := Space(Len(aCols[n][nPosLoj]))
+			Endif
+		Endif
+
+		nPosCod := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_CODPRO" } )
+		If nPosCod > 0
+			aCols[n][nPosCod] := Space(Len(aCols[n][nPosCod]))
+		Endif
+
+		nPosDes := aScan( aHeader, {|x| AllTrim(Upper(x[2])) == "TJC_DESPRO" } )
+		If nPosDes > 0
+			aCols[n][nPosDes] := Space(Len(aCols[n][nPosDes]))
+		Endif
+	Endif
+
+Return .T.
+//---------------------------------------------------------------------
+/*{Protheus.doc} MDT182VLGRI
+Funcao que faz a validação do campo TMA_GRISCO.
+- Se for diferente de Biologico o campo Tipo Entrada será apagado.
+- Se for diferente de Químimo o campo Subs. Ativa será apagado.
+
+@author  	Elynton Fellipe Bazzo
+@since  	24/04/2013
+@uso   		MDTA182
+@version 	MP11
+//---------------------------------------------------------------------
+*/
+Function MDT182VLGRI()
+
+	If M->TMA_GRISCO <> "3" // Se o campo for diferente de Biológico.
+		M->TMA_TIPENT  := Space( TAMSX3("TMA_TIPENT")[1] )
+	EndIf
+
+	If M->TMA_GRISCO <> "2" // Se o campo for diferente de Químico.
+   		M->TMA_SUBATI  := Space( TAMSX3("TMA_SUBATI")[1] )
+	EndIf
+
+Return .T.
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} MDTA182Val()
+Validacao do campo Tempo Maximo [TLK_HRLIMI],o máximo de minutos permitidos é 60 minutos.
+
+@author Guilherme Freudenburg
+@since 16/08/2013
+@version MP11
+@return .T.
+/*/
+//---------------------------------------------------------------------
+Function MDTA182Val()
+
+Local cMinuto:=""
+Local nX:=0
+	For nX := 1 to Len(aCOLS)
+		cMinuto:= SubSTr(M->TLK_HRLIMI,4,5)
+		If (Val(cMinuto) > 59)
+			ShowHelpDlg(STR0015,{STR0020},1,{STR0021},2)
+			Return .F.
+		Endif
+		Return .T.
+	Next
+Return .T.
+
+
+*--------------------------------------------------------------------
+FUNCTION MDT182ALL(cP_PARA)
+LOCAL cOALIAS,lRET,aFORD,cMSG
+*
+cOALIAS := ALIAS()
+lRET    := .T.
+cP_PARA := IF(cP_PARA==NIL,"",cP_PARA)
+IF cP_PARA == "TMA_TIPADI"
+   IF ALTERA
+      IF TMA->TMA_TIPADI <> M->TMA_TIPADI
+         *
+         cMSG  := ""
+         aFORD := {TN0->(INDEXORD()),TN0->(RECNO())}
+         TN0->(DBSETORDER(2))
+         TN0->(DBSEEK(XFILIAL("TN0")+M->TMA_AGENTE,.T.))
+         DO WHILE ! TN0->(EOF()) .AND.;
+            TN0->(TN0_FILIAL+TN0_AGENTE) == (XFILIAL("TN0")+M->TMA_AGENTE)
+            *
+            IF EMPTY(TMA->TMA_TIPADI) .AND. EMPTY(TN0->TN0_PERINT)
+               cMSG := cMSG+IF(EMPTY(cMSG),"",", ")+ALLTRIM(TN0->TN0_NUMRIS)
+            ELSE
+               IF ((TN0->TN0_PERINT <> "5" .OR. EMPTY(M->TMA_TIPADI)) .AND.;
+                  ! EMPTY(TN0->TN0_PERINT)) .OR.;
+                  ! EMPTY(M->TMA_TIPADI) .AND. EMPTY(TN0->TN0_PERINT)
+                  *
+                  MSGINFO(AVSX3("TMA_TIPADI",5)+STR0012+AVSX3("TN0_PERINT",5)+STR0013,STR0010) //" nao pode ser alterado devido a " ## " informada no Risco !" ## "Atencao"
+                  lRET := .F.
+                  EXIT
+               ENDIF
+            ENDIF
+            TN0->(DBSKIP())
+         ENDDO
+         IF lRET
+            IF ! EMPTY(cMSG)
+               MSGINFO(STR0014+CHR(13)+CHR(10)+;
+                       "("+cMSG+")",STR0010) //"Após confirmação do Agente, rever o(s) seguinte(s) Risco(s):" ## "Atenção"
+            ENDIF
+         ENDIF
+         TN0->(DBSETORDER(aFORD[1])) ; TN0->(DBGOTO(aFORD[2]))
+      ENDIF
+   ENDIF
+ELSEIF cP_PARA == "XB_TN0_FI"
+       TMA->(DBSETORDER(1))
+       IF ! (TMA->(DBSEEK(XFILIAL("TMA")+TN0->TN0_AGENTE))) .OR.;
+          (M->TO0_FINALI <> TMA->TMA_TIPADI .AND.;
+           (M->TO0_FINALI <> "3" .OR. ! EMPTY(TMA->TMA_TIPADI)))
+          *
+          lRET := .F.
+       ENDIF
+ENDIF
+IF ! EMPTY(cOALIAS)
+   DBSELECTAREA(cOALIAS)
+ENDIF
+RETURN(lRET)
+*--------------------------------------------------------------------

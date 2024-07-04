@@ -1,0 +1,2 @@
+User Function UPPLSHAT()
+RETURN

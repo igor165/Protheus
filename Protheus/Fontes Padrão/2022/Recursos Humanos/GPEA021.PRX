@@ -1,0 +1,309 @@
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "GPEA021.CH"
+
+#define  CRLF chr(13)+chr(10)
+/*/{Protheus.doc} GPEA021
+Visualização de Histórico - Órgãos Públicos
+@since	20/10/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function GPEA021(nOpcAuto)
+Private oBrwRI9
+
+	oBrwRI9:= FWmBrowse():New()
+	oBrwRI9:SetDescription( OemToAnsi(STR0001) )	// "Visualizar Histórico"
+	oBrwRI9:SetAlias( 'RI0' )
+	oBrwRI9:SetMenuDef( 'GPEA021' )
+	oBrwRI9:Activate()
+
+Return Nil
+
+
+/*/{Protheus.doc} ³ModelDef
+Definicao do modelo de dados da Visualização de Histórico - Órgãos Públicos
+@since	20/10/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function ModelDef()
+Local cCampo	:= ""
+Local oStructRI0
+Local oStructRI9
+Local oModel
+Local cFiltro := "RI9_STATUS = '1'"
+
+oModel:= MpFormModel():New("GPEA021",/*Pre-Validacao*/,  /*Pos-Validacao*/, /*Commit*/, /*Cancel*/)
+oStructRI0 := FWFormStruct(1,"RI0", {|cCampo| AllTrim(cCampo)+"|" $ "RI0_FILIAL|RI0_MAT|RI0_NRBEN|"})
+oModel:AddFields("GPEA021_RI0", /*cOwner*/, oStructRI0 , /*Pre-Validacao*/,/*Pos-Validacao*/,/*Carga*/)
+oModel:SetPrimaryKey( { "RI0_FILIAL", "RI0_MAT", "RI0_CPF", "RI0_CODUNI", "RI0_NRBEN" } )
+oModel:GetModel("GPEA021_RI0"):SetOnlyView( .T. )
+oModel:GetModel("GPEA021_RI0"):SetOnlyQuery( .T. )
+
+oStructRI9 := FWFormStruct(1,"RI9")
+oModel:AddGrid("GPEA021_RI9", "GPEA021_RI0"/*cOwner*/, oStructRI9 , /*bLinePre*/,  /*bLinePost*/, /*bPre*/,  /*bPost*/,/*bLoad*/)
+oModel:SetPrimaryKey( { "RI9_FILIAL", "RI9_MAT", "RI9_NRBENE", "RI9_DTMOVI", "RI9_OPER" } )
+oModel:SetRelation("GPEA021_RI9",{{"RI9_FILIAL",'xFilial("RI9",RI0->RI0_FILIAL)'},{"RI9_MAT","RI0_MAT"},{"RI9_NRBENE","RI0_NRBEN"}  },RI9->(IndexKey()))
+oModel:GetModel("GPEA021_RI9"):SetLoadFilter( {}, cFiltro)
+oModel:GetModel("GPEA021_RI9"):SetForceLoad(.T.)
+
+Return(oModel)
+
+
+/*/{Protheus.doc} ViewDef
+Definicao da tela da Visualização de Histórico - Órgãos Públicos
+@since	20/10/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function ViewDef()
+Local oModel		:= FwLoadModel("GPEA021")
+Local oStructRI0	:= Nil
+Local oStructRI9	:= Nil
+Local oView			:= FWFormView():New()
+
+oView:SetModel(oModel)
+
+oStructRI0 := FWFormStruct(2,"RI0", {|cCampo| AllTrim(cCampo)+"|" $ "RI0_FILIAL|RI0_MAT|RI0_NRBEN|"})
+oStructRI0:SetNoFolder()
+oStructRI9 := FWFormStruct(2,"RI9",{|cCampo| !(AllTrim(cCampo)+"|" $ "RI9_MAT|RI9_NRBENE|RI9_CODUNI|")})
+
+oView:AddField( "GPEA021_RI0" , oStructRI0 )
+oView:AddGrid(  "GPEA021_RI9" , oStructRI9 )
+
+oView:SetViewProperty("GPEA021_RI0","OnlyView") 
+
+oView:CreateHorizontalBox("FORMFIELD",20)
+oView:CreateHorizontalBox("GRID"     ,80)
+
+oView:SetOwnerView( "GPEA021_RI0","FORMFIELD")
+oView:SetOwnerView( "GPEA021_RI9","GRID")
+oView:SetOperation(1)
+
+oView:AddUserButton("Excluir",'',{|oModel| Gp021Exc(oModel) })
+
+oView:SetCloseOnOk({ || .T. })
+
+Return(oView)
+
+/*/{Protheus.doc} MenuDef
+Opções de Menu
+@since	20/10/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function MenuDef()
+Local aRotina :=  {}
+
+ADD OPTION aRotina TITLE OemToAnsi(STR0002) 	ACTION 'PesqBrw'          	OPERATION 1 ACCESS 0 DISABLE MENU	// "Pesquisar"
+ADD OPTION aRotina TITLE OemToAnsi(STR0003) 	ACTION 'VIEWDEF.GPEA021'	OPERATION 2 ACCESS 0 DISABLE MENU	// "Visualizar"
+
+Return aRotina
+
+/*/{Protheus.doc} Gp021Exc
+Exclui um evento no histórico de benefícios
+@since	25/10/2021
+@autor	martins.marcio
+@version P12
+/*/
+Static Function Gp021Exc(oModel, oView)
+
+	Local aArea := GetArea()
+	Local lRet	:= .T.
+	Local oGrid := oModel:GetModel("GPEA021_RI9")
+	Local cChave := oGrid:GetValue("RI9_FILIAL") + oGrid:GetValue("RI9_MAT") + oGrid:GetValue("RI9_NRBENE")
+	Local cEvento := "S-" + oGrid:GetValue("RI9_EVENTO")
+	Local cStat := "-1"
+
+	Local cChvTaf := RI0->RI0_CPF + ";" + RI0->RI0_NRBEN
+	Local nIndiceTAF := 0
+	Local aErros := {}
+
+	Begin Transaction
+
+	If !Empty(oGrid:GetValue("RI9_DTMOVI"))
+		If ultRegAtiv(oGrid, cChave) // é o ultimo registro ativo?
+			
+			//"Confirma a Exclusão ?"
+			//ATENÇÃO: Após a confirmação o evento ### será excluído e NÃO SERÁ POSSÍVEL DESFAZER ESSA OPERAÇÃO!"
+			lRet := MsgNoYes( OemToAnsi(STR0004) + CRLF + CRLF + OemToAnsi(STR0005) + cEvento + OemToAnsi(STR0006))
+
+			If lRet
+				If AllTrim(cEvento) == "S-2410"
+					nIndiceTAF	:= 5
+				Else 
+					nIndiceTAF	:= 3
+					cChvTaf 	+= ";" + Dtos(oGrid:GetValue("RI9_DTMOVI"))
+				EndIf
+
+				// Checar o status do evento
+				cStat := TAFGetStat(AllTrim(cEvento), cChvTaf,,,nIndiceTAF)	
+				If cStat <> "-1"
+					// Enviar o evento S3000
+					If fIntOP3000(cEvento, StrTran(cChvTaf, ";", ""), @aErros )
+						If !IsBlind() .And. FindFunction("fEFDMsg")
+							fEFDMsg()
+						EndIf
+					Else
+						Help(,,'HELP',, OemToAnsi(STR0008),1,0 ) //Problema ao integrar o evento S-3000 para o TAF.
+						lRet := .F.
+						DisarmTransaction()
+						Return lRet
+					EndIf
+				EndIf
+				
+				If lRet
+					//Atualiza status na RI9
+					DbSelectArea("RI9")
+					RI9->(DbSetOrder(1))
+					If RI9->( DbSeek(cChave + DTOS(oGrid:GetValue("RI9_DTMOVI"))))
+						RecLock("RI9", .F.)
+						RI9->RI9_STATUS	:= "2"
+						RI9->(MsUnlock())
+					EndIf
+					If AllTrim(cEvento) == "S-2410"
+						//Atualiza status na RI0 como inativo
+						DbSelectArea("RI0")
+						RecLock("RI0", .F.)
+						RI0->RI0_STATUS	:= "2"
+						RI0->(MsUnlock())
+					Else
+						If !restoreRI0(RI9->RI9_SITRI0) //Restaurar estado da RI0 antes da alteração
+							//ATENÇÃO: 
+							//O conteúdo do campo Sit. RI0(RI9_SITRI0) é incompatível com o formato esperado. 
+							//Não será possível restaurar a situação do benefício para o estado anterior. 
+							//Ainda assim, deseja continuar e confirmar a exclusão do evento?"
+							If !MsgNoYes( OemToAnsi(STR0009) + CRLF + OemToAnsi(STR0010) + CRLF + CRLF + OemToAnsi(STR0011) + CRLF + CRLF + OemToAnsi(STR0012))
+								lRet := .F.	
+								DisarmTransaction()
+								Return lRet
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+		Else
+			Help(,,'HELP',, OemToAnsi(STR0007),1,0 ) //Apenas o último registro ativo poderá ser excluído
+		EndIf
+
+		oModel:DeActivate()
+		oGrid:ClearData( .F., .F.) 
+		oModel:Activate()
+	EndIf
+
+	End Transaction
+
+	RestArea(aArea)
+
+Return lRet
+
+/*/{Protheus.doc} restoreRI0
+Restaurar estado da RI0 antes da alteração
+@since	25/10/2021
+@autor	martins.marcio
+@version P12
+/*/
+Static Function restoreRI0(cJson)
+
+	Local nI		:= 0
+	Local lRet		:= .T.
+	Local xJsonErro	:= Nil
+	Local oJson		:= JsonObject():new()
+	Local aCampos	:= {}
+	Local xConteud	:= ""
+	Local cType		:= ""
+	Local aArea		:= GetArea()
+	Local cExcecao	:= "RI0_FILIAL" // Campos que NAO devem ser restaurados
+
+	If !Empty(cJson)
+		xJsonErro := oJson:FromJson(cJson)
+		If ValType(xJsonErro) == "U"
+			//Reserva o registro da RI0?
+			DbSelectArea("RI0")
+			If RecLock("RI0",.F.)
+				aCampos := FWSX3Util():GetAllFields( "RI0" , .T.)
+				For nI := 1 To Len(aCampos)
+					If aCampos[nI] $ cExcecao
+						LOOP
+					EndIf	
+
+					cType := FWSX3Util():GetFieldType( aCampos[nI] ) // -> TIPOS POSSIVEIS: C,L,D,M,N 
+					xConteud := RHGetEmpty(cType)
+					If oJson:HasProperty(aCampos[nI])
+						xConteud := oJson[aCampos[nI]]
+						If cType == "D"
+							xConteud := SToD(xConteud)
+						ElseIf cType == "C"
+							xConteud := AllTrim(xConteud)
+						ElseIf cType == "N"
+							xConteud := Val(xConteud)
+						EndIf
+					EndIf
+					If cType == "M"
+						MsMm(getCodMemo(aCampos[nI])[2], /*nTam*/, /*nLin*/, xConteud, 1, /*nTabSize*/, /*lWrap*/, "RI0", getCodMemo(aCampos[nI])[1], "RDY")
+						RecLock("RI0", .F.) //Garante que o Registro continuara em Lock apos MsMm()
+					Else
+						&(aCampos[nI])	:= xConteud
+					EndIf
+				Next nI
+				RI0->(MsUnLock())
+			EndIf
+		Else
+			lRet := .F.
+		EndIf
+	EndIf
+
+	RestArea(aArea)
+
+Return lRet
+
+/*/{Protheus.doc} ultRegAtiv
+Retorna se o histórico posicionado é a ultima operação da pilha para definir se poderá ser excluída
+@since	22/10/2021
+@autor	martins.marcio
+@version P12
+/*/
+Static Function ultRegAtiv(oGrid, cChave)
+
+	Local lRet := .T.
+	Local aArea := GetArea()
+
+	DbSelectArea("RI9")
+	RI9->(DbSetOrder(1))
+	If RI9->( DbSeek(cChave + DTOS(oGrid:GetValue("RI9_DTMOVI"))))
+		RI9->(DbSkip()) // Avalia os registros posteriores referentes ao mesmo benefício
+		While RI9->(!Eof()) .And. RI9_FILIAL + RI9_MAT + RI9_NRBENE == cChave                                                                                                      
+			If RI9->RI9_STATUS == "1"
+				lRet := .F.
+				EXIT
+			EndIf
+			RI9->(DbSkip())
+		EndDo 
+	EndIf
+
+	RestArea(aArea)
+
+Return lRet
+
+/*/{Protheus.doc} RHGetEmpty
+Retorna um conteúdo "empty" de acordo com o tipo
+@since	25/10/2021
+@autor	martins.marcio
+@version P12
+/*/
+Function RHGetEmpty(cType)
+	Local xRet := NIL
+
+	Do Case
+		Case cType == "N"
+			xRet := 0
+		Case cType == "D"
+			xRet := CtoD("  /  /  ")
+		Case cType == "L"
+			xRet := .F.
+		Otherwise
+			xRet := ""
+	EndCase
+
+Return xRet

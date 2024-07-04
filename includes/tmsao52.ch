@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Planificador de rutas"
+	#define STR0002 "Archivo"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Visualizar"
+	#define STR0007 "Buscar"
+	#define STR0008 "Probar conexión"
+	#define STR0009 "Propiedades planificador de rutas"
+	#define STR0010 "No autorizado"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Router"
+		#define STR0002 "Register"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "View"
+		#define STR0007 "Search"
+		#define STR0008 "Test Connection"
+		#define STR0009 "Router Properties"
+		#define STR0010 "Not authorized"
+	#else
+		#define STR0001 "Roteirizador"
+		#define STR0002 "Cadastro"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Visualizar"
+		#define STR0007 "Pesquisar"
+		#define STR0008 "Testar Conexão"
+		#define STR0009 "Propriedades Roteirizador"
+		#define STR0010 "Não autorizado"
+	#endif
+#endif

@@ -1,0 +1,2038 @@
+#INCLUDE "MATA070.CH"
+#INCLUDE "PROTHEUS.CH"   
+#INCLUDE "TBICONN.CH"    
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FWMVCDEF.CH"
+ 
+#DEFINE X3_USADO_NAOUSADO 		"€€€€€€€€€€€€€€€"	//TORNA NAO USADO PELOS MODULOS
+
+// TRADUCAO DE CH'S PARA PORTUGAL
+STATIC lMATA070AUT := .F.
+STATIC cBDname     := Upper( TCGetDB() )
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATA070  ³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de atualizacao de Bancos                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³ Void MATA070(void)                                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function MATA070(xRotAuto,nOpcAuto)
+
+Local lSetHelp := "" 	// Determina se o help devera ser exibido em tela ou enviado para arquivo de log
+Local lDVUsado := .T. 	// Determina se algum para de campos de digito verificar esta com o usado diferente
+Local cTabla := SuperGetMV("MV_CTBBANC", .T., '')
+Local lDelrec  := ExistBlock("delrec")
+Local aDelete := {}
+Local oBrowse as Object
+
+PRIVATE 	aAC := { OemToAnsi(STR0001),OemToAnsi(STR0002) },;  //"Abandona"###"Confirma"
+			aCRA:= { OemToAnsi(STR0003),OemToAnsi(STR0004),OemToAnsi(STR0005) }  //"Confirma"###"Redigita"###"Abandona"
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define Array contendo as Rotinas a executar do programa      ³
+//³ ----------- Elementos contidos por dimensao ------------     ³
+//³ 1. Nome a aparecer no cabecalho                              ³
+//³ 2. Nome da Rotina associada                                  ³
+//³ 3. Usado pela rotina                                         ³
+//³ 4. Tipo de Transa‡„o a ser efetuada                          ³
+//³    1 - Pesquisa e Posiciona em um Banco de Dados             ³
+//³    2 - Simplesmente Mostra os Campos                         ³
+//³    3 - Inclui registros no Bancos de Dados                   ³
+//³    4 - Altera o registro corrente                            ³
+//³    5 - Remove o registro corrente do Banco de Dados          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE aRotina := MenuDef()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define o cabecalho da tela de atualizacoes                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE cCadastro :=OemtoAnsi(STR0011 )  //"Atualiza‡„o de Bancos"
+PRIVATE aRotAuto 
+Private lAltera	:= .F.
+
+If xRotAuto <> Nil
+	aRotAuto := xRotAuto
+	If Len(aRotAuto) > 0
+		lMATA070AUT := .T.
+	Endif
+Endif
+
+//Crea tabla generica de Bancos SAT
+If cPaisLoc == "MEX" .And. SA6->(FieldPos("A6_BCOSAT")) > 0 .And. !Empty(cTabla)
+	CTBBancSAT(cTabla)
+EndIf
+
+// Ponto de Entrada que permite excluir os Relacionamentos
+// Passar as tabelas que deverão ter seu relacionamento com a SA6 Excluido.
+If lDelrec
+	aDelete := ExecBlock( "delrec" , .F. , .F. , aDelete )
+	DelRec( aDelete )
+EndIf
+
+dbSelectArea("SX3")		// Dicionario de dados
+SX3->(dbSetOrder(2))  	// Ordem: Nome do Campo
+
+If !lDVUsado 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Quando ao menos um campo referente a "Digito Verificador" de conta ou agencia estiver definido como "Usado" ³
+	//³todos os outros relacionados a DV das tabelas SA6 e SEE devem tambem ser definidos como "Usado".            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+  
+	If xRotAuto <> Nil
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Quando chamada pela MsExecAuto() desvia Help para arquivo de log ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lSetHelp := HelpInDark(.T.)
+
+	EndIf	
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³HELP                                                                               ³
+	//³Existem campos referentes a DV de Conta e ou Agencia definidos como "Nao Usado" na ³                                                                ³
+	//³tabela SA6 e ou SEE, sendo que algum destes encontra-se definido como "Usado"      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Help(" ",1,"CPODVNOUSO") 
+
+	HelpInDark(lSetHelp)
+
+Else
+	
+	A070CorrBco()
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Ponto de entrada para ser utilizado antes do Browse          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ExistBlock("M070BROW")
+		ExecBlock("M070BROW",.F.,.F.)
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Endereca a funcao de BROWSE                                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If xRotAuto <> Nil
+		DEFAULT nOpcAuto := 3
+		aRotAuto := xRotAuto
+		FWMVCRotAuto(ModelDef(),"SA6",nOpcAuto,{{"MATA070_SA6",aRotAuto}})
+	Else
+		oBrowse := BrowseDef()
+		If cPaisLoc == "RUS"
+			oBrowse:Activate()
+		EndIf
+	EndIf
+EndIf
+	
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} BrowseDef
+Browse definition
+
+@author Flavio Lopes
+@since 21/02/2016
+@version P12/MA3 - Russia
+/*/
+//-------------------------------------------------------------------
+Static Function BrowseDef()
+Local oBrowse as object
+Local aCores  as array
+Local cFiltro as Character
+Local cFilt   as Character
+
+aCores := {}
+cFiltro  := ""
+cFilt    := ""					
+
+aAdd(aCores,{'A6_BLOCKED == "2" .OR. EMPTY(A6_BLOCKED)' , 'ENABLE'} )	//"Conta Corrente liberada para movimentações"
+aAdd(aCores,{'A6_BLOCKED == "1"' , 'DISABLE'})							//"Conta Corrente bloqueada para movimentações"
+			
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para ser utilizado antes do Browse          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("M070BROW")
+   cFilt := ExecBlock("M070BROW",.F.,.F.)
+   If ValType(cFilt) == "C"
+	  cFiltro := AllTrim(cFilt)
+   EndIf
+EndIf			
+						
+oBrowse := FWMBrowse():New()
+oBrowse:SetAlias("SA6")
+AEval(aCores,{|x|oBrowse:AddLegend(x[1],x[2])})
+oBrowse:SetDescription(OemtoAnsi(STR0011))	  //"Atualizacao de Bancos"
+
+If !Empty(cFiltro)
+	oBrowse:SetFilterDefault(cFiltro)
+EndIf
+
+oBrowse:Activate()
+
+Return oBrowse
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Deleta³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa para exclusao de Bancos                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³ Void A070Deleta(ExpC1,ExpN1)                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function A070Deleta(cAlias,nReg,nOpc)
+Local lOk    := .T.
+Local nOpcA  := 0 
+Local aParam := {{|| .T.}, {|| M070TudoOk(nOpc)}, {|| .T.}, {||MT070AltOk()}}	//Bloco de codigo executado apos a transacao de exclusão
+
+//As antigas validações foram realocadas na função M070VldDel
+lOk := M070VldDel(nOpc)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Exibe a interface de exclusao                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+If lOk .And. !(GetRpoRelease() >= "R7")
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Integracao Protheus X RM TIN                     )³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	If FindFunction( "GETROTINTEG" ).AND. !lMATA070AUT
+		FwIntegDef( 'MATA070' )
+	EndIf
+	
+	If FindFunction("INTEGREF") .AND. GetNewPar("MV_AVG0131", .F.) //LGS-25/11/2013
+		If cAlias == "SA6"
+			If INTEGREF("SA6",.T.)
+				nOpcA := AxDeleta(cAlias,nReg,nOpc,"m070Delet",/*aCpos*/,/*aButtons*/,aParam,aRotAuto,.T.)
+			EndIf
+		EndIf	
+	Else	
+	   nOpcA := AxDeleta(cAlias,nReg,nOpc,"m070Delet",/*aCpos*/,/*aButtons*/,aParam,aRotAuto,.T.)
+	EndIf 
+EndIf
+
+dbSelectArea( cAlias )
+
+Return Nil
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Inclui³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Inclusao no Cadastro de Bancos.                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³A070Inclui()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function a070Inclui(cAlias,nReg,nOpc)
+LOCAL nOpcA
+LOCAL nRec
+LOCAL cNroBco := Criavar("A6_COD")
+LOCAL cLayout := " "
+LOCAL aButtons := {}
+LOCAL aCposEnch
+Local lRet :=.T.
+Local lM070VLUS := ExistBlock("M070VLUS")
+Local lM070INFC := ExistBlock("M070INFC")
+Local aParam	:= {{|| .T.}, {|| M070EntOk(nOpc)}, {|| .T.}, {||MT070AltOk()}}	//Bloco de codigo executado apos a transacao da inclusao
+
+	If lM070VLUS
+		lRet:= ExecBlock("M070VLUS",.F.,.F.,nOpc)
+		If lRet == .F.
+			Return
+		EndIf
+	EndIf
+
+//Carrega os campos que aparecerao na Enchoice
+aCposEnch := MA070Cpos()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Monta a entrada de dados do arquivo                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+While .T.
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Envia para processamento dos Gets          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	nOpcA:=0
+	Begin Transaction
+		nOpcA := AxInclui(cAlias, nReg, nOpc, aCposEnch,/*cFunc*/,/*aCpos*/,"M070CliFor() .And. M070VldNBco()" ,/*lF3*/,/*cTransact*/,aButtons,  aParam,aRotAuto,/*lVirtual*/)
+		dbSelectArea(cAlias)
+		cNroBco := A6_COD
+		nRec := recno()
+		IF nOpcA == 1
+			//Grava a moeda no plural, para correção na impressão do extrato bancário
+			RecLock("SA6",.F.)
+			Replace A6_MOEDAP With A6_MOEDA
+			
+			a070Saldo()
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Busca Layout de cheque pr‚-existente       ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea(cAlias)
+			If Dbseek (xFilial("SA6")+cNroBco)
+				Do While !eof() .and. A6_COD == cNroBco
+					If !Empty(A6_LAYOUT)
+						cLayOut :=	A6_LAYOUT
+						Exit
+					Else
+						dbSkip()
+					Endif
+				Enddo
+				dbGoTo(nRec)
+				RecLock("SA6")
+				Replace A6_LAYOUT With cLayOut
+			EndIf
+						
+		EndIf
+
+		If lM070INFC
+			ExecBlock("M070INFC",.F.,.F.)
+		EndIf
+		
+	End Transaction                                                    
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Integracao Protheus X RM TIN                     )³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If FindFunction( "GETROTINTEG" ).AND. !lMATA070AUT .And. nOpcA == 1
+		FwIntegDef( 'MATA070' )
+	EndIf
+
+	Exit
+
+EndDo
+dbSelectArea(cAlias)
+Return Nil
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Altera³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Alteracao no Cadastro de Bancos.                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³A070Altera()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function a070Altera(cAlias,nReg,nOpc)
+LOCAL nOpcA
+LOCAL aButtons := {}
+LOCAL aCposEnch
+Local aParam	:= {{|| .T.}, {|| .T.}, {|| .T.}, {||MT070AltOk()}}	//Bloco de codigo executado apos a transacao da alteração
+Local lM070VLUS := ExistBlock("M070VLUS")
+Local lRet := .T.
+	
+IF lM070VLUS
+	lRet:= ExecBlock("M070VLUS",.F.,.F.,nOpc)
+	IF lRet == .F.
+		Return
+	EndIf
+ENDIF
+
+//Carrega os campos que aparecerao na Enchoice
+aCposEnch := MA070Cpos()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Envia para processamento dos Gets          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nOpcA:=0
+Begin Transaction
+	
+	nOpcA := AxAltera(cAlias ,nReg, nOpc, aCposEnch,/*aCpos*/,/*nColMens*/,/*cMensagem*/,"M070CLIFOR()",/*cTransact*/,/*cFunc*/,aButtons,aParam,aRotAuto,/*lVirtual*/)
+
+	dbSelectArea(cAlias)
+	If nOpcA == 1
+		lAltera := .T.
+		//Grava a moeda no plural, para correção na impressão do extrato bancário
+		RecLock("SA6",.F.)
+		Replace A6_MOEDAP With A6_MOEDA
+		a070Saldo()
+		
+	EndIF
+
+End Transaction   
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao Protheus X RM TIN                     )³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If FindFunction( "GETROTINTEG" ).AND. !lMATA070AUT .AND. nOpcA == 1
+	FwIntegDef( 'MATA070' )
+EndIf
+
+dbSelectArea(cAlias)
+lAltera := .F.
+Return Nil
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Saldo ³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Atualiza saldo bancario, se for modulo Financeiro           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³A070Saldo()                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function a070Saldo()
+
+Local nMoedaBco := MAX(SA6->A6_MOEDA,1)
+
+IF nModulo != 6		//Somente no modulo Financeiro (SE8 esta aberto).
+	Return .T.
+EndIF
+
+If Type('lAltera') == 'U'
+	lAltera	:= .F.
+Endif
+
+dbSelectArea("SE8")
+dbSeek(cFilial+SA6->A6_COD+SA6->A6_AGENCIA+SA6->A6_NUMCON+Dtos(dDataBase))
+
+Begin Transaction Extended
+	If !Found()
+		Reclock("SE8",.T.)
+		ReplaCE E8_FILIAL  With cFilial
+		Replace E8_BANCO   With SA6->A6_COD
+		Replace E8_AGENCIA With SA6->A6_AGENCIA
+		Replace E8_CONTA   With SA6->A6_NUMCON
+		Replace E8_DTSALAT With dDataBase 
+		Replace E8_MOEDA   With Substr(Str(nMoedaBco),-2)
+	Else
+		Reclock("SE8")
+	EndIf
+	If lAltera
+		Replace SE8->E8_SALATUA With SA6->A6_SALATU
+   EndIf
+End Transaction Extended
+
+Return .T.
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³M070CliFor³ Autor ³ Mauricio Pequim Jr    ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Verifica codigos de fornecedores e clientes                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³M070CliFor()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function M070CLIFOR()
+Local lReturn := .T.
+
+If ExistBlock("MAT070OK")
+	lReturn := ExecBlock("MAT070OK")
+	If !lReturn
+		Return .F.
+	EndIf
+EndIf
+
+//Verifica se a data de bloqueio foi preenchida quando a conta for bloqueada
+If !a070VldBlq()
+	Return .F.
+EndIf
+
+If Empty(M->A6_CODCLI+M->A6_LOJCLI) .and. Empty(M->A6_CODFOR+M->A6_LOJFOR)
+	Return .T.
+EndIf
+
+If (Iif(!Empty(M->A6_CODCLI+M->A6_LOJCLI),ExistCpo("SA1",M->A6_CODCLI+M->A6_LOJCLI),.T.) .AND. ;
+	 Iif(!Empty(M->A6_CODFOR+M->A6_LOJFOR),ExistCpo("SA2",M->A6_CODFOR+M->A6_LOJFOR),.T.))
+	Return .T.
+Else
+	Return .F.
+EndIf
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Legend ³ Autor ³ Mauricio Pequim Jr   ³ Data ³ 08.07.03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Cria uma janela contendo a legenda da mBrowse              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA070                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function A070Legend()
+Local aLegenda := {	{"ENABLE"	, 	STR0015},;	//"Conta Corrente liberada para movimentações"
+				   	{"DISABLE"	,  STR0016} }	//"Conta Corrente bloqueada para movimentações"
+
+BrwLegenda(cCadastro,STR0014,aLegenda) 	//"Legenda"
+
+Return .T.
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³a070VldBlq³ Autor ³ Mauricio PEquim Jr    ³ Data ³ 11/07/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida bloqueio de conta corrente. (SX3)                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³a070VldBlq()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function a070VldBlq()
+
+Local lRet := .T.
+
+If cPaisLoc <> "RUS" .And. M->A6_BLOCKED == "1" .and. Empty(M->A6_DTBLOQ)
+	 HELP(" ",1,"DTBLOQUEIO")
+	 LRet := .F.
+EndIf
+
+Return lRet
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A070Visual³ Autor ³ Jorge Queiroz         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Inclusao no Cadastro de Bancos.                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³A070Inclui()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function a070Visual(cAlias,nReg,nOpc)                                 
+LOCAL aButtons := {}
+
+Return(AxVisual(cAlias,nReg,nOpc,/*aAcho*/,/*nColMens*/,/*cMensagem*/,/*cFunc*/,aButtons,/*lMaximized*/))
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³ Nereu Humberto Junior ³ Data ³12/04/2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±³          ³                                                            ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³	  1 - Pesquisa e Posiciona em um Banco de Dados           ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function MenuDef()
+     
+aRotina := {}
+ADD OPTION aRotina TITLE STR0007 ACTION "VIEWDEF.MATA070"   OPERATION MODEL_OPERATION_VIEW    ACCESS 0 //"Visualizar"
+ADD OPTION aRotina TITLE STR0008 ACTION "VIEWDEF.MATA070"   OPERATION MODEL_OPERATION_INSERT  ACCESS 0 //"Incluir"
+ADD OPTION aRotina TITLE STR0009 ACTION "VIEWDEF.MATA070"   OPERATION MODEL_OPERATION_UPDATE  ACCESS 0 //"Alterar"
+ADD OPTION aRotina TITLE STR0010 ACTION "VIEWDEF.MATA070"   OPERATION MODEL_OPERATION_DELETE  ACCESS 0 //"Excluir"
+ADD OPTION aRotina TITLE STR0014 ACTION "A070Legend"     	OPERATION MODEL_OPERATION_VIEW    ACCESS 0 //"Excluir"
+
+IF cPaisLoc == "BRA"
+	ADD OPTION aRotina TITLE "Chaves PIX" ACTION "F880ChaPix()"   OPERATION 8 ACCESS 0 //"Alterar" "Chaves PIX"
+ENDIF
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada utilizado para inserir novas opcoes no array aRotina  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MTA070MNU")
+	ExecBlock("MTA070MNU",.F.,.F.)
+EndIf
+Return(aRotina) 
+
+/*ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M070CodCxa³ Autor ³ Karen Honda           ³ Data ³13/11/2008³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Gerar novo codigo do campo A6_CODCXA utilizado na integra- ³±±
+±±³          ³ cao com o sistema RM Classis Net.                          ³±±
+±±³          ³ Gera codigo sequencial baseado no ultimo registro da tabela³±±
+±±³          ³ SA6.                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ Proximo codigo do campo A6_CODCXA.                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Integracao - Protheus x RM Classis Net (RM Sistemas)       ³±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function M070CodCxa()
+Local cQuery    := ""
+Local cNextItem := "" 
+Local cAlias1 	:= GetNextAlias()
+Local lTrue		:= .T.	  
+
+If GetNewPar("MV_RMCLASS",.F.)
+
+	cQuery := " SELECT MAX(SA6.A6_CODCXA) CODCXA FROM " + RetSQLName("SA6") + " SA6 "
+	cQuery += " WHERE SA6.D_E_L_E_T_ = ' ' "
+	cQuery := changeQuery(cQuery)
+	dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),cAlias1,.F.,.T.)
+	
+	If (cAlias1)->( !Eof() )
+		cNextItem := StrZero( val( (cAlias1)->CODCXA )+1, TAMSX3("A6_CODCXA")[1] )	
+	Else
+		cNextItem := StrZero( 1, TAMSX3("A6_CODCXA")[1] )		
+	EndIf
+	(cAlias1)->( DBCloseArea() ) 
+		                  
+	While lTrue
+	
+		cQuery := " SELECT COUNT(*) QUANT FROM " + RetSQLName("SA6") + " SA6 "
+		cQuery += " WHERE SA6.A6_CODCXA = '" + cNextItem + "' "
+		cQuery += " AND SA6.D_E_L_E_T_ = ' ' "
+		cQuery := changeQuery(cQuery)
+		dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),cAlias1,.F.,.T.)
+		If (cAlias1)->( !Eof() ) .and. (cAlias1)->QUANT == 0  	
+			lTrue := .F.
+		Else
+			cNextItem := StrZero( val( cNextItem )+1, TAMSX3("A6_CODCXA")[1] )			
+		EndIf	
+		(cAlias1)->( DBCloseArea() ) 
+		
+	EndDo
+EndIf
+
+Return cNextItem
+
+/*ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MA070Cpos ³ Autor ³ Alberto Deviciente    ³ Data ³18/03/2009³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Carrega os campos que aparecerao na tela de cadastro.      ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com os campos que aparecerao na Enchoice.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±ºUso       ³Integracao Protheus x RM Classis Net                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function MA070Cpos()
+Local xRet
+Local lFldload 	:= ExistBlock("FLDMA070") 
+Local aCpos	:= {}
+Local nC	:= 0
+Local aCmps	:= {}
+Local ny	:= 0
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao Protheus X RM Classis Net (RM Sistemas)³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If GetNewPar("MV_RMCLASS", .F.)  
+	xRet := {}
+	Aadd(xRet,"A6_COD")
+	Aadd(xRet,"A6_AGENCIA")
+	Aadd(xRet,"A6_DVAGE")
+	Aadd(xRet,"A6_NOMEAGE")
+	Aadd(xRet,"A6_NUMCON")
+	Aadd(xRet,"A6_DVCTA")
+	Aadd(xRet,"A6_NOME")
+	Aadd(xRet,"A6_NREDUZ")
+	Aadd(xRet,"A6_END")
+	Aadd(xRet,"A6_BAIRRO")
+	Aadd(xRet,"A6_MUN")
+	Aadd(xRet,"A6_CEP")
+	Aadd(xRet,"A6_EST")
+	Aadd(xRet,"A6_TEL")
+	Aadd(xRet,"A6_FAX")
+	Aadd(xRet,"A6_TELEX")
+	Aadd(xRet,"A6_CONTATO")
+	Aadd(xRet,"A6_RETENCA")
+	Aadd(xRet,"A6_CXPOSTA")
+	Aadd(xRet,"A6_RETDESC")
+	Aadd(xRet,"A6_SALATO")
+	Aadd(xRet,"A6_TXCOBSI")
+	Aadd(xRet,"A6_TAXADES")
+	Aadd(xRet,"A6_CONTA")
+	Aadd(xRet,"A6_FLUXCAI")
+	Aadd(xRet,"A6_DIASCOB")
+	Aadd(xRet,"A6_LIMCRED")
+	Aadd(xRet,"A6_CODCLI")
+	Aadd(xRet,"A6_LOJCLI")
+	Aadd(xRet,"A6_PAISBCO")
+	Aadd(xRet,"A6_NUMBCO")
+	Aadd(xRet,"A6_CORRENT")
+	Aadd(xRet,"A6_CODFOR")
+	Aadd(xRet,"A6_LOJFOR")
+	Aadd(xRet,"A6_CGC")
+	Aadd(xRet,"A6_BLOCKED")
+	Aadd(xRet,"A6_DTBLOQ")
+	
+	//Campos Utilizados na Integracao Protheus X RM Classis Net (RM Sistemas)
+	Aadd(xRet,"A6_CODCXA")
+	Aadd(xRet,"A6_CARTEIR")
+	Aadd(xRet,"A6_TIPOCAR")
+	Aadd(xRet,"A6_CODCED")
+		
+	// Tratamento para entidades adicionais 
+	If ChkFile("CV0")
+		aCpos := GetEntAdc()
+		If Len(aCpos) > 0
+			For nC := 1 to Len(aCpos)
+				Aadd(xRet,aCpos[nC])
+			Next 
+		EndIf 
+	EndIf
+	
+	If lFldload
+		aCmps:= ExecBlock("FLDMA070",.F.,.F.)
+		If Len(aCmps) > 0
+			For ny:= 1 to Len(aCmps)
+				Aadd(xRet,aCmps[ny])
+			Next
+		EndIf	    
+	EndIf 
+Else
+	xRet := Nil //Neste caso, apresenta os campos padrao da rotina
+EndIf
+
+Return xRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³MT070AltOk³ Autor ³ Vendas cliente		³ Data ³ 31/03/08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Responsavel em enviar os dados do banco para integracao    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Cadastro de banco	                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MT070AltOk(oModel)
+
+	Local cTipo 		:= ""											//Como os dados serao integrados no processo offline    
+	Local oProcessOff 	:= Nil											//Objeto do tipo LJCProcessoOffLine
+	Local lAmbOffLn 	:= SuperGetMv("MV_LJOFFLN", Nil, .F.)			//Identifica se o ambiente esta operando em offline
+	Local nOpc			:= 0
+	
+	If	ValType(oModel)=="O"
+		nOpc := oModel:GetOperation()
+	Else
+		nOpc := Iif(INCLUI,3,Iif(ALTERA,4,5))
+	EndIf
+	
+	//Verifica se o ambiente esta em off-line
+	If lAmbOffLn
+		//Instancia o objeto LJCProcessoOffLine
+		oProcessOff := LJCProcessoOffLine():New("015")
+		
+		//Determina o tipo de operacao 
+		If nOpc == 3
+			cTipo := "INSERT"
+		ElseIf nOpc == 4
+			cTipo := "UPDATE"
+		Else
+			cTipo := "DELETE"
+			
+			//Considera os registros deletados
+			SET DELETED OFF
+		EndIf
+			    
+		If !Empty(cTipo)
+			//Insere os dados do processo (registro da tabela)
+			oProcessOff:Inserir("SA6", xFilial("SA6") + SA6->A6_COD + SA6->A6_AGENCIA + SA6->A6_NUMCON, 1, cTipo)	
+			//Processa os dados 
+			oProcessOff:Processar()	
+		EndIf
+		
+		//Desconsidera os registros deletados
+		SET DELETED ON
+	EndIf
+	
+Return Nil     
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³M070TudoOk³ Autor ³ Turibio Miranda		³ Data ³17/02/2010³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Funcao para validar se permite concretizar a operacao	  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Cadastro de banco	                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function M070TudoOk(nOpc)
+Local lRet:= .T.        
+DEFAULT nOpc:= 5
+    
+If nOpc == 5
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se a exclusao pode ser realizada                             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	If ExistBlock("M070VEXC") 
+		lRet := ExecBlock("M070VEXC")
+		If ValType(lRet) != "L"
+			lRet := .T.
+		EndIf
+	EndIf
+EndIf
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³A070AlfaNum³ Autor ³ Marco Aurelio - Mano    ³ Data ³23/07/10  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³Valida se a string passada como parametro contem somente letras³±±
+±±³	         ³de "A a Z" e ou numeros de "0 a 9"                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³A070AlfaNum(ExpC1)                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpC1 = String a ser validada                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Retorna .T. quando a string contem somente letras e ou numeros ³±±
+±±³          ³ou .F. caso contrario                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ SIGAFIN                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/             
+Function A070AlfaNum(cString)                                                         
+Local lRet  := .t.			// Conteudo de retorno
+Local nInd  := 0			// Indexadora de laco For/Next             
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Valida entrada de caracteres especiais caso o campo referente ao digito verificador do ³
+//³numero de conta estiver em uso.                                                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If A070Usado("A6_DVAGE") .And. A070Usado("A6_DVCTA")
+	cString := Upper(AllTrim(cString))
+	For nInd := 1 To Len(cString)
+		If !SubStr(cString,nInd,1) $ "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" 
+			If FUNNAME() ==  "MATA070" 
+				If Empty(aRotAuto)
+					Aviso(STR0021,STR0022,{"OK"})  // "Atenção"#"Somente números e letras são permitidos neste campo"
+				EndIf
+			Else
+				Aviso(STR0021,STR0022,{"OK"})  // "Atenção"#"Somente números e letras são permitidos neste campo"	
+			EndIf	
+			lRet := .f.
+			Exit
+		EndIf
+	Next
+EndIf
+
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³A070Usado  ³ Autor ³ Marco Aurelio - Mano    ³ Data ³26/07/10  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³Valida se o campo pasado como parametro consta como usado      ³±±
+±±³	         ³na estrutura do SX3.                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³A070Usado(ExpC1)                                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpC1 = Nome do campo a ser validado                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ SIGAFIN                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/             
+Function A070Usado(cCampo)                                                         
+Local aArea := GetArea()	// Salva ambiente para posterior restauracao
+Local lRet  := .t.			// Conteudo de retorno
+
+dbSelectArea("SX3")	   		// Dicionario de dados
+SX3->(dbSetOrder(2))  		// Ordem: Nome do Campo
+
+lRet := ( SX3->(MsSeek(cCampo)) .and. X3Uso(SX3->X3_USADO) ) 
+
+RestArea(aArea)
+
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³m070Delet  ³ Autor ³ Ana Paula			   ³ Data ³17/03/11  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³Exclui o registro de saldo bancario da tabela SE8 ao excluir   ³±±
+±±³	         ³o banco                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³A070Usado(ExpC1)                                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ SIGAFIN                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/    
+Function m070Delet()
+Local aArea := GetArea()
+
+DbSelectArea( "SE8" )
+SE8->( DbSetOrder( 1 ) )
+
+If SE8->(DbSeek( xFilial( "SE8" ) + SA6->(A6_COD+A6_AGENCIA+A6_NUMCON)))
+	RecLock("SE8")
+	SE8->( DbDelete() )	
+	MSUnlock()
+EndIf		
+
+RestArea(aArea)
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³INTEGDEF  ºAutor  ³Wilson de Godoi      º Data ³ 06/02/2012 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Função para a interação com EAI                             º±±
+±±º          ³envio e recebimento                                         º±±
+±±º          ³                                                            º±±
+±±º          ³                                                            º±±
+±±º          ³                                                            º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/ 
+Static Function IntegDef( cXml, nType, cTypeMsg, cVersion, cTransaction )
+Local aRet := {}
+
+aRet:= MATI070( cXml, nType, cTypeMsg, cVersion, cTransaction )
+
+Return aRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³ M070EntOk ³ Autor ³ Carlos Eduardo Chigres ³ Data ³ 17/07/12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Verifica se existe a Entidade Bancaria Desbloqueada          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Inclusao de Cadastro de banco	                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function M070EntOk( nOpc )
+Local lRet  := .T.        
+Local cOrig := Alias()
+
+DEFAULT nOpc := 3
+    
+ //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+ //³ Expressao de Identificacao de Entidades Bancarias - Julho de 2012 ³
+ //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ If cPaisLoc == "ARG" .And. AliasInDic( "FJN" ) 
+
+    If nOpc == 3
+	   //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	   //³ Precisa verificar se existe correspondente em Entidades Bancarias ³
+	   //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+       dbSelectArea( "FJO" )
+       //--- Filial + Codigo + Agencia
+       dbSetOrder( 1 )
+       
+       If dbSeek( xFilial( "FJO" ) + M->A6_COD )
+          //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	      //³ Soh aceita a inclusao se o registro estiver Ativo ³
+	      //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	      If FJO->FJO_BLOCK == "1"
+
+             //"Entidade Bancária."###"Foi localizado um registro de Entidade Bancária Bloqueado para este Banco e Agencia. Verifique."###"Fechar"
+             Aviso( STR0023, STR0024, {STR0025} ) 
+
+             lRet := .F. 
+
+	      EndIf
+	      
+       EndIf
+
+       dbSelectArea( cOrig )
+    EndIf
+    
+EndIf
+
+Return( lRet )
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} ModelDef
+Definicao do Modelo
+
+@author Leandro F. Dourado
+@since 11/05/2012
+@version 11
+*/
+//-------------------------------------------------------------------
+Static Function ModelDef()
+Local oStructSA6 := FWFormStruct(1,"SA6",{||.T.})
+Local oStructOHK := Nil
+
+Local oModel 	 := MPFormModel():New("MATA070",{|oModel|A070PreVld(oModel)},{|oModel|A070PosVld(oModel)},{|oModel|MT070Comm(oModel)})
+Local lIntPfs    := SuperGetMV("MV_JURXFIN",,.F.) //Habilita a integracao entre os modulos SIGAFIN - Financeiro e SIGAPFS - Juridico
+Local bOkPosOHK  := {|| }
+
+// registro de boletos online
+If FwIsInCallStack('GFIN.API.BANKS.PUTBANKS') .And. FindFunction("F713VldUso") .And. F713VldUso()
+    oStructSA6:AddField(         ;    // Ord. Tipo Desc.
+        FwX3Titulo('A6_CFGBOL'), ;    // [01] Titulo do campo
+        FwX3Titulo('A6_CFGBOL'), ;    // [02] ToolTip do campo
+        "A6_CFGBOL"            , ;    // [03] Id do Field
+        "M"                    , ;    // [04] Tipo do campo
+        10                     , ;    // [05] Tamanho do campo
+        0                      , ;    // [06] Decimal do campo
+        { || .T. }             , ;    // [07] Code-block de validação do campo
+        { || .T. }             , ;    // [08] Code-block de validação When do campo
+                               , ;    // [09] Lista de valores permitido do campo
+        .F.                    , ;    // [10] Indica se o campo tem preenchimento obrigatório
+        ,,,.F.)
+    oStructSA6:AddField(         ;    // Ord. Tipo Desc.
+        FwX3Titulo('A6_CFGAPI'), ;    // [01] Titulo do campo
+        FwX3Titulo('A6_CFGAPI'), ;    // [02] ToolTip do campo
+        "A6_CFGAPI"            , ;    // [03] Id do Field
+        "C"                    , ;    // [04] Tipo do campo
+        1                      , ;    // [05] Tamanho do campo
+        0                      , ;    // [06] Decimal do campo
+        { || .T. }             , ;    // [07] Code-block de validação do campo
+        { || .T. }             , ;    // [08] Code-block de validação When do campo
+                               , ;    // [09] Lista de valores permitido do campo
+        .F.                    , ;    // [10] Indica se o campo tem preenchimento obrigatório
+        ,,,.F.)
+EndIf
+
+oModel:SetVldActivate({|oModel| PE070VLUS(oModel)})
+oModel:AddFields("MATA070_SA6",, oStructSA6)
+oModel:GetModel("MATA070_SA6"):SetDescription(OemtoAnsi(STR0011))	  //"Atualizacao de Bancos"
+
+oStructSA6:SetProperty('A6_MOEDA',MODEL_FIELD_WHEN,{|| SA6RetWhen(oModel,'A6_MOEDA') })
+
+If lIntPfs .And. FWAliasInDic("OHK")
+	oStructOHK := FWFormStruct( 1, "OHK" )
+	bOkPosOHK  := Iif(ExistFunc("JATdOkOHK"), {|oGrid|JATdOkOHK(oGrid)}, {|| })
+	oModel:AddGrid( "OHKDETAIL", "MATA070_SA6" /*cOwner*/, oStructOHK, /*bLinePre*/,bOkPosOHK, /*bPre*/, /*bPost*/ )
+	oModel:GetModel( "OHKDETAIL" ):SetDescription( STR0037 ) //"Escritórios"
+	oModel:GetModel( "OHKDETAIL" ):SetDelAllLine( .T. )
+	oModel:SetRelation( "OHKDETAIL", { { "OHK_FILIAL", "xFilial( 'OHK' )" } , { "OHK_CBANCO", "A6_COD" }, { "OHK_CAGENC", "A6_AGENCIA" }, { "OHK_CCONTA", "A6_NUMCON" } } , "OHK_CBANCO+OHK_CAGENC+OHK_CCONTA" )
+	oModel:SetOptional( 'OHKDETAIL', .T.)
+	oModel:GetModel( "OHKDETAIL" ):SetUniqueLine( { "OHK_CESCRI" } )
+EndIf
+
+
+Return (oModel)
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} ViewDef
+Definicao da Visao
+
+@author Leandro F. Dourado
+@since 11/05/2012
+@version 11
+*/
+//-------------------------------------------------------------------
+Static Function ViewDef()
+Local oView  		:= Nil
+Local oModel  		:= FWLoadModel("MATA070")
+Local oStructSA6 	:= Nil
+Local oStructOHK    := Nil
+Local aCampos		:= {}
+Local lIntPfs       := SuperGetMV("MV_JURXFIN",,.F.) //Habilita a integracao entre os modulos SIGAFIN - Financeiro e SIGAPFS - Juridico
+
+aCampos := MA070Cpos()
+
+If aCampos != Nil
+	oStructSA6 	:= FWFormStruct(2,"SA6",{|cCampo|AScan(aCampos,AllTrim(cCampo))>0})
+Else
+	oStructSA6 	:= FWFormStruct(2,"SA6")
+EndIf
+
+oView := FWFormView():New()
+oView:SetModel(oModel)   
+oView:EnableControlBar(.T.)  
+oView:AddField( "MATA070_SA6" , oStructSA6 )
+If lIntPfs .And. FWAliasInDic("OHK")
+	oStructOHK := FWFormStruct( 2, "OHK" )
+	oStructOHK:RemoveField( "OHK_CBANCO" )
+	oStructOHK:RemoveField( "OHK_CAGENC" )
+	oStructOHK:RemoveField( "OHK_CCONTA" )
+
+	oView:AddGrid( "MATA070_OHK", oStructOHK, "OHKDETAIL" )
+
+	oView:CreateHorizontalBox( "HEADER" , 60 )
+	oView:CreateHorizontalBox( "FOOTER" , 40 )
+	oView:SetOwnerView( "MATA070_SA6" , "HEADER" )
+	oView:SetOwnerView( "MATA070_OHK" , "FOOTER" )
+	oView:EnableTitleView( "OHKDETAIL" )
+Else
+	oView:CreateHorizontalBox( "HEADER" , 100 )
+	oView:SetOwnerView( "MATA070_SA6" , "HEADER" )
+EndIf
+
+
+Return oView
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A070PosVld
+Pos-validacao do modelo de dados
+
+@author Leandro F. Dourado
+@since 11/05/2012
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function A070PosVld(oModel As Object) As Logical
+	Local aAreaAnt		As Array
+	Local nOpc			As Numeric
+	Local cAccToken 	As Character
+	Local cPublicToken 	As Character
+	Local cProp			As Character
+	Local lCpoProp		As Logical
+	Local lCodBco		As Logical
+	Local lRet			As Logical
+	
+	aAreaAnt		:= GetArea()
+	nOpc			:= oModel:GetOperation()
+	cAccToken 		:= ""
+	cPublicToken 	:= ""
+	cProp			:= ""
+	lCpoProp		:= ( SA6->(ColumnPos("A6_PROPRIA")) ) > 0 .And. ( SA6->(ColumnPos("A6_PAISCTA")) ) > 0
+	lCodBco			:= ( SA6->(ColumnPos("A6_BCOOFI")) ) > 0
+	lRet			:= .T.
+
+	If	nOpc == 3 .Or. nOpc == 4
+		lRet := M070CLIFOR()
+		If lRet
+			lRet := M070VldNBco()
+		Endif
+		If cPaisLoc == "EUA"
+			If SA6->(fieldPos('A6_IPLAID')) > 0 .and. findFunction('PlaidNaveg') .AND. SA6->A6_IPLAID <> M->A6_IPLAID
+				If M->A6_IPLAID == '1'		 
+					If !Empty(M->A6_INTID)
+						Dbselectarea("RVR")
+						RVR->(Dbsetorder(2))  // RVR_FILIAL + RVR_USERID 
+						If RVR->(msSeek(Xfilial("RVR")+M->A6_INTID))				
+							 cPublicToken := RVR->RVR_TOKEN
+							 cAccToken	  := RVR->RVR_ATOKEN				 
+							 If RVR->(msSeek(Xfilial("RVR")+M->A6_COD+M->A6_AGENCIA+M->A6_NUMCON))
+								If RecLock("RVR",.F.)
+								 	RVR->(DbDelete())
+								 	MsUnlock()
+								EndIf	
+							 EndIf
+							 If Reclock("RVR",.T.)
+								REPLACE   RVR_FILIAL WITH xfilial("RVR")
+							   	REPLACE   RVR_TOKEN  WITH cPublicToken
+							   	REPLACE   RVR_ATOKEN WITH cAccToken
+							   	REPLACE   RVR_USERID WITH M->A6_COD+M->A6_AGENCIA+M->A6_NUMCON
+								MsUnlock()
+							 EndIf
+						EndIf
+					Else
+						If !IsBlind()				
+							Dbselectarea("RVR")
+							RVR->(Dbsetorder(2)) //RVR_FILIAL + RVR_USERID 
+							If !(RVR->(msSeek(Xfilial("RVR")+M->A6_COD+M->A6_AGENCIA+M->A6_NUMCON)))						
+								PlaidNaveg()								
+								cPublicToken := AllTrim(Posicione("RVR",2,xFilial("RVR")+M->A6_COD+M->A6_AGENCIA+M->A6_NUMCON,"RVR_TOKEN"))
+								cAccToken := IIF(!Empty(cPublicToken),PlaidTExCh(M->A6_IPLAID, cPublicToken),"")							
+								cAccToken:= Iif("Error" $ AllTrim(cAccToken) ,"",cAccToken )		
+																					
+								If Empty(AllTrim(cPublicToken)) .OR. Empty(AllTrim(cAccToken))
+									lRet := .F.
+									Help( ,, STR0038,, STR0039, 1, 0 ) // 'Invalid Keys' // 'Change Integration option NO'
+								EndIf
+							EndIf	
+						EndIf
+					EndIf
+				Else		
+					dbselectarea("RVR")
+					RVR->(dbsetorder(2)) //RVR_FILIAL + RVR_USERID                                                                                                                                         
+					If RVR->(MsSeek(xfilial("RVR")+M->A6_COD+M->A6_AGENCIA+M->A6_NUMCON))
+						If RecLock("RVR",.F.)
+							RVR->(DbDelete())
+							RVR->(MsUnlock())
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+		If lCpoProp
+			cProp	:= oModel:GetValue("MATA070_SA6", "A6_PROPRIA") 
+			If cProp == '1'
+				DbSelectArea("SX5")
+				DbSetOrder(1)
+				If !lMATA070AUT .And. !(SX5->(DbSeek(xFilial("SX5") + "0N" + oModel:GetValue("MATA070_SA6", "A6_COD")) ) )
+					If lCodBco
+						If !(SX5->(DbSeek(xFilial("SX5") + "0N" + oModel:GetValue("MATA070_SA6", "A6_BCOOFI")) ) )
+							MsgAlert( STR0040 + Chr(10) + Chr(13) + STR0041 + ; // "Banco não encontrado." ## "Para a correta geração do arquivo LCDPR (bloco 0050 de contas bancárias), será necessário que o administrador cadastre o banco : "
+							oModel:GetValue("MATA070_SA6", "A6_COD") + STR0042, STR0021 ) // " na tabela de Instituições Financeiras (0N) com o nome deste banco de acordo com o BACEN." ## Atenção
+						EndIf
+					Else
+						MsgAlert( STR0040 + Chr(10) + Chr(13) + STR0041 + ; // "Banco não encontrado." ## "Para a correta geração do arquivo LCDPR (bloco 0050 de contas bancárias), será necessário que o administrador cadastre o banco : "
+							oModel:GetValue("MATA070_SA6", "A6_COD") + STR0042, STR0021 ) // " na tabela de Instituições Financeiras (0N) com o nome deste banco de acordo com o BACEN." ## Atenção
+					EndIf
+				EndIf
+				If Empty(oModel:GetValue("MATA070_SA6", "A6_PAISCTA"))
+					oModel:SetErrorMessage("MATA070_SA6", , "MATA070_SA6", , , STR0043, STR0044, , ) // "País da conta obrigatório para contas próprias." ## "Defina o país da conta antes de confirmar."
+					lRet	:= .F.
+				EndIf	
+			EndIf
+		EndIf
+	ElseIf nOpc == 5
+		//As antigas validações foram realocadas na função M070VldDel
+		lRet := M070VldDel() 
+	EndIf
+	
+	RestArea(aAreaAnt)
+Return(lRet)
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A070Grava
+Gravacao do modelo de dados
+
+@author Leandro F. Dourado
+@since 11/05/2012
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function MT070Comm(oModel) as Logical 
+	Local aAreaAnt as Array 
+	Local aAreaF70 as Array 
+	Local nOpc	 as Numeric 
+	Local nRec	 as Numeric 
+	Local cNroBco as Character 
+	Local cLayOut as Character	
+	Local cDvAge  as Character 
+	Local cDvCta  as Character 
+	Local lRet 	as Logical 
+
+	aAreaAnt := {}
+	aAreaF70 := {}
+	nOpc	 := oModel:GetOperation()
+	nRec	 := 0
+	cNroBco	 := ""
+	cLayOut	 := ""
+	cDvAge	 := ''
+	cDvCta	 := ''
+	lRet 	 := .T.
+
+	If nOpc == 3
+		Begin Transaction
+			If FWFormCommit(oModel,,,{|oModel|MT070AltOk(oModel)})
+			
+				cNroBco := SA6->A6_COD
+				nRec	:= SA6->(RecNo())
+				RecLock("SA6",.F.)
+				SA6->A6_MOEDAP := SA6->A6_MOEDA
+				SA6->(msUnLock())
+				
+				a070Saldo()
+				
+				SA6->(DbSetOrder(1))
+				If	SA6->(DbSeek(xFilial("SA6")+cNroBco))
+					While SA6->(!Eof() .And. SA6->A6_FILIAL+SA6->A6_COD == xFilial("SA6")+cNroBco)
+						If	!Empty(SA6->A6_LAYOUT)
+							cLayOut := SA6->A6_LAYOUT
+							Exit
+						Else
+							SA6->(DbSkip())
+						EndIf
+					EndDo
+					SA6->(DbGoTo(nRec))
+					RecLock("SA6")
+					SA6->A6_LAYOUT := cLayOut
+					SA6->(msUnLock())
+				Else
+					SA6->(DbGoTo(nRec))
+				EndIf
+		
+				If ExistBlock("M070INFC")
+					ExecBlock("M070INFC",.F.,.F.)
+				EndIf
+			Else
+				lRet:=.F.
+			EndIf
+		End Transaction
+
+	ElseIf nOpc == 4
+
+		aAreaAnt := GetArea()
+		lAltera := .T.
+		Begin Transaction
+
+			cDvAge	:= SA6->A6_DVAGE
+			cDvCta	:= SA6->A6_DVCTA
+			
+			If FWFormCommit(oModel,,,{|oModel|MT070AltOk(oModel)})
+				lAltera := .T.
+
+				If AliasInDic("F70") 
+					If cDvAge <> M->A6_DVAGE .OR. cDvCta <> M->A6_DVCTA
+
+						aAreaF70 := F70->(GetArea())
+						dbSelectArea("F70")
+						F70->(DbGoTop())
+						F70->(dbSetOrder(1))
+						
+						While  F70->(dbSeek(xFilial("F70")+SA6->(A6_COD+A6_AGENCIA+cDvAge+A6_NUMCON+cDvCta)))
+							RecLock("F70",.F.)
+							F70->F70_DVAGE := M->A6_DVAGE
+							F70->F70_DVCTA := M->A6_DVCTA
+							F70->(MsUnlock())
+
+							F70->(dbSkip())
+						Enddo
+
+						RestArea(aAreaF70)
+					Endif
+				Endif
+				//Grava a moeda no plural, para correção na impressão do extrato bancário
+				RecLock("SA6",.F.)
+				SA6->A6_MOEDAP := SA6->A6_MOEDA
+
+			Else
+				lRet:=.F.
+			EndIf
+		End Transaction   
+		lAltera := .F.
+		RestArea(aAreaAnt)
+	ElseIf nOpc == 5 
+		aAreaAnt	:= GetArea()
+		lRet		:= FWFormCommit(oModel,,,{|oModel|MT070AltOk(oModel)},{|oModel|m070Delet()})
+		RestArea(aAreaAnt)
+	EndIf
+
+	//Integra Protheus x LEGAL DESK - SIGAPFS             
+	//Grava na fila de sincroniza‡?o se o parƒmetro MV_JFSINC = '1' - SIGAPFS
+	If lRet .AND. FindFunction("J170GRAVA")
+		J170GRAVA("SA6", xFilial("SA6") + SA6->A6_COD + SA6->A6_AGENCIA + SA6->A6_NUMCON, cValTochar(nOpc))
+	EndIf
+
+Return(lRet)
+ 
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PE070VLUS
+Funcao que chama o P.E. M070VLUS, que serve para validar se o usuario tem permissao para utilizar a operacao, antes da ativacao do Browse.
+
+@author Leandro F. Dourado
+@since 21/05/2012
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function PE070VLUS(oModel)
+Local aAreaAnt	:= GetArea()
+Local nOpc		:= oModel:GetOperation()
+Local lRet		:= .T.
+
+If ExistBlock("M070VLUS")
+	lRet := ExecBlock("M070VLUS",.F.,.F.,nOpc)
+EndIf
+
+RestArea(aAreaAnt)
+Return(lRet)
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} A070CorrBco()
+Funcao para corrigor o campo A6_MOEDA. Foi tirada do corpo do programa pois causava problemas em rotina automatica em MVC, pois selecionava o alias da transacao do 
+mata070 e no retorno da rotina automatica trazia o registro desposicionado.
+
+@author Jandir Deodato
+@since 21/02/2013
+@version P12
+*/
+//-------------------------------------------------------------------
+Static Function A070CorrBco()
+Local aArea:=GetArea()
+Local aAreaSA6:={}
+
+//corrige o campo A6_MOEDA
+DbselectArea("SA6")
+aAreaSA6:=SA6->(GetArea())
+
+TCSqlExec("UPDATE " + RetSqlName("SA6") + " SET A6_MOEDA = 1 WHERE A6_MOEDA <= 1 AND D_E_L_E_T_ = ' ' ")
+SA6->(fkcommit())
+
+RestArea(aAreaSA6)
+RestArea(aArea)
+Return
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} A070BCRela()
+Funcao para permitir exclusão de banco que não tem movimentos bancários mas está em campos das tabelasSC5, SA2, SRA, SEF, SE2 e FOZ
+
+
+@author Rogério Melônio
+@since 12/12/2017
+@version P12
+*/
+//-------------------------------------------------------------------
+Static Function A070BCRela(cBco As Character, cAgencia As Character, cConta As Character) As Logical
+
+	Local aArea			As Array
+	Local aAreaSA6		As Array
+	Local cAliasTMP		As Character
+	Local cQueryBco		As Character
+	Local nRecSA6		As Numeric
+	Local nContBco		As Numeric
+	Local nContAge		As Numeric
+	Local lRet			As Logical
+
+	lRet := .T.
+
+	If !(Empty(cBco))
+		aArea		:= GetArea()
+		aAreaSA6	:= SA6->(GetArea())
+		cAliasTMP	:= GetNextAlias()
+		cQueryBco	:= ""
+		nRecSA6		:= SA6->(Recno())
+		nContBco	:= 1
+		nContAge	:= 1
+
+		SA6->(DbSetOrder(1))
+		
+		SA6->(DbSeek(xFilial("SA6") + cBco))
+		While !SA6->(EoF()) .And. SA6->A6_FILIAL == xFilial("SA6") .And. SA6->A6_COD == cBco
+			If SA6->(Recno()) <> nRecSA6
+				nContBco++
+				Exit
+			EndIf
+			SA6->(DbSkip())
+		EndDo
+		
+		SA6->(DbSeek(xFilial("SA6")+cBco+cAgencia))
+		While !SA6->(EoF()) .And. SA6->A6_FILIAL == xFilial("SA6") .And. SA6->A6_COD == cBco .And. SA6->A6_AGENCIA == cAgencia
+			If SA6->(Recno()) <> nRecSA6
+				nContAge++
+				Exit
+			EndIf
+			SA6->(DbSkip())
+		EndDo
+		
+		SA6->(RestArea(aAreaSA6))
+		
+		//Fecha o alias se estiver aberto anteriormente
+		If !Empty(cAliasTMP) .And. Select(cAliasTMP) > 0
+			(cAliasTMP)->(DbCloseArea())
+		EndIf
+		
+		// Validação de relacionamento entre SA6 e SC5
+		If lRet 
+			cQueryBco := "SELECT SC5.C5_FILIAL,SC5.C5_NUM,SC5.C5_CLIENTE,SC5.C5_LOJACLI,SC5.C5_BANCO"
+			cQueryBco += " FROM " + RetSQLName("SC5") + " SC5"
+			cQueryBco += " WHERE SC5.D_E_L_E_T_ = ' ' "
+			cQueryBco += " AND SC5.C5_BANCO = '" + cBco + "' "
+			cQueryBco := ChangeQuery(cQueryBco)
+			DbUseArea(.T., "TOPCONN", TCGenQry(,,cQueryBco), cAliasTMP, .F., .T.)
+			DbSelectArea(cAliasTMP)
+			(cAliasTMP)->(DbGoTop())
+			
+			If (cAliasTMP)->(!EoF())
+				// No cabeçalho de pedidos só é utilizado o código do banco. 
+				// Verifica demais ocorrências do código do banco com outras agências e contas   
+				If nContBco == 1 // se não tem outras agências e contas, bloqueia exclusão 
+					Help(" ",1,"SA070C5RELA")
+					lRet := .F.
+				EndIf	
+			EndIf
+			
+			//Fecha o alias em SC5
+			If !Empty(cAliasTMP) .And. Select(cAliasTMP) > 0
+				(cAliasTMP)->(DbCloseArea())
+				FErase((cAliasTMP) + GetDBExtension())
+			EndIf
+		Endif
+
+		// Validação de relacionamento entre SA6 e SRA
+		If lRet
+			cAliasTMP := GetNextAlias()
+			cQueryBco := "SELECT SRA.RA_FILIAL,SRA.RA_MAT,SRA.RA_NOME"
+			cQueryBco += " FROM " + RetSQLName("SRA") + " SRA "
+			cQueryBco += " WHERE SRA.D_E_L_E_T_ = ' ' "
+			cQueryBco += " AND (SRA.RA_BCDEPSA = '" + cBco + AllTrim(cAgencia) + "' AND SRA.RA_CTDEPSA = '" + Space(TamSX3("RA_CTDEPSA")[1]) + "') "
+			cQueryBco := ChangeQuery(cQueryBco)
+			DbUseArea(.T., "TOPCONN", TCGenQry(,,cQueryBco), cAliasTMP, .F., .T.)	
+			DbSelectArea(cAliasTMP)
+			(cAliasTMP)->(DbGoTop())
+			If (cAliasTMP)->(!EoF())
+				// No cadastro de funcionarios, o relacionamento com a tabela de bancos é pelo código e agência no SX9  
+				// Verificação de demais ocorrências do código do banco e agência com diversas contas   
+				If nContAge == 1 // se não tem contas diferentes para o mesmo banco e agência no SA6, bloqueia exclusão 
+					Help(" ",1,"SA070RARELA")
+					lRet := .F.
+				EndIf
+			EndIf
+			
+			//Fecha o alias em SRA
+			If !Empty(cAliasTMP) .And. Select(cAliasTMP) > 0
+				(cAliasTMP)->(DbCloseArea())
+				FErase((cAliasTMP) + GetDBExtension())
+			EndIf
+		EndIf
+
+		// Validação de relacionamento entre SA6 e SE2
+		If lRet .And. SE2->(FieldPos("E2_PORTADO")) > 0
+			cAliasTMP := GetNextAlias()
+			cQueryBco := "SELECT E2_PORTADO "
+			cQueryBco += " FROM " + RetSQLName("SE2") + " SE2 "
+			cQueryBco += " WHERE SE2.D_E_L_E_T_ = ' ' "
+			cQueryBco += " AND SE2.E2_PORTADO = '" + cBco + "' "
+			cQueryBco += " AND SE2.E2_FILIAL = '" + FwXFilial("SE2") + "' "
+			cQueryBco := ChangeQuery(cQueryBco)
+
+			MPSysOpenQuery(cQueryBco, cAliasTMP)
+			DbSelectArea(cAliasTMP)
+
+			If (cAliasTMP)->(!EoF())
+				If nContBco == 1
+					Help("", 1, "SA070E2RELA",, STR0055, 1,,,,,,, {})
+					lRet := .F.
+				EndIf
+			EndIf
+			
+			//Fecha o alias em SRA
+			If !Empty(cAliasTMP) .And. Select(cAliasTMP) > 0
+				(cAliasTMP)->(DbCloseArea())
+				FErase((cAliasTMP) + GetDBExtension())
+			EndIf
+		EndIf
+
+		// Validação de relacionamento entre SA6 e FOZ
+		If lRet .And. TableInDic("FOZ", .F.)
+			cAliasTMP := GetNextAlias()
+			cQueryBco := "SELECT FOZ_BANCO "
+			cQueryBco += " FROM " + RetSQLName("FOZ") + " FOZ "
+			cQueryBco += " WHERE FOZ.D_E_L_E_T_ = ' ' "
+			cQueryBco += " AND FOZ.FOZ_BANCO  = '" + cBco + "' "
+			cQueryBco += " AND FOZ.FOZ_FILIAL = '" + FwXFilial("FOZ") + "' "
+			cQueryBco := ChangeQuery(cQueryBco)
+
+			MPSysOpenQuery(cQueryBco, cAliasTMP)
+			DbSelectArea(cAliasTMP)
+
+			If (cAliasTMP)->(!EoF())
+				If nContBco == 1
+					Help("", 1, "SA070FOZRELA",, STR0056, 1,,,,,,, {})
+					lRet := .F.
+				EndIf
+			EndIf
+			
+			//Fecha o alias em SRA
+			If !Empty(cAliasTMP) .And. Select(cAliasTMP) > 0
+				(cAliasTMP)->(DbCloseArea())
+				FErase((cAliasTMP) + GetDBExtension())
+			EndIf
+		EndIf
+
+		RestArea(aArea)
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} M070VldNBco
+Funcao que valida o campo Nro Banco quando tiver integração
+
+@author Rodrigo Machado Pontes
+@since 16/12/2013
+@version P11
+/*/
+Function M070VldNBco() 
+Local lRet		:= .T.
+Local oModel	:= FwModelActive()
+Local oSA6		:= oModel:GetModel("MATA070_SA6")
+Local cNumBCO	:= Alltrim(oSA6:GetValue("A6_NUMBCO"))
+Local cNomReduz := Alltrim(oSA6:GetValue("A6_NREDUZ"))
+
+
+If FindFunction( "GETROTINTEG" ) .And. FindFunction("FwHasEAI") .and. FWHasEAI("MATA070",.T.,,.T.) .And. !lMATA070AUT
+	If Empty(cNumBCO)
+		Help(,,"Help","NroBanco",STR0026,1,0) //"Integração ativada, 'Nro Banco' deve ser preenchido"
+		lRet := .F.
+	Else
+		If Len(AllTrim(cNumBCO)) > 3
+			Help(,,"Help","NroBanco",STR0027,1,0) //"Integração ativada, 'Nro Banco' não pode ser maior que 3."
+			lRet := .F.
+		Endif
+	Endif
+	
+	If lRet
+		If Empty(AllTrim(cNomReduz))
+			Help(,,"Help","Nome Red.Bco",STR0028,1,0) //"Integração ativada, 'Nome Red.Bco' deve ser preenchido"
+			lRet := .F.
+		Endif
+	Endif
+Endif
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma DelRalac ³Autor  ³Sivaldo Oliveira  º Data ³  11/07/14        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Função que exclui o relacionamento SX9 das tabelas         º±±
+±±º          ³ SA6 com SEJ e SA6 com SEB                                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Ocorrências de bancos                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function DelRalac()
+/*Função Obsoleta a partir do release P12.1.23*/
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma Delrec ³Autor  ³Daniel Mendes    º Data ³  27/07/16	 	    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Validações para efetuar a exclusão da SA6                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ MATA070                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function M070VldDel(nOpc)
+Local cCod        := ""
+Local cConta      := ""
+Local cAgencia    := ""
+Local cArqSal     := ""
+Local cArqFGTS    := ""
+Local cBcoDepSal  := ""
+Local cBcoDepFGTS := ""
+Local cAlias      := ""
+Local lOk         := .T.
+Local lRet        := .T.
+Local lAchou      := .F.
+Local lM070VLUS   := ExistBlock( "M070VLUS" )
+Local aAreaF70 := {}
+cAlias := Alias()
+
+If lM070VLUS
+	lRet := ExecBlock( "M070VLUS" , .F. , .F. , nOpc )
+	If ValType( lRet ) == "L" .And. !lRet
+		lOk := .F.
+	EndIf
+EndIf
+
+If lOk
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ SIGAGPE                                                               ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	dbSelectArea( "SRA" )
+	DbSetOrder(1)
+	cBcoDepSal  := "SRA->RA_FILIAL+SRA->RA_BCDEPSA+SRA->RA_CTDEPSA"	
+	cArqSal 	:= CriaTrab(Nil,.F.)
+	IndRegua("SRA",cArqSal,cBcoDepSal,,,,.F.) //Selecionando Registros.
+
+	If !( SRA->(MsSeek(xFilial("SRA") + SA6->A6_COD + SA6->A6_AGENCIA + SA6->A6_NUMCON )) )
+		DbSelectarea("SRA")
+		DbSetOrder(1)			
+		cBcoDepFGTS := "SRA->RA_FILIAL+SRA->RA_BCDPFGT+SRA->RA_CTDPFGT"
+		cArqFGTS 	:= CriaTrab(Nil,.F.)
+		IndRegua("SRA",cArqFGTS,cBcoDepFGTS,,,,.F.) //Selecionando Registros. 
+		If SRA->(MsSeek(xFilial("SRA") + SA6->A6_COD + SA6->A6_AGENCIA + SA6->A6_NUMCON ))
+			lAchou := .T. 
+		EndIf
+	Else	
+	   lAchou := .T.
+	EndIf
+
+	If lAchou
+		If cModulo <> "GPE"
+			Aviso(OemToAnsi(STR0018),OemToAnsi(STR0019)+" "+OemtoAnsi(STR0020), {"Ok"})	//Aviso("Atenção", "Esse banco não pode ser excluido. Existe uma integração deste banco com o Cadastro de Funcionário no Módulo Gestão de Pessoal." 
+		Else
+			Aviso(OemToAnsi(STR0018),OemToAnsi(STR0019), {"Ok"})	//Aviso("Atenção", "Esse banco não pode ser excluido. Existe uma integração deste banco com o Cadastro de Funcionário 
+		EndIf	
+		lOk := .F.
+	EndIf
+
+	DbSelectarea("SRA")
+	RetIndex("SRA")
+
+	If File(cArqSal+GetDBExtension())
+		Ferase(cArqSal+OrdBagExt())
+	EndIf
+
+	If File(cArqFGTS+GetDBExtension())
+		Ferase(cArqFGTS+OrdBagExt())
+	EndIf
+EndIf
+
+cCod     := SA6->A6_COD
+cConta   := SA6->A6_NUMCON
+cAgencia := SA6->A6_AGENCIA
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ SIGAFIN                                                               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+If lOk			
+	dbSelectArea("SE8")  //&& Saldos Bancarios
+	dbSetOrder( 1 )
+	dbSeek(xFilial("SE8")+cCod+cAgencia+cConta)
+	If Found() .And. SE8->E8_SALATUA > 0
+		HELP(" ",1,"A070SALDO")
+     	lOk := .F.
+	EndIf
+EndIf
+
+If lOk
+	If SA6->A6_SALATU != 0
+		Help( " ",1,"MA070SALD" )
+    	lOk := .F.
+	EndIf
+EndIf
+
+If lOk
+	dbSelectArea("SE5")  //&& Movimentacao bancaria
+	dbSetOrder( 3 )
+	MsSeek(xFilial("SE5")+cCod+cAgencia+cConta)
+	dbSetOrder( 1 )
+	If Found()
+		HELP(" ",1,"A070MOVBCO")
+		lOk := .F.
+	EndIf
+EndIf
+
+If lOk .AND. AliasInDic("F70") 
+	aAreaF70 := F70->(GetArea())
+	dbSelectArea("F70")
+	F70->(DbGoTop())
+	F70->(dbSetOrder(1))
+
+	If  F70->(dbSeek(xFilial("F70")+SA6->(A6_COD+A6_AGENCIA+A6_DVAGE+A6_NUMCON+A6_DVCTA)))
+		HELP(' ',1,"RELACIONA" ,,STR0054,2,0,,,,,, {STR0053}) 
+		lOk:= .F.
+	Endif
+
+	RestArea(aAreaF70)
+Endif
+
+//Valida relacionamentos - movido do bloco de commit para o valid
+lOk := A070BCRela(SA6->A6_COD, SA6->A6_AGENCIA, SA6->A6_NUMCON)
+
+If lOk
+	m070Delet()
+EndIf
+
+If !Empty( cAlias )
+	dbSelectArea( cAlias )
+EndIf
+
+Return lOk
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma DelRec ³Autor  ³Daniel F Lacerda  º Data ³  25/05/16	 	  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Função que exclui o relacionamento SX9 das tabelas         º±±
+±±º          ³ Por Ponto de Entrada                                       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Ocorrências de bancos                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function DelRec( aDelete )
+Local cAliasBco := "SA6"
+Local nX        := 0
+Local aArea     := GetArea()
+
+//Exclusao dos relacionamentos
+SX9->( dbSetOrder( 2 ) )
+
+If ValType(aDelete) == "A"
+	For nX := 1 To Len( aDelete )
+ 			While SX9->( dbSeek( aDelete[ nX ] + cAliasBco ) )
+ 				 	RecLock( "SX9" , .F. )
+					SX9->( dbDelete() )
+					SX9->( MsUnLock() )
+			EndDo
+	Next nX
+EndIf
+
+RestArea( aArea )
+aSize( aArea , 0 )
+aArea := Nil
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma DelRec ³Autor  ³João Balbino      º Data ³  15/03/18	 	  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Função que retorna entidades adicionais se as mesmas exis- º±±
+±±º          ³ tirem.                                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Ocorrências de bancos                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function GetEntAdc()
+
+Local cAlsQry 	:= GetNextAlias()
+Local aCPOS		:= {}
+
+BeginSql Alias cAlsQry
+    
+    SELECT  CV0_PLANO PLANO
+    FROM %Table:CV0% CV0
+    WHERE CV0.CV0_FILIAL   = %xFilial:CV0%
+              AND CV0.%NotDel%
+EndSql
+
+While (cAlsQry)->(!EOF())
+	AADD(aCPOS,"A6_EC" + (cAlsQry)->PLANO + "DB")
+	AADD(aCPOS,"A6_EC" + (cAlsQry)->PLANO + "CR") 
+	(cAlsQry)->(DbSkip())
+EndDO
+
+(cAlsQry)->(dbCloseArea())
+
+Return aCPOS
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SA6RetWhen()
+Pré validação do Campo A6_MOEDA na Operação de Alteração
+@author  Norberto M de Melo
+@since   29/10/2019
+@version P12
+/*/
+//-------------------------------------------------------------------
+Function SA6RetWhen(oModel as Object, cCampo as Character) as Logical
+Local lRet as Logical
+
+Local cFil as Character
+Local cBco as Character
+Local cAge as Character
+Local cCta as Character
+
+Local cSubstSQL as Character
+Local cSA6MAEUF	as Character	// SA6 - Modo de acesso 
+Local cQryFil as Character
+Local cLayOut as Character
+Local cTMP as Character
+
+lRet := .T.
+
+If !EMPTY(oModel) .AND. !EMPTY(cCampo)
+	If ValType(oModel) == "O" .AND. oModel:GetOperation() == MODEL_OPERATION_UPDATE
+
+		cQryFil := ''
+		cFil := oModel:GetValue('MATA070_SA6','A6_FILIAL')
+		cBco := oModel:GetValue('MATA070_SA6','A6_COD')
+		cAge := oModel:GetValue('MATA070_SA6','A6_AGENCIA')
+		cCta := oModel:GetValue('MATA070_SA6','A6_NUMCON')
+
+		If cBDname $ "ORACLE|DB2|POSTGRES|INFORMIX"
+			cSubstSQL := " SUBSTR"
+		Else
+			cSubstSQL := " SUBSTRING"
+		EndIf
+
+		If FWSizeFilial() == 2
+			cQryFil	:=  " FK5.FK5_FILIAL = '" + cFil + "' AND "
+		Else
+			cSA6MAEUF	:= FWModeAccess("SA6",1) + FWModeAccess("SA6",2) + FWModeAccess("SA6",3)
+					
+			If cSA6MAEUF == "EEE"
+				cQryFil	:=  " FK5.FK5_FILORI = '" + cFil + "' AND "
+			ElseIf cSA6MAEUF == "EEC"
+				cLayOut := LTRIM( STR( LEN( FWSM0Layout(,1) + FWSM0Layout(,2) ) ) )
+				cFil := SUBSTR(cFil, 1,VAL(cLayout))
+				cQryFil	:=  cSubstSQL + "(FK5.FK5_FILORI,1," + cLayOut + ") = '" + cFil + "' AND "
+			ElseIf cSA6MAEUF == "ECC"
+				cLayOut := LTRIM( STR( LEN( FWSM0Layout(,1) ) ) )
+				cFil := SUBSTR(cFil, 1,VAL(cLayout))
+				cQryFil	:=  cSubstSQL + "(FK5.FK5_FILORI,1," + cLayOut + ") = '" + cFil + "' AND "
+			Endif
+		EndIf
+
+		cQryFil := "%" + cQryFil + "%"
+
+		cTMP := GetNextAlias()
+		BEGINSQL ALIAS cTmp
+			SELECT DISTINCT FK5.FK5_BANCO, FK5.FK5_AGENCI, FK5.FK5_CONTA
+			FROM %table:FK5% FK5
+			WHERE	%exp:cQryFil%
+					FK5.FK5_BANCO = %Exp:cBco% AND
+					FK5.FK5_AGENCI = %Exp:cAge% AND
+					FK5.FK5_CONTA = %Exp:cCta% AND 
+					FK5.%NotDel%
+		ENDSQL
+
+		lRet := (cTMP)->(EOF())
+		(cTmp)->(DbCloseArea())
+	EndIf
+EndIf
+
+Return lRet
+
+//-------------------------------------
+/*/{Protheus.doc} F880ChaPix
+Cadastro de chaves pix
+@author R. Melo
+@since 10/10/2020
+@version 1.0
+/*/
+//-------------------------------------
+Function F880ChaPix() As Logical 
+	Local oModel     As Object
+	Local nOperacao As Numeric
+	Local aArea      As Array
+	Local lOk        As Logical
+	Local cOperacao    As Character
+	Local nEnt		As Numeric
+	Local cComp     As Character
+	Local cTab      As Character
+	Local cTabAux   As Character
+
+	//'Ambiente desatualizado para utilizar esse recurso.'
+	//'Necessário atualizar os fontes e o dicionário de dados do modulo financeiro.'
+	If !AliasInDic("F70") .OR. !FindFunction("FINA880")
+		HELP(' ',1,"NOCHVPIX" ,,STR0057,2,0,,,,,, {STR0058})
+		Return .F.
+	EndIf
+	
+	oModel:= FWLoadModel("FINA880")
+	nOperacao 	:= oModel:GetOperation()
+	aArea      	:= {}
+	lOk        	:= .T.
+	cOperacao		:= ""
+	nEnt      	:= 0
+	cComp     	:= ""
+	cTab      	:= "SA6"
+	cTabAux   	:= "F70"
+
+
+
+	For nEnt  := 1 To 3
+		cComp := FwModeAccess(cTab, nEnt)
+		If(!FwModeAccess(cTabAux, nEnt) == cComp) .And. lOk
+			Help(' ', 1, STR0049   ,, STR0050 + '"' + AllTrim(FwX2Nome(cTabAux)) + ' ('+ cTabAux + ')"' + STR0051 + '"' + AllTrim(FwX2Nome(cTab)) + ' (' + cTab + ')"' , 2, 0,,,,,, {STR0052    })
+			lOk := .F.
+		EndIf
+	Next nEnt
+	
+	If lOk
+		aArea := GetArea()	
+		dbSelectArea("F70")
+		F70->(dbSetOrder(1))
+		nOperacao := 3
+		cOperacao := STR0047
+		
+		If F70->(dbSeek(xFilial("F70")+SA6->(A6_COD+A6_AGENCIA+A6_DVAGE+A6_NUMCON+A6_DVCTA)))
+			nOperacao := 4
+			cOperacao := STR0048 
+		EndIf
+		
+		lOk := (FWExecView(cOperacao, "FINA880", nOperacao, Nil, {||.T.}) == 0)	
+		RestArea(aArea)
+	EndIf
+
+Return lOk
+
+/*/{Protheus.doc} A070PreVld
+	Pré validação do modelo
+	@type  Static Function
+	@author Vitor Duca
+	@since 16/08/2022
+	@version 1.0
+	@param oModel, Object, Objeto que contem o modelo de dados
+	@return lRet, Logical, Define se a pré validação ocorreu com sucesso
+/*/
+Static Function A070PreVld(oModel) As Logical
+	Local nOpc As Numeric  
+	Local lRet As Logical
+
+	nOpc :=  oModel:GetOperation()
+	lRet := .T.
+
+	If nOpc == 4 .and. oModel:GetModel('MATA070_SA6'):HasField('A6_TCB') .And. Empty(oModel:GetModel('MATA070_SA6'):GetValue('A6_TCB'))
+		oModel:GetModel('MATA070_SA6'):SetValue('A6_TCB', '2')
+	Endif
+			
+Return lRet

@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Pedidos de compra del MRP"
+	#define STR0002 "Devuelve todos los pedidos de compra del MRP"
+	#define STR0003 "Devuelve un pedido de compras del MRP específico"
+	#define STR0004 "Incluye o actualiza uno o más Pedidos de compra del MRP"
+	#define STR0005 "Borra uno o más Pedidos de compra del MRP"
+	#define STR0006 "No fue posible interpretar los datos recibidos."
+	#define STR0007 "Atributo"
+	#define STR0008 "No se informó."
+	#define STR0009 "debe completarse con '1' a Firme y '2' a Previsto."
+	#define STR0010 "Sincroniza pedidos de compra en el MRP"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "MRP Consumption Requests"
+		#define STR0002 "Return all MRP Purchase Requests"
+		#define STR0003 "Return a specific MRP purchase request"
+		#define STR0004 "Add or update one or more MRP Purchase Requests"
+		#define STR0005 "Delete one or more MRP Purchase Requests"
+		#define STR0006 "Unable to interpret date received."
+		#define STR0007 "Attribute"
+		#define STR0008 "Not entered."
+		#define STR0009 "must be filled out ‘1’ for Actual and ‘2’ for Estimated."
+		#define STR0010 "Sync purchase orders in MRP"
+	#else
+		#define STR0001 "Pedidos de Compras do MRP"
+		#define STR0002 "Retorna todos os Pedidos de Compras do MRP"
+		#define STR0003 "Retorna um pedido de compras do MRP especifica"
+		#define STR0004 "Inclui ou atualiza um ou mais Pedidos de Compras do MRP"
+		#define STR0005 "Exclui um ou mais Pedidos de Compras do MRP"
+		#define STR0006 "Não foi possível interpretar os dados recebidos."
+		#define STR0007 "Atributo "
+		#define STR0008 " Não foi informado."
+		#define STR0009 " deve ser preenchido com '1' para Firme e '2' para Previsto."
+		#define STR0010 "Sincroniza pedidos de compras no MRP"
+	#endif
+#endif

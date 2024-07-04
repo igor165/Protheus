@@ -1,0 +1,823 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "GPEI090.CH"
+
+STATIC aValor := { .T.,''}  // CONTEÚDO PARA RETORNAR O STATUS DO PROCESSAMENTO
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±º Funcao ³ IntegDef º Autor ³ 					   º Data ³ 25/02/2012  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Desc.    ³ Adapter para recepção da mensagem única de Lançamentos       º±±
+±±º          ³ Mensais -> MonthlyPayrrol                                    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Param.   ³ cXML - Variavel com conteudo xml para envio/recebimento.     º±±
+±±º          ³ nTypeTrans - Tipo de transacao. (Envio/Recebimento)          º±±
+±±º          ³ cTypeMessage - Tipo de mensagem. (Business Type, WhoIs, etc) º±±
+±±º          ³ cVersao - Versão da mensagem a ser tratade pelo Adapter      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Retorno  ³ aRet - Array contendo o resultado da execucao e a mensagem   º±±
+±±º          ³        Xml de retorno.                                       º±±
+±±º          ³ aRet[1] - (boolean) Indica o resultado da execução da função º±±
+±±º          ³ aRet[2] - (caracter) Mensagem Xml para envio                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Uso      ³ GPEA090                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Function GPEI090( cXML, nTypeTrans, cTypeMessage, cVersao)
+
+Local aAreas := {SRV->(GetArea()),SRA->(GetArea()),CTT->(GetArea()),RGB->(GetArea()),SA2->(GetArea()),RCH->(GetArea()),GetArea()}
+Local cXMLRet  			:= ""			//Xml de retorno da IntegDef()
+Local cError			:= ""			//Mensagem de Erro no Parse do Xml recebido
+Local cWarning	 		:= ""			//Mensagem de Warning no Parse do Xml recebido
+Local cEvent      		:= "upsert"		//Evento da mensagem (upsert ou delete)
+Local cLogErro 			:= ""			//Descricao do erro na MsExecAuto
+
+Local aCab				:= {}			//Array com os campos e os dados que serão gravados na MsExecAuto
+Local aItens			:= {}			//Array com os campos dos itens e os dados que serão gravados na MsExecAuto
+Local aErroAuto			:= {}			//Array com erro da MsExecAuto
+
+Local lRet     			:= .T.			//Status de retorno da IntegDef()
+
+Local nOpcx	 			:= 0			//Operacao realizado pelo usuario ( 3-Inclusao | 4-Alteracao | 5-Exclusao )
+Local nItens			:= 1			//variavel de controle para quantidade de itens
+Local nCount        	:= 0			//Variavel numerica para uso em contadores
+
+Local oXmlBusMsg				   		//Objeto com o conteudo apenas da BusinessMessage do Xml recebido
+
+//-- Variaveis utilizadas no De/Para de códigos
+
+Local cIntFuCod	    := "" 	   	//-- Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cIntCC	    := ""		//-- Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cIntVerba	    := ""		//-- Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cIntSema	    := ""		//-- Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cValExt	    := ""       //-- Codigo externo utilizada no De/Para de codigos - Tabela XXF
+Local cMarca	    := "" 	  	//-- Armazena a Marca (LOGIX,PROTHEUS,RM...) que enviou o XML
+Local cAlias	    := "RGB"   	 //-- Alias usado como referência no De/Para
+Local cCampo	    := "RGB_MAT" //-- Campo usado como referência no De/Para
+Local cKeyRGB       := ' '
+Local oArBusCon	    := Nil
+Local xAux  	    := ""
+Local cVersoesOk    := "1.000"
+Local cCCVersion    := ""
+
+Local cIntAutCod    := ""
+
+Local cPeriodo	    := ""
+Local cRoteiro	    := ""
+Local cProcesso	    := ""
+Local cAnoComp	    := ""
+Local cMesComp	    := ""
+
+Local lExistForn    := .F.  //Indica existencia de fornecedor
+Local lTemSRA       := .F.  //Indica existencia de funcionario
+Local nRecSRA       := 0    //Variavel numerica para uso em contadores
+
+Private oXmlG090  		:= Nil 			//Objeto que recebe o parse do Xml recebido
+Private lMsErroAuto		:= .F.			//Armazena o status da execucao da MsExecAuto
+Private lAutoErrNoFile	:= .T.
+
+If ( Type("Inclui") == "U" )
+	Private Inclui := .F.
+EndIf
+
+If ( Type("Altera") == "U" )
+	Private Altera := .F.
+EndIf
+
+//Tratamento do recebimento de mensagens
+If ( nTypeTrans == TRANS_RECEIVE )
+
+	//Recebimento da mensagem de negocios
+	If ( cTypeMessage == EAI_MESSAGE_BUSINESS )
+
+		If cVersao $ cVersoesOk
+			//Cria objeto com os dados do Xml
+			oXmlG090 := XmlParser( cXml, "_", @cError, @cWarning )
+
+			If ( oXmlG090 <> Nil ) .And. ( Empty(cError) ) .And. ( Empty(cWarning) )
+
+				oXmlBusMsg := oXmlG090:_TOTVSMessage:_BusinessMessage
+
+				cMarca := oXmlG090:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+
+				//-----------------------------------------------------------------
+				//-- Tratamento utilizando a tabela XXF com um De/Para de codigos
+				//-----------------------------------------------------------------
+
+				If ( FindFunction("CFGA070INT") )
+
+					DbSelectArea('SRV')
+					SRV->( DbSetOrder( 1 ) ) // RV_FILIAL + RV_COD
+
+					DbSelectArea('CTT')
+					CTT->( DbSetOrder( 1 ) ) // CTT_FILIAL + CTT_CUSTO
+
+					DbSelectArea("RGB")
+		  			RGB->( DbSetOrder( 1 ) ) //RGB_FILIAL+RGB_MAT+RGB_PD+RGB_CC+RGB_SEMANA+RGB_SEQ
+
+					DbSelectArea('SRA')
+					SRA->( DbSetOrder( 1 ) ) // RA_FILIAL + RA_MAT
+
+					DbSelectArea('SA2')
+					SA2->( DbSetOrder( 1 ) ) // A2_FILIAL + A2_COD + A2_LOJA
+
+					If XmlChildEx( oXmlBusMsg:_BusinessContent, "_EMPLOYEEINTERNALID"  ) <> Nil .And. ;
+						!Empty( oXmlBusMsg:_BusinessContent:_EmployeeInternalId:Text ) .And. ;
+						XmlChildEx( oXmlBusMsg, "_BUSINESSEVENT" ) <> Nil .And. ;
+						XmlChildEx( oXmlBusMsg:_BusinessEvent, "_EVENT" ) <> Nil
+
+						cEvent := Upper( oXmlBusMsg:_BusinessEvent:_Event:Text )
+
+						cValExt := oXmlBusMsg:_BusinessContent:_EmployeeInternalId:Text
+
+						cIntFuCod := GPEI090Rcv( AllTrim(CFGA070INT( cMarca, cAlias, cCampo, cValExt )), { "RGB_FILIAL", "RGB_MAT" } )
+
+						If Empty( cIntFuCod ) .And. !Empty( xFilial("SA2") )
+
+							cIntAutCod := AllTrim(CFGA070INT( cMarca, "SA2", "A2_COD", cValExt ))
+							cIntAutCod := PADL(cIntAutCod,TamSx3("A2_COD")[1])
+
+							if !Empty(cIntAutCod)
+								SA2->(DbSeek(xFilial("SA2")+cIntAutCod))
+
+								if !Empty(SA2->A2_NUMRA)
+									cIntFuCod := xFilial("SA2")+SA2->A2_NUMRA
+								endIf
+							endIf
+						EndIf
+
+						If Empty( cIntFuCod )
+							xAux := IntFunInt( cValExt, cMarca, "2.003")
+
+							If xAux[1]
+								cIntFuCod := xAux[2][2]+xAux[2][3]
+
+								If SRA->( DbSeek( cIntFuCod ) )
+
+									If cEvent == "DELETE"
+										nOpcx := 5
+									Else
+										If RGB->( DbSeek( cIntFuCod ) )
+											nOpcx := 4
+										Else
+											nOpcx := 3
+										EndIf
+									EndIf
+									aAdd( aCab, { "RA_FILIAL", SRA->RA_FILIAL, Nil } )
+									aAdd( aCab, { "RA_MAT", SRA->RA_MAT, Nil } )
+
+									cProcesso := SRA->RA_PROCES
+								EndIf
+							Else
+								lRet	:= .F.
+								cXMLRet := xAux[2]
+							EndIf
+						Else
+
+							//----------------------------------------------
+							//  Já possui de-para, realiza alteração ou exclusão
+							If cEvent == "UPSERT" .And. SRA->( DbSeek( cIntFuCod ) )
+								If RGB->( DbSeek( cIntFuCod ) ) // Posso possuir o de/para mas estar fazendo pela segunda vez em um mes diferente.
+									nOpcx := 4
+								Else
+									nOpcx := 3
+								EndIf
+								aAdd( aCab, { "RA_FILIAL", SRA->RA_FILIAL, Nil } )
+								aAdd( aCab, { "RA_MAT", SRA->RA_MAT, Nil } )
+								cProcesso := SRA->RA_PROCES
+
+							ElseIf cEvent == "DELETE" .And. RGB->( DbSeek( cIntFuCod ) ) .And. SRA->( DbSeek( xFilial("SRA")+RGB->RGB_MAT ) )
+
+								nOpcx := 5
+								aAdd( aCab, { "RA_FILIAL", SRA->RA_FILIAL, Nil } )
+								aAdd( aCab, { "RA_MAT", SRA->RA_MAT, Nil } )
+								cProcesso := SRA->RA_PROCES
+
+							ElseIf cEvent == "UPSERT" .And. SRA->( DbSeek( xFilial("SRA")+SA2->A2_NUMRA ) )
+
+								nOpcx := 3
+								aAdd( aCab, { "RA_FILIAL", SRA->RA_FILIAL, Nil } )
+								aAdd( aCab, { "RA_MAT", SRA->RA_MAT, Nil } )
+								cProcesso := SRA->RA_PROCES
+
+							Else
+								lRet := .F.
+								cXmlRet := STR0001 // "Combinação de chave e operação da mensagem não são válidas"
+							EndIf
+						EndIf
+
+						If XmlChildEx( oXmlBusMsg:_BusinessContent, "_LISTOFPAYROLLITEM" ) <> Nil .And. ;
+							XmlChildEx( oXmlBusMsg:_BusinessContent:_ListOfPayrollItem, "_PAYROLLITEM" ) <> Nil
+
+							If ValType(oXmlBusMsg:_BusinessContent:_ListOfPayrollItem:_PayrollItem) <> "A"
+								XmlNode2Arr(oXmlBusMsg:_BusinessContent:_ListOfPayrollItem:_PayrollItem, "_PAYROLLITEM")
+							EndIf
+
+							oArBusCon := oXmlBusMsg:_BusinessContent:_ListOfPayrollItem:_PayrollItem
+
+							cRoteiro := If(SRA->RA_CATFUNC $ 'A|P',fGetCalcRot('9'),fGetCalcRot('1'))
+							aAdd( aCab, { "CROTEIRO", cRoteiro, Nil } )
+							RCH->(DbSetOrder(1))//RCH_FILIAL+RCH_PROCES+RCH_PER+RCH_NUMPAG+RCH_ROTEIR
+
+							For nCount := 1 To Len( oArBusCon )
+
+		   						Aadd(aItens, {})
+
+									//Código da verba do lançamento
+									If XmlChildEx( oArBusCon[nCount], "_FUNDCODEINTERNALID" ) <> Nil
+
+										cFundCode := oArBusCon[nCount]:_FundCodeInternalId:Text
+										cIntVerba := GPEI040Rcv( CFGA070INT( cMarca, 'SRV', 'RV_COD', cFundCode ), { "RV_FILIAL", "RV_COD" } )
+
+										If !Empty( cIntVerba ) .And. SRV->( DbSeek( cIntVerba ) )
+											cIntVerba := SRV->RV_COD
+											aAdd( aItens[nItens], { "RGB_PD", cIntVerba, Nil } )
+										Else
+											cIntVerba := GPEI090NRcv( CFGA070INT( cMarca, 'SRV', 'RV_COD', cFundCode ), { "RV_FILIAL", "RV_COD" } )
+
+											If !Empty( cIntVerba ) .And. SRV->( DbSeek( cIntVerba ) )
+												cIntVerba := SRV->RV_COD
+												aAdd( aItens[nItens], { "RGB_PD", cIntVerba, Nil } )
+											else
+												lRet	:= .F.
+												cXMLRet := STR0002+": "+cFundCode // "Código da verba não encontrado"
+											endIf
+										EndIf
+									EndIf
+
+									//Tipo de conteudo de Verba
+									If XmlChildEx( oArBusCon[nCount], "_INFORMATIONTYPE") <> Nil
+										xAux := Upper( oArBusCon[nCount]:_InformationType:Text )
+
+										If xAux == "1"
+											xAux := "H"
+										ElseIf xAux == "2"
+											xAux := "D"
+										ElseIf xAux == "3"
+											xAux := "V"
+										Else
+											xAux := ""
+										EndIf
+
+										aAdd( aItens[nItens], { "RGB_TIPO1", xAux, Nil } )
+									EndIf
+
+									//Quantidade do tipo da verba
+									If XmlChildEx( oArBusCon[nCount], "_NUMBEROFHOURSPOSTED") <> Nil
+										aAdd( aItens[nItens], { "RGB_HORAS",  Val(oArBusCon[nCount]:_NumberofHoursPosted:Text), Nil } )
+									EndIf
+
+									//Data do lançamento
+									If XmlChildEx( oArBusCon[nCount], "_REFERENCEDATE") <> Nil
+										if at("/", oArBusCon[nCount]:_ReferenceDate:Text) == 3
+											dia := substr(oArBusCon[nCount]:_ReferenceDate:Text, 1, 2)
+											mes := substr(oArBusCon[nCount]:_ReferenceDate:Text, 4, 2)
+											ano := substr(oArBusCon[nCount]:_ReferenceDate:Text, 7)
+											aAdd( aItens[nItens], { "RGB_DTREF",  STOD(ano+mes+dia), Nil } )
+										else
+											aAdd( aItens[nItens], { "RGB_DTREF",  STOD( StrTran( SubStr( oArBusCon[nCount]:_ReferenceDate:Text, 1, 10), "-", "" ) ), Nil } )
+										endIf
+									EndIf
+
+									//Código do Centro de Custo
+									If XmlChildEx( oArBusCon[nCount], "_COSTCENTERINTERNALID") <> Nil
+
+										xAux := IntCusInt( oArBusCon[nCount]:_CostCenterInternalId:Text, cMarca, If( !Empty( cCCVersion := GetEAIVers('COSTCENTER')),cCCVersion,"2.000" ))
+
+										If xAux[1]
+											If  cCCVersion == '1.000'
+												cIntCC	:= xAux[2,1] + xAux[2,2]
+											Else
+												cIntCC := xAux[2,2] + xAux[2,3] // Mensagem de Centro de Custo cadastra o De/Para com Empresa/Filial/Centro de Custo e utilizando assim no proprio CTBI030											If !Empty( cIntCC ) .And. CTT->( DbSeek( cIntCC ) )
+											EndIf
+											If !Empty( cIntCC ) .And. CTT->( DbSeek( cIntCC ) )
+												cIntCC := CTT->CTT_CUSTO
+												aAdd( aItens[nItens], { "RGB_CC", cIntCC, Nil } )
+											Else
+												lRet := .F.
+												cXmlRet := STR0003 // "Codigo do Centro de custo não informado na mensagem"
+											EndIf
+
+										Else
+											lRet := .F.
+											cXmlRet := STR0004 + STR0005 + cValToChar( nCount ) // "Código de Centro de Custo não identificado. " #### "Item numero "
+										EndIf
+									EndIf
+
+									//Valor da verba
+									If XmlChildEx( oArBusCon[nCount], "_ENTRYVALUE") <> Nil
+										aAdd( aItens[nItens], { "RGB_VALOR",  Val(oArBusCon[nCount]:_EntryValue:Text), Nil } )
+									EndIf
+
+									//Tipo do registro
+									aAdd( aItens[nItens], { "RGB_TIPO2",  "I", Nil } )
+
+									//Roteiro
+									aAdd( aItens[nItens], { "RGB_ROTEIR", cRoteiro, Nil } )
+
+									//Código do Processo
+									If !(Empty(cProcesso))
+										aAdd( aItens[nItens], { "RGB_PROCES", cProcesso, Nil })
+									EndIf
+
+									//Periodo
+									If (XmlChildEx( oArBusCon[nCount], "_MONTHCOMPETENCE") <> Nil) .And.;
+										(XmlChildEx( oArBusCon[nCount], "_YEARCOMPETENCE") <> Nil)
+
+										cPeriodo := oArBusCon[nCount]:_YearCompetence:Text
+										cPeriodo += StrZero(Val(oArBusCon[nCount]:_MonthCompetence:Text),2)
+
+										if RCH->(DbSeek(xFilial("RCH") + cProcesso + cPeriodo))
+											cPeriodo := RCH->RCH_PER
+										endIf
+
+										aAdd(aItens[nItens], { "RGB_PERIOD", cPeriodo, Nil})
+										if(nCount == 1)
+											aAdd(aCab, { "CPERIODO", cPeriodo, Nil})
+										endIf
+
+									EndIf
+
+									//Número da semana de pagamento
+									If XmlChildEx( oArBusCon[nCount], "_WEEKNUMBER") <> Nil
+										if(nCount == 1) .Or. (Empty(cIntSema))
+											cIntSema := oArBusCon[nCount]:_WeekNumber:Text
+											aAdd(aCab, { "CNUMPAGTO", cIntSema, Nil})
+										endIf
+									Else
+										if(nCount == 1) .Or. (Empty(cIntSema))
+											cIntSema:= RCH->RCH_NUMPAG
+											aAdd(aCab, { "CNUMPAGTO", cIntSema, Nil})
+										endIf
+									EndIf
+									aAdd( aItens[nItens], { "RGB_SEMANA",  cIntSema, Nil } )
+
+								nItens++
+							Next nCount
+
+						ElseIf nOpcx <> 5
+
+							lRet := .F.
+							cXmlRet := STR0006 // "Estrutura do Xml inválida"
+
+						EndIf
+
+					Else
+
+						lRet := .F.
+						cXmlRet := STR0006 // "Estrutura do XML inválida"
+
+					EndIf
+
+					If lRet
+						/*Se fornecedor possuir modo de acesso compartilhado e a filial de processamento for diferente
+						do encontrado no DE/PARA do funcionario, deve-se verificar se há o cadastro de autonomo na filial
+						de processamento. Caso nao possua, sera feito replica do cadastro do autonomo para a filial de
+						processamento.
+						Obs.: esse processo é necessario devido a particularidade de uma situacao em que o fornecedor é
+						autonomo e o cadastro do fornecedor é compartilhado tanto no LOGIX quanto no PROTHEUS mas o
+						autonomo é exclusivo devido regra de negocio da tabela SRA (o autonomo é cadastrado na SRA
+						na filial correspondente a empresa do LOGIX no DE/PARA).
+						Dessa forma, é possével que o autonomo tenha lancamentos em qualquer empresa do LOGIX
+						sendo necessario a replica do cadastro do autonomo no PROTHEUS para a filial em processamento.
+						O processo é feito manualmente pois atualmente nao ha a tratativa automática do FRAMEWORK
+						para replicar o cadastro para as outras filiais, nem encontrar a chave interna quando um valor
+						externo possui mais de um valor interno.*/
+						If Empty( xFilial("SA2") ) .And. aCab[1, 2] != cFilAnt
+							//Garante o posicionamento no fornecedor
+							If SRA->RA_CIC != AllTrim(SA2->A2_CGC)
+								If Empty(cIntAutCod)
+									cIntAutCod := CFGA070INT( cMarca, "SA2", "A2_COD", cValExt )
+								EndIf
+								//Faz a busca do fornecedor pelo codigo interno ou pelo CPF do autonomo da matricula encontrada no DE/PARA
+								If !( lExistForn := SA2->( dbSeek(xFilial("SA2") + cIntAutCod) ) )
+									SA2->( dbSetOrder( 3 ) )//A2_FILIAL + A2_CGC
+									lExistForn := SA2->( dbSeek(xFilial("SA2") + SRA->RA_CIC) )
+								EndIf
+							Else
+								lExistForn := .T.
+							EndIf
+							//Verifica se ha cadastro do SRA do autonomo na filial em processamento
+							SRA->( dbSetOrder( 6 ) )//RA_FILIAL + RA_PIS
+							nRecSRA := SRA->( Recno() )
+							//Caso nao exista, faz o cadastro do autonomo na filial em processamento
+							If !SRA->( dbSeek( cFilAnt + SRA->RA_PIS ) ) .And. lExistForn
+								SRA->( dbGoTo(nRecSRA) )
+								Gp265GrvFun( 3, SRA->RA_PIS, cMarca, Nil, cValExt, Nil, "")
+								SRA->( DbSeek( cFilAnt + SRA->RA_PIS ) )
+							EndIf
+							//Atualiza a filial/matricula da rotina automatica com o autonomo da filial em processamento
+							aCab[1, 2] := SRA->RA_FILIAL
+							aCab[2, 2] := SRA->RA_MAT
+						EndIf
+
+						MSExecAuto({|X,Y,Z,K|Gpea580(X,Y,Z,K)},Nil, aCab, aItens, nOpcx)
+
+						If ( lMsErroAuto )
+							aErroAuto := GetAutoGRLog()
+
+							For nCount := 1 To Len(aErroAuto)
+								cLogErro += StrTran( StrTran( StrTran( StrTran( StrTran( aErroAuto[nCount], CHR(10), "" ), CHR(13), "" ), "/", "" ), "<", "" ), ">", "" ) + ("|")
+							Next nCount
+
+							//Monta XML de Erro de execução da rotina automatica.
+							lRet := .F.
+							cXMLRet := EncodeUTF8(NoAcento(cLogErro))
+						Else
+
+							cIntFuCod := GPEI090Snd( { cEmpAnt, xFilial("RGB"), RGB->RGB_MAT } )
+
+							If nOpcx <> 5
+
+								If CFGA070Mnt( cMarca, cAlias, cCampo, cValExt, cIntFuCod )
+									// Monta xml com status do processamento da rotina automatica OK.
+									cXmlRet += "<ListOfInternalId>"
+									cXmlRet += 	"<InternalId>"
+									cXMLRet += 		"<Name>" + "MONTHLYPAYROLL" + "</Name>"  //Valor recebido na tag "BusinessMessage:BusinessContent:Code"
+									cXMLRet += 		"<Origin>" + cValExt + "</Origin>"  //Valor recebido na tag "BusinessMessage:BusinessContent:Code"
+									cXMLRet += 		"<Destination>" + cIntFuCod + "</Destination>" //Valor gerado
+									cXmlRet += 	"</InternalId>"
+									cXmlRet += "</ListOfInternalId>"
+								EndIf
+						   	Else
+						   		CFGA070Mnt( , cAlias, cCampo, , cIntFuCod, .T. )
+							EndIf
+
+						EndIf
+
+					EndIf
+				Else
+					lRet := .F.
+					cXmlRet := STR0007 // "Atualize EAI"
+				EndIf
+
+
+			Else
+				// "Falha ao gerar o objeto XML"
+				lRet := .F.
+				cXMLRet := STR0008 // "Falha ao manipular o XML"
+			EndIf
+
+		Else
+
+			lRet := .F.
+			cXmlRet := STR0009 + cVersao + "." + STR0010 + cVersoesOk // "Adapter não trata a versão " #### "As versões disponíveis são: "
+
+		EndIf
+
+		cXmlRet := EncodeUTF8( cXmlRet )
+
+	//Message Response
+	ElseIf ( cTypeMessage == EAI_MESSAGE_RESPONSE )
+		//----------------------------------------------------
+		//  Trata o retorno para o de/para
+		TrataResp( @lRet, @cXmlRet, cXml )
+
+	//WhoIs
+	ElseIf ( cTypeMessage == EAI_MESSAGE_WHOIS )
+		cXMLRet := cVersoesOk
+
+	EndIf
+
+//Tratamento do envio de mensagem
+ElseIf ( nTypeTrans == TRANS_SEND )
+
+	cIntFuCod := GPEI090Snd( { cEmpAnt, RGB->RGB_FILIAL, RGB->RGB_MAT } )
+
+	//Verifica se é uma exclusão
+	If ( !Inclui ) .And. ( !Altera )
+		cEvent := 'delete'
+
+		CFGA070Mnt( , cAlias, cCampo, , cIntFuCod, .T. )
+
+	EndIf
+
+	cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>MonthlyPayroll</Entity>'
+	cXMLRet +=     '<Event>'+ cEvent +'</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="Code">' + cIntFuCod + '</key>'
+	cXMLRet +=     '</Identification>'
+	cXMLRet += '</BusinessEvent>'
+
+	cXMLRet +='<BusinessContent>'
+	cXMLRet +=	'<CompanyId>'+ cEmpAnt + '</CompanyId>'
+	cXMLRet +=	'<BranchId>'+ RGB->RGB_FILIAL + '</BranchId>'
+	cXMLRet +=	'<CompanyInternalId></CompanyInternalId>'
+	cXMLRet +=	'<EmployeeCode>' + RGB->RGB_MAT + '</EmployeeCode>'
+	cXMLRet +=	'<EmployeeInternalId>' + IntFunExt( , , RGB->RGB_MAT, "2.000" )[2] + '</EmployeeInternalId>'
+	cXMLRet +=	'<ListOfPayrollItem>'
+
+
+	DbSelectArea("RGB")
+	RGB->(DbSetOrder(1))	//RGB_FILIAL+RGB_MAT+RGB_PD+RGB_PERIOD+RGB_SEMANA+RGB_SEQ
+	cKeyRGB := RGB->( RGB_FILIAL + RGB_MAT )
+
+    RGB->( MsSeek( cKeyRGB ) ) // Posiciona no primeiro registro do funcionário
+
+    While cKeyRGB == RGB->( RGB_FILIAL + RGB_MAT )
+
+		cXMLRet +=		'<PayrollItem>'
+		cXMLRet +=			'<FundCode>' + RGB->RGB_PD + '</FundCode>'
+
+		cXMLRet +=			'<FundCodeInternalId>' + GPEI040Snd( { cEmpAnt, xFilial("SRV"), RGB->RGB_PD } ) + '</FundCodeInternalId>'
+
+		xAux := RGB->RGB_TIPO1
+
+			If xAux == "H"
+				xAux := "1" 	// Horas
+			ElseIf xAux == "D"
+				xAux := "2" 	// Dia
+			ElseIf xAux == "V"
+				xAux := "3" 	// Valor
+			EndIf
+
+		cXMLRet +=			'<InformationType>' + xAux + '</InformationType>'
+		cXMLRet +=			'<NumberOfHoursPosted>' + CValToChar(RGB->RGB_HORAS) + '</NumberOfHoursPosted>'
+		cXMLRet +=			'<EntryValue>' + CValToChar(RGB->RGB_VALOR) + '</EntryValue>'
+
+
+		If !Empty( RGB->RGB_DTREF )
+			cXMLRet +=		'<ReferenceDate>' + Transform( DTOS(RGB->RGB_DTREF), "@R 9999-99-99") + '</ReferenceDate>'
+		Else
+			cXMLRet +=		'<ReferenceDate>' + Transform( DTOS(dDataBase), "@R 9999-99-99") + '</ReferenceDate>'
+		EndIf
+
+		xAux := RGB->RGB_PERIOD + "01"
+
+		cAnoComp := CValToChar(Year	(STOD( xAux )))
+		cMesComp := CValToChar(Month(STOD( xAux )))
+
+		cXMLRet +=			'<MonthCompetence>'+ cMesComp +'</MonthCompetence>'
+		cXMLRet +=			'<YearCompetence>' + cAnoComp +'</YearCompetence>'
+
+		DbSelectArea('RCH')
+		RCH->(DbSetOrder(7))//RCH_FILIAL+RCH_ANO+RCH_MES
+		if(RCH->(DbSeek(xFilial("RCH",RGB->RGB_FILIAL) + cAnoComp + StrZero(Val(cMesComp),2))))
+			cXMLRet +=		'<PaymentDate>' + Transform(DTOS(RCH->RCH_DTPAGO), "@R 9999-99-99") + '</PaymentDate>'
+		else
+			cXMLRet +=		'<PaymentDate>' + '</PaymentDate>'
+		endIf
+
+		xAux := RGB->RGB_TIPO2
+
+		If xAux == "I"
+			xAux := "6" // Informado
+		Else
+			xAux := ""
+		EndIf
+
+		cXMLRet +=			'<FundOrigin>' + xAux + '</FundOrigin>'
+		cXMLRet +=			'<CostCenter>' + RGB->RGB_CC + '</CostCenter>'
+		cXMLRet +=			'<CostCenterInternalId>' + IntCusExt(, xFilial("CTT"), RGB->RGB_CC, GetEAIVers('COSTCENTER'))[2] + '</CostCenterInternalId>'
+		cXMLRet +=			'<WeekNumber>' + RGB->RGB_SEMANA + '</WeekNumber>'
+		cXMLRet +=		'</PayrollItem>'
+
+		RGB->( dbSkip() )
+
+	EndDo
+
+	cXMLRet +=	'</ListOfPayrollItem>'
+	cXMLRet +='</BusinessContent>'
+
+EndIf
+
+aEval(aAreas,{|aArea|RestArea(aArea)})
+Return { lRet, cXMLRet , 'MONTHLYPAYROLL'}
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI090Snd
+Rotina para integração por EAI
+
+@since 26/06/2013
+@version P11
+@param	aTempDados - valor para realizar o tratamento, inserindo pipes na string de retorno
+@return	cTempKey   - chave interna do de/para dividida em pipes
+
+/*/
+//-------------------------------------------------------------------
+Function GPEI090Snd( aTempDados )
+
+Local nZ       := 1
+Local cTempKey := ""
+
+Default aTempDados := { cEmpAnt, RGB_FILIAL, RGB_MAT }
+
+For nZ := 1 To Len( aTempDados )
+
+	cTempKey += RTrim( aTempDados[nZ] ) + "|"
+
+Next nZ
+
+cTempKey := SubStr( cTempKey, 1, Len( cTempKey ) -1 )
+
+Return cTempKey
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI090Rcv
+Rotina para realizar a separação da chave da tabela do conteúdo gravado
+no de/para, removendo os pipes e identificando o tamanho dos campos
+
+@since 26/06/2013
+@version P11
+@param	cTmpKeyInt, caractere,valor para realizar o tratamento array para inserir pipes e string para remover pipes
+@param aCposChave , vetor,array contendo os campos para ajuste de tamanho
+@return	cTempKey   - chave interna do de/para dividida em pipes
+
+/*/
+//-------------------------------------------------------------------
+Function GPEI090Rcv( cTmpKeyInt, aCposChave )
+
+Local cTempKey  := ""
+Local xAuxKey   := {}
+Local nZ        := 0
+
+Default cTmpKeyInt := ""
+Default aCposChave := { "RGB_FILIAL", "RGB_MAT" }
+
+xAuxKey := StrToKarr( cTmpKeyInt, "|" )
+
+If ( Len( xAuxKey ) - 1) == Len( aCposChave )
+
+	For nZ := 2 To Len( xAuxKey )
+
+		cTempKey += PadR( xAuxKey[nZ], TamSX3( aCposChave[nZ-1] )[1] )
+
+	Next nZ
+EndIf
+
+xAuxKey := aSize( xAuxKey, 0 )
+
+Return cTempKey
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} TrataResp
+	Trata a resposta da aplicação destino para gravação do De/Para
+
+@since 26/06/2013
+@version P11
+@param 	lProcOk,lógico,Status do processamento (referência)
+@param 	cMsgRet,caractere,Mensagem de retorno do processamento (referência)
+@param 	cXml,caractere,Mensagem da response para tratamento
+
+/*/
+//-------------------------------------------------------------------
+Static Function TrataResp( lProcOk, cMsgRet, cXml )
+
+Local oObjXml 	:= Nil
+Local cXmlErro 	:= ""
+Local cXmlWarn 	:= ""
+Local nZ 		:= 0
+Local cMarca 	:= ""
+
+oObjXml := XmlParser( cXml, "_", @cXmlErro, @cXmlWarn )
+
+If oObjXml <> Nil .And. Empty( cXmlErro ) .And. Empty( cXmlWarn )
+
+	cMarca := oObjXml:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+
+	If XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation, "_STATUS" ) <> Nil .And. ;
+		Upper( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation:_Status:Text ) == "OK"
+
+		oObjXml := XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ReturnContent, "_LISTOFINTERNALID" )
+
+		If oObjXml <> Nil
+
+			If XmlChildEx( oObjXml, "_INTERNALID" ) <> Nil
+
+				If Valtype( oObjXml:_InternalId ) <> "A"
+					XmlNode2Arr( oObjXml:_InternalId, "_InternalId" )
+				EndIf
+
+				For nZ := 1 To Len( oObjXml:_InternalId )
+
+					If XmlChildEx( oObjXml:_InternalId[nZ], "_NAME" ) <> Nil .And. ;
+						Upper( oObjXml:_InternalId[nZ]:_Name:Text ) == "MONTHLYPAYROLL" .And. ;
+						XmlChildEx( oObjXml:_InternalId[nZ], "_ORIGIN" ) <> Nil .And. ;
+						XmlChildEx( oObjXml:_InternalId[nZ], "_DESTINATION" ) <> Nil
+
+						CFGA070Mnt( cMarca, 'RGB', 'RGB_MAT', ;
+							oObjXml:_InternalId[nZ]:_Destination:Text, ;
+							oObjXml:_InternalId[nZ]:_Origin:Text )
+
+						Exit
+					EndIf
+				Next nZ
+
+			Else
+
+				lProcOk := .F.
+				cMsgRet := STR0011 // "Não enviado conteúdo de retorno para cadastro de de-para"
+
+			EndIf
+
+		Else
+
+			lProcOk := .F.
+			cMsgRet := STR0012 // "Não é possível gravar de-para por causa de erro na leitura do retorno"
+
+		EndIf
+
+	Else
+
+		lProcOk 	:= .F.
+		cMsgRet 	:= STR0013 + "|" // "Erro no processamento pela outra aplicação"
+
+		If XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation, "_LISTOFMESSAGES" ) <> Nil
+			oObjXml := oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages
+
+			If XmlChildEx( oObjXml, "_MESSAGE" ) <> Nil
+
+				If Valtype( oObjXml:_Message ) <> "A"
+					XmlNode2Arr( oObjXml:_Message, "_Message" )
+				EndIf
+
+				For nZ := 1 To Len( oObjXml:_Message )
+
+					cMsgRet += Alltrim( oObjXml:_Message[nZ]:Text ) + "|"
+
+				Next nZ
+
+			Else
+
+				lProcOk := .F.
+				cMsgRet := STR0014 // "Erro no processamento, mas sem detalhes do erro pela outra aplicação"
+
+			EndIf
+
+		EndIf
+
+	EndIf
+
+Else
+	lProcOk 	:= .F.
+	cMsgRet 	:= STR0015 + "|" + cXmlErro + "|" + cXmlWarn // "Falha na leitura da resposta, de-para não será gravado"
+EndIf
+
+If !lProcOk
+	aValor[1] := .F.
+	aValor[2] := cMsgRet
+Else
+	aValor[1] := .T.
+	aValor[2] := ""
+EndIf
+
+oObjXml := Nil
+DelClassIntF()
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GI090GetStatus
+	Retorna a variável com o status do processamento
+
+@since  	13/08/2013
+@version 	P11
+@return 	aValor, ARRAY '{ Status, Mensagem }'
+/*/
+//-------------------------------------------------------------------
+Function GI090GetStatus()
+
+Return aValor
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI090NRcv
+Rotina para realizar a separação da chave da tabela do conteúdo gravado
+no de/para, removendo os pipes e identificando o tamanho dos campos
+
+@since 26/12/2013
+@version P11
+@param	cTmpKeyInt,caractere, valor para realizar o tratamento array para inserir pipes e string para remover pipes
+@param aCposChave ,vetor, array contendo os campos para ajuste de tamanho
+@return	cTempKey   ,caractere, chave interna do de/para dividida em pipes
+
+/*/
+//-------------------------------------------------------------------
+Function GPEI090NRcv( cTmpKeyInt, aCposChave )
+
+Local cTempKey  := ""
+Local xAuxKey   := {}
+Local nZ        := 0
+
+Default cTmpKeyInt := ""
+Default aCposChave := {}
+
+xAuxKey := Separa( cTmpKeyInt, "|", .T. )
+
+If ( Len( xAuxKey ) - 1) == Len( aCposChave )
+
+	For nZ := 2 To Len( xAuxKey )
+
+		cTempKey += PadR( xAuxKey[nZ], TamSX3( aCposChave[nZ-1] )[1] )
+
+	Next nZ
+EndIf
+
+xAuxKey := aSize( xAuxKey, 0 )
+
+Return cTempKey

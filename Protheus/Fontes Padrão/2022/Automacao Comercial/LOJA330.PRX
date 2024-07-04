@@ -1,0 +1,136 @@
+#INCLUDE "LOJA330.CH"
+#Include "FiveWin.ch"
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} Loja330
+Lancamentos contabeis off line das Vendas - SIGALOJA 
+
+@author	Varejo
+@version	P11.8
+@since		23/01/98
+@Obs		Bops 115284 Alterado a array aRotina para criação do menu funcional 
+@return	Nil
+/*/ 
+//------------------------------------------------------------------------------
+Function Loja330()
+LOCAL nOpca	:= 0
+LOCAL oDlg		:= Nil
+
+PRIVATE aRotina	:= MenuDef() 
+PRIVATE cCadastro	:= OemToAnsi(STR0002)  // Lancamentos Contabeis Off-Line
+
+DEFINE MSDIALOG oDlg FROM 100,100 TO 350,510 TITLE cCadastro PIXEL OF oMainWnd
+	 
+	@ 03,05 TO 100,200 PIXEL
+	@ 10,10 SAY OemToAnsi(STR0003) SIZE 180,08 OF oDlg PIXEL // Este programa tem como objetivo gerar automaticamente os
+	@ 20,10 SAY OemToAnsi(STR0004) SIZE 180,08 OF oDlg PIXEL // lancamentos contabeis dos movimentos de saida.
+
+	DEFINE SBUTTON FROM 107,100 TYPE 1 ACTION (nOpca:=1,oDlg:End())  ENABLE OF oDlg
+	DEFINE SBUTTON FROM 107,135 TYPE 2 ACTION oDlg:End()				  ENABLE OF oDlg
+	DEFINE SBUTTON FROM 107,170 TYPE 5 ACTION Pergunte("LOJ330",.T.) ENABLE OF oDlg
+
+	ACTIVATE MSDIALOG oDlg CENTERED
+	If nOpca ==1
+		Processa({|lEnd| L330Cont()}) //Chamada da funcao de recalculos
+	Endif
+Return
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} MenuDef
+Funcao de definição do aRotina 
+
+@author	Varejo
+@version	P11.8
+@since		12/12/06
+@return	aRotina - Retorna a array com lista de aRotina 
+/*/ 
+//------------------------------------------------------------------------------
+Static Function MenuDef() 
+
+Local aRotina:= { { STR0001,"AllwaysTrue", 0 , 3 , , .T.} }
+
+Return aRotina
+
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} L330Cont
+Faz contabilizacao das vendas no Loja
+
+@author	Varejo
+@version	P11.8
+@since		23/01/98
+@Obs		Alterada a utilização da chamada SubStr(cUsuario,7,15) por cUserName
+@return	aRotina - Retorna a array com lista de aRotina 
+/*/ 
+//------------------------------------------------------------------------------
+Static Function L330Cont()
+
+Local lExecutou := .F.
+Local lDigita
+Local lAglutina
+Local dMovimento	:= Nil
+
+PRIVATE cArquivo,nHdlPrv:=0,nTotal:=0,cLoteFat
+
+//Carrega as perguntas selecionadas
+// mv_par01 - Mostra Lancamentos Contabeis	?Sim Nao
+// mv_par02 - Aglutina Lancamentos				?Sim Nao
+// mv_par03 - Data Inicial
+// mv_par04 - Data Final
+pergunte("LOJ330",.F.)
+	
+// Define variaveis de parametrizacao de lancamentos 
+dbSelectArea("SX5")
+dbSelectArea("SL5")
+SL5->(dbSetOrder(1)) //L5_FILIAL+Dtos(L5_DATA)+L5_OPERADO
+
+lDigita	:= Iif(mv_par01==1,.T.,.F.)
+lAglutina	:= Iif(mv_par02==1,.T.,.F.)
+
+dMovimento := mv_par03
+
+While dMovimento <= mv_par04
+	
+	lExecutou	:= .F.
+	cArquivo	:= ""
+	cLoteFat	:= ""
+	nHdlPrv	:=0
+	nTotal		:=0
+
+	SL5->(dbSeek( SL5->(xFilial("SL5")) + Dtos(dMovimento),.T.))
+	ProcRegua(SL5->(RecCount()))
+		
+	While SL5->(!Eof()) .And. SL5->L5_FILIAL == cFilial .And. SL5->L5_DATA == dMovimento
+		If SL5->L5_LA == "S"
+			SL5->(dbSkip())
+			Loop
+		EndIf
+		IncProc()
+	
+		If !lExecutou
+			SX5->(dbSeek(cFilial+"09FAT"))
+			cLoteFat	:= IIF(SX5->(Found()),Trim(SX5->(X5Descri())),"FAT ")
+			nHdlPrv	:= HeadProva(cLoteFat,"LOJA330",Subs(cUserName,1,6),@cArquivo)
+			lExecutou	:= .T.
+		EndIf
+		nTotal += DetProva(nHdlPrv,"777","LOJA330",cLoteFat)
+	
+		SL5->(RecLock("SL5"))
+		Replace SL5->(L5_LA) With "S"
+		SL5->(dbCommit())
+		SL5->(MsUnLock())
+		SL5->(dbSkip())
+	EndDo
+
+	IF lExecutou
+		//Envia para Lancamento Contabil, se gerado arquivo
+		RodaProva(nHdlPrv,nTotal)
+		
+		//Envia para Lancamento Contabil, se gerado arquivo
+		cA100Incl(cArquivo,nHdlPrv,1,cLoteFat,lDigita,lAglutina,Nil,dMovimento)
+	Endif
+	dMovimento := dMovimento + 1
+End
+
+
+Return Nil

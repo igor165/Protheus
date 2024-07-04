@@ -1,0 +1,2841 @@
+#INCLUDE "protheus.ch"
+#include "FILEIO.CH"
+#INCLUDE "rwmake.ch"
+#INCLUDE "MATA485.CH"
+#INCLUDE "FWLIBVERSION.CH"
+
+Static _lMetric	:= Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATA485    ³ Autor ³ Luis Enríquez            ³ Data ³ 15.10.2018 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Transferencia Electgrónica de Documentos                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³              ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador   ³ Data   ³ BOPS/FNC  ³            Motivo da Alteracao           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Marco A. Glez³30/05/19³DMINA-6574 ³ Se modifica la forma de consumir los WS, ³±±
+±±³              ³        ³           ³ para que cuando se envie un rango de     ³±±
+±±³              ³        ³           ³ documentos, se realice el consumo de WS, ³±±
+±±³              ³        ³           ³ documento por documento (CHI/EQU).       ³±±
+±±³Luis Enríquez ³23/12/19³DMINA-7936 ³ Se activa transión electrónica TSS-Signa-³±±
+±±³              ³        ³           ³ture esquema UBL 2.1 (PER).               ³±±
+±±³Luis Enríquez ³25/05/20³DMINA-9249 ³Se modifica M485GetDoc para tratamiento de³±±
+±±³              ³        ³           ³Boletas de Venta en el monitor y actuali- ³±±
+±±³              ³        ³           ³ción de status en Protheus (PER)          ³±±
+±±³Luis Enríquez ³13/02/21³DMINA-     ³Se activa validación para funcionalidad de³±±
+±±³(PER)         ³        ³11131      ³Forma de Pago para NF y NCC Fact. Elec.   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATA485()
+	Local aArea         := getArea()
+	Local aCores 		:= {}
+	Local cPerg 		:= "MATA485"
+	Local aCampos 	    := {}
+	Local lVldPar       := .T.
+	Private cFiltro 	:= ''
+	Private cAliasB 	:= 'SF2'
+	Private aIndArqE	:= {}
+	Private bFiltraBrw
+	Private aRotina 	:= {}
+	Private cTipo  	    := ""
+	Private cSerie 	    := ""
+	Private cModelo	    := ""
+	Private cAdminMail  := ContParam("MV_SIGNADM") //Parametro que contiene el mail del administrador
+	Private cAdminPass  := ContParam("MV_SIGNPAS") //Parametro que ADcontiene la contraseña del administrador
+	Private cAdminUser  := ContParam("MV_SIGNUSR") //Parametro que contiene el usuario del sistema
+	Private cMSerie     := ""
+	Private cMFacIn     := ""
+	Private cMFacFi     := ""
+	Private nTipoDoc    := 1
+	Private cEspecie    := ""
+	Private nTamEsp     := TamSX3("F1_ESPECIE")[1]
+	Private nTamDoc     := TamSX3("F1_DOC")[1]
+	Private cCRLF	    := (chr(13)+chr(10))
+	Private cPergFac    := ""
+	Private _lCerRet	:= .F.
+	Private __WSSING	:= GETMV("MV_SIGNAWS")
+	Private cCadastro   := STR0145 //"Documentos Electrónicos - "
+	Private cTipDocto   := ""
+	Private lAutomato := isBlind()
+	
+	If cPaisLoc $ "EQU|PER"	
+		lVldPar := M485VLDPAR(.F.)		
+		If !lVldPar
+			CURSORARROW()
+			Return .F.
+		EndIf
+	EndIf
+
+	aRotina := MenuDef()
+
+	If cModulo  == "FAT"
+
+		aCores :={{"F2_FLFTEX==' ' .Or. F2_FLFTEX=='0'",'BR_CINZA' },;		//No transmitida
+					{"F2_FLFTEX=='6'",'BR_VERDE'},;									//Documento autorizado
+					{"F2_FLFTEX=='5' .Or. F2_FLFTEX=='3'",'BR_VERMELHO'},;		//Documento rechazado
+					{"F2_FLFTEX=='4'",'BR_AMARELO'},;								//Aguardando procesamiento
+					{"F2_FLFTEX=='1'",'BR_AZUL'}}									//Recibido por TSS
+
+		If Pergunte(cPerg,.T.)
+			cTipo	:= MV_PAR01
+			cSerie	:= MV_PAR02
+			If cTipo == 1 //Factura Venta
+				cFiltro := "F2_ESPECIE = 'NF' .AND. F2_SERIE = '"+MV_PAR02+"'"
+				If cPaisLoc == "PER"
+					cFiltro += " .AND. 'F' $ SubStr(F2_SERIE2,1,1) "
+				EndIf
+				cModelo  := "S1"
+				cPergFac := "MATA485A"
+				cEspecie := Padr("NF",nTamEsp)
+				cTipDocto:= STR0146 //"Factura de Venta"
+
+			ElseIf cTipo == 3 //Nota de Crédito al cliente
+				nTipoDoc := 0
+				cEspecie := Padr("NCC", nTamEsp)
+				cAliasB  := 'SF1'
+				cPergFac := "MATA485C"
+				cFiltro  := "F1_ESPECIE = 'NCC' .AND. F1_SERIE = '"+MV_PAR02+"'"
+				cModelo  := "S4"
+				cTipDocto:= STR0147 //"Nota de Crédito"
+				
+				aCores  :={{"F1_FLFTEX==' ' .Or. F1_FLFTEX=='0'",'BR_CINZA' },;	//No transmitida
+							{"F1_FLFTEX=='6'",'BR_VERDE'},;									//Documento autorizado
+							{"F1_FLFTEX=='5' .Or. F1_FLFTEX=='3'",'BR_VERMELHO'},;		//Documento rechazado
+							{"F1_FLFTEX=='4'",'BR_AMARELO'},;								//Aguardando procesamiento
+							{"F1_FLFTEX=='1'",'BR_AZUL'}}									//Recibido por TSS
+
+			ElseIf cTipo == 2 //Nota Débito al Cliente
+				cEspecie := Padr("NDC", nTamEsp)
+				cFiltro  := "F2_ESPECIE = 'NDC' .AND. F2_SERIE = '"+MV_PAR02+"'"
+				cModelo  := "S5"
+				cPergFac := "MATA485B"
+				cTipDocto:= STR0148 //"Nota de Débito"
+			ElseIf cTipo == 4 .and. cPaisLoc == "CHI" //Guía Despacho Salida
+				nTipoDoc := 1
+				cAliasB  := 'SF2'
+				cFiltro  := "F2_ESPECIE = 'RFN' .AND. F2_SERIE = '"+MV_PAR02+"'"				
+				cModelo  := "SB"
+				cPergFac := "MATA485D"
+				cEspecie := Padr("RFN",nTamEsp)
+				cTipDocto:= STR0149 //"Guía Despacho Salida"
+			ElseIf cTipo == 4 .and. cPaisLoc == "PER" //Boleta de Venta 
+				cFiltro  := "F2_ESPECIE = 'NF' .AND. F2_SERIE = '"+MV_PAR02+"'" 
+				If cPaisLoc == "PER"
+					cFiltro += " .AND. 'B' $ SubStr(F2_SERIE2,1,1) " 
+				EndIf
+				cModelo   := "SD"
+				cPergFac  := "MATA485D"
+				cEspecie  := Padr("NF",nTamEsp)
+				cTipDocto := STR0150 //"Boleta de Venta"
+			EndIf
+			
+			cCadastro += cTipDocto
+			bFiltraBrw := {|| FilBrowse(cAliasB,@aIndArqE,@cFiltro) }
+			Eval(bFiltraBrw)
+			MBrowse(,,,,cAliasB,,,,,,aCores,,,,,,,,)
+		EndIf
+
+	ElseIf cModulo $ "COM"
+		If cPaisLoc $ "EQU|PER"
+			// Comprobantes de Retención
+			cTipDocto := STR0151 //"Comprobantes de Retención"
+			dbSelectArea("SFE")
+			_lCerRet 	:= .T.
+			cPergFac 	:= iif(cPaisLoc == "EQU","MATA485D", "MATA485E")
+			cModelo 	:= "S7"
+			aCores := {{"FE_STATUS==' ' .Or. FE_STATUS=='0'",'BR_CINZA' },;		//No transmitida
+					{"FE_STATUS=='6'",'BR_VERDE'},;								//Documento autorizado
+					{"FE_STATUS=='5' .Or. FE_STATUS=='3' ",'BR_VERMELHO'},;		//Documento rechazado
+					{"FE_STATUS=='4'",'BR_AMARELO'},;							//Aguardando procesamiento
+					{"FE_STATUS=='1'",'BR_AZUL'}}								//Recibido por TSS
+			
+			If cPaisLoc == "EQU"
+				aCampos :=	{	{STR0081,	"FE_NROCERT"},;
+								{STR0082,	"FE_EMISSAO"},;
+								{STR0083, 	"FE_FORNECE"},;
+								{STR0084,	"FE_LOJA"}	,;
+								{STR0085,	"FE_SERIE"}}
+			Else
+				aCampos :=	{	{STR0105,	"FE_SERIE2"},;
+								{STR0081,	"FE_NROCERT"},;
+								{STR0082,	"FE_EMISSAO"},;
+								{STR0083, 	"FE_FORNECE"},;
+								{STR0084,	"FE_LOJA"}	,;
+								{STR0085,	"FE_SERIEC"}}
+			EndIf
+			cAliasB := "SFE"
+			
+			cCadastro += cTipDocto
+			bFiltraBrw := {|| FilBrowse(cAliasB,@aIndArqE,@cFiltro) }
+			Eval(bFiltraBrw)
+			MBrowse(,,,,cAliasB,,,,,,aCores,,,,,,,,)
+		EndIf
+	EndIf
+
+	RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATA485B   ³ Autor ³ Luis Enríquez            ³ Data ³ 01.02.2019 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Rutina de Transmisión electrónica exclusiva de comprobantes de    ³±±  
+±±³          ³ Retención Electrónicos.                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                          ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATA485B()
+	Local aArea 		:= getArea()	
+	Private cFiltro 	:= ''
+	Private cAliasB 	:= 'SFE'
+	Private aIndArqE	:= {}
+	Private bFiltraBrw
+	Private aRotina 	:= {}
+	Private cTipo  	    := ""
+	Private cSerie 	    := ""
+	Private cModelo	    := ""
+	Private cMSerie	    := ""
+	Private cMFacIn	    := ""
+	Private cMFacFi	    := ""
+	Private cEspecie	:= ""
+	Private nTamEsp  	:= TamSX3("F1_ESPECIE")[1]
+	Private nTamDoc 	:= TamSX3("F1_DOC")[1]
+	Private cCRLF		:= (chr(13)+chr(10))
+	Private cPergFac 	:= ""
+	Private _lCerRet	:= .F.
+	Private cCRet       := ""
+	Private nTipoDoc    := 1
+	Private cCadastro   := STR0145 //"Documentos Electrónicos - "
+	
+	If !(cPaisLoc $ "EQU")
+		Help( STR0135, 1, "MATA485" ) //"Función no Disponible para este país."
+		Return
+	EndIf
+	
+	If cPaisLoc $ "EQU"	
+		lVldPar := M485VLDPAR(.T.)
+		
+		If !lVldPar
+			CURSORARROW()
+			Return .F.
+		EndIf
+	EndIf
+		
+	aRotina := MenuDef()
+
+	M485BRWSFE()
+	RestArea(aArea)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³WizardCFG ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Crea el Wizard de Configuracion para integrar Protheus      ³±±
+±±³          ³con Totvs Services                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function WizardCFG()
+	Local oWizard
+	Local cURL      := ContParam("MV_SIGNAWS") //Parametro que almacena la url de TSS
+	Local cCert     	:= Space(250)
+	Local cPassWord 	:= Space(24)
+	Local aTexto    	:= {}
+	Local cLocArea	:= space(100)
+
+	Private cMensaje := STR0018 //Concluyó con éxito la configuración de la integración del Protheus al Totvs Services
+
+	If PswAdmin( /*cUser*/, /*cPsw*/,RetCodUsr()) == 0
+
+		aadd(aTexto,{})
+		aTexto[1] := STR0019+CHR(13)+CHR(10) //"Esta rutina tiene como objetivo ayudarlo en la configuracion de la integración del Protheus con el servicio Totvs Services. "
+		aTexto[1] += STR0020 //"El primer paso es configurar la conexión del Protheus con el servicio."
+
+		aadd(aTexto,{})
+		aTexto[2] := STR0018 //"Concluyó con éxito la configuración de la integración del Protheus al Totvs Services"
+		oWizard = APWizard():New(STR0021, STR0022, STR0023, aTexto[1],; //Atención //"Siga atentamente los pasos para la configuración de la transmisión eletrónica." //"Asistente de configuración para la transmisión electrónica"
+											 {|| .T.}, {|| .T.}, , , , )
+		oWizard:NewPanel( STR0023, "", /*<bBack>*/, {|| ValidConfig(cUrl, cCert, cPassWord,cLocArea)}, {|| .T.}, ,  ) //"Asistente de configuración para la transmisión electrónica"
+		@ 010,010 SAY STR0024 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe la URL del servidor Totvs Services"
+		@ 025,010 GET cURL SIZE 270,010 PIXEL OF oWizard:oMPanel[2]
+		If !(cPaisLoc $ "CHI|PER")
+			@ 045,010 SAY STR0025 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe el nombre del archivo del certificado digital"
+			@ 055,010 GET cCert SIZE 240,010 PIXEL OF oWizard:oMPanel[2]
+			TButton():New( 055,250,STR0047,oWizard:oMPanel[2],{||cCert := cGetFile(STR0048,STR0049,0,"",.T.,GETF_LOCALHARD),.T.},29,12,,oWizard:oMPanel[2]:oFont,,.T.,.F.,,.T., ,, .F.) //"Drive: " //"Archivos(.PFX)|*.PFX|Archivos(.P12)|*.P12" //"Seleccione el certificado"
+			@ 075,010 SAY STR0026 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe la contraseña del archivo digital"
+			@ 075,110 GET cPassWord SIZE 060,010 PIXEL OF oWizard:oMPanel[2] PASSWORD
+		Else
+			@ 045,010 SAY STR0099 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe el nombre del archivo del certificado digital"
+			@ 055,010 GET cCert SIZE 240,010 PIXEL OF oWizard:oMPanel[2]
+			@ 075,010 SAY STR0100 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe la contraseña del archivo digital"
+			@ 075,110 GET cLocArea SIZE 060,010 PIXEL OF oWizard:oMPanel[2] 	
+			@ 100,010 SAY STR0101 SIZE 270,010 PIXEL OF oWizard:oMPanel[2] //"Informe la contraseña del archivo digital"
+			@ 095,110 GET cPassWord SIZE 060,010 PIXEL OF oWizard:oMPanel[2] PASSWORD			
+		EndIf
+		oWizard:NewPanel( STR0023, "", {|| .T.}, {|| .T.}, {|| .T.}, ,  ) //"Asistente de configuración para la transmisión electrónica"
+		@ 010,010 SAY cMensaje SIZE 270,050 PIXEL OF oWizard:oMPanel[3]
+		oWizard:Activate()
+	Else
+		Help( "", 1, "SEMPERM" )
+	EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ContParam ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtiene el contenido del parametro indicado                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Nombre del parametro                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ cRet: Contenido del parametro indicado en cExp1            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ContParam(cParam)
+Local cRet := Padr(GetmV(cParam),250)
+
+Return cRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ValidConfig³Autor  ³Luis Enríquez         ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que los datos ingresados en la segunda pantalla del  ³±±
+±±³          ³Wizard no estén vacios, y que el archivo informado existe   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cExp1: URL del Totvs Service                               ³±±
+±±³          ³ cExp2: Nombre del certificado digital                      ³±±
+±±³          ³ cExp3: Contraseña asignada al certificado digital          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet: Indica si la validacion es correcta (.T. o .F.)      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ValidConfig(cUrl, cCert, cPass, cLArea)
+	Local lRet := .F.
+	Local nH   := 0
+	Local cEnt := ""
+
+	CursorWait()
+	If Empty(cUrl)
+		MsgAlert(STR0027) //"Ingresa una URL"
+	ElseIf Empty(cPass)
+		IIF((cPaisLoc $ "CHI|PER"),MsgAlert(STR0102),MsgAlert(STR0028)) //"Ingresa la contraseña del certificado digital"
+	ElseIf Empty(cCert)
+		IIF((cPaisLoc $ "CHI|PER"),MsgAlert(STR0103),MsgAlert(STR0029)) //"Selecciona el certificado digital"
+	Else
+		nH := IIF(!(cPaisLoc $ "CHI|PER"),fopen(cCert, FO_READ) , 0)
+		If (cPaisLoc $ "CHI|PER")
+			If Empty(cLArea)
+				MsgAlert(STR0104) // "Ingresa Area de conexión con sistema Signature"
+				Return .F.
+			EndIf
+		End
+		If nH == -1
+			MsgAlert(STR0030) //"El archivo especificado no existe"
+		Else
+			PUTMV("MV_SIGNAWS", cUrl) //Parametro que almacena la url de TSS
+			cEnt := GetIdEnt(,cCert,cPass)
+			If !Empty(cEnt)
+				RegEmp(cEnt,cCert,cPass,cUrl,cLArea)
+			EndIf
+			lRet := .T.
+		EndIf
+	EndIf
+	CursorArrow()
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³GetIdEnt  ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtiene el codigo de la entidad a enviar para Totvs         ³±±
+±±³          ³Service                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³cRet: Codigo de la entidad en Totvs Service                 ³±±a
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Código de Filial                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetIdEnt(cCodFil)
+	Local aArea  := GetArea()
+	Local cIdEnt := ""
+	Local cURL   := ContParam("MV_SIGNAWS") //Parametro que almacena la url de TSS
+	Local oWs
+
+	Default cCodFil	   := ""
+	cAdminMail := ContParam("MV_SIGNADM") //Parametro que contiene el mail del administrador
+	cAdminPass := ContParam("MV_SIGNPAS") //Parametro que contiene la contraseña del administrador
+	cAdminUser := ContParam("MV_SIGNUSR") //Parametro que contiene el usuario del sistema
+	if !Empty(cCodFil)
+		SM0->(dbSetOrder(1))
+		SM0->( dbSeek(cEmpant + cCodFil ) )
+	EndIf
+
+	oWs:=WSNFECFGLOC():New()
+	oWS:cUSERTOKEN := "TOTVS"
+	oWS:_URL       := Alltrim(cURL)+"/NFECFGLOC.apw"
+	oWS:oWSEMPRESA:cBAIRRO		:= SM0->M0_BAIRENT
+	oWS:oWSEMPRESA:cCIDADE     	:= SM0->M0_CIDCOB
+	oWS:oWSEMPRESA:cCOD_PAIS   	:= fGetPais() //funcion para obtener el pais
+	oWS:oWSEMPRESA:cCODFIL 	    := FWGETCODFILIAL
+	oWs:oWSEMPRESA:cCODPROVINC  := IIF(cPaisLoc == "PER",SM0->M0_ESTENT,"17")
+	oWS:oWSEMPRESA:cCOMPL      	:= FisGetEnd(SM0->M0_ENDENT)[4]
+	oWS:oWSEMPRESA:cCP        	:= ""
+	oWs:oWSEMPRESA:cCUIT      	:= ""
+	oWs:oWSEMPRESA:cDDN         := ""
+	oWS:oWSEMPRESA:cDESCPROVINC	:= SM0->M0_CIDENT
+	oWS:oWSEMPRESA:cEMAIL      	:= cAdminMail
+	oWS:oWSEMPRESA:cENDERECO   	:= FisGetEnd(SM0->M0_ENDENT)[1]
+	oWS:oWSEMPRESA:cFANTASIA   	:= SM0->M0_NOME
+	oWS:oWSEMPRESA:cFAX         := Alltrim(FisGetTel(SM0->M0_FAX)[3])
+	oWS:oWSEMPRESA:cFONE        := Alltrim(FisGetTel(SM0->M0_TEL)[3])
+	oWS:oWSEMPRESA:cINSCRPROVI 	:= SM0->M0_INSC
+	oWS:oWSEMPRESA:cNOME       	:= SM0->M0_NOMECOM
+	oWS:oWSEMPRESA:cNUM         := FisGetEnd(SM0->M0_ENDENT)[3]
+	oWs:oWSEMPRESA:cREGMUN     	:= ""
+	oWs:oWSEMPRESA:cRUC         := SM0->M0_CGC
+
+	If oWS:ADMEMPLOC()
+		cIdEnt  := oWS:cADMEMPLOCRESULT
+	Else
+		cMensaje := STR0031 //"Error en la configuración de la Integración del Protheus al Totvs Services"
+		MsgAlert(GetWSCError())
+	EndIf
+
+	oWs := Nil
+	DelClassIntF()
+	RestArea(aArea)
+Return(cIdEnt)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³RegEmp    ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Registra la empresa en el sistema Signature                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Id de la Entidad TSS                                 ³±±
+±±³          ³cExp2: Nombre del certificado digital                       ³±±
+±±³          ³cExp3: Contraseña del certificado digital                   ³±±
+±±³          ³cExp4: url de los servicios TSS                             ³±±
+±±³          ³cExp3: area de configuración a TSS                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³cExp1: Código de Filial                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function RegEmp(cIdEnt,cArq,cSenha,cUrl,clArea)
+	Local oSvc
+	Local cBase64 := ""
+	Local cSyncPoint := ""
+	Local cSyncPass := ""
+	
+	Default cArq    := ""
+	Default cSenha  	:= ""
+	Default cURL		:= ""
+	Default clArea 	:= ""
+
+	cAdminMail := IIF(!(cPaisLoc $ "CHI|PER"),ContParam("MV_SIGNADM"),cArq) //Parametro que contiene el mail del administrador
+	cAdminPass := IIF(!(cPaisLoc $ "CHI|PER"),ContParam("MV_SIGNPAS"), Alltrim(cSenha)) //Parametro que contiene la contraseña del administrador
+	cAdminUser := IIF(!(cPaisLoc $ "CHI|PER"),ContParam("MV_SIGNUSR"), Alltrim(clArea) ) //Parametro que contiene el usuario del sistema
+	
+	If cPaisLoc == "CHI"
+		cSyncPoint := ContParam("MV_SIGNUSR")
+		cSyncPass  := ContParam("MV_SIGNPAS")
+	EndIf
+	
+	cBase64 := iif(!(cPaisLoc $ "CHI|PER"),FsLoadTXT(cArq), Alltrim(cSyncPoint))
+	oSvc := WSTSSWSSIGNATURE():New()
+	oSvc:cUSERTOKEN 	:= "TOTVS"
+	oSvc:cENTIDADE  	:= cIdEnt  
+	oSvc:_URL       	:= Alltrim(cURL)+"/TSSWSSIGNATURE.apw"
+	oSvc:oWSCONFIGEMPRESA:cADMINEMAIL := cAdminMail
+	oSvc:oWSCONFIGEMPRESA:cADMINPASS := cAdminPass
+	oSvc:oWSCONFIGEMPRESA:cADMINUSER := cAdminUser
+	oSvc:oWSCONFIGEMPRESA:cCERTIFICADO := cBase64
+	oSvc:oWSCONFIGEMPRESA:lDELIVERY := .F.
+	oSvc:oWSCONFIGEMPRESA:cIMGLOGO := If(cPaisLoc <> "CHI","", cSyncPass)
+	oSvc:oWSCONFIGEMPRESA:lPRINT := .T.
+	oSvc:oWSCONFIGEMPRESA:cROLE := "Software"
+	oSvc:oWSCONFIGEMPRESA:cSENHA := Alltrim(cSenha)
+	oSvc:oWSCONFIGEMPRESA:lSTORAGE := .F.
+	If oSvc:CFGEMPRESA()
+		If !oSvc:oWSCFGEMPRESARESULT:lResult
+			cMensaje := STR0033+ CHR(13)+CHR(10)+CHR(13)+CHR(10) //"Falla en la configuración"
+			If oSvc:oWSCFGEMPRESARESULT:owserro:nCodigo == 83
+				cMensaje += STR0034 //"Formato inválido de e-mail de administrador"
+			ElseIf oSvc:oWSCFGEMPRESARESULT:owserro:nCodigo == 37
+				cMensaje += STR0035 //"Usuario de administrador, contraseña de administrador y/o e-mail de administrador faltantes"
+			ElseIf oSvc:oWSCFGEMPRESARESULT:owserro:nCodigo == 99
+				cMensaje += STR0050 + oSvc:oWSCFGEMPRESARESULT:owserro:cDescricao //"Error Interno: "
+			Else
+				cMensaje += oSvc:oWSCFGEMPRESARESULT:owserro:cDescricao
+			EndIf
+		EndIf
+	Else
+		cMensaje := STR0031 //"Error en la configuración de la Integración del Protheus al Totvs Services"
+		MsgAlert(GetWSCError())
+	EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³FsLoadTXT ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Lee el archivo especificado                                 ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Nombre del archivo a ser leido                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³cRet1: Contenido del archivo                                ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function FsLoadTXT(cFileImp, lLocal)
+	Local cTexto     := ""
+	Local cNewFile   := ""
+	Local cExt       := ""
+	Local cStartPath := GetSrvProfString("StartPath","")
+	Local nHandle    := 0
+	Local nTamanho   := 0
+	
+	Default lLocal := .T.
+	cStartPath := StrTran(cStartPath,"/","\")
+	cStartPath +=If(Right(cStartPath,1)=="\","","\")
+	If lLocal
+		CpyT2S(cFileImp,cStartPath)
+		SplitPath(cFileImp,/*cDrive*/,/*cPath*/, @cNewFile,cExt)
+		cNewFile := cNewFile+cExt
+	Else
+		cNewFile := cFileImp
+	EndIf
+	
+	nHandle := FOpen(cNewFile)
+	If nHandle > 0
+		nTamanho := Fseek(nHandle,0,FS_END)
+		FSeek(nHandle,0,FS_SET)
+		FRead(nHandle,@cTexto,nTamanho)
+		FClose(nHandle)
+		IF lLocal
+			FErase(cNewFile)
+		EndIf
+	EndIf
+
+	cTexto := Strtran(cTexto,Chr(239) + Chr(187) + Chr(191) , "")	// Quita códificación UTF-8
+Return(cTexto)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³CfgAmbien ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Configura el ambiente utilizado en el TSS                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function CfgAmbien()
+	Local oWs
+	Local aPerg   := {}
+	Local aCombo1 := {}
+	Local cCombo1 := ""
+	Local cCombo2 := ""
+	Local cCombo3 := ""
+	Local cCombo4 := ""
+	Local cCombo5 := ""
+	Local cIdEnt  := ""
+	Local cAmbien := ""
+	Local cURL    := ContParam("MV_SIGNAWS") //Parametro que almacena la url de TSS
+	Local nTempo  := 0
+	Local cParNfePar := SM0->M0_CODIGO+SM0->M0_CODFIL+"Factura Exportación"
+
+	aAdd(aCombo1,STR0036) //"1-Produccion"
+	aAdd(aCombo1,STR0037) //"2-Homologacion"
+
+	cIdEnt := GetIdEnt()
+	cCombo1 := GetAmbien(cIdEnt)
+	If SubStr(cCombo1,1,1) == "1"
+		cCombo1 := STR0036 //"1-Produccion"
+	else
+		cCombo1 := STR0037 // "2-Homologacion"
+	EndIf
+
+	aadd(aPerg,{2,STR0038,cCombo1,aCombo1,120,".T.",.T.,".T."}) //¿Ambiente
+
+	aParam := {SubStr(cCombo1,1,1),SubStr(cCombo2,1,1),cCombo3,cCombo4,cCombo5,nTempo}
+	If ParamBox(aPerg,STR0039,aParam,,,,,,,cParNfePar,.F.,.F.) //"Configuración Ambiente de Transmisión Electrónica"
+		oWS :=  WSNFECFGLOC():New()
+		oWS:cUSERTOKEN := "TOTVS"
+		oWS:cID_ENT    := cIdEnt
+		oWS:nAmbiente  := Val(aParam[1])
+		oWS:_URL       :=  Alltrim(cURL)+"/NFECFGLOC.apw"
+		If oWS:CFGAMBLOC()
+			cAmbien := oWS:CCFGAMBLOCRESULT
+			If Val(cAmbien) == 1
+				MsgAlert(STR0040+CHR(13)+CHR(10)+CHR(13)+CHR(10)+STR0036) //"Ambiente Configurado:" //"1-Producción"
+			Else
+				MsgAlert(STR0040+CHR(13)+CHR(10)+CHR(13)+CHR(10)+STR0037) //"Ambiente Configurado:" //"2-Homologación"
+			EndIf
+			PutMvPar("MV_CFDIAMB",SubStr(cCombo1,1,1))  // Se guarda ambiente de trabajo en parámetro
+		Else
+			MsgAlert(GetWSCError())
+		EndIf
+	EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³GetAmbien ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtiene el ambiente que esta utilizando el TSS              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Id de la Entidad                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³cRet: Ambiente que está utilizando el TSS                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetAmbien(cIdEnt)
+	Local oWs       := Nil
+	Local cAmbiente := ""
+	Local cURL      := ContParam("MV_SIGNAWS") //Parametro que almacena la url de TSS
+	oWS :=  WSNFECFGLOC():New()
+	oWS:cUSERTOKEN := "TOTVS"
+	oWS:cID_ENT    := cIdEnt
+	oWS:nAmbiente  := 0
+	oWS:_URL       := Alltrim(cURL)+"/NFECFGLOC.apw"
+	If oWS:CFGAMBLOC()
+		cAmbiente := oWS:CCFGAMBLOCRESULT
+		If val(cAmbiente) == 1
+			cAmbiente := STR0036 //"1-Producción"
+		Else
+			cAmbiente := STR0037 //"2-Homologación"
+		EndIf
+	Else
+		MsgAlert(GetWSCError())
+	EndIf
+Return cAmbiente
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³Transmitir³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Transmite facturas electrónicas al TSS                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Transmitir()
+	Local cSerie := space(3)
+	Local cFacIn := space(13)
+	Local cFacFi := space(13)
+	Local cIdEnt := GetIdEnt()
+	Local cAmb	:= GetAmbien(cIdEnt)
+	Local nAmbie := val(cAmb)
+	Local nX := 0
+	Local aSays := {}
+	Local aButtons := {}
+	Private cLog:=""
+	Private aTrans := {}
+	Private aError := {}
+
+	AADD(aSays,OemToAnsi(STR0078)) //"Esta rutina tiene como objetivo ayudarlo en la transmision de Documentos"
+	AADD(aSays,OemToAnsi(STR0079)) //"electrónicos para el Servicio TOTVS Services. En este momento el TOTVS Services "
+	AADD(aSays,OemToAnsi(STR0080)) //"está funcionando con la siguiente configuración:"
+	AADD(aSays,OemToAnsi(""))
+	AADD(aSays,OemToAnsi(STR0043 + cAmb) ) //Entorno:
+
+	AADD(aButtons, { 5,.T.,{|| Pergunte(cPergFac,.T. ) } } )
+	AADD(aButtons, { 1,.T.,{|o| nOpca := 1,If (ValidTrans(cSerie, cFacIn, cFacFi, nAmbie,cIdEnt),FechaBatch(),nOpca:=0) }} )
+	AADD(aButtons, { 2,.T.,{|o| FechaBatch() }} )
+
+	FormBatch(STR0045, aSays, aButtons)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ValidTrans³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que el numero de documento final no esté vacio y     ³±±
+±±³          ³consume el WebMethod RemessaDoc para transmitir el rango de ³±±
+±±³          ³documentos informados                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cExp1: Serie de facturas/notas de credito/debito           ³±±
+±±³          ³ cExp1: Numero de documento inicial                         ³±±
+±±³          ³ cExp1: Numero de documento final                           ³±±
+±±³          ³ nExp1: Numero de ambiente configurado en TSS               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet1: Indica si se avanza de pantalla en el wizard        ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ValidTrans(cSerie, cFacIn, cFacFi, nAmb,cIdEnt)
+	Local lRet     := .T.
+	Local oWs      := Nil
+	Local cDescri  := ""
+	Local nX 	   := 0
+	Local cUrl 	   := RTRIM(GETMV("MV_SIGNAWS"))
+	Local aFact    := {}
+	Local nError   := 0
+
+	CURSORWAIT()
+	// Valida que datos en sigamat estén OK
+	lRet := M485VSM0()
+	If !lRet
+		CURSORARROW()
+		Return .F.
+	EndIf
+	
+	cLog := STR0051+cCRLF+cCRLF //Resumen de la Transmisión
+	cLog += STR0052+cCRLF+cCRLF //Documento		Mensaje
+	Pergunte(cPergFac, .F.)
+
+	If !_lCerRet
+		cSerie := MV_PAR01
+		cFacIn := MV_PAR02
+		cFacFi := MV_PAR03
+	Else
+		If cPaisLoc == "PER"
+			cSerie := MV_PAR01
+			cFacIn := MV_PAR02
+			cFacFi := MV_PAR03
+		Else
+			cFacIn := MV_PAR01
+			cFacFi := MV_PAR02
+		EndIf		
+	EndIf
+
+	If Empty(cFacFi)
+		lRet := .F.
+		MsgAlert(STR0053) //"Ingresa el número de documento final"
+		CURSORARROW()
+		Return lRet
+	EndIf
+		
+	oWs := WSTSSWSSIGNATURE():New()
+	oWs:cUSERTOKEN:= "TOTVS"
+	oWs:cENTIDADE	:= cIdEnt
+	oWs:oWSREMESSA:oWSLOTESIG := TSSWSSIGNATURE_ARRAYOFDOCSIG():New()
+	oWS:_URL		:= cUrl + "/TSSWSSIGNATURE.apw"
+
+	If !_lCerRet
+		Processa({|lEnd| lRet := GetFact(@oWs:oWSREMESSA:oWSLOTESIG, cFacIn, cFacFi, nAmb,@aFact,@aError)})
+	Else
+		Processa({|lEnd| lRet := GetCerts(@oWs:oWSREMESSA:oWSLOTESIG, cFacIn, cFacFi, cSerie,nAmb,@aFact,@aError)})
+	EndIf
+
+	If !lRet
+		MsgAlert(STR0054) //"No hay documentos dentro de los rangos especificados"
+		CURSORARROW()
+		Return .F.
+	EndIf
+	
+	If len(aFact) > 0
+		If oWs:RemessaDoc()
+			For nX := 1 To Len(oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT)
+				If oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:lResultDoc
+					aAdd(aTrans, {oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:cID, STR0055}) //"Transmisión a TSS exitosa"
+				Else
+					If oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:oWSERRO:nCODIGO == 1
+						cDescri := STR0056 + " - "+ 	oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:oWSERRO:CDESCRICAO
+					EndIf
+					aAdd(aError, {" ", cDescri})
+				EndIf
+			Next nX
+			For nX := 1 to len(aTrans)
+				cLog += aTrans[nX,1]+"  "+aTrans[nX,2]+cCRLF
+				If _lCerRet
+					M485SFE(aTrans[nX,1],"1",,,.F.)
+				EndIf
+			Next nX
+	
+			IF !_lCerRet .and. len(aTrans) > 0
+				// Actualizar estatus de documento transmitido
+				M485UPDST(aTrans,aFact)
+			EndIf					
+		Else
+			MsgAlert(GetWSCError())
+		EndIf
+	EndIf
+
+	For nX := 1 to len(aError)
+		cLog += aError[nX,1]+"  "+aError[nX,2]+cCRLF
+		If nX > 1
+			If  aError[nX,1] <> aError[nX-1,1]
+				nError++
+			EndIf
+		Else
+			nError := 1	
+		EndIf
+	Next nX
+	
+	cLog += cCRLF + cCRLF + STR0057 + Alltrim(STR(Len(aTrans))) + cCRLF //"Documentos transmitidos: "
+	cLog += STR0058 + Alltrim(STR(nError)) + cCRLF + cCRLF              //"Documentos con error: "
+	cLog += STR0092 + cCRLF                                             //"Documentos Transmitidos guardados en: "
+	cLog += + cCRLF + &(getMv("MV_CFDDOCS")) + cCRLF 
+	MsgInfo(cLog)
+
+	//Chamada da função para geração das metricas
+	If findFunction("Mat485Mtr")
+		Mat485Mtr(len(aTrans),cEspecie)
+	Endif
+
+	CURSORARROW()
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ GetFact  ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtiene las facturas dentro del rango informado por el      ³±±
+±±³          ³usuario, y dichas facturas las agrega al objeto del WS      ³±±
+±±³          ³para despues transmitirlos al TSS                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ oExp1: Objeto de WS que almacenara el rango de documentos  ³±±
+±±³          ³ cExp1: Numero de documento inicial                         ³±±
+±±³          ³ cExp1: Numero de documento final                           ³±±
+±±³          ³ nExp1: Numero de ambiente configurado en TSS               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet1: Retorna si hay documentos dentro de los rangos      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetFact(oLote, cFacIn, cFacFi, nAmb,aFact,aError)
+	Local cQuery  := ""
+	Local cTempF  := CriaTrab(Nil, .F.)
+	Local nCount  := 0
+	Local nCont   := 0
+	Local cXml    := ""
+	Local lRet    := .T.
+	Local lFacExc := .F.
+	Local lExpDoc := .F.
+	Local lGDesp  := IIF(cModelo $ "SB",.T., .F.)
+	Local lVldCli := .T.
+	Local lVldDet := .T.
+    Local cXMLNom := "" 
+    Local cDocs   := GetNewPar("MV_CFDDOCS","")
+	Local lTipoPago := SE4->(ColumnPos("E4_MPAGSAT")) > 0
+	Local cModBV	:= ""
+    Private cFilSB1 := xFilial("SB1")
+    Private cFilSAH := xFilial("SAH")
+	Private cFilSE4 := xFilial("SE4")
+	
+	If nTipoDoc == 0
+		cQuery := "SELECT F1_FORNECE CLIFOR, F1_LOJA TIENDA, F1_DOC DOC, F1_SERIE SERIE "
+		If cPaisLoc == "PER"
+			cQuery += ",F1_SERIE2 SERIE2"
+			If SF1->(ColumnPos("F1_COND"))
+				cQuery += ", F1_COND CONDPAGO "
+			EndIf
+		EndIf
+		cQuery += "FROM "+RetSqlName("SF1")+" SF1 "
+		cQuery += "WHERE F1_SERIE = '"+cSerie+"' AND F1_ESPECIE = '"+cEspecie+"' AND F1_DOC BETWEEN '"+cFacIn+"' AND '"+cFacFi+"' AND D_E_L_E_T_ = '' "
+		cQuery += "AND F1_FLFTEX <> '6' "
+	Else
+		cQuery := "SELECT F2_CLIENTE CLIFOR, F2_LOJA TIENDA, F2_DOC DOC, F2_SERIE SERIE "
+		If cPaisLoc == "PER"
+			cQuery += ",F2_SERIE2 SERIE2 "
+			If SF2->(ColumnPos("F2_COND"))
+				cQuery += ", F2_COND CONDPAGO "
+			EndIf
+		EndIf
+		cQuery += "FROM "+RetSqlName("SF2")+" SF2 "
+		cQuery += "WHERE F2_SERIE = '"+cSerie+"' AND F2_ESPECIE = '"+cEspecie+"' AND F2_DOC BETWEEN '"+cFacIn+"' AND '"+cFacFi+"' AND D_E_L_E_T_ = '' "
+		cQuery += "AND F2_FLFTEX <> '6' "
+	EndIf
+
+	cQuery := ChangeQuery(cQuery)
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTempF,.T.,.T.)
+	count to nCount
+	lRet := nCount > 0
+	(cTempF)->(dbGoTop())
+	While (!(cTempF)->(EOF()))
+		nCont++
+		IncProc(STR0059) //"Procesando"
+
+		lVldCli := M485VLDCLI((cTempF)->CLIFOR, (cTempF)->TIENDA,(cTempF)->DOC,(cTempF)->SERIE,@aError, IIf(cPaisLoc == "PER",(cTempF)->SERIE2,""), IIF(cPaisLoc == "PER",(cTempF)->CONDPAGO,""),lTipoPago) // Valida los datos del cliente del documento en cuestion
+		lVldDet := M485VLDDET((cTempF)->CLIFOR, (cTempF)->TIENDA, (cTempF)->DOC,(cTempF)->SERIE, @aError) //Validación de datos del ítem del documento
+        
+		If lVldCli .And. lVldDet
+			Do case 
+				Case cPaisLoc == "EQU"
+					Processa({|lEnd| lRet := M485GERXML((cTempF)->CLIFOR, (cTempF)->TIENDA, (cTempF)->DOC, cSerie, cEspecie, @aError)} ,STR0131) //"Generando Documentos XML"
+					If lRet 
+						aAdd(aFact,{(cTempF)->SERIE+(cTempF)->DOC,(cTempF)->CLIFOR,(cTempF)->TIENDA, (cTempF)->DOC,(cTempF)->SERIE,nTipoDoc})
+						cXMLNom := &(cDocs) + Alltrim((cTempF)->SERIE) + Alltrim((cTempF)->DOC) + Alltrim(cEspecie) + ".xml"
+						cXml := FsLoadTXT(cXMLNom,.F.)
+					EndIf
+				Case cPaisloc == "PER"
+					Processa({|lEnd| lRet := M485GERXML((cTempF)->CLIFOR, (cTempF)->TIENDA, (cTempF)->DOC, cSerie, cEspecie, @aError)} ,STR0131) //"Generando Documentos XML"
+					If lRet 
+						aAdd(aFact,{(cTempF)->SERIE+(cTempF)->DOC,(cTempF)->CLIFOR,(cTempF)->TIENDA, (cTempF)->DOC,(cTempF)->SERIE,nTipoDoc})
+						cXMLNom := &(cDocs) + Alltrim((cTempF)->SERIE) + Alltrim((cTempF)->DOC) + Alltrim(cEspecie) + ".xml"
+						cXml := FsLoadTXT(cXMLNom,.F.)
+					EndIf	
+				Case cPaisLoc == "CHI"
+					cXml := NFAEXmlChi(nTipoDoc, cSerie, (cTempF)->CLIFOR, (cTempF)->TIENDA, (cTempF)->DOC, cEspecie, nAmb, @lFacExc, @lExpDoc,lGDesp,@cModBV)
+				Otherwise
+					cXML := ""
+			EndCase
+		
+			If !Empty(cXML) .Or. (cPaisLoc $ "EQU|PER|" .And. lRet)// Si se generó XML
+				aAdd(oLote:oWSDOCSIG, TSSWSSIGNATURE_DOCSIG():New())
+				oLote:oWSDOCSIG[nCont]:cID := (cTempF)->SERIE + (cTempF)->DOC
+				
+				If cPaisLoc =="CHI" .AND. (cModBV $ "SG|SF|")
+					oLote:oWSDOCSIG[nCont]:cMODELO := cModBV
+				Else
+					oLote:oWSDOCSIG[nCont]:cMODELO := cModelo
+				EndIf
+				If cPaisLoc == "CHI"
+					If lFacExc .and. !(cModBV $ "SG|SF|")
+						oLote:oWSDOCSIG[nCont]:cMODELO := "SC" // Factura Excenta
+					ElseIf lExpDoc
+						If Alltrim(cEspecie) $ "NF"
+							oLote:oWSDOCSIG[nCont]:cMODELO := "S8" // Factura Exportación
+						ElseIf Alltrim(cEspecie) $ "NDC" 
+							oLote:oWSDOCSIG[nCont]:cMODELO := "SA" // NDC Exportacion
+						ElseIf Alltrim(cEspecie) $ "NCC"
+							oLote:oWSDOCSIG[nCont]:cMODELO := "S9" // NCC Exportacion
+						EndIf	
+					EndIf
+				EndIf
+				
+				If cPaisLoc <> "EQU"
+					fwriteXml(cXml,Alltrim((cTempF)->SERIE)+Alltrim((cTempF)->DOC)+ Alltrim(cEspecie)+".xml")
+				EndIf
+				oLote:oWSDOCSIG[nCont]:cXML := cXml
+				aAdd(aFact,{(cTempF)->SERIE+(cTempF)->DOC,(cTempF)->CLIFOR,(cTempF)->TIENDA, (cTempF)->DOC,(cTempF)->SERIE,nTipoDoc})
+			Else // Si por algún motivo el XML está vació, no se transmitirá el documento
+				aAdd(aError, {(cTempF)->SERIE+(cTempF)->DOC, STR0115}) // "No se pudo generar XML."
+			EndIf
+			EndIf
+		(cTempF)->(dbSkip())
+	EndDo
+	(cTempF)->(dbCloseArea())
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ fWriteXml³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Función para generar PDF de documento electrónico.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp01 := String con documento decodificado                 ³±±
+±±³          ³cExp02 := nombre que tendrá el archivo creado               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function fWriteXml(cTexto,cFile)
+	Local cPath	    := getMV("MV_CFDDOCS")
+	Local cPathFile := &(cPath)+cFile
+	Local nHdl
+	Ferase(cPathFile)
+	nHdl	:=	fCreate(cPathFile)
+	fWrite(nHdl,cTexto)
+	fClose(nHdl)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ Monitor  ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Función para visualizar los documentos que han sido         ³±±
+±±³          ³transmitidos al TSS                                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Monitor()
+	Local aPerg		:= {}
+	Local oSvc		:= Nil
+	Local cIdEnt	:= GetIdEnt()
+	Local cIni		:= ''
+	Local cFin		:= ''
+	Local oDlg, oList, oButton1, oButton2, oButton3, oButton4
+	Local aItems	:= {}
+	Local aResult	:= {}
+	Local nIter		:= 0
+	Local cSer		:= ''
+	Local cUrl		:= RTRIM(GETMV("MV_SIGNAWS"))
+	Local cSltLin	:= (chr(13) + chr(10))
+	Local cMsgError	:= ""
+	Local lNoTrans	:= .F.
+	Local aAreaMon	:= GetArea()
+	
+	IF Pergunte(cPergFac, .T.)
+		If !_lCerRet
+			CursorWait()
+			
+				cSer := MV_PAR01
+				cIni := MV_PAR02
+				cFin := MV_PAR03
+				
+				/* Array retornado
+				* [1] = Filial
+				* [2] = Serie
+				* [3] = Folio Documento
+				* [4] = Código Cliente/Proveedor
+				* [5] = Código Tienda
+				*/
+				aDocRet := M485GetDoc(cTipo, cSer, cIni, cFin)
+				
+				If Len(aDocRet) > 0 //Valida si hay documentos a monitorear
+					For nIter := 1 To Len(aDocRet) //Realiza el monitorio por cada documento
+						oSvc := WSTSSWSSIGNATURE():New()
+						oSvc:cUSERTOKEN	:= "TOTVS"
+						oSvc:cENTIDADE := cIdEnt
+						oSvc:cMODELO := cModelo
+						oSvc:_URL := cUrl + "/TSSWSSIGNATURE.apw"
+						oSvc:oWSMONITORSIG:cIDINICIAL := aDocRet[nIter][2] + aDocRet[nIter][3]
+						oSvc:oWSMONITORSIG:cIDFINAL := aDocRet[nIter][2] + aDocRet[nIter][3]
+						
+						If oSvc:MonitorDoc() //Realiza el consumo del webservice
+							aResult := oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET
+							If Len(aResult) > 0
+								aAdd(aItems, {aResult[1]:nStatus, Alltrim(aResult[1]:cId), IIf(aResult[1]:nAmbiente == 1, STR0036, STR0037), aResult[1]:dDtAutorizacao, aResult[1]:cHrAutorizacao, STRTRAN(aResult[1]:cMensagem, CHR(10), " -- "), aResult[1]:cRecomendacao}) //Produccion //Homologacion
+							Else
+								lNoTrans := .T.
+							EndIf
+						Else
+							cMsgError += GetWSCError() + cSltLin //Si hubo error al procesar un doumento, almacena el error.
+						EndIf
+						
+						If ValType(oSvc) == "O" //Validación para liberar y limpiar objeto
+							FreeObj(oSvc)
+							oSvc := Nil
+						EndIf
+					Next nIter
+					
+					If Empty(cMsgError) //Si no hay errores, mostrara la ventana del monitor
+						If lNoTrans
+							MsgInfo(STR0143) //"Existen documentos que no han sido transmitidos a TSS, los cuales serán excluidos en la visualización del monitor."
+						EndIf
+						DEFINE MSDIALOG oDlg FROM 0,0 TO 400,800 PIXEL TITLE STR0005 //Monitor
+							@ 20,20 LISTBOX oList FIELDS;
+							HEADER "", STR0060, STR0061, STR0062, STR0063, STR0064, STR0065; //Documento //Ambiente //Fch. Aut //Hr. Aut //Mensaje //Recomendacion
+							SIZE 360,130 OF oDlg PIXEL
+							oList:SetArray(aItems)
+							If Len(aItems) > 0
+								oList:bLine := {|| {GetStatus(aItems[oList:nAt,1]),aItems[oList:nAt,2],aItems[oList:nAt,3],aItems[oList:nAt,4],aItems[oList:nAt,5],aItems[oList:nAt,6],aItems[oList:nAt,7]}}
+							EndIf
+							oButton1 := TButton():New(170, 230,STR0066,oDlg,{||Processa({|lEnd| ActCertif()},STR0089),oDlg:End()},30,15,,,,.T.) //Ok
+							oButton2 := TButton():New(170, 270,STR0067,oDlg,{||Schema(cIdEnt, cModelo, cSer, cIni, cFin, oList)},30,15,,,,.T.) //Schema
+							oButton3 := TButton():New(170, 310,STR0068,oDlg,{||Leyenda()},30,15,,,,.T.) //Leyenda
+							oButton4 := TButton():New(170, 350,STR0069,oDlg,{||Refresh(oList,cSer,cIni,cFin)},30,15,,,,.T.) //Refresh
+						ACTIVATE MSDIALOG oDlg CENTERED
+					Else
+						MsgAlert(cMsgError)
+					EndIf				
+				Else
+					MsgInfo(STR0144) //"No se encontraron registros con los parámetros informados. Informe otros e intente nuevamente."
+				EndIf
+			CursorArrow()
+		Else // Certificados de Retención
+			CursorWait()
+			
+				If cPaisLoc == "PER"
+					cSer := MV_PAR01
+					cIni := MV_PAR02
+					cFin := MV_PAR03
+				Else
+					cSer := ""
+					cIni := MV_PAR01
+					cFin := MV_PAR02
+				EndIf
+				
+				/* Array retornado
+				* [1] = Filial
+				* [2] = Serie
+				* [3] = Folio Documento
+				* [4] = Código Cliente/Proveedor
+				* [5] = Código Tienda
+				*/
+				aDocRet := M485GetDoc(cTipo, cSer, cIni, cFin)
+				
+				If Len(aDocRet) > 0 //Valida si hay documentos a monitorear
+					For nIter := 1 To Len(aDocRet) //Realiza el monitorio por cada documento
+						oSvc := WSTSSWSSIGNATURE():New()
+						oSvc:cUSERTOKEN  	:= "TOTVS"
+						oSvc:cENTIDADE  	:= cIdEnt
+						oSvc:cMODELO    	:= cModelo
+						If cPaisLoc <> "PER"
+							oSvc:oWSMONITORSIG:cIDINICIAL	:= aDocRet[nIter][3]
+							oSvc:oWSMONITORSIG:cIDFINAL 	:= aDocRet[nIter][3]
+						Else
+							oSvc:oWSMONITORSIG:cIDINICIAL	:= aDocRet[nIter][2] + aDocRet[nIter][3]
+							oSvc:oWSMONITORSIG:cIDFINAL 	:= aDocRet[nIter][2] + aDocRet[nIter][3]
+						EndIf
+						oSvc:_URL := cUrl + "/TSSWSSIGNATURE.apw"
+						
+						If oSvc:MonitorDoc() //Realiza el consumo del webservice
+							aResult := oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET
+							If Len(aResult) > 0
+								aAdd(aItems, {aResult[1]:nStatus, Alltrim(aResult[1]:cId), IIf(aResult[1]:nAmbiente == 1, STR0036, STR0037), aResult[1]:dDtAutorizacao, aResult[1]:cHrAutorizacao, Alltrim(aResult[1]:cMensagem), aResult[1]:cRecomendacao}) //Produccion //Homologacion
+							Else
+								lNoTrans := .T.
+							EndIf
+						Else
+							cMsgError += GetWSCError() + cSltLin //Si hubo error al procesar un doumenta, almacena el error.
+						EndIf
+						
+						If ValType(oSvc) == "O" //Validación para liberar y limpiar objeto
+							FreeObj(oSvc)
+							oSvc := Nil
+						EndIf
+					Next nIter
+					
+					If Empty(cMsgError) //Si no hay errores, mostrara la ventana del monitor
+						If lNoTrans
+							MsgInfo(STR0143) //"Existen documentos que no han sido transmitidos a TSS, los cuales serán excluidos en la visualización del monitor."
+						EndIf
+						DEFINE MSDIALOG oDlg FROM 0,0 TO 400,800 PIXEL TITLE STR0005 //Monitor
+							@ 20,20 LISTBOX oList FIELDS;
+							HEADER "", STR0087, STR0061, STR0062, STR0063, STR0064, STR0065; //Documento //Ambiente //Fch. Aut //Hr. Aut //Mensaje //Recomendacion
+							SIZE 360,130 OF oDlg PIXEL
+							oList:SetArray(aItems)
+							If Len(aItems) > 0
+								oList:bLine := {|| {GetStatus(aItems[oList:nAt,1]),aItems[oList:nAt,2],aItems[oList:nAt,3],aItems[oList:nAt,4],aItems[oList:nAt,5],aItems[oList:nAt,6],aItems[oList:nAt,7]}}
+							EndIf
+							oButton1 := TButton():New(170, 230,STR0066,oDlg,{||Processa({|lEnd| ActCertif()},STR0089),oDlg:End()},30,11,,,,.T.) //Ok
+							oButton2 := TButton():New(170, 270,STR0067,oDlg,{||Schema(cIdEnt, cModelo, cSer, cIni, cFin, oList)},30,11,,,,.T.) //Schema
+							oButton3 := TButton():New(170, 310,STR0068,oDlg,{||Leyenda()},30,11,,,,.T.) //Leyenda
+							oButton4 := TButton():New(170, 350,STR0069,oDlg,{||Refresh(oList,cSer,cIni,cFin)},30,11,,,,.T.) //Refresh
+						ACTIVATE MSDIALOG oDlg CENTERED
+					Else
+						MsgAlert(cMsgError)
+					EndIf				
+				Else
+					MsgInfo(STR0144) //"No se encontraron registros con los parámetros informados. Informe otros e intente nuevamente."
+				EndIf
+			CursorArrow()
+		EndIf
+	EndIf
+	RestArea(aAreaMon)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³  VisNFE  ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Función para visualizar las facturas/notas de credito/debito³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function VisNFE()
+	Private aCfgNF := {}
+	Private nTipo  := 1
+	If !_lCerRet
+		If cTipo == 3
+			nTipo := 4
+		 	aCfgNF := MontaCfgNf(4,{.T.,.f.,.f.,.f.,.f.},.T.)
+			LocxDlgNF(aCfgNF,2)
+		Else
+		 	nTipo := Iif(SF2->F2_TIPO=="N",1,2)
+		 	aCfgNF := MontaCfgNf(Iif(SF2->F2_TIPO=="N",1,2),{.T.,.f.,.f.,.f.,.f.},.T.)
+		 	LocxDlgNF(aCfgNF,2)
+		EndIf
+	Else		
+		dbSelectArea("SF1")
+		SF1->(dbSetOrder(1)) //F1_FILIAL + F1_DOC + F1_SERIE + F1_FORNECE + F1_LOJA + F1_TIPO  
+		SF1->(dbSeek(xFilial("SF1")+(cAliasB)->FE_NFISCAL+(cAliasB)->FE_SERIE+(cAliasB)->FE_FORNECE+(cAliasB)->FE_LOJA+"N"))
+		nTipo := 10
+		aCfgNF := MontaCfgNf(4,{.T.,.f.,.f.,.f.,.f.},.T.)
+		LocxDlgNF(aCfgNF,2)
+	EndIf
+
+	bFiltraBrw := {|| FilBrowse(cAliasB,@aIndArqE,@cFiltro) }
+	Eval(bFiltraBrw)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ActManual ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Funcion para visualizar los documentos que han sido         ³±±
+±±³          ³retornados por Signature al TSS y que fueron correctamente  ³±±
+±±³          ³certificados                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ActManual()
+	Local lCont := MsgYesNo(STR0070,STR0021) //"Este proceso actualiza los certificados de los documentos autorizados, ¿Continuar?" //"Atención"
+
+	If lCont
+		Processa({|lEnd| ActCertif()})
+	EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ActCertif ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Funcion para actualizar los certificados de las facturas    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ActCertif()
+	Local aArea		:= getArea()
+	Local oWs		:= Nil
+	Local oXml		:= Nil
+	Local nX		:= 0
+	Local cErro		:= ""
+	Local cXml		:= ""
+	Local cNumaut	:= IIF(!_lCerRet,IIF(cTipo != 3, "F2_NUMAUT","F1_NUMAUT"), "FE_NUMAUT")
+	Local cFecaut	:= IIF(!_lCerRet,IIF(cTipo != 3, "F2_FECAUT","F1_FECAUT"), "FE_FECAUT")
+	Local cFlftex	:= IIF(!_lCerRet,IIF(cTipo != 3, "F2_FLFTEX","F1_FLFTEX"), "FE_STATUS")
+	Local cAlia		:= IIF(!_lCerRet,IIF(cTipo != 3, "SF2","SF1"), "SFE")
+	Local cFec		:= ""
+	Local cFil		:= xFilial(cAlia)
+	Local cIdEnt	:= GetIdEnt()
+	Local lAut		:= .F.
+	Local cNoCert	:= ""
+	Local cNAut		:= ""
+	Local cUrl		:= RTRIM(GETMV("MV_SIGNAWS"))
+	Local cStsTim	:= ""
+	Local cNameFile	:= ""
+	Local cPref		:= IIF(cAlia == "SF1","F1","F2")
+	Local cCampoAdc	:= ""
+	Local nPos		:= 0
+	Local aRet		:= {}
+	Local cPDF		:= ""
+	Local nIter		:= 0
+	Local aDocRet	:= {}
+	Local cMsgError	:= ""
+	
+	If _lCerRet .And. cPaisLoc == "EQU"
+		cSer := ""
+		cIni := MV_PAR01
+		cFin := MV_PAR02
+	Else
+		cSer := MV_PAR01
+		cIni := MV_PAR02
+		cFin := MV_PAR03
+	EndIf
+	
+	If cPaisLoc $ "PER|EQU"
+		dbSelectArea("SFE")
+		SFE->(dbSetOrder(1)) //FE_FILIAL + FE_NROCERT + STR(FE_ITEM,3)
+	EndIf
+	
+	/* Array retornado
+	* [1] = Filial
+	* [2] = Serie
+	* [3] = Folio Documento
+	* [4] = Código Cliente/Proveedor
+	* [5] = Código Tienda
+	*/
+	aDocRet := M485GetDoc(cTipo, cSer, cIni, cFin)
+	
+	If Len(aDocRet) > 0 //Valida si hay documentos a monitorear
+		ProcRegua(Len(aDocRet)) //Inicia regla de procesamiento
+		
+		For nIter := 1 To Len(aDocRet) //Realiza el monitorio por cada documento
+			IncProc() //Incrementa la regla de procesamiento
+			lAut := .F.
+			
+			oWs := WSTSSWSSIGNATURE():New()
+			oWs:cUSERTOKEN := "TOTVS"
+			oWs:cENTIDADE := cIdEnt
+			oWs:cMODELO := cModelo
+			oWs:_URL := cUrl + "/TSSWSSIGNATURE.apw"
+			oWs:cDocIni	:= aDocRet[nIter][2] + aDocRet[nIter][3]
+			oWs:cDocFin	:= aDocRet[nIter][2] + aDocRet[nIter][3]
+			
+			If oWs:ConsultaDoc() //Realiza el consumo del webservice
+			
+				For nX := 1 To Len(oWS:OWSCONSULTADOCRESULT:OWSCONSULTADOCRESULT)
+				
+					If _lCerRet
+						If cPaisLoc =="PER"
+							cNoCert := Substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIddOC,1,TamSx3("FE_NROCERT")[1]+TamSx3("FE_SERIE2")[1])
+						Else
+							cNoCert := Substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIddOC,1,TamSx3("FE_NROCERT")[1])
+						EndIf
+						cStatus := Alltrim(Str(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:nSTATUS))
+					EndIf
+		
+					If !Empty(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cXML)
+		
+						cXml := oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cxml
+						
+						If !_lCerRet
+							If !Empty(cXml)
+								dbSelectArea(cAlia)
+								//F1_FILIAL + F1_DOC + F1_SERIE + F1_FORNECE + F1_LOJA + F1_TIPO
+								//F2_FILIAL + F2_DOC + F2_SERIE + F2_CLIENTE + F2_LOJA + F2_FORMUL + F2_TIPO
+								(cAlia)->(dbSetOrder(1))
+								If (cAlia)->(dbSeek(cFil+Alltrim(substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIdDoc,4,nTamDoc))+substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIdDoc,1,3)))
+									If (cAlia)->&(cFlftex) <> "6"
+										If !(cPaisLoc $ "CHI|PER")
+											nPos := at('<campoAdicional nombre="numeroAutorizacion">',cXML)
+											If nPos > 0
+												cCampoADC := Substr(cXml,nPos + len('<campoAdicional nombre="numeroAutorizacion">'),37)
+												cFec := Substr(cXml,at('<campoAdicional nombre="fechaAutorizacion">',cXML) + len('<campoAdicional nombre="fechaAutorizacion">'),10)
+											Else
+												nPos := at('<StringField name="Numero_autorizacion">',cXML)
+												cCampoADC := Substr(cXml,nPos + len('<StringField name="Numero_autorizacion">'),37)
+												cFec := Substr(cXml,at('<StringField name="Fecha_autorizacion">',cXML) + len('<StringField name="Fecha_autorizacion">'),10)
+											EndIf
+										Else
+											aRet := STRTOKARR(cXml,"|")
+											If len(aRet) > 0 
+												cFec 		:= aRet[2]
+												cCampoADC := aRet[1]
+												cXML := aRet[3]
+												cPDF := oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cPDF
+											EndIf
+										EndIf
+										
+										cStsTim := Alltrim(Str(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:nSTATUS)) //STATUS
+										
+										RecLock(cAlia,.F.)
+											(cAlia)->&(cNumaut) := cCampoAdc
+											(cAlia)->&(cFecaut) := Stod(cFec)
+											(cAlia)->&(cFlftex) := cStsTim
+										(cAlia)->(MsUnlock())
+										
+										If cStsTim == "6" 
+											cNameFile := Alltrim((cAlia)->&(cPref+"_SERIE"))
+											cNameFile += Alltrim((cAlia)->&(cPref+"_DOC"))
+											cNameFile += Alltrim((cAlia)->&(cPref+"_ESPECIE"))
+											fWriteXml(cXml,cNameFile+"-ok.xml")
+											If !Empty(cPDF) .and. cPaisLoc <> "PER"
+												fWriteXML( decode64(cPDF),cNameFile+"-ok.pdf")
+											EndIf
+										EndIf
+		
+										lAut := .T.
+									EndIf
+								EndIf
+							EndIf
+						Else
+							If !Empty(cXml) 
+								oXml 	:= XmlParser(cXml,"_",@cErro,"" )
+								cNAut 	:= Substr(cXml,at('campoAdicional nombre="numeroAutorizacion">',cXML) + len('campoAdicional nombre="numeroAutorizacion">'),37)//oXml:_COMPROBANTERETENCION:_INFOADICIONAL:_CAMPOADICIONAL[2]:TEXT
+								cFec 	:= Substr(cXml,at('campoAdicional nombre="fechaAutorizacion">',cXML) + len('campoAdicional nombre="fechaAutorizacion">'),10)//oXml:_COMPROBANTERETENCION:_INFOADICIONAL:_CAMPOADICIONAL[3]:TEXT
+								cFec 	:= strTran(Substr(cFec,1,10),"-","")						
+								lAut := M485SFE(cNoCert,cStatuS,cFec,cNAut,.T.)
+							EndIf
+						EndIf
+					EndIf
+		
+					If !lAut
+						If !_lCerRet
+							dbSelectArea(cAlia)
+							//F1_FILIAL + F1_DOC + F1_SERIE + F1_FORNECE + F1_LOJA + F1_TIPO
+							//F2_FILIAL + F2_DOC + F2_SERIE + F2_CLIENTE + F2_LOJA + F2_FORMUL + F2_TIPO
+							(cAlia)->(dbSetOrder(1))
+							If (cAlia)->(dbSeek(cFil+Alltrim(substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIdDOC,4,nTamDoc))+substr(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:cIdDoc,1,3)))
+								If (cAlia)->&(cFlftex) <> "6"//Si el registro fue autorizado previamente ya no se actualiza status
+									RecLock(cAlia,.F.)
+									(cAlia)->&(cFlftex) := Alltrim(Str(oWs:oWSCONSULTADOCRESULT:oWSCONSULTADOCRESULT[nX]:nSTATUS)) //STATUS
+									(cAlia)->(MsUnlock())
+								EndIf
+							EndIf
+						Else
+							M485SFE(cNoCert,cStatuS,,,.F.)
+						EndIf
+					EndIf
+				Next nX
+			Else
+				cMsgError += GetWSCError() + cSltLin //Si hubo error al procesar un doumento, almacena el error.
+			EndIf
+			
+			If ValType(oWs) == "O" //Validación para liberar y limpiar objeto
+				FreeObj(oWs)
+				oWs := Nil
+			EndIf
+		Next nIter
+		
+		If Empty(cMsgError) //Si no hay errores, mostrara mensaje de confirmacion
+			MsgInfo(STR0090, STR0021) // "Proceso finalizado" "Atención."
+		Else
+			MsgAlert(cMsgError)
+		EndIf				
+	Else
+		MsgInfo(STR0144) //"No se encontraron registros con los parámetros informados. Informe otros e intente nuevamente."
+	EndIf
+	
+	RestArea(aArea)
+	
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ M485SFE  ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ACTUALIZA REGISTROS DE SFE al ser transmitidos o            ³±±
+±±³          ³al consultar.                                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cPar01:= Número de Certificado                              ³±±
+±±³          ³cPar02:= Estatus                                            ³±±
+±±³          ³cPar03:= Fecha Autorizacion                                 ³±±
+±±³          ³cPar04:= Número Autorizacion                                ³±±
+±±³          ³lPar05:= Si .f. solo actualiza estatus.                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function M485SFE(cNCert,cStatus,cFecAut,cNumA,lAut)
+	Local aArea		:= GetArea()
+	Local lRet		:= .F.
+	Local cItem		:= IIF(cPaisLoc <> "PER",STR(0,3),"1")
+	Local cClave	:= ""
+	Local cFilSFE	:= FWxFilial("SFE")
+
+	Default cNCert	:= ""
+	Default cStatus	:= "0"
+	Default cFecAut	:= " / / "
+	Default cNumA	:= ""
+	Default lAut	:= .f.
+
+	dbSelectArea("SFE")
+	SFE->(dbSetOrder(1)) // FE_FILIAL + FE_NROCERT + STR(FE_ITEM,3)
+	
+	If cPaisLoc $ "PER"
+		cNCert := SUBSTR(cNCert,5)		
+	EndIf
+	
+	cClave := cFilSFE + cNCert + cItem
+	If SFE->(dbSeek(cClave))
+		While SFE->(!EOF()) .AND. SFE->(FE_FILIAL+FE_NROCERT) == cFilSFE + cNCert
+			If SFE->FE_STATUS <> "6"
+				// Actualizar SFE
+				RecLock("SFE",.F.)
+					If lAut
+						SFE->FE_FECAUT:= STOD(cFecAut)
+						SFE->FE_NUMAUT:= cNumA
+					EndIf
+					SFE->FE_STATUS := cStatus
+				SFE->(MsUnlock())
+			EndIf
+			lRet := .T.
+			SFE->(dbSkip())
+		EndDo
+	EndIf
+
+	RestArea(aArea)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Leyenda  ³       ³ Luis Enríquez         ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Crea una ventana para mostrar la leyenda                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Leyenda()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Static Function Leyenda()
+
+	BrwLegenda(OemToAnsi(STR0071),OemToAnsi(STR0068),{;//"Transmision Electrónica de Documentos" //Leyenda
+		            {"BR_AZUL",OemToAnsi(STR0072)},;//"Recibido"
+		            {"BR_AMARELO",OemToAnsi(STR0073)},;//"Esperando procesamiento"
+		            {"BR_VERMELHO",OemToAnsi(STR0074)},;//"Documento rechazado"
+		            {"BR_VERDE",OemToAnsi(STR0075)};//"Documento autorizado"
+		            })
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³LeyendaBrw³       ³ Luis Enríquez         ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Crea una ventana para mostrar la leyenda del Browse        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ LeyendaBrw()                                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Function LeyendaBrw()
+
+	BrwLegenda(OemToAnsi(STR0071),OemToAnsi(STR0068),{;//"Transmision Electrónica de Documentos" //Leyenda
+            {"BR_CINZA",OemToAnsi(STR0077)},;		//"No Transmitida"
+            {"BR_AZUL",OemToAnsi(STR0072)},;		//"Recibido"
+            {"BR_AMARELO",OemToAnsi(STR0073)},;		//"Esperando procesamiento"
+            {"BR_VERMELHO",OemToAnsi(STR0074)},;	//"Documento rechazado"
+            {"BR_VERDE",OemToAnsi(STR0075)};		//"Documento autorizado"
+            })	
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Refresh   ³       ³ Luis Enríquez         ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Actualiza la lista de documentos enviados al TSS           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Refresh()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³oPar01:= Objeto a Refrescar                                 ³±±
+±±³          ³cPar02:= Serie de los documentos                            ³±±
+±±³          ³cPar03:= Documento inicial                                  ³±±
+±±³          ³cPar04:= Documento Final                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Static Function Refresh(oList,cSer,cIni,cFin)
+	Local aItems	:= {}
+	Local aResult	:= {}
+	Local oSvc		:= Nil
+	Local cIdEnt	:= GetIdEnt()
+	Local nX		:= 0
+	Local cURL		:= RTRIM(GETMV("MV_SIGNAWS"))
+	Local nIter		:= 0
+	Local cSltLin	:= (chr(13) + chr(10))
+	Local cMsgError	:= ""
+	Local aDocRet	:= {}
+	Local lNoTrans	:= .F.
+	
+	CursorWait()
+		/* Array retornado
+		* [1] = Filial
+		* [2] = Serie
+		* [3] = Folio Documento
+		* [4] = Código Cliente/Proveedor
+		* [5] = Código Tienda
+		*/
+		aDocRet := M485GetDoc(cTipo, cSer, cIni, cFin)
+		
+		If Len(aDocRet) > 0 //Valida si hay documentos a monitorear
+			For nIter := 1 To Len(aDocRet) //Realiza el monitorio por cada documento
+				oSvc := WSTSSWSSIGNATURE():New()
+				oSvc:cUSERTOKEN := "TOTVS"
+				oSvc:cENTIDADE  := cIdEnt
+				oSvc:cMODELO    := cModelo
+				
+				If !_lCerRet
+					oSvc:oWSMONITORSIG:cIDINICIAL := aDocRet[nIter][2] + aDocRet[nIter][3]
+					oSvc:oWSMONITORSIG:cIDFINAL := aDocRet[nIter][2] + aDocRet[nIter][3]
+				Else
+					oSvc:oWSMONITORSIG:cIDINICIAL	:= aDocRet[nIter][3]
+					oSvc:oWSMONITORSIG:cIDFINAL 	:= aDocRet[nIter][3]
+				EndIf
+				
+				oSvc:_URL := cUrl + "/TSSWSSIGNATURE.apw"
+				
+				If oSvc:MonitorDoc() //Realiza el consumo del webservice
+					aResult := oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET
+					If Len(aResult) > 0
+						aAdd(aItems, {aResult[1]:nStatus, AllTrim(aResult[1]:cId), IIf(aResult[1]:nAmbiente == 1, STR0036, STR0037), aResult[1]:dDtAutorizacao, aResult[1]:cHrAutorizacao, AllTrim(aResult[1]:cMensagem), aResult[1]:cRecomendacao}) //Produccion //Homologacion
+					Else
+						lNoTrans := .T.
+					EndIf
+				Else
+					cMsgError += GetWSCError() + cSltLin //Si hubo error al procesar un doumento, almacena el error.
+				EndIf
+				
+				If ValType(oSvc) == "O" //Validación para liberar y limpiar objeto
+					FreeObj(oSvc)
+					oSvc := Nil
+				EndIf
+			Next nIter
+			
+			If Empty(cMsgError) //Si no hay errores, actualizara datos de la ventana del monitor
+				If lNoTrans .And. ProcName() <> "REFRESH"
+					MsgInfo(STR0143) //"Existen documentos que no han sido transmitidos a TSS, los cuales serán excluidos en la visualización del monitor."
+				EndIf
+				oList:SetArray(aItems)
+				oList:bLine := {|| {GetStatus(aItems[oList:nAt,1]),aItems[oList:nAt,2],aItems[oList:nAt,3],aItems[oList:nAt,4],aItems[oList:nAt,5],aItems[oList:nAt,6],aItems[oList:nAt,7]}}
+				oList:Refresh()
+			Else
+				MsgAlert(cMsgError)
+			EndIf				
+		Else
+			MsgInfo(STR0144) //"No se encontraron registros con los parámetros informados. Informe otros e intente nuevamente."
+		EndIf
+	CursorArrow()
+	
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³GetStatus ³       ³ Luis Enríquez         ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Obtiene el icono del status de la factura/nota credito/deb.³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ GetStatus(nExp1)                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ nExp1: Status de documento                                 ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±³ Retorno  ³ oRet1: Icono correspondiente al status                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Static Function GetStatus(nStatus)
+	Local oStatus := Nil
+	If nStatus == 1
+		oStatus := LoadBitmap(GetResources(), "BR_AZUL")
+	ElseIf nStatus == 4
+		oStatus := LoadBitmap(GetResources(), "BR_AMARELO")
+	ElseIf nStatus == 5 .Or. nStatus == 3
+		oStatus := LoadBitmap(GetResources(), "BR_VERMELHO")
+	ElseIf nStatus == 6
+		oStatus := LoadBitmap(GetResources(), "BR_VERDE")
+	EndIf
+Return oStatus
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ Schema   ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Muestra el xml retornado por Signature para las facturas    ³±±
+±±³          ³autorizadas                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cExp1: Código de la entidad                                 ³±±
+±±³          ³cExp2: Modelo documento (S1=Factura,S4=N.Credito,S5=N.Debit)³±±
+±±³          ³cExp3: Serie del documento                                  ³±±
+±±³          ³cExp4: Numero inicial de documento                          ³±±
+±±³          ³cExp5: Numero final de documento                            ³±±
+±±³          ³oExp6: Objeto lista de las facturas mostradas               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Schema(cIdEnt, cModelo, cSer, cIni, cFin, oList)
+	Local oSvc	:= Nil
+	Local nX	:= 0
+	Local lMsg	:= .F.
+	Local cURL	:= RTRIM(GETMV("MV_SIGNAWS"))
+
+	CursorWait()
+				
+		oSvc := WSTSSWSSIGNATURE():New()
+		oSvc:cUSERTOKEN := "TOTVS"
+		oSvc:cENTIDADE := cIdEnt
+		oSvc:cMODELO := cModelo
+		oSvc:oWSMONITORSIG:cIDINICIAL := oList:aArray[oList:nAt][2]
+		oSvc:oWSMONITORSIG:cIDFINAL := oList:aArray[oList:nAt][2]
+		oSvc:_URL := cUrl + "/TSSWSSIGNATURE.apw"
+		
+		If oSvc:MonitorDoc()
+			lMsg := Len(oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET[1]:oWSLOTE:oWSLOTE) > 0
+			For nX := 1 To Len(oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET[1]:oWSLOTE:oWSLOTE)
+				If !Empty(oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET[1]:oWSLOTE:oWSLOTE[nX]:cXML)
+					Aviso(STR0076, oSvc:oWSMONITORDOCRESULT:oWSMONITORSIGRESULT:oWSDOCSIGRET[1]:oWSLOTE:oWSLOTE[nX]:cXML, {STR0066}, 3) //XML Enviado //Ok
+					lMsg := .T.
+					Exit
+				Else
+					lMsg := .F.
+				EndIf
+			Next nX
+			If !lMsg
+				MsgInfo(STR0088, STR0021) // "El documento seleccionado no ha sido autorizado, por tanto, no se puede visualizar su schema." - "Atención"
+			EndIf
+		Else
+			MsgAlert(GetWSCError()) //Si hubo error al procesar un doumento, almacena el error.
+		EndIf
+		
+		If ValType(oSvc) == "O" //Validación para liberar y limpiar objeto
+			FreeObj(oSvc)
+			oSvc := Nil
+		EndIf
+		
+	CursorArrow()
+	
+Return
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ GetCerts ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtiene las facturas dentro del rango informado por el      ³±±
+±±³          ³usuario, y dichas facturas las agrega al objeto del WS      ³±±
+±±³          ³para despues transmitirlos al TSS                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ oExp1: Objeto de WS que almacenara el rango de documentos  ³±±
+±±³          ³ cExp2: Numero de documento inicial                         ³±±
+±±³          ³ cExp3: Numero de documento final                           ³±±
+±±³          ³ cExp4: Serie del documento                                 ³±±
+±±³          ³ nExp1: Numero de ambiente configurado en TSS               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet1: Retorna si hay documentos dentro de los rangos      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetCerts(oLote, cFacIn, cFacFi, cSeriec, nAmb, aFact,aError)
+	Local cQuery    := ""
+	Local cTempF    := getNextAlias()
+	Local nCount    := 0
+	Local nCont     := 0
+	Local cXml      := ""
+	Local lRet 		:= .T.
+	Local cIdCerRet := ""
+	Local cDocs 	:= GetNewPar("MV_CFDDOCS","")
+	Local cArqIni   := &(GetNewPar("MV_CFDFTCR",""))
+	Local cXMLNom   := ""
+
+	If cPaisLoc == "EQU"
+		BEGINSQL ALIAS cTempF
+			SELECT DISTINCT(SFE.FE_NROCERT),SFE.FE_FORNECE,SFE.FE_LOJA,SFE.FE_NFISCAL,SFE.FE_SERIE
+			FROM %Table:SFE% SFE
+			WHERE SFE.FE_FILIAL=%exp:xFilial("SFE")%
+				AND SFE.FE_NROCERT BETWEEN %exp:cFacIn% AND %exp:cFacFi%
+				AND SFE.%notDel%
+		ENDSQL
+	ElseIf cPaisLoc == "PER"
+		BEGINSQL ALIAS cTempF
+			SELECT SFE.FE_NROCERT,SFE.FE_FORNECE,SFE.FE_LOJA,SFE.FE_NFISCAL,SFE.FE_SERIE, SFE.FE_SERIE2, SFE.R_E_C_N_O_ RECNUM
+			FROM %Table:SFE% SFE
+			WHERE SFE.FE_FILIAL=%exp:xFilial("SFE")%
+				AND SFE.FE_NROCERT BETWEEN %exp:cFacIn% AND %exp:cFacFi%
+				AND SFE.FE_SERIE2=%exp:cSeriec%
+				AND SFE.%notDel%
+		ENDSQL
+	EndIf
+	count To nCount
+	lRet := nCount > 0
+	(cTempF)->(dbGoTop())
+	While (!(cTempF)->(EOF()))
+		nCont++
+		If cPaisLoc <> "PER"
+			cIdCerRet := (cTempF)->FE_NROCERT
+		Else
+			cIdCerRet := (cTempF)->FE_SERIE2+(cTempF)->FE_NROCERT
+		EndIf
+		IncProc(STR0059) //"Procesando"
+		
+		lVldPro := M485VLPRO((cTempF)->FE_FORNECE, (cTempF)->FE_LOJA,(cTempF)->FE_NFISCAL,(cTempF)->FE_SERIE,cIdCerRet,@aError) // Valida los datos del cliente del documento en cuestion
+
+		If lVldPro
+			aAdd(oLote:oWSDOCSIG, TSSWSSIGNATURE_DOCSIG():New())
+			oLote:oWSDOCSIG[nCont]:cID := cIdCerRet
+			oLote:oWSDOCSIG[nCont]:cMODELO := cModelo
+			If cPaisLoc == "EQU"
+				dbSelectArea("SF1")
+				SF1->(dbSetOrder(1)) //F1_FILIAL + F1_DOC + F1_SERIE + F1_FORNECE + F1_LOJA + F1_TIPO 
+				If SF1->(dbSeek(xFilial("SF1") + (cTempF)->FE_NFISCAL + (cTempF)->FE_SERIE + (cTempF)->FE_FORNECE + (cTempF)->FE_LOJA))
+					cCRet   := (cTempF)->FE_NROCERT
+					Processa({|| ProcNorma(cArqIni,,&(GetNewPar("MV_CFDDOCS","")))})
+				Else	
+					aAdd(aError, {"", (cTempF)->FE_SERIE, (cTempF)->FE_NFISCAL, (cTempF)->FE_FORNECE, (cTempF)->FE_LOJA, STR0136}) //"Documento no procesado - No existe registro en tabla SF1 - Encabezado de Fact. de Entrada."
+					aAdd(aTrans, {"", (cTempF)->FE_SERIE, (cTempF)->FE_NFISCAL, (cTempF)->FE_FORNECE, (cTempF)->FE_LOJA, STR0136}) //"Documento no procesado - No existe registro en tabla SF1 - Encabezado de Fact. de Entrada."
+				EndIf
+				cXMLNom := &(cDocs) +(cTempF)->FE_NROCERT + cModelo + ".xml"
+				cXml := FsLoadTXT(cXMLNom,.F.)						
+			Else
+				cXml := CRXmlPER((cTempF)->FE_NROCERT,(cTempF)->FE_NFISCAL, (cTempF)->FE_SERIE, (cTempF)->FE_FORNECE, (cTempF)->FE_LOJA,(cTempF)->FE_SERIE2 , (cTempF)->RECNUM,nAmb)			
+			EndIf
+			
+			If !Empty(cXML)
+				If cPaisLoc == "PER"
+					fwriteXml(cXml,(cTempF)->FE_SERIE2+(cTempF)->FE_NROCERT+cModelo+".xml")
+				ElseIf cPaisLoc =="EQU"
+					fwriteXml(cXml,(cTempF)->FE_NROCERT+cModelo+".xml")
+				EndIf
+				oLote:oWSDOCSIG[nCont]:cXML := cXml
+				aAdd(aFact,{(cTempF)->FE_NROCERT,(cTempF)->FE_FORNECE,(cTempF)->FE_LOJA, (cTempF)->FE_NFISCAL,(cTempF)->FE_SERIE,nTipoDoc})
+			Else // Si por algún motivo el XML está vació, no se transmitirá el documento
+				aAdd(aError, {(cTempF)->FE_NROCERT, STR0115}) // "No se pudo generar XML."					
+			EndIf
+			
+		EndIf
+		(cTempF)->(dbSkip())
+	EndDo
+	(cTempF)->(dbCloseArea())
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M485UPDST ³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Actualiza estatus de documentos electrónicos.               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ aExp1: Array documentos transmitidos a TSS                 ³±±
+±±³          ³ aExp2: Array de documentos arrojados por consulta a tablas ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ NA                                                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function M485UPDST(aTrans,aFact)
+	Local cStatus := "1"
+	Local aArea	  := getArea()
+	Local nI      := 0
+	Local nPos    := 0
+
+	For nI := 1 To Len(aTrans)
+		nPos := aScan(aFact, { |x,y| x[1] == aTrans[nI,1] })
+
+		If nPos > 0
+			If nTipoDoc == 0
+				cClave := xFilial("SF1") + aFact[nPos,2]+aFact[nPos,3]+aFact[nPos,4]
+				dbSelectArea("SF1")
+				SF1->(dbSetOrder(2)) // F1_FILIAL + F1_CLIENTE + F1_LOJA + F1_DOC
+				If SF1->(dbSeek(cClave))
+					If SF1->F1_SERIE $ aFact[nPos,5]
+						RecLock("SF1",.F.)
+							SF1->F1_FLFTEX := cStatus
+						SF1->(MsUnlock())
+					EndIf
+				EndIf
+			Else
+				cClave := xFilial("SF2") + aFact[nPos,2]+aFact[nPos,3]+aFact[nPos,4]+aFact[nPos,5]
+				dbSelectArea("SF2")
+				SF2->(dbSetOrder(2)) //F2_FILIAL + F2_CLIENTE + F2_LOJA + F2_DOC + F2_SERIE
+				If SF2->(dbSeek(cClave))
+					RecLock("SF2",.F.)
+						SF2->F2_FLFTEX := cStatus
+					SF2->(MsUnlock())
+				EndIf
+			EndIf
+		EndIf
+	Next nI
+
+	RestArea(aArea)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MT485VLDNF³ Autor ³Luis Enríquez          ³ Data ³15/10.2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que la NF     referenciada a NDC exista              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cExp01:Número de NF                                        ³±±
+±±³          ³ cExp02: Serie                                              ³±±
+±±³          ³ cExp03: cliente                                            ³±±
+±±³          ³ cExp04: Tienda                                             ³±±
+±±³          ³ cExp05: Especie                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ .t./.f.                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function MT485VLDNF(cNF,cSer,cCliente,cLoja,cEsp)
+	Local aArea := getArea()
+	Local lRet 	:= .F.
+	
+	Default cEsp := "NF"
+	
+	If cEsp == "NF"
+		dbSelectArea("SF2")	
+		SF2->(dbgotop())
+		SF2->(dbSetOrder(2)) //F2_FILIAL + F2_CLIENTE + F2_LOJA + F2_DOC + F2_SERIE + F2_TIPO + F2_ESPECIE 
+		
+		If SF2->(dbSeek(xFilial("SF2")+ cCliente + cLoja + cNF + cSer))
+			If Alltrim(SF2->F2_ESPECIE) $ "NF"
+				If !(SF2->F2_CLIENTE + SF2->F2_LOJA <> cCliente + cLoja)
+					lRet := .T.
+				Else
+					MsgAlert(STR0093)	 // "La Nota de débito y la factura relacionada no corresponden al mismo Cliente/Tienda. Verificar "
+				EndIf
+			Else
+				MsgAlert(STR0094) // "El documento de Referencia no corresponde a una factura, favor de verificar."
+			EndIf
+		Else
+			MsgAlert(STR0095) // "El documento de Referencia no existe o bien no pertenece al mismo cliente, favor de verificar."
+		EndIf
+	ElseIf cEsp == "NCC"
+		dbSelectArea("SF1")	
+		SF1->(dbgotop())
+		SF1->(dbSetOrder(1)) //F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO
+		
+		If SF1->(dbSeek(xFilial("SF1")+ cNF + cSer + cCliente + cLoja))
+			If Alltrim(SF1->F1_ESPECIE) $ "NCC"
+				If !(SF1->F1_FORNECE + SF1->F1_LOJA <> cCliente + cLoja)
+					lRet := .T.
+				Else
+					MsgAlert(STR0093)	 // "La Nota de débito y la factura relacionada no corresponden al mismo Cliente/Tienda. Verificar "
+				EndIf
+			Else
+				MsgAlert(STR0097) // "El documento de Referencia no corresponde a una factura, favor de verificar."
+			EndIf
+		Else
+			MsgAlert(STR0095) // "El documento de Referencia no existe o bien no pertenece al mismo cliente, favor de verificar."
+		EndIf
+	EndIf
+	RestArea(aArea)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³fGetPais  ³ Autor ³Luis Enríquez          ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Returno el codigo del pais.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Retorna código de pais segun IS0-3166                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function fGetPais()
+	Local cPais := ""
+
+	If cPaisLoc == "EQU"
+		cPais := "218"
+	Elseif cPaisLoc == "PER"
+		cPais := "604"
+	ElseIf cPaisLoc == "CHI"
+		cPais := "152"
+	EndIf
+return cPais
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M485IMP   ³ Autor ³Luis Enríquez          ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Imprimir PDF de documento autorizado                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function M485IMP()
+	Local nStatus   := ""
+	Local cPath	  	:= GETMV("MV_CFDDOCS")
+	Local cDirLocal	:= GetTempPath()
+	Local nRet 		:= 0
+	 
+	If cTipo == 3   // El ctipo viene desde el inicio como tipo numerico y como es utilizado en varas parte no se cambio la variable
+		nStatus := SF1->F1_FLFTEX
+		cNameFile := Alltrim(SF1->F1_SERIE)
+		cNameFile += Alltrim(SF1->F1_DOC)
+		cNameFile += Alltrim(SF1->F1_ESPECIE) +"-ok.pdf"
+	Else
+	 	nStatus := SF2->F2_FLFTEX
+	 	cNameFile := Alltrim(SF2->F2_SERIE)
+		cNameFile += Alltrim(SF2->F2_DOC)
+		cNameFile += Alltrim(SF2->F2_ESPECIE) +"-ok.pdf"
+	EndIf
+	
+	If nStatus == "6"
+		cPathFile	:= &(cPath)+cNameFile
+		// Copiar archivo al cliente a carpeta temporales.
+		If CpyS2T( cPathFile , cDirLocal)
+			// Se abre la aplicación para visualizar archivo PDF
+			nRet:= ShellExecute("Open", Alltrim(cNameFile),"",cDirLocal,1)
+			If nRet <= 32
+				MsgInfo(STR0106,STR0107) // "Error al abrir el archivo especificado"
+			EndIf
+		Else
+			MsgInfo(STR0106,STR0107) // "Error al abrir el archivo especificado"
+		EndIf
+	Else
+		MsgInfo(STR0106,STR0108)  // "El documento debe estar autorizado para realizar la impresión"
+	EndIf
+Return 
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M485VSM0  ³ Autor ³Luis Enríquez          ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que estén registrados datos en SM0                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function M485VSM0()
+	Local lRet := .T.
+	Local cMsg := ""
+	
+	If Empty(SM0->M0_BAIRENT) .Or. Empty(SM0->M0_ENDENT) .Or. Empty(SM0->M0_CIDENT) .Or. Empty(SM0->M0_CEPENT)
+		cMsg += STR0111 + CHR(13) + CHR(10) //"-Dirección Fiscal"
+	ElseIf Empty(SM0->M0_CGC)
+	 	If cPaisLoc == "CHI"
+	 		cMsg += STR0112 + CHR(13) + CHR(10) //"-RUT "
+	 	ElseIf cPaisLoc $ "PER|EQU"
+	 		cMsg += STR0113 + CHR(13) + CHR(10) //"-RUC" 
+	 	EndIf
+	ElseIf Empty(SM0->M0_NOME) .Or. Empty(SM0->M0_NOMECOM)
+		cMsg += STR0114 + CHR(13) + CHR(10) //"-Nombre de la Empresa"
+	EndIf	
+	If !Empty(cMsg)
+		cMsg := STR0110 + CHR(13) + CHR(10) + cMsg //"Complete datos del Emisor: " 
+		MsgInfo(cMsg,STR0106) //"Atención" 
+		lRet := .F.
+	EndIf
+Return lRet
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M485VLDCLI³ Autor ³Luis Enríquez          ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que estén registrados los datos obl para el cliente  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+ Static Function M485VLDCLI(cCodCli, cCodLoj,cDocumento,cSerDoc,aError,cSerie2,cCondPago,lTPago)
+ 	Local lRet 	  := .T.
+ 	Local cCodISO := ""
+ 	Local aArea   := GetArea()
+
+	cEspecie := Alltrim(cEspecie)
+ 	 	
+ 	dbSelectArea("SA1")
+ 	SA1->(dbSetOrder(1)) //A1_FILIAL + A1_COD + A1_LOJA
+ 	
+ 	If SA1->(dbSeek(xFilial("SA1") + cCodCli + cCodLoj)) 
+ 		If Empty(SA1->A1_TIPDOC) 
+ 			aAdd(aError ,{cSerDoc + cDocumento, STR0117}) // "Registre Tipo de documento de Identificación del Cliente"
+ 			lRet := .F.
+ 		EndIf
+ 		If Empty(SA1->A1_NOME)
+ 			aAdd(aError ,{cSerDoc + cDocumento, STR0118}) // "Registre Nombre del Cliente"
+ 			lRet := .F.
+ 		EndIf
+ 		If cPaisLoc <> "EQU"
+	 		If Empty(SA1->A1_PAIS) 
+	 			aAdd(aError ,{cSerDoc + cDocumento, STR0119})// "Registre País del Cliente"
+	 			lRet := .F.
+	 		EndIf
+	 		If Empty(SA1->A1_END) .Or. Empty(SA1->A1_BAIRRO) .Or.  Empty(SA1->A1_MUN) .Or.  Empty(SA1->A1_CEP) 
+	 			aAdd(aError ,{cSerDoc+cDocumento, STR0120}) // "Registre Direcci´n Fiscal del Cliente"
+	 			lRet := .F.
+	 		EndIf 		
+ 		EndIf
+ 		If cPaisLoc == "CHI" .AND. Empty(SA1->A1_CGC)
+ 			lRet := .F.
+ 			aAdd(aError ,{cSerDoc + cDocumento, STR0121}) // "Registre RUT del Cliente" 
+ 		ElseIf cPaisLoc == "PER" .AND. ( Empty(SA1->A1_CGC)  .and.  Empty(SA1->A1_PFISICA))
+ 			lRet := .F.
+ 			aAdd(aError ,{cSerDoc + cDocumento, STR0122}) // "Registre RUC o DNI del Cliente"
+ 		ElseIf cPaisLoc == "PER" .And. !Empty(SA1->A1_PAIS)
+ 				dbSelectArea("SYA")
+				SYA->(dbSetOrder(1)) // YA_FILIAL + YA_CODGI
+				If SYA->(MsSeek(xFilial("SYA") + SA1->A1_PAIS))
+					cCodISO := Alltrim(SYA->YA_CODERP)
+				EndIf
+				If Empty(cCodISO)
+ 					aAdd(aError ,{cSerDoc + cDocumento, STR0152 + SA1->A1_PAIS}) //"Registre código del País SUNAT para el país "
+ 					lRet := .F.				
+				Else
+	 				If !M485VLDCAT("S004", cCodISO,1,2)
+	 					aAdd(aError ,{cSerDoc + cDocumento, STR0153}) //"El código de País SUNAT (YA_CODERP) no existe en la tabla S004 "
+	 					lRet := .F.
+	 				EndIf					
+				EndIf 									
+ 		ElseIf cPaisLoc == "EQU" 
+ 			If (Empty(SA1->A1_CGC))
+ 				lRet := .F.
+ 				aAdd(aError ,{cSerDoc+cDocumento, STR0123}) // "Registre RUT del Cliente"
+ 			ElseIf !Empty(SA1->A1_CGC)
+ 				If Alltrim(SA1->A1_TIPDOC) == "01" .AND. Len(Alltrim(SA1->A1_CGC))<>13
+ 					lRet := .F.
+ 					aAdd(aError ,{cSerDoc + cDocumento, STR0130}) // "Revise tamaño RUT Cliente"
+	 			EndIf 	 				 
+ 			EndIf
+ 		EndIf 	
+ 	Else
+ 		lRet := .F.
+ 		aadd(aError ,{cSerDoc + cDocumento, STR0116}) // "Cliente sin registro"
+ 	EndIf
+
+	//Validaciones de Tipo de Pago
+	If cPaisLoc == "PER" .And. lRet .And. lTPago .And. ((cEspecie == "NF" .And.  Substr(cSerie2,1,1) $ 'F') .Or. cEspecie == "NCC")
+		If !(M485TPPAG(cFilSE4, cCondPago) $ "1|2")	
+			aAdd(aError, {cSerDoc + cDocumento, StrTran("El campo ### (E4_MPAGSAT) debe ser 1-Contado o 2-Crédito", '###', Alltrim(FWX3Titulo("E4_MPAGSAT")))}) //STR0162
+			lRet := .F.				
+		EndIf
+	EndIf	
+ 	RestArea(aArea)
+ Return lRet 
+  
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³M485VLDCLI³ Autor ³Luis Enríquez          ³ Data ³15/10/2018³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida que estén registrados los datos obl para el cliente  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ lRet                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+ Static Function M485VLPRO(cCodPro, cCodLoj,cDocumento,cSerDoc,cCert,aError)
+ 	Local lRet 	:= .T.
+ 	Local aArea 	:= GetArea()
+ 	 	
+ 	dbSelectArea("SA2")
+ 	SA2->(dbSetOrder(1)) //A1_FILIAL + A1_COD +A1_LOJA
+ 	
+ 	If SA2->(dbSeek(xFilial("SA2")+cCodPro+cCodLoj)) 
+ 		If Empty(SA2->A2_TIPDOC) 
+ 			aAdd(aError ,{cCert,STR0126}) // "Registre Tipo de documento de Identificación del Cliente"
+ 			lRet := .F.
+ 		EndIf
+ 		If Empty(SA2->A2_NOME)
+ 			aAdd(aError ,{cCert,STR0127}) // "Registre Nombre del Proveedor"
+ 			lRet := .F.
+ 		EndIf
+ 		If  cPaisLoc == "EQU" 
+			If ( Empty(SA2->A2_CGC))
+	 			lRet := .F.
+	 			aAdd(aError ,{cSerDoc+cDocumento, STR0128}) // "Registre RUT del Proveedor" 
+ 			ElseIf !Empty(SA2->A2_CGC) 
+ 				If (Alltrim(SA2->A2_TIPDOC) == '01' .AND. LEN(Alltrim(SA2->A2_CGC)) <> 13)
+ 					lret := .F.
+ 					aAdd(aError ,{cCert, STR0129}) // "Revise tamaño RUT Proveedor" 					
+ 				EndIf 
+ 			EndIf
+ 		EndIf 	
+ 	Else
+ 		lRet := .F.
+ 		aadd(aError ,{cCert, STR0125}) // "Proveedor sin registro"
+ 	EndIf
+ 	RestArea(aArea)
+ Return lRet 
+ 
+ /*/{Protheus.doc} M485GERXML
+Detona generación de XML 
+@type
+@author luis.enriquez
+@since 30/01/2019
+@version 1.0
+@param aFact, array, Array con los documentos de los cuales se generarán los XML
+@param aError, array, Array con Errores 
+@return lRet, ${return_description}
+@example
+(examples)
+@see (links_or_references)
+/*/
+Static Function M485GERXML(cClie, cLoja, cDoc, cSer, cEsp, aError)
+	Local lRet := .F.
+	
+	lRet := CFDGerXML(cEsp, cClie, cLoja, cDoc, cSer, .F.)
+	If !lRet // Si no se generó XML, se agrega Error a Log 		
+		aAdd(aError, {cSer + cDoc, STR0115})	//"No se pudo generar XML."			
+	EndIf
+Return lRet
+
+ /*/{Protheus.doc} M485BRWSFE
+ Genera browse con comprobantes de retención
+ @type define
+ @author luis.enriquez
+ @since 01/02/2019
+ @version 1.0
+ /*/
+Static Function M485BRWSFE()
+	Local aCampos	:= {}
+	Local aCores	:= {}
+	Local cFiltro	:= ""
+	
+		If cPaisLoc $ "EQU|PER"
+			// Comprobantes de Retención
+			dbSelectArea("SFE")
+			_lCerRet 	:= .T.
+			cPergFac 	:= IIf(cPaisLoc == "EQU", "MATA485D", "MATA485E")
+			cModelo 	:= "S7"
+			aCores := {{"FE_STATUS==' ' .Or. FE_STATUS=='0'",'BR_CINZA' },;		//No transmitida
+					{"FE_STATUS=='6'",'BR_VERDE'},;								//Documento autorizado
+					{"FE_STATUS=='5' .Or. FE_STATUS=='3' ",'BR_VERMELHO'},;		//Documento rechazado
+					{"FE_STATUS=='4'",'BR_AMARELO'},;							//Aguardando procesamiento
+					{"FE_STATUS=='1'",'BR_AZUL'}}								//Recibido por TSS
+			
+			If cPaisLoc == "EQU"
+				aCampos :=	{	{STR0081,	"FE_NROCERT"},;
+								{STR0082,	"FE_EMISSAO"},;
+								{STR0083, 	"FE_FORNECE"},;
+								{STR0084,	"FE_LOJA"}	,;
+								{STR0085,	"FE_SERIE"}}
+			Else
+				aCampos :=	{	{STR0105,	"FE_SERIE2"},;
+								{STR0081,	"FE_NROCERT"},;
+								{STR0082,	"FE_EMISSAO"},;
+								{STR0083, 	"FE_FORNECE"},;
+								{STR0084,	"FE_LOJA"}	,;
+								{STR0085,	"FE_SERIEC"}}
+			EndIf
+			cAliasB := "SFE"
+
+			bFiltraBrw := {|| FilBrowse(cAliasB,@aIndArqE,@cFiltro) }
+			Eval(bFiltraBrw)
+			MBrowse(,,,,cAliasB,,,,,,aCores,,,,,,,,)
+		EndIf
+Return
+
+/*/{Protheus.doc} MENUDEF
+Genera Menu para rutina MATA485 y MATA485B
+@type method
+@author luis.enriquez
+@since 01/02/2019
+@version 1.0
+@example
+menufdef()
+@see (links_or_references)
+/*/
+Static Function MenuDef()
+	Local aRotina := {}
+	
+	aAdd(aRotina, {STR0002 ,"WizardCFG",0,3,0,.F.}) //"Configuracion"
+	aAdd(aRotina, {STR0003 ,"CfgAmbien",0,1,0,.F.}) //"Ambiente"
+	aAdd(aRotina, {STR0004 ,"Transmitir",0,1})      //"Transmitir"
+	aAdd(aRotina, {STR0005 ,"Monitor",0,1})         //"Monitor"
+	If cPaisLoc $ "CHI"
+		aAdd(aRotina, {STR0109 ,"M485IMP",0,1})    //"Imprimir PDF"	
+	EndIf
+	aAdd(aRotina, {STR0007 ,"VisNFE",0,1})         //"Visualizar"
+	aAdd(aRotina, {STR0068 ,"LeyendaBrw",0,1})     //"Leyenda"
+	aAdd(aRotina, {STR0008 ,"PesqBrw",0,1})        //"Buscar"
+Return aRotina
+
+/*/{Protheus.doc} M485VLDPAR
+Valida existencia y configuración de parámetros requeridos para poder transmitir documentos.
+@type method
+@author luis.enriquez
+@since 05/02/2019
+@version 1.0
+@example
+M485VLDPAR()
+@see (links_or_references)
+/*/
+Static Function M485VLDPAR(lCert)
+	Local cCFDFTS	:= GetMV("MV_CFDFTS",.F.,"")
+	Local cCFDFTE	:= GetMV("MV_CFDFTE",.F.,"")
+	Local cCFDFTCR  := GetMV("MV_CFDFTCR",.F.,"")
+	Local cCFDIAMB  := GetMV("MV_CFDIAMB",.F.,"")
+	Local cCFDDOCS  := GetMV("MV_CFDDOCS",.F.,"")
+	Local cMsj		:= ""
+	Local lRet		:= .T.
+	
+	Default lCert := .T.
+	
+	If !lCert
+		If Empty(cCFDFTS)
+			cMsj += "MV_CFDFTS - " + STR0137 + CRLF	//"Ruta y nombre de archivo con la estructura de documentos electrónicos de Salida."
+		EndIf		
+	
+		If Empty(cCFDFTE)
+			cMsj += "MV_CFDFTE - " + STR0138 + CRLF	//"Ruta y nombre de archivo con la estructura de documentos electrónicos de Entrada."
+		EndIf	
+	Else
+		If Empty(cCFDFTCR)
+			cMsj += "MV_CFDFTCR - " + STR0139 + CRLF	//"Ruta y nombre de archivo con la estructura de documentos electrónicos de Comprobantes de Retención."
+		EndIf		
+	EndIf
+	
+	If cPaisLoc <> "PER" .And. Empty(cCFDIAMB)
+		cMsj += "MV_CFDIAMB - " + STR0140 + CRLF	//"Configuración de ambiente para transmisión."
+	EndIf
+	
+	If Empty(cCFDDOCS)
+		cMsj += "MV_CFDDOCS - " + STR0141 + CRLF	//"Directorio donde se grabaran las facturas electrónicas."
+	EndIf
+			
+	If cPaisLoc == "PER" .And. (!Empty(cCFDFTS) .And. !File(&(cCFDFTS)))
+		cMsj += STR0154 + CRLF //"El archivo FATSPERTSS.INI no existe en la ruta indicada en el parámetro MV_CFDFTS."
+	EndIf	
+	
+	If cPaisLoc == "PER" .And. (!Empty(cCFDFTE) .And. !File(&(cCFDFTE)))	
+		cMsj += STR0155 + CRLF //"El archivo FATEPERTSS.INI no existe en la ruta indicada en el parámetro MV_CFDFTE."
+	EndIf	
+
+	If !Empty(cMsj)
+		cMsj := STR0142 + CRLF + cMsj //"Antes de transmitir facturas, debe configurar los parámetros necesarios."
+		MsgStop( cMsj )
+		lRet := .F.
+	EndIf
+Return lRet
+
+/*/{Protheus.doc} M485GetDoc
+Obtiene documentos (NF, NDC, NCC o RFN) para consumo de Web Services.
+@type method
+@author Marco Augusto González Rivera
+@since 30/05/2019
+@version 1.0
+@Param 
+	nTipoDoc: Contiene el tipo de Documento: Certificado = 0, NF = 1, NDC, 2, NCC = 3, Guia Despacho = 4.
+	cSerie: Contiene la serie del documento.
+	cDocInic: Contiene el folio del documento inicial a consultar.
+	cDocFin: Contiene el folio del documento final a consultar.
+@example
+	M485GetDoc(nTipoDoc, cSerie, cDocIni, cDocFin) 
+@see (links_or_references)
+/*/
+Function M485GetDoc(nTipoDoc, cSerie, cDocIni, cDocFin)
+	
+	Local aDocRet		:= {}
+	Local nTamEspeci	:= TamSX3("F1_ESPECIE")[1]
+	Local cTabTemp		:= GetNextAlias()
+	Local cQuery		:= ""
+	Local cEspecie		:= ""
+	Local nRegistros	:= 0
+	Local cFilSF2		:= FWxFilial("SF2")
+	Local cFilSF1		:= FWxFilial("SF1")
+	Local cFilSFE		:= FWxFilial("SFE")
+	Local lGetDB        := AllTrim(Upper(TCGetDB())) == "ORACLE"  //.T. - Oracle, .F. - Otros manejadores
+	
+	Default nTipoDoc	:= 1
+	Default cSerie		:= Space(TamSX3("F2_SERIE")[1])
+	Default cDocIni		:= Space(TamSX3("F2_DOC")[1])
+	Default cDocFin		:= Space(TamSX3("F2_DOC")[1])
+	
+	If _lCerRet //Si son certificados de retencion
+		cQuery := "SELECT  DISTINCT(FE_NROCERT) DOC, FE_NFISCAL NFISCAL, FE_FILIAL FILIAL, FE_FORNECE CLIPROV, FE_LOJA TIENDA, FE_SERIE SERIE "
+		cQuery += "FROM " + RetSqlName("SFE") + " SFE "
+		cQuery += "WHERE FE_FILIAL = '" + cFilSFE + "'" + " AND FE_NROCERT BETWEEN '" + cDocIni + "' AND '" + cDocFin + "' " 
+		cQuery += "AND FE_STATUS <> '' AND D_E_L_E_T_ = ''"
+	Else
+		If nTipoDoc == 1 //Factura de Venta
+			cEspecie := PADR("NF", nTamEspeci)
+			cQuery := "SELECT F2_FILIAL FILIAL, F2_CLIENTE CLIPROV, F2_LOJA TIENDA, F2_DOC DOC, F2_SERIE SERIE "
+			cQuery += "FROM " + RetSqlName("SF2") + " SF2 "
+			cQuery += "WHERE F2_FILIAL = '" + cFilSF2 + "'" + " AND F2_SERIE = '" + cSerie + "' AND F2_ESPECIE = '" + cEspecie + "' AND F2_DOC BETWEEN '" + cDocIni + "' AND '" + cDocFin + "' AND D_E_L_E_T_ = '' "
+			cQuery += "AND F2_FLFTEX <> ''"
+			If cPaisLoc == "PER" 
+				cQuery += " AND " + IIf(lGetDB,"SUBSTR","SUBSTRING") + "(F2_SERIE2,1,1) = 'F' "				 
+			EndIf			
+		ElseIf nTipoDoc == 2 //Nota de Débito
+			cEspecie := PADR("NDC", nTamEspeci)
+			cQuery := "SELECT F2_FILIAL FILIAL, F2_CLIENTE CLIPROV, F2_LOJA TIENDA, F2_DOC DOC, F2_SERIE SERIE "
+			cQuery += "FROM " + RetSqlName("SF2") + " SF2 "
+			cQuery += "WHERE F2_FILIAL = '" + cFilSF2 + "'" + " AND F2_SERIE = '" + cSerie + "' AND F2_ESPECIE = '" + cEspecie + "' AND F2_DOC BETWEEN '" + cDocIni + "' AND '" + cDocFin + "' AND D_E_L_E_T_ = '' "
+			cQuery += "AND F2_FLFTEX <> ''"
+		ElseIf nTipoDoc == 3 //Nota de Crédito
+			cEspecie := PADR("NCC", nTamEspeci)
+			cQuery := "SELECT F1_FILIAL FILIAL, F1_FORNECE CLIPROV, F1_LOJA TIENDA, F1_DOC DOC, F1_SERIE SERIE "
+			cQuery += "FROM " + RetSqlName("SF1") + " SF1 "
+			cQuery += "WHERE F1_FILIAL = '" + cFilSF1 + "'" + " AND F1_SERIE = '" + cSerie + "' AND F1_ESPECIE = '" + cEspecie + "' AND F1_DOC BETWEEN '" + cDocIni + "' AND '" + cDocFin + "' AND D_E_L_E_T_ = '' "
+			cQuery += "AND F1_FLFTEX <> ''"
+		ElseIf nTipoDoc == 4 //Guía Despacho (Chile) - Boleta de Venta (Perú)
+			cEspecie := PADR(IIf(cPaisLoc=="PER","NF","RFN"), nTamEspeci)
+			cQuery := "SELECT F2_FILIAL FILIAL, F2_CLIENTE CLIPROV, F2_LOJA TIENDA, F2_DOC DOC, F2_SERIE SERIE "
+			cQuery += "FROM " + RetSqlName("SF2") + " SF2 "
+			cQuery += "WHERE F2_FILIAL = '" + cFilSF2 + "'" + " AND F2_SERIE = '" + cSerie + "' AND F2_ESPECIE = '" + cEspecie + "' AND F2_DOC BETWEEN '" + cDocIni + "' AND '" + cDocFin + "' AND D_E_L_E_T_ = '' "
+			cQuery += "AND F2_FLFTEX <> ''"
+			If cPaisLoc == "PER" 
+				cQuery += " AND " + IIf(lGetDB,"SUBSTR","SUBSTRING") + "(F2_SERIE2,1,1) = 'B' "			 
+			EndIf	
+		EndIf		
+	EndIf
+	
+	cQuery := ChangeQuery(cQuery)
+	DBUseArea(.T., "TOPCONN", TcGenQry( , , cQuery), cTabTemp, .T., .T.)
+	
+	Count to nRegistros
+	
+	If nRegistros > 0
+		(cTabTemp)->(DBGoTop())
+		While !(cTabTemp)->(EOF())
+			aAdd(aDocRet, {(cTabTemp)->FILIAL, (cTabTemp)->SERIE, (cTabTemp)->DOC, (cTabTemp)->CLIPROV, (cTabTemp)->TIENDA})
+			(cTabTemp)->(dbSkip())
+		EndDo
+	EndIf
+	(cTabTemp)->(DBCloseArea())
+Return aDocRet
+
+/*/{Protheus.doc} M485VLDCAT
+Valida si un registro  para una tabla dada existe en el catálogo registrado
+en F3I y F3H
+@type
+@author luis.enriquez
+@since 18/12/2019
+@version 1.0
+@param cCodigo	, caracter, Código de la Tabla
+@param cConteudo, caracter, Cadena a buscar
+@param nPos1, numérico, Posición de inicio de búsqueda
+@param nPos2, numérico, Posición de fin de búsqueda
+@return lRet, verdadero si encuentra el registro, falso si no lo encuentra
+@example
+lRet := ValidCat("S006", SA1->A1_TIPDOC,1,1) 
+@see (links_or_references)
+/*/
+Function M485VLDCAT(cCodigo,cConteudo,nPos1,nPos2)
+	Local lRet := .F.
+	Local cTRB := ""
+	Local cQry := ""
+    Local aArea:= getArea()
+	Default nPos1 := 0
+	Default nPos2 := 0
+	
+	If cCodigo <> Nil .And. cConteudo <> Nil
+		
+		If Select("TRBF3I")>0
+			TRBF3I->(dbCloseArea())
+		EndIf
+		
+		cQry := " SELECT F3I_CODIGO,F3I_SEQUEN,F3I_CONTEU "
+		cQry += " FROM " + RetsqlName("F3I") + " F3I "
+		cQry += " WHERE F3I_FILIAL = '" + xFilial("F3I") + "' "
+		cQry += " AND F3I_CODIGO = '" + cCodigo + "' "
+		cQry +=" AND F3I.D_E_L_E_T_='' "
+		
+		cTRB := ChangeQuery(cQry)
+		dbUseArea(.T., 'TOPCONN', TcGenQry( ,, cTRB ) ,"TRBF3I", .T., .F.)
+		
+		dbSelectArea( "TRBF3I" )
+		TRBF3I->(dbGoTop())	
+		
+		While TRBF3I->(!Eof())
+			If Alltrim(Substr(TRBF3I->F3I_CONTEUDO,nPos1,nPos2)) == Alltrim(cConteudo)
+				lRet := .T.
+				Exit
+			EndIf
+			TRBF3I->(dBSkip())
+		EndDo
+	EndIf
+	RestArea(aArea)
+Return(lRet)
+
+/*/{Protheus.doc} M485VLDDET
+Validaciones a nivel detalle de los documentos
+@type
+@author luis.enriquez
+@since 23/12/2019
+@version 1.0
+@param cCodCli	 , caracter, Código del cliente
+@param cCodLoj   , caracter, Código de la tienda
+@param cDocumento, caracter, Folio del documento
+@param cSerDoc   , caracter, Serie del documento
+@return aError   , array   , Arreglo de errores
+@example
+lRet := Retorno de valdiaciones .T.=Todo OK, .F.=Faltan configuraciones
+@see (links_or_references)
+/*/
+Static Function M485VLDDET(cCodCli, cCodLoj, cDocumento, cSerDoc, aError)
+	Local aArea	:= getArea()
+	Local lRet 	:= .T.
+	Local cAliasSD := IIf(alltrim(cEspecie) $ 'NF|NDC',"SD2","SD1")
+	Local cFilialSD := IIf(alltrim(cEspecie) $ 'NF|NDC',"D2_FILIAL","D1_FILIAL")
+	Local cDocSD    := IIf(Alltrim(cEspecie) $ 'NF|NDC',"D2_DOC","D1_DOC")
+	Local cSerieSD  := IIf(Alltrim(cEspecie) $ 'NF|NDC',"D2_SERIE","D1_SERIE")
+	Local cClieSD   := IIf(Alltrim(cEspecie) $ 'NF|NDC',"D2_CLIENTE","D1_FORNECE")
+	Local cLojaSD   := IIf(Alltrim(cEspecie) $ 'NF|NDC',"D2_LOJA","D1_LOJA")
+	Local cCodProSD := IIf(alltrim(cEspecie) $ 'NF|NDC',"D2_COD","D1_COD")
+	Local cItemSD   := IIf(alltrim(cEspecie) $ 'NF|NDC',"D2_ITEM","D1_ITEM")	
+	Local nOrder    := IIf(alltrim(cEspecie) $ 'NF|NDC',3,1) //D2_FILIAL + D2_DOC + D2_SERIE + D2_CLIENTE + D2_LOJA  //D1_FILIAL + D1_DOC + D1_SERIE + D1_FORNECE + D1_LOJA
+	
+	If cPaisLoc == "PER"
+		dbSelectArea(cAliasSD)
+		&(cAliasSD)->(dbSetOrder(nOrder))
+		&(cAliasSD)->(DbGoTop())
+		
+		If &(cAliasSD)->(dbSeek(xFilial(cAliasSD) + cDocumento + cSerDoc + cCodCli + cCodLoj,.F.)) 
+			While (cAliasSD)->(!Eof()) .AND. (cAliasSD)->&(cFilialSD)+(cAliasSD)->&(cDocSD)+(cAliasSD)->&(cSerieSD)+(cAliasSD)->&(cClieSD)+(cAliasSD)->&(cLojaSD) == xFilial(cAliasSD) + cDocumento + cSerDoc + cCodCli + cCodLoj			
+				dbSelectArea("SB1")
+				SB1->(dbGoTop())
+				SB1->(dbsetorder(1)) //B1_FILIAL + B1_COD
+				If SB1->(Dbseek(cFilSB1 + (cAliasSD)->&(cCodProSD)))
+					If Empty(SB1->B1_UM)
+						aAdd(aError ,{cSerDoc + cDocumento, STR0156 + SB1->B1_COD + "-" + STR0157 + (cAliasSD)->&(cItemSD) + STR0158}) //"Producto " ### //" del tem " ### //"Sin Unidad de Medida (B1_UM)"
+						lRet := .F.  
+					Else
+						dbSelectArea("SAH")
+						SAH->(dbGoTop())
+						SAH->(dbsetorder(1)) //AH_FILIAL + AH_UNIMED
+						If SAH->(Dbseek(cFilSAH + SB1->B1_UM))
+							cUM := SAH->AH_COD_CO
+						EndIf
+						If Empty(cUM)
+							aAdd(aError ,{"", STR0159 + Alltrim(SB1->B1_UM) + STR0160}) //"Para la Unidad de Medida " //" indique código de unidad de medida SUNAT (AH_COD_CO)."
+							lRet := .F.  
+						Else
+			 				If !M485VLDCAT("S003", cUM,1,3)
+			 					aAdd(aError ,{"", STR0161}) //"El código de unidad de medida SUNAT (AH_COD_CO) no existe en la tabla S003-TIPO DE UNIDAD DE MEDIDA."
+			 					lRet := .F.
+			 				EndIf									
+						EndIf	
+					EndIf				
+				Else
+					aadd(aError ,{cSerDoc,cDocumento,cCodCli,cCodLoj, STR0140 + SB1->B1_COD}) // "Producto sin registro Código: "
+					lRet := .F. 
+				EndIF			
+				(cAliasSD)->(DbSkip())
+			EndDo
+		EndIf
+	EndIf
+	RestArea(aArea)
+Return lRet
+
+/*/{Protheus.doc} a485DocEle
+transmision automatica 
+@type
+@since 03/06/2021
+@version 1.0
+@param aDocElet {} 
+		aDocElet {serie} // serie a enviar validar a TSS
+		aDocElet { doc_ini } // documento inicial a enviar para validar a TSS
+		aDocElet { doc_fin } // documento final a enviar para validar a TSS
+
+@param cTipo  // valor entero que identifica el tipo de documento 
+		1= factura
+		4= Nota de crédito
+		5= Nota Debito
+		6=Guía de despacho
+
+@param lautoExe // Valor lógico verdadero (.T.), para informar que es envío automático.
+@return nil
+/*/
+Function a485DocEle(aDocElet,cTipo,lautoExe)
+	Local lRet := .T.
+	Local oWs
+	Local cDescri	:= ""
+	Local nX 		:= 0
+	Local aFact 	:= {}
+	Local nError := 0
+    Local cIdEnt := GetIdEnt()
+	Local cAmb	:= GetAmbien(cIdEnt)
+	Local nAmbie := val(cAmb)
+	Local cUrl 	:= RTRIM(GETMV("MV_SIGNAWS"))
+	
+	Private cFacIn := ""
+	Private cFacFi := ""
+
+	Private cSerie := ""
+	Private cModelo	:= ""
+	Private nTipoDoc:=1
+	Private cEspecie:=""
+
+	Private cAdminMail := ContParam("MV_SIGNADM") //Parametro que contiene el mail del administrador
+	Private cAdminPass := ContParam("MV_SIGNPAS") //Parametro que ADcontiene la contrasea del administrador
+	Private cAdminUser := ContParam("MV_SIGNUSR") //Parametro que contiene el usuario del sistema
+	Private cMSerie:= ""
+	Private cMFacIn:= ""
+	Private cMFacFi:= ""
+	
+	Private nTamEsp := TamSX3("F1_ESPECIE")[1]
+	Private nTamDoc := TamSX3("F1_DOC")[1]
+	Private nTamSer := TamSX3("F1_SERIE")[1]	
+	Private cCRLF	:= (chr(13)+chr(10))
+	Private cPergFac := ""
+	Private _lCerRet	:= .F.
+	Private __WSSING	:= GETMV("MV_SIGNAWS")
+	Private cLog:=""
+	Private aTrans := {}
+	Private aError := {}	
+	
+	default aDocElet := {}
+	default lautoExe := .F.
+	
+       If cTipo == 1   //Factura de venta
+			cModelo := "S1"
+			cEspecie := Padr("NF",nTamEsp)
+			cPergFac := "MATA485A"
+		
+		elseIf cTipo == 4   //Nota de Credito 
+			nTipoDoc:= 0
+			cModelo := "S4"
+			cEspecie := Padr("NCC",nTamEsp)
+			cPergFac := "MATA485C"		
+		ElseIf  cTipo == 5  //Nota de Debito 
+			cModelo := "S5"
+			cEspecie := Padr("NDC",nTamEsp)
+			cPergFac := "MATA485B"
+		ElseIf  cTipo == 6  //Guia de Despacho 
+			cModelo := "SB"
+			cEspecie := Padr("RFN",nTamEsp)
+			cPergFac := "MATA485D"
+		
+		EndIf	
+				
+	CURSORWAIT()
+	// Valida que datos en sigamat estn OK
+	lRet := M485VSM0()
+	If !lRet
+		CURSORARROW()
+		Return
+	EndIf
+	
+	if !lautoExe 
+		cLog := STR0051+cCRLF+cCRLF //Resumen de la Transmisin
+		cLog += STR0052+cCRLF+cCRLF //Documento		Mensaje
+	EndIf
+	
+	If empty(aDocElet)
+	
+	   If cTipo == 1   //Factura de venta
+			cSerie := SF2->F2_SERIE //MV_PAR01 // olocar la serie de la mata468n
+			cFacIn := SF2->F2_DOC //MV_PAR02  // colocar el folio de la factura inicial
+			cFacFi := SF2->F2_DOC //MV_PAR03  // colocar el folio de la factura final
+			
+		elseIf cTipo == 4   //Nota de Credito 
+			
+			cSerie := SF1->F1_SERIE //MV_PAR01 // olocar la serie de la mata468n
+			cFacIn := SF1->F1_DOC //MV_PAR02  // colocar el folio de la factura inicial
+			cFacFi := SF1->F1_DOC //MV_PAR03  // colocar el folio de la factura final
+		ElseIf  cTipo == 5  //Nota de Debito 
+			cSerie := SF2->F2_SERIE //MV_PAR01 // olocar la serie de la mata468n
+			cFacIn := SF2->F2_DOC //MV_PAR02  // colocar el folio de la factura inicial
+			cFacFi := SF2->F2_DOC //MV_PAR03  // colocar el folio de la factura final
+		ElseIf  cTipo == 6  //Guia de Despacho 
+			cSerie := SF2->F2_SERIE //MV_PAR01 // olocar la serie de la mata468n
+			cFacIn := SF2->F2_DOC //MV_PAR02  // colocar el folio de la factura inicial
+			cFacFi := SF2->F2_DOC //MV_PAR03  // colocar el folio de la factura final
+		
+		EndIf	
+
+	else
+
+		if !lautoExe 
+			
+			If cTipo == 1
+				cSerie := aDocElet[1][5] //MV_PAR01 // olocar la serie de la mata468n
+				cFacIn := aDocElet[1][4] //MV_PAR02  // colocar el folio de la factura inicial
+				cFacFi := aDocElet[len(aDocElet)][4] //MV_PAR03  // colocar el folio de la factura final
+
+			else
+				cSerie := Padr(aDocElet[1][1],nTamSer) //MV_PAR01 // olocar la serie de la mata468n
+				cFacIn := aDocElet[1][2] //MV_PAR02  // colocar el folio de la factura inicial
+				cFacFi := aDocElet[len(aDocElet)][2] //MV_PAR03  // colocar el folio de la factura final
+
+			EndIf
+		Else
+		
+			cSerie := Padr(aDocElet[1][1],nTamSer) //MV_PAR01 // olocar la serie de la mata468n
+			cFacIn := aDocElet[2][1] //MV_PAR02  // colocar el folio de la factura inicial
+			cFacFi := aDocElet[3][1] //MV_PAR03  // colocar el folio de la factura final
+
+		EndIf
+	EndIf
+	If Empty(cFacFi)
+		lRet := .F.
+		
+		if !lautoExe 
+			MsgAlert(STR0053) //"Ingresa el nmero de documento final"
+		EndIf
+		
+		CURSORARROW()
+		Return
+	EndIf
+		
+	oWs := WSTSSWSSIGNATURE():New()
+	oWs:cUSERTOKEN:= "TOTVS"
+	oWs:cENTIDADE	:= cIdEnt
+	oWs:oWSREMESSA:oWSLOTESIG := TSSWSSIGNATURE_ARRAYOFDOCSIG():New()
+	oWS:_URL		:= cUrl + "/TSSWSSIGNATURE.apw"
+
+	Processa({|lEnd| lRet := GetFact(@oWs:oWSREMESSA:oWSLOTESIG, cFacIn, cFacFi, nAmbie,@aFact,@aError)})
+
+	If !lRet
+		if !lautoExe 
+			MsgAlert(STR0054) //"No hay documentos dentro de los rangos especificados"
+		EndIf
+		CURSORARROW()
+		Return
+	EndIf
+				VARINFO("aFact MATA485:",aFact)
+	If len(aFact) > 0
+		If oWs:RemessaDoc()
+		VARINFO("len(oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT) MATA485:",str(len(oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT)))
+		
+			For nX := 1 to len(oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT)
+				If oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:lResultDoc
+					aAdd(aTrans, {oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:cID, STR0055}) //"Transmisin a TSS exitosa"
+				Else
+					If oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:oWSERRO:nCODIGO == 1
+						cDescri := STR0056 + " - " + 	oWs:oWSREMESSADOCRESULT:oWSLOTESIGRESULT:oWSDOCSIGRESULT[nX]:oWSERRO:CDESCRICAO
+					EndIf
+					aAdd(aError, {" ", cDescri})
+				EndIf
+			Next nX
+ 			VARINFO("aError MATA485: ",aError)
+ 			
+			For nX := 1 to len(aTrans)
+				cLog += aTrans[nX,1]+"  "+aTrans[nX,2]+cCRLF
+			Next nX
+	          VARINFO("aTrans con registro antes de actualizar status MATA485:",aTrans)
+			IF  len(aTrans) > 0
+				// Actualizar estatus de documento transmitido
+				
+				VARINFO("aFact antes de actualizar status M485UPDST:",aFact)
+				M485UPDST(aTrans,aFact)
+	          	VARINFO("aFact con registro despues de actualizar status M485UPDST:",aFact)
+
+			EndIF					
+		Else
+			if !lautoExe 
+				MsgAlert(GetWSCError())
+			EndIf
+		EndIf
+	EndIf
+
+	For nX := 1 to len(aError)
+		cLog += aError[nX,1]+"  "+aError[nX,2]+cCRLF
+		If nX > 1
+			If  aError[nX,1] <> aError[nX-1,1]
+				nError++
+			EndIF
+		Else
+			nError := 1	
+		EndIF
+	Next nX
+	
+	if !lautoExe 
+		cLog += cCRLF+cCRLF+STR0057+Alltrim(str(len(aTrans)))+cCRLF //"Documentos transmitidos: "
+		cLog += STR0058+Alltrim(str(nError))  + cCRLF + cCRLF //"Documentos con error: "
+		cLog += STR0092 + cCRLF
+		cLog += + cCRLF + &(getMv("MV_CFDDOCS")) + cCRLF
+		MsgInfo(cLog)
+	EndIf
+
+	CURSORARROW()
+
+Return
+
+//±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+//±±³Fun‡…o   Mat485Mtr  ³ Autor ³ Mercado Internacional ³ Data ³.24.09.2021³±±
+//±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+//±±³Descri‡…o ³Función utilizada para gerar metrica das transmissoes       ´±± 
+//±±³           da rotina MATRA485 Chile                                    ´±±    
+//±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+
+Function Mat485Mtr(nNFes,cEspecie)
+
+Local cIdMetric := ""
+Local cSubRutina := ""
+
+Default nNFes := 0	
+Default cEspecie := ""
+
+If nNFes > 0
+//Metrica transmissoes facturas Eletronicas
+	If LbMtMT485()
+		cIdMetric   := "faturamento-protheus_transmision-chile_total"
+		cSubRutina  := "mata485-faturamento-"+ Alltrim(cEspecie) + "-total-transmission" 
+		If lAutomato
+			cSubRutina  += "-auto"
+		EndIf
+		FWCustomMetrics():setSumMetric(cSubRutina, cIdMetric, nNFes, /*dDateSend*/  , /*nLapTime*/ , "MATA485")
+	EndIf
+Endif
+	
+Return 
+
+/*/{Protheus.doc} LbMtMT485
+Función utilizada para validar la fecha de la LIB para ser utilizada en Telemetria
+@type       Function
+@author     Faturación
+@since      2021
+@version    12.1.27
+@return     _lMetric, lógico, si la LIB puede ser utilizada para Telemetria
+/*/
+Static Function LbMtMT485()
+
+If _lMetric == Nil 
+	_lMetric := (FWLibVersion() >= "20210517") .And. FindClass('FWCustomMetrics')
+EndIf
+
+Return _lMetric

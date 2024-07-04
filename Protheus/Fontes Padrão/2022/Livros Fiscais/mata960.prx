@@ -1,0 +1,402 @@
+#INCLUDE "MATA960.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MATA960 Guia Nacional de Recolhimento
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 1.00
+/*/
+//-------------------------------------------------------------------
+Function MATA960()
+Local oBrowse	:= Nil
+Local lVerpesssen := Iif(FindFunction("Verpesssen"),Verpesssen(),.T.)
+
+If lVerpesssen
+	oBrowse:=FWMBrowse():New()
+	oBrowse:SetAlias("SF6")
+	oBrowse:SetDescription(STR0009) //"Guia Nacional de Recolhimento"
+	oBrowse:Activate()
+EndIf
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+Funcao generica MVC com as opcoes de menu
+
+@return aRotina - Array com as opcoes de menu
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+
+Private aRotina := {}
+
+ADD OPTION aRotina TITLE STR0004 ACTION "PesqBrw"         OPERATION 1 ACCESS 0 //"Pesquisar"
+ADD OPTION aRotina TITLE STR0005 ACTION "VIEWDEF.MATA960" OPERATION 2 ACCESS 0 //"Visualizar"
+ADD OPTION aRotina TITLE STR0006 ACTION "VIEWDEF.MATA960" OPERATION 3 ACCESS 0 //"Incluir"
+ADD OPTION aRotina TITLE STR0007 ACTION "VIEWDEF.MATA960" OPERATION 4 ACCESS 0 //"Alterar"
+ADD OPTION aRotina TITLE STR0008 ACTION "VIEWDEF.MATA960" OPERATION 5 ACCESS 0 //"Excluir"
+
+If ExistBlock("MT960MNU")
+	ExecBlock("MT960MNU",.F.,.F.)
+EndIf
+
+Return(aRotina)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ModelDef
+Funcao generica MVC do model
+
+@return oModel - Objeto do Modelo MVC
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function ModelDef()
+Local oModel := Nil
+Local oStruSF6 := FWFormStruct(1, "SF6")
+
+oModel:=MpFormModel():New("MATA960MOD",,{|oModel|A960TdOk(oModel)},{|oModel|GravaForm(oModel)})
+oModel:AddFields("MATA960MOD",,oStruSF6,)
+oModel:SetPrimaryKey({ "F6_EST" },{ "F6_NUMERO" })
+oModel:SetDescription(STR0009) //"Guia Nacional de Recolhimento"
+
+oStruSF6:SetProperty( "F6_EST"   , MODEL_FIELD_WHEN, {||(oModel:GetOperation()==3)})
+oStruSF6:SetProperty( "F6_NUMERO", MODEL_FIELD_WHEN, {||(oModel:GetOperation()==3)})
+
+//Não permito alteração do tributo caso tenha vínculo com documento fiscal
+IF SF6->(FieldPos("F6_IDNF")) > 0	
+	oStruSF6:SetProperty( "F6_TRIB"		, MODEL_FIELD_WHEN	, {|| Empty(oModel:GetValue('MATA960MOD',"F6_IDNF")) .And. oModel:GetValue('MATA960MOD',"F6_TIPOIMP") $ "DE" })
+	oStruSF6:SetProperty( "F6_TIPOIMP"	, MODEL_FIELD_VALID , {|| (Mata960Cpo("F6_TIPOIMP"))    })
+	oStruSF6:SetProperty( "F6_TRIB"     , MODEL_FIELD_VALID, {|| Empty(oModel:GetValue ('MATA960MOD',"F6_TRIB")) .Or. VldTrib(oModel:GetValue('MATA960MOD',"F6_TIPOIMP"),oModel:GetValue ('MATA960MOD',"F6_TRIB"))})
+EndIF
+
+Return oModel
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef
+Funcao generica MVC do View
+1
+@return oView - Objeto da View MVC
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function ViewDef()
+Local oView    := FWFormView():New()
+Local oModel   := FwLoadModel("MATA960")
+Local oStruSF6 := FWFormStruct(2,"SF6")
+
+oView:SetModel(oModel)
+
+oView:AddField( "VIEW_CAB", oStruSF6, "MATA960MOD")
+oView:CreateHorizontalBox( "CABEC" , 100 )
+oView:SetOwnerView( "VIEW_CAB", "CABEC" )
+
+//Aqui removo o ID da nota fiscal da view
+IF SF6->(FieldPos("F6_IDNF")) > 0
+	oStruSF6:RemoveField('F6_IDNF')
+	
+	//Altero a consulta padrão do campo
+	oStruSF6:SetProperty("F6_TRIB",MVC_VIEW_LOOKUP,{ || A960ChgF3() })
+EndiF
+
+Return oView
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A960TdOk
+Funcao para fazer validacoes do formulario
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function A960TdOk(oModel)
+Local lRet       := .T.
+Local cEst       := oModel:GetValue("MATA960MOD","F6_EST")
+Local cNumero    := oModel:GetValue("MATA960MOD","F6_NUMERO")
+Local nOperation := oModel:GetOperation()
+
+If lRet .And. nOperation == 3
+	SF6->(DbSetOrder(1))
+	If SF6->(DbSeek(xFilial("SF6")+cEst+cNumero))
+		Help("",1,"Help","Guia ja existe.","A Guia cadastrada ja existe no sistema. Verificar o Numero e o Estado da Guia.",1,0)
+		lRet := .F.
+	EndIf
+EndIf
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GravaForm
+Funcao para compementar as gravacoes do formulario
+
+@author Flavio Luiz Vicco
+@since 21/05/2018
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function GravaForm(oModel)
+local nOperation := oModel:GetOperation()
+
+FWFormCommit( oModel )
+
+If nOperation == MODEL_OPERATION_INSERT
+	//Ponto de entrada criar duplicata a pagar
+	IF ExistBlock("MA960DUP")
+		ExecBlock("MA960DUP", .F., .F.)
+	Endif
+ElseIf nOperation == MODEL_OPERATION_DELETE
+	//Ponto de entrada exclui duplicata a pagar
+	IF ExistBlock("MA960DEX")
+		ExecBlock("MA960DEX", .F., .F.)
+	Endif
+EndIf
+
+Return .T.
+//-------------------------------------------------------------------
+/*/ {Protheus.doc} cBoxTipImp
+Cria opcoes para o campo F6_TIPOIMP (X3_CBOX) 
+
+@author Rafael Santos
+@since 09/12/2015
+#cBoxTipImp()
+//Retorna Combo box do campo F6_TIPOIMP
+/*/
+//-------------------------------------------------------------------
+
+Function cBoxTipImp
+
+Local nI	:= 0
+Local cRet	:= ""
+Local aOpc	:= {}
+
+AADD(aOpc,"0=GUIA ESTADUAL")
+AADD(aOpc,"1=ICMS")
+AADD(aOpc,"2=ISS")
+AADD(aOpc,"3=ICMS/ST") 
+AADD(aOpc,"4=FUNRURAL")
+AADD(aOpc,"5=SIMP FEDERAL") 
+AADD(aOpc,"6=FUNDERSUL")
+AADD(aOpc,"7=SIMP NACIONAL")
+AADD(aOpc,"8=FUST/FUNTTEL")
+AADD(aOpc,"9=SENAR")
+AADD(aOpc,"A=FUMACOP")
+AADD(aOpc,"B=DIFAL")
+AADD(aOpc,"C=PROTEGE-GO")
+AADD(aOpc,"D=Tributo Genérico")
+AADD(aOpc,"E=Apuração Tributo Genérico")
+
+For nI:=1 To Len(aOpc)
+	cRet += IIf(empty(cRet),'',';') + aOpc[nI]
+Next
+
+Return (cRet)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Mata960Cpo
+Função que valida os campos
+
+@author Renato Rezende    
+@since 21/09/2020
+@version P12.1.31
+
+/*/
+//-------------------------------------------------------------------
+Function Mata960Cpo(cCampo)
+
+Local oModel        := FWModelActive()
+Local cTipoImp 		:= ""
+Local oCabecalho	:= oModel:GetModel("MATA960MOD")
+
+If cCampo == "F6_TIPOIMP"
+	cTipoImp := oModel:GetValue ('MATA960MOD',"F6_TIPOIMP")
+    If (Alltrim(cTipoImp) <> 'D' .Or. Alltrim(cTipoImp) <> 'E' ) .AND. Empty(oModel:GetValue('MATA960MOD',"F6_IDNF"))
+        //Limpa o conteúdo dos campos abaixo
+        oCabecalho:LoadValue('F6_TRIB'	, Criavar("F6_TRIB") )
+		oCabecalho:LoadValue('F6_DTRIB'	, " " )
+    EndIf
+EndIF
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Mata960Cpo
+Função para alterar a consulta padrão do tributo.
+
+@author Erick Dias   
+@since 25/09/2020
+@version P12.1.31
+
+/*/
+//-------------------------------------------------------------------
+Static Function A960ChgF3()
+Local oModel    := FwModelActive()
+Local cTpImp	:= oModel:GetValue ('MATA960MOD',"F6_TIPOIMP")
+Local cRet      := ""
+
+//Verifico o Tipo do Participante para Setar a consulta de Campo.
+If cTpImp == 'E'
+    cRet    := "F2E"
+Else
+    cRet    := "F2B2"
+EndIF
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} VldTrib
+Função de validação do tributo
+
+@author Erick Dias   
+@since 25/09/2020
+@version P12.1.31
+
+/*/
+//-------------------------------------------------------------------
+Static Function VldTrib(cTpImp,cTrib)
+
+Local lRet := .F.
+
+//Vazio retorno verdadeiro
+If Empty(cTrib)
+	Return .T.
+EndIF
+
+//Verifica o código do tributo
+If cTpImp == "E"	
+ 	DbSelectArea("F2E")
+    DbSetOrder(2)
+    Return F2E->(DbSeek(xFilial("F2E")+cTrib))
+
+ElseIF cTpImp == "D"
+ 	DbSelectArea("F2B")
+    DbSetOrder(7)
+    Return F2B->(DbSeek(xFilial("F2B")+cTrib+"2"))
+
+EndIf
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Mta960DTrib
+Função auxiliar para inicializador padrão da descrição do tributo
+
+@author Erick Dias   
+@since 25/09/2020
+@version P12.1.31
+
+/*/
+//-------------------------------------------------------------------
+Function Mta960DTrib(cTrib, cTipoImp)
+
+Local cRet      := ""
+
+//Verifico o Tipo do Participante para Setar a consulta de Campo.
+If cTipoImp == 'E'
+    cRet    := POSICIONE("F2E",2,xFilial("F2E")+cTrib,"F2E_DESC")
+ElseIf cTipoImp == 'D'    
+	cRet    := POSICIONE("F2B",7,xFilial("F2B")+cTrib+"2","F2B_DESC")	
+EndIF
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RetCmpsSF6
+Função auxiliar para chamada do ponto de entrada que retornará os dados para os campos F6_TIPOGNU, F6_DOCORIG, F6_DETRECE e F6_CODPROD.
+
+@author pereira.weslley
+@since 24/03/2021
+@version P12.1.27
+
+/*/
+//-------------------------------------------------------------------
+Function RetCmpsSF6(cReceita, cUf)
+
+Local aRet := {0, '', '', 0, ''}
+Local aPERet := {}
+
+If ExistBlock("MA960GREC")
+	aPERet := ExecBlock("MA960GREC", .F., .F., {cReceita, cUf})
+	If Len(aPERet) >= 4
+		If aPERet[1] != Nil
+			aRet[1] := aPERet[1]
+		EndIf
+
+		If aPERet[2] != Nil
+			aRet[2] := aPERet[2]
+		EndIf
+
+		If aPERet[3] != Nil
+			aRet[3] := aPERet[3]
+		EndIf
+
+		If aPERet[4] != Nil
+			aRet[4] := aPERet[4]
+		EndIf
+
+		If Len(aPERet) > 4 .And. aPERet[5] != Nil
+			aRet[5] := aPERet[5]
+		EndIf
+	EndIf
+Else
+	
+	aRet[1] := M->F6_TIPOGNU
+	aRet[2] := M->F6_DOCORIG
+	aRet[3] := M->F6_DETRECE
+	aRet[4] := M->F6_CODPROD
+	
+	If SF6->(FieldPos("F6_CODAREA")) > 0
+		aRet[5] := M->F6_CODAREA
+	EndIf
+
+EndIf 
+
+If FWSX3Util():GetFieldStruct('F6_TIPOGNU')[2] $ 'C' .And. ValType(aRet[1]) != 'C' .And. ValType(aRet[1]) != 'U'
+	aRet[1] := str(aRet[1],2)
+EndIf
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} VldCodRec
+Função auxiliar para preenchimento dos campos F6_TIPOGNU, F6_DOCORIG, F6_DETRECE e F6_CODPROD.
+
+@author pereira.weslley
+@since 24/03/2021
+@version P12.1.27
+
+/*/
+//-------------------------------------------------------------------
+Function VldCodRec()
+Local aRet := {}
+Local cReceita := M->F6_CODREC
+Local cUF      := M->F6_EST
+
+If SF6->(FieldPos("F6_TIPOGNU")) > 0
+	aRet := RetCmpsSF6(cReceita, cUf)
+
+	M->F6_TIPOGNU := aRet[1]
+	M->F6_DOCORIG := aRet[2]
+	M->F6_DETRECE := aRet[3]
+	M->F6_CODPROD := aRet[4]
+
+	If Len(aRet) > 4 .And. SF6->(FieldPos("F6_CODAREA")) > 0
+		M->F6_CODAREA := aRet[5]
+	EndIf
+
+EndIf
+
+Return .T.

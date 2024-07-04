@@ -1,0 +1,4387 @@
+#INCLUDE "PROTHEUS.CH"  
+#INCLUDE "FWMVCDEF.CH" 
+#INCLUDE "DBTREE.CH"  
+#INCLUDE "FATA300.CH"   
+#INCLUDE "CRMDEF.CH"
+
+Static lUplManual := ExistBlock("FT300UplMan")
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300CmtMdl
+
+Commit do Model(MPFormModel) da Oportunidade de Venda.
+
+@sample		F300CmtMdl(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Ve nda (MPFormModel).
+
+@return		ExpL - Verdadeiro
+
+@author		Anderson Silva
+@since		27/03/2014
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function F300CmtMdl(oModel)
+
+Local aArea			:= GetArea()
+Local aAreaAO4		:= AO4->(GetArea())
+Local nOperation	:= oModel:GetOperation()
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")
+Local oMdlADJ		:= oModel:GetModel("ADJDETAIL")
+Local oMdlAIJ		:= oModel:GetModel("AIJDETAIL")
+
+Local aVendAnt	  	:= {}
+Local aVendAtu		:= ""
+Local lNewRevis		:= .F.
+Local nOpcADJ	 	:= SuperGetMv("MV_FATMNTP",,1)
+Local cFatProp    	:= SuperGetMV("MV_FATPROP",,"O")	// Indica se a oportunidade usa proposta ou orcamento
+Local lProcADL 		:= SuperGetMv("MV_CRMADL",,.T. ) 	// Indica se a ADL deverá ter manutenção
+Local aGrupos    	:= {}   								// Grupos societarios.
+Local aSocios    	:= {}  								// Socios do grupo societário.
+Local lRateio    	:= .F.									// Faz o rateio do pedido de venda
+Local cProcVdAnt	:= ""									// Salva o codigo do Processo de Venda gravado.
+Local cEstVdAnt		:= ""									// Salva o codigo do Estagio do Processo de Venda gravado. 
+Local cCodProp		:= ""									// Armazena o codigo da Proposta Comercial informada pelo usuário
+Local lRetorno 		:= .T.									// Retorno do bloco de commit.
+Local uRetorno		:= Nil
+Local lFt300Gra   	:= ExistBlock("FT300GRA")			// P.E. para executar validações/outros procedimentos
+Local lFT300Prc	  	:= ExistBlock("FT300PRC")			// P.E. no final da inclusao da oportunidade para validar o processo
+Local lExecProc		:= .T.									// Executa o Processo de Workflow CRM.
+Local lFt300Agr		:= ExistBlock("FT300AGR") 			// P.E de cancelamento da gravacao.
+Local lFt300SPR		:= ExistBlock("FT300SPR")			// P.E para avaliação da proposta selecionada como vencedora.
+Local cChave		:= ""									// Filial da Oportunidade / Numero da Oportunidade para Controle de Acesso do CRM.
+Local aAutoAO4		:= {}									// Permissionamento do Controle de Acesso do CRM para Oportunidade de Venda.
+Local aAutoAO4Aux	:= {} 									// Permissionamento do Controle de Acesso do CRM para Oportunidade de Venda.
+Local cUserAnt		:= ""									// Usuario que possui acesso ao registro.
+Local nRecReal		:= 0									// Receita Real
+Local lGeraPed		:= .T.
+Local lGerPedGCT	:= SuperGetMv("MV_CRMXGCT",,.F.)
+Local lGrPedVend  	:= SuperGetMv("MV_OPORXPV",,.T.)   		// Gera pedido de venda no encerramento da oportunidade.
+Local lMVCRMUAZS 	:= SuperGetMv("MV_CRMUAZS",, .F.)
+Local cCodUsr		:= If(lMVCRMUAZS, CRMXCodUser(), RetCodUsr())
+Local cFilAO3		:= ""
+Local cFilAO4		:= ""
+Local cAction		:= ""
+Local lPropri  	 	:= .T.
+Local aRespDono		:= {}									//Array para receber dados do dono/responsavel da conta 
+Local aRole			:= CRMXGetPaper() 
+Local cRole			:= ""
+Local cRoleAnt		:= ""
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de Entrada para usuario cancelar a gravacao conforme a suas regras de negocio. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFt300Agr
+	uRetorno := ExecBlock("FT300AGR",.F.,.F.,{oModel})
+	If ValType(uRetorno) == "L"
+		lRetorno := uRetorno
+	EndIf
+EndIf
+ 
+If lRetorno
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Chamada de Interface para seleção da Proposta Vencedora e Grupo Societario	³
+	//³ antes Begin Transaction. 															³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If nOperation == MODEL_OPERATION_UPDATE
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se havera uma revisao na Oportunidade de Venda atraves do ³
+		//³Ponto de Entrada ou pela configuracao do parametro MV_FTREVIS.     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lNewRevis := Ft300VROpo(oModel) 
+		
+		If oMdlAD1:GetValue("AD1_STATUS") == "9"
+	
+			If cFatProp == "P"
+			
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Seleciona a Proposta Comercial Vendedora ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				
+				Ft300ChkPro(oModel,@cCodProp)
+				
+				//Ponto de Entrada para avaliar a proposta selecionada conforme regra de negocio
+				If lFt300SPR
+					uRetorno := ExecBlock("Ft300SPR",.F.,.F.,{oModel,cCodProp})
+					If ValType(uRetorno) == "L"
+						lRetorno := uRetorno
+						If !lRetorno
+							RestArea(aArea)
+							//Retorno como .T. para manter a regra do Commit
+							Return(.T.)
+						EndIf
+					EndIf
+				EndIf
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Rateio do PV para um Grupo Societario com base na Proposta Comercial Vencedora. ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !Empty(cCodProp) .AND. lGrPedVend
+					If !Empty(oMdlAD1:GetValue("AD1_CODCLI")) .AND. !Empty(oMdlAD1:GetValue("AD1_LOJCLI"))	
+						aGrupos := Ft300BGpo(oMdlAD1:GetValue("AD1_CODCLI"),oMdlAD1:GetValue("AD1_LOJCLI")) //Traz os grupos pertencente ao cliente
+						If Len(aGrupos) == 1
+							If Aviso(STR0136,STR0157,{STR0138,STR0139},2) == 1  //#Atencao!#"Deseja ratear o pedido de venda entre os membros do grupo societário?"#"Sim","Nao"
+								Ft300RPed(aGrupos[1][2],@aSocios,@lRateio)
+							EndIf
+						ElseIf Len(aGrupos) > 1
+							If Aviso(STR0136,STR0157,{STR0138,STR0139},2) == 1  //#Atencao!#"Deseja ratear o pedido de venda entre os membros do grupo societário?"#"Sim","Nao"
+								Ft300Grupo(oMdlAD1:GetValue("AD1_CODCLI"),oMdlAD1:GetValue("AD1_LOJCLI"),aGrupos,@aSocios,@lRateio)
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			
+			EndIf
+		
+		EndIf
+		
+	EndIf
+	
+	Begin Transaction
+		
+		If nOperation == MODEL_OPERATION_INSERT
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Atualiza campo AD1_CODTMK da Oportunidade de Venda com ultimo atendimento ³
+			//³	do Call Center realizado para o Suspect convertido em Prospect.			 ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If ( Empty(oMdlAD1:GetValue("AD1_CODTMK")) .AND. !Empty(oMdlAD1:GetValue("AD1_PROSPE")) .AND. !Empty(oMdlAD1:GetValue("AD1_LOJPRO")) )
+				oMdlAD1:LoadValue("AD1_CODTMK",Ft300CodTmk(oMdlAD1:GetValue("AD1_PROSPE"),oMdlAD1:GetValue("AD1_LOJPRO")))	
+			EndIf
+			
+			F300GrvADJ(oMdlADJ, oMdlAD1 ,lNewRevis, nOpcADJ)
+
+			If oMdlAD1:GetValue("AD1_STATUS") == "9"
+			
+				oMdlAIJ:GoLine(oMdlAIJ:Length())
+
+				If Alltrim(oMdlAIJ:GetValue("AIJ_LEGEND")) $ "BR_VERDE|BR_AMARELO"
+					oMdlAIJ:SetValue("AIJ_LEGEND","BR_BRANCO")
+					oMdlAIJ:SetValue("AIJ_STATUS","1")
+				Else
+					oMdlAIJ:SetValue("AIJ_LEGEND","BR_PRETO")
+					oMdlAIJ:SetValue("AIJ_STATUS","2")
+				EndIf
+
+			Endif
+			
+		ElseIf nOperation == MODEL_OPERATION_UPDATE
+			
+			cProcVdAnt	:= AD1->AD1_PROVEN	// Codigo do Processo de Venda gravado.
+			cEstVdAnt	:= AD1->AD1_STAGE 	// Codigo do Estagio do Processo de Venda gravado. 
+	 		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Caso nao exista mais o orcamento exclui a amarracao.  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If ! Empty(oMdlAD1:GetValue("AD1_NUMORC"))
+				SCJ->(DbSetOrder(1))	//CJ_FILIAL+CJ_NUM+CJ_CLIENTE+CJ_LOJA
+				If SCJ->(! DbSeek(xFilial("SCJ")+oMdlAD1:GetValue("AD1_NUMORC")))
+					oMdlAD1:LoadValue("AD1_NUMORC",CriaVar("AD1_NUMORC",.F.))
+				EndIf
+			EndIf
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Lista de vendedores que estao gravados na Oportunidade de Venda. ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			aVendAnt := Ft300VendGrv(oModel)
+			
+			If oMdlAD1:GetValue("AD1_STATUS") == "9"
+						
+				If cFatProp == "P" .AND. !Empty(cCodProp)	
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Cancela as Propostas Comerciais que não foram escolhida como vencedora  ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					Ft300CanProp(oMdlAD1:GetValue("AD1_NROPOR"),cCodProp,oMdlAD1:GetValue("AD1_STATUS"))
+									
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Fecha a Proposta Comercial Vencedora. ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					Ft300FchProp(cCodProp)
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Seta a Proposta Comercial Vencedora no Cabeçalho da Oportunidade de Venda ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					oMdlAD1:LoadValue("AD1_PROPOS",cCodProp)
+									
+					If nOpcADJ == 1 .OR. nOpcADJ == 2 .OR. nOpcADJ == 4
+						//Calcular valor da proposta ganha para atualizar a Receita Real
+						nRecReal := Ft300REstPro(cCodProp)
+						oMdlAD1:LoadValue("AD1_RCREAL",nRecReal) //Atualiza o campo receita real
+					ElseIf nOpcADJ == 3
+						oMdlAD1:LoadValue("AD1_RCREAL",oMdlAD1:GetValue("AD1_VERBA"))	//Atualiza o campo com a receita estimada
+					EndIf
+					
+				EndIf 
+					
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Efetiva o prospect como cliente e altera o orcamento para³
+				//³utilizar o novo cliente                                  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If Empty(oMdlAD1:GetValue("AD1_CODCLI")) .And. lGrPedVend
+					If Ft300GrCli(oMdlAD1)
+						oMdlAD1:LoadValue("AD1_PROSPE","")
+						oMdlAD1:LoadValue("AD1_LOJPRO","")
+						oMdlAD1:LoadValue("AD1_CODCLI",AD1->AD1_CODCLI)  
+						oMdlAD1:LoadValue("AD1_LOJCLI",AD1->AD1_LOJCLI)
+					EndIf
+				EndIf
+					
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Com base nos Orcamentos vinculado a Proposta Comercial	³
+				//³vencedora gera Pedidos de Venda.                       	³					       
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If ( lGrPedVend .And. !lGerPedGCT )
+					lGeraPed := Ft300OrcPed(oMdlAD1,aSocios,lRateio,cCodProp)
+				EndIf
+				
+				//--------------------------------------------------------------------+
+				//  SIGAGTP - Gera Viagens Especiais no encerramento da Oportunidade  |
+				//--------------------------------------------------------------------+	
+				If lGeraPed .And. nModulo == 88 .and. FindFunction("GX300VIAGEM") 			
+					lGeraPed := GX300Viagem(oMdlAD1)
+				EndIf
+				
+				If !lGeraPed
+					DisarmTransaction()
+					Break
+				EndIf
+				
+			EndIf
+					
+			If oMdlAD1:GetValue("AD1_STATUS") $ "2|3"		//Cancelado|Suspenso
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Cancela todas as Propostas Comerciais.  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Ft300CanProp(oMdlAD1:GetValue("AD1_NROPOR"),,oMdlAD1:GetValue("AD1_STATUS"))
+				 
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Atualiza a receita real com base na receita estimada.  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				oMdlAD1:LoadValue("AD1_RCREAL",oMdlAD1:GetValue("AD1_VERBA"))	
+			EndIf 
+				
+			If oMdlAD1:GetValue("AD1_STATUS") $ "2|9"
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Chama a atualização das reservas de equipamentos. ³
+				//³vinculados com as propostas comerciais.			 ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				At825AtuOp(oMdlAD1) // passa o objeto da oportunidade por parâmetro para consulta de informações
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Utiliza a data corrente como data da finalizacao da ³
+				//³Oportunidade de Venda.                              ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If Empty(oMdlAD1:GetValue("AD1_DTFIM"))
+					oMdlAD1:LoadValue("AD1_DTFIM",dDataBase)
+				EndIf
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Encerra o estagio do processo de venda vigente na Evolucao da Venda ³
+				//³ ao definir a Oportunidade de Venda como perdido ou encerrado.       ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+				Ft300EncEvl(oModel)
+			EndIf
+							
+			F300GrvADJ(oMdlADJ, oMdlAD1 ,lNewRevis, nOpcADJ)
+		ElseIf nOperation == MODEL_OPERATION_DELETE
+					
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Exclui a amarracao do Banco de Conhecimentos. ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			MsDocument("AD1",AD1->(Recno()),2,,MODEL_OPERATION_DELETE)
+				
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Processo WorkFlow # "Exclusao da oportunidade"  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			ExecCRMPro("000007")
+		
+			//Limpa tabela ADJ
+			Ft300AdjDl(oMdlAD1)
+		
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Adiciona ou Remove o privilegios deste registro.  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cChave  := PadR(xFilial("AD1")+oMdlAD1:GetValue("AD1_NROPOR"),GetSX3Cache("AO4_CHVREG","X3_TAMANHO"))
+
+		If IsInCallStack("Tk272OpUsu")
+			cCodUsr	:= Posicione("SA3", 1, xFilial("SA3") + oMdlAD1:GetValue("AD1_VEND"), "SA3->A3_CODUSR")
+		ElseIf ( ! Empty( aRole ) )
+			cCodUsr := aRole[1]
+			cRole	:= aRole[2] + aRole[3] 
+		ElseIf !Empty(RetCodUsr())
+			cCodUsr	:= RetCodUsr() //Usuário do protheus
+		Else
+			cCodUsr	:= UsrPrtErp() //Usuario do portal
+		EndIf
+
+		cFilAO3	:= xFilial("AO3")
+		cFilAO4	:= xFilial("AO4")
+		If ( nOperation == MODEL_OPERATION_INSERT .OR. nOperation == MODEL_OPERATION_DELETE )
+			If lMVCRMUAZS
+				aAutoAO4 := CRMA200PAut(nOperation,"AD1",cChave,/*cCodUser*/,/*aPermissoes*/,/*aNvlEstrut*/,/*cCodUserCom*/,/*dDataVld*/,,,lPropri)
+			Else
+				aAutoAO4 := CRMA200PAut(nOperation, "AD1", cChave, cCodUsr, /*aPermissoes*/, /*aNvlEstrut*/, /*cCodUsrCom*/, /*dDataVld*/)
+			EndIf
+			
+			If nOperation == MODEL_OPERATION_INSERT
+				If lMVCRMUAZS
+					DbSelectArea("AZS")
+					AZS->( DbSetOrder(4))	// AZS_FILIAL+AZS_VEND
+					
+					If AZS->(DbSeek(xFilial("AZS")+oMdlAD1:GetValue("AD1_VEND")))
+						// Se o codigo do vendedor da oportunidade for diferente do logado, insere na AO4 como compartilhado
+						If AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL  <> cCodUsr + cRole
+							aAutoAO4Aux := CRMA200PAut(	nOperation,"AD1",cChave,AZS->AZS_CODUSR,/*aPermissoes*/,/*aNvlEstrut*/,	cCodUsr,/*dDataVld*/,,,lPropri, AZS->AZS_SEQUEN + AZS->AZS_PAPEL )
+							aAdd(aAutoAO4[2],aAutoAO4Aux[2][1])
+						EndIf
+					EndIf
+
+					//Caso seja inclusao de oportunidade rapida e vendedor informado na oportunidade seja diferente do dono/responsavel
+					//sera criado compartilhamento/privilegios para o dono acessar a oportunidade e acompanhar a futura venda.
+					If	IsInCallStack("TK272ExecOpt")	//Rotina de inclusao de oportunidade rapida (fica dentro da TMKA272A)
+						If !Empty(oMdlAD1:GetValue("AD1_CODCLI"))
+							aRespDono := Tk272RetVend("SA1",oMdlAD1:GetValue("AD1_CODCLI"),oMdlAD1:GetValue("AD1_LOJCLI"))
+						Else 
+							aRespDono := Tk272RetVend("SUS",oMdlAD1:GetValue("AD1_PROSPE"),oMdlAD1:GetValue("AD1_LOJPRO"))					
+						Endif
+						
+						If	Len(aRespDono) > 0 .AND. !Empty(aRespDono[1]) 
+							If	!Empty(oMdlAD1:GetValue("AD1_VEND")) .AND. oMdlAD1:GetValue("AD1_VEND") <> aRespDono[1] 
+								aAutoAO4Aux := CRMA200PAut(nOperation,"AD1",cChave,aRespDono[5],/*aPermissoes*/,/*aNvlEstrut*/,cCodUsr,/*dDataVld*/)
+								aAdd(aAutoAO4[2],aAutoAO4Aux[2][1])
+							EndIf
+						Endif 							
+					EndIf
+				Else
+					AO3->(DbSetOrder(1))	// AO3_FILIAL+AO3_CODUSR
+					If AO3->(DbSeek(cFilAO3 + cCodUsr))
+						// Se o codigo do vendendor logado for diferente do cadastrado, insere na AO4 como compartilhado
+						If ! Empty(oMdlAD1:GetValue("AD1_VEND")) .AND. AO3->AO3_VEND <> oMdlAD1:GetValue("AD1_VEND")
+	
+							AO3->(DbSetOrder(2))	// AO3_FILIAL+AO3_VEND
+							If AO3->(DbSeek(cFilAO3 + oMdlAD1:GetValue("AD1_VEND")))
+								aAutoAO4Aux := CRMA200PAut(nOperation, "AD1", cChave, AO3->AO3_CODUSR, /*aPermissoes*/, /*aNvlEstrut*/, cCodUsr, /*dDataVld*/)
+								aAdd(aAutoAO4[2], aAutoAO4Aux[2][1])
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+
+		ElseIf nOperation == MODEL_OPERATION_UPDATE
+
+			AO3->(DbSetOrder(2))	// AO3_FILIAL+AO3_VEND
+			If ! Empty(oMdlAD1:GetValue("AD1_VEND")) .And. lMVCRMUAZS
+				DbSelectArea("AZS")
+				AZS->(DbSetOrder(4))	// AZS_FILIAL+AZS_VEND
+				
+				// Posiciona no vendedor anterior.
+				If AZS->( DbSeek(xFilial("AZS")+AD1->AD1_VEND) )
+					
+					DbSelectArea("AO4")
+					AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+					
+					If !AO4->(DbSeek(xFilial("AO4")+"AD1"+cChave+AZS->AZS_CODUSR))
+						aAutoAO4 := CRMA200PAut(nOperation,"AD1",cChave,AZS->AZS_CODUSR,/*aPermissoes*/,/*aNvlEstrut*/,;
+												cCodUsr,/*dDataVld*/,/*cCodEqp*/,/*cCodUnd*/,/*lPropri*/,AZS->AZS_SEQUEN + AZS->AZS_PAPEL)
+					Else
+								
+						cUserAnt := AZS->AZS_CODUSR
+						cRoleAnt := AZS->AZS_SEQUEN + AZS->AZS_PAPEL
+							
+						If AZS->AZS_VEND <> oMdlAD1:GetValue("AD1_VEND")
+								
+							If AZS->(DbSeek(xFilial("AZS")+oMdlAD1:GetValue("AD1_VEND")))
+									
+								DbSelectArea("AO4")
+								AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+									
+								//Verifica se o vendedor atual possui privilegios para este registro.
+								If AO4->(DbSeek(xFilial("AO4")+"AD1"+cChave+AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL ))
+									//Se possui deleta o acesso do vendedor anterior
+									If AO4->(DbSeek(xFilial("AO4")+"AD1"+cChave+cUserAnt+ cRoleAnt))
+										RecLock("AO4",.F.)
+										AO4->(DbDelete())
+										AO4->(MsUnlock())
+									EndIf	
+								Else
+									//Senão troca o privilegios.
+									If AO4->(DbSeek(xFilial("AO4")+"AD1"+cChave+cUserAnt + cRoleAnt))
+										RecLock("AO4",.F.)
+										AO4->AO4_CODUSR := AZS->AZS_CODUSR
+										AO4->AO4_IDESTN := AZS->AZS_IDESTN
+										AO4->AO4_NVESTN := AZS->AZS_NVESTN
+										AO4->AO4_USRPAP := AZS->AZS_SEQUEN + AZS->AZS_PAPEL
+										AO4->(MsUnlock())
+									EndIf	
+								EndIf	
+									
+							EndIf
+								
+						EndIf
+						
+					EndIf
+					
+				EndIf
+			ElseIf ! Empty(oMdlAD1:GetValue("AD1_VEND"))
+				
+				// Posiciona no vendedor anterior.
+				If AO3->(DbSeek(cFilAO3 + AD1->AD1_VEND))
+
+					AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+					If AO4->(! DbSeek(cFilAO4 + "AD1" + cChave + AO3->AO3_CODUSR))
+
+						aAutoAO4 := CRMA200PAut(nOperation, "AD1", cChave, AO3->AO3_CODUSR, /*aPermissoes*/, /*aNvlEstrut*/, cCodUsr, /*dDataVld*/)
+
+					Else
+
+						cUserAnt := AO3->AO3_CODUSR
+
+						If AO3->AO3_VEND <> oMdlAD1:GetValue("AD1_VEND")
+
+							If AO3->(DbSeek(cFilAO3 + oMdlAD1:GetValue("AD1_VEND")))
+
+								AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+								//Verifica se o vendedor atual possui privilegios para este registro.
+								If AO4->(DbSeek(cFilAO4 + "AD1" + cChave + AO3->AO3_CODUSR))
+									//Se possui deleta o acesso do vendedor anterior
+									If AO4->(DbSeek(cFilAO4 + "AD1" + cChave + cUserAnt))
+										RecLock("AO4",.F.)
+										AO4->(DbDelete())
+										AO4->(MsUnlock())
+									EndIf	
+								Else
+									//Senão troca o privilegios.
+									If AO4->(DbSeek(cFilAO4 + "AD1" + cChave + cUserAnt))
+										RecLock("AO4",.F.)
+										AO4->AO4_CODUSR := AO3->AO3_CODUSR
+										AO4->AO4_IDESTN := AO3->AO3_IDESTN
+										AO4->AO4_NVESTN := AO3->AO3_NVESTN
+										AO4->(MsUnlock())
+									EndIf	
+								EndIf	
+
+							EndIf
+
+						EndIf
+
+					EndIf
+
+				EndIf
+
+			ElseIf lMVCRMUAZS
+				DbSelectArea("AZS")
+				AZS->(DbSetOrder(4))	// AZS_FILIAL+AZS_VEND
+				
+				If AZS->(DbSeek(xFilial("AZS")+oMdlAD1:GetValue("AD1_VEND")))
+					
+					DbSelectArea("AO4")
+					DbSetOrder(1)		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+					
+					If AO4->(DbSeek(xFilial("AO4")+"SUS"+cChave+AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL )) 
+						RecLock("AO4",.F.)
+						AO4->(DbDelete())
+						AO4->(MsUnlock())
+					EndIf
+					
+				EndIf
+			Else
+				If AO3->(DbSeek(cFilAO3 + oMdlAD1:GetValue("AD1_VEND")))
+					AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+					If AO4->(DbSeek(cFilAO4 + "SUS" + cChave + AO3->AO3_CODUSR))
+						RecLock("AO4",.F.)
+						AO4->(DbDelete())
+						AO4->(MsUnlock())
+					EndIf
+				EndIf
+
+			EndIf
+
+		EndIf
+
+		If Len(aAutoAO4) > 0
+			AO4->(DbSetOrder(1)) 	// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+			If AO4->(! DbSeek(cFilAO4 + "AD1" + cChave))
+				nOperation := MODEL_OPERATION_INSERT 	
+			EndIf
+			CRMA200Auto(aAutoAO4[1], aAutoAO4[2], nOperation)
+		EndIf
+
+		If lNewRevis
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Para geração da Revisão da Oportunidade de Venda o Commit e feito manualmente  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			Ft300GeraRev(oModel)
+			Ft300AtuRev(oMdlAD1)
+		Else
+			If nOperation == MODEL_OPERATION_UPDATE
+				FATA300AGR(oMdlADJ)
+			EndIf
+			FwFormCommit(oModel)
+		EndIf
+
+	End Transaction
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Chama Rotina de Anotaçoes                                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ   
+	If nOperation == MODEL_OPERATION_UPDATE .And. oMdlAD1:GetValue("AD1_STATUS") == "9"
+		If nModulo == 73 .And. !IsBlind()
+			ADY->(DbSetOrder(1))
+			If ADY->(DbSeek(xFilial("ADY") + oMdlAD1:GetValue("AD1_PROPOS")))
+				If lUplManual	
+					ExecBlock("FT300UplMan", .F., .F., { oMdlAD1 })
+				Else
+					ADY->(CRMA090( ,"ADY"))
+				EndIf
+			EndIf
+		EndIf
+		
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Apos a Gravação da Oportunidade executa alguns processos.  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If nOperation == MODEL_OPERATION_INSERT .OR. nOperation == MODEL_OPERATION_UPDATE .And. lGeraPed
+	
+		If nOperation == MODEL_OPERATION_INSERT
+			
+			If lFT300Prc
+				uRetorno := ExecBlock("FT300PRC",.F.,.F.,{oModel})
+				If ValType(uRetorno) == "L"
+					lExecProc := uRetorno
+				EndIf
+			EndIf
+			
+			If lExecProc
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Processo WorkFlow # "Inclusao da Oportunidade"  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				ExecCRMPro("000006")
+			EndIf	
+				
+		ElseIf nOperation == MODEL_OPERATION_UPDATE
+		
+			If oMdlAD1:GetValue("AD1_STATUS") == "1"
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Altera o status do orcamento de acordo com o status da Oportunidade de Venda.  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Ft300OrcSt(.T.)
+			ElseIf oMdlAD1:GetValue("AD1_STATUS") $ "2|3" //Cancelado|Suspenso
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Altera o status do orcamento de acordo com o status da Oportunidade de Venda.  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Ft300OrcSt(.F.)
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Processo WorkFlow # "Finaliza a oportunidade - Cancelada ou Suspensa"  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				ExecCRMPro("000010")						
+			ElseIf oMdlAD1:GetValue("AD1_STATUS") == "9"
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Processo WorkFlow # "Finaliza a oportunidade - Ganha"  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				ExecCRMPro("000011")					
+									 
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³SIGATEC WorkFlow # EO - Encerramento da Oportunidade   ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !Empty(cCodProp)
+					At774Mail("ADY",cCodProp,"EO","<b>"+STR0382+"</b>"+AD1->AD1_NROPOR) //"Cod. Oportunidade: "
+				Endif
+			EndIf
+			
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Caso ha mudanca no processo ou estagio da oportunidade e no    ³
+		//³campo "Notifica Rsp" do cadastro de Processo de Venda, estiver ³
+		//³setado como Sim dispara um Workflow.                           ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+		If AllTrim(cFatProp) == "P"
+
+			If cProcVdAnt <> AD1->AD1_PROVEN .OR. cEstVdAnt <> AD1->AD1_STAGE
+
+				AC2->(DbSetOrder(1))	//AC2_FILIAL+AC2_PROVEN+AC2_STAGE
+				If AC2->(DbSeek(xFilial("AC2")+AD1->AD1_PROVEN+AD1->AD1_STAGE))
+					cAction := AllTrim( AC2->AC2_ACAO ) 
+					If ! Empty(cAction) 
+						If !("(" $ cAction .And. ")" $ cAction)
+							cAction := cAction + "()"
+						EndIf   
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Executa a Acao do Usuario ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						Ft300FUsr(cAction)
+					EndIf
+					If  AC2->AC2_SENDWF == "1"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Dispara Workflow ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						MsAguarde({||Ft300SPWF()},STR0315,STR0316) //"Aguarde..."##"Notificando os responsáveis dos produtos."
+					EndIf
+				EndIf
+
+			EndIf
+
+		EndIf
+
+	EndIf  
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Lista de vendedores que foram alterados ou não na Oportunidade de Venda.  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aVendAtu := Ft300VendAlt(oModel)
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Processa a tabela ADL - Controle de Contas do Vendedor. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lProcADL
+		Ft300ProcADL(oModel,aVendAtu,aVendAnt)
+	EndIf
+ 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Ponto de Entrada para usuario tratar suas regras de negocios após	³
+	//³a gravacao da Oportunidade de Venda.									³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lFt300Gra
+		ExecBlock("FT300GRA",.F.,.F.,{oModel})
+	Endif
+
+	If	IsInCallStack("TMKA271") .And. !Empty(oMdlAD1:GetValue("AD1_VEND"))
+		TK260PermVnd(oModel)
+	Endif
+	  	
+EndIf 
+
+RestArea(aAreaAO4)
+RestArea(aArea)
+aSize(aAreaAO4,0)
+aSize(aArea,0)
+Return(.T.)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300IniAD1
+
+Inicializa os campos virtuais e reais do cabeçalho da Oportunidade de Venda(AD1).
+
+@sample 	F300IniAD1(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel). 
+
+@return		Nenhum
+ 
+@author		Anderson Silva 
+@since		31/03/2014
+@version	P12 
+/*/
+//------------------------------------------------------------------------------
+Function F300IniAD1(oModel)
+
+Local nOperation	:= oModel:GetOperation()
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")		// ModelGrid da Oportunidade de Venda.
+Local aEntidad		:= {}
+Local cEntidad		:= ""
+Local cCodEnt   	:= ""
+Local cLojEnt   	:= ""
+Local nPerc		:= 0
+
+If nOperation == MODEL_OPERATION_INSERT
+
+	Do Case
+		
+		Case IsInCallStack("FATA320") 
+		
+			If ADL->ADL_ENTIDA == "SUS"
+				cEntidad := "SUS"
+				cCodEnt := ADL->ADL_CODENT
+				cLojEnt := ADL->ADL_LOJENT   
+			ElseIf ADL->ADL_ENTIDA == "SA1"
+				cEntidad := "SA1"
+				cCodEnt := ADL->ADL_CODENT
+				cLojEnt := ADL->ADL_LOJENT   
+			EndIf
+
+		Case IsInCallStack("CRMA070")
+
+			aEntidad := CRMA110Ent()
+
+			If Len(aEntidad) > 0
+				If aEntidad[1] == "SUS"
+					cEntidad:= aEntidad[1]
+					cCodEnt := aEntidad[2]
+					cLojEnt := aEntidad[3]
+				ElseIf aEntidad[1] == "SA1"
+					cEntidad:= aEntidad[1]
+					cCodEnt := aEntidad[2]
+					cLojEnt := aEntidad[3]
+				EndIf
+			EndIf
+
+		Case IsInCallStack("MATA030") .OR. FunName() == "CRMA980"
+	
+			cEntidad:= "SA1"
+			cCodEnt := SA1->A1_COD
+			cLojEnt := SA1->A1_LOJA
+			
+		Case IsInCallStack("TMKA260")	
+	
+			cEntidad:= "SUS"
+			cCodEnt := SUS->US_COD
+			cLojEnt := SUS->US_LOJA	
+
+		Case IsInCallStack("CRMA290") .And. !IsInCallStack("CRMA290RFUN")
+
+			aEntidad := CRMA110Ent()
+
+			If !Empty( aEntidad )
+				If aEntidad[1] == "SUS"
+					cEntidad:= aEntidad[1]
+					cCodEnt := aEntidad[2]
+					cLojEnt := aEntidad[3]
+				ElseIf aEntidad[1] == "SA1"
+					cEntidad:= aEntidad[1]
+					cCodEnt := aEntidad[2]
+					cLojEnt := aEntidad[3]
+				EndIf
+			EndIf
+
+	EndCase
+	
+	If cEntidad == "SUS"
+		oMdlAD1:SetValue("AD1_PROSPE",cCodEnt)
+		oMdlAD1:SetValue("AD1_LOJPRO",cLojEnt)
+	ElseIf cEntidad == "SA1"
+		oMdlAD1:SetValue("AD1_CODCLI",cCodEnt)
+		oMdlAD1:SetValue("AD1_LOJCLI",cLojEnt)
+	EndIf 
+	
+	nPerc := FT300PERC(oMdlAD1:GetValue("AD1_PROVEN"),oMdlAD1:GetValue("AD1_STAGE"))
+	oMdlAD1:SetValue("AD1_PERCEN",nPerc)  
+
+ElseIf nOperation == MODEL_OPERATION_UPDATE	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Calcula o custo da Oportunidade de Venda com base nos Apontamentos de Visitas.  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oMdlAD1:SetValue("AD1_CUSTO",Ft300Custo()[1][2])
+EndIf     
+  
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300GeraRev
+
+Gera uma revisão da Oportunidade de Venda.
+
+@sample 	Ft300GeraRev(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel).
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		14/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300GeraRev(oModel)
+
+Local aArea			:= GetArea()
+Local oMdlAD1			:= oModel:GetModel("AD1MASTER")
+Local cNrOport			:= ""
+Local cNewRev			:= ""
+Local cMemo				:= ""
+Local oMdlId			:= Nil
+Local oStruct			:= Nil
+Local aCampos			:= {}
+Local nI				:= 0
+Local nY				:= 0
+Local nX				:= 0
+Local aMdlIds			:= {}													// Id dos Model do tipo Field / Grid.
+Local cPrfxo			:= ""
+Local nPosCampo		:= 0
+Local cFilAD1			:= xFilial("AD1")
+
+/*Alias,ModelField / ModelGrid, Campo Chave*/
+aAdd(aMdlIds,{"AD1","AD1MASTER","AD1_NROPOR"})
+aAdd(aMdlIds,{"AD2","AD2DETAIL","AD2_VEND"})
+aAdd(aMdlIds,{"AD3","AD3DETAIL","AD3_CODCON"})
+aAdd(aMdlIds,{"AD4","AD4DETAIL","AD4_PARTNE"})
+aAdd(aMdlIds,{"AD9","AD9DETAIL","AD9_CODCON"})
+If SuperGetMv( "MV_FATMNTP",, 1 ) == 4
+	aAdd(aMdlIds,{"ADJ","ADJDETAIL","ADJ_CODAGR"})
+Else	
+	aAdd(aMdlIds,{"ADJ","ADJDETAIL","ADJ_PROD"})
+EndIf
+aAdd(aMdlIds,{"AIJ","AIJDETAIL","AIJ_PROVEN"})
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Define como historico(_HISTOR := "2") os itens da revisão anterior das tabelas	  ³
+//³( AD2-Time de Venda, AD3-Concorrentes, AD4-Parceiros, AD9-Contatos, ADJ - Produtos ³
+//³ e AIJ - Evolucao da Venda ) associada a Oportunidade de Venda.						  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Ft300GvItHist(oMdlAD1)
+
+For nI := 1 To Len(aMdlIds)  
+	 
+	oMdlId		:= oModel:GetModel(aMdlIds[nI][2])
+	oStruct	:= oMdlId:GetStruct()
+	aCampos	:= oStruct:GetFields()
+	 	
+	If oMdlId:ClassName() == "FWFORMFIELDS"
+
+		DbSelectArea("AD1")
+		//AD1_FILIAL+AD1_NROPOR+AD1_REVISA 
+		AD1->(DbSetOrder(1)) 
+
+		If AD1->(DbSeek(cFilAD1+oMdlId:GetValue("AD1_NROPOR")+oMdlId:GetValue("AD1_REVISA")))
+			
+			DbSelectArea("ADC")
+			//ADC_FILIAL+ADC_NROPOR+ADC_REVISA   
+			ADC->(DbSetOrder(1)) 
+		
+			RecLock("ADC",.T.)	
+			For nX := 1 To Len(aCampos)
+				If !aCampos[nX][MODEL_FIELD_VIRTUAL]
+					nPosCampo := FieldPos("ADC"+SubStr(aCampos[nX][MODEL_FIELD_IDFIELD],4,7))
+					If nPosCampo > 0
+						FieldPut(nPosCampo,AD1->&(aCampos[nX][MODEL_FIELD_IDFIELD]))	
+					EndIf
+				Else
+					If aCampos[nX][MODEL_FIELD_TIPO] == "M" .AND. AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == "AD1_MEMO"
+						cMemo := MSMM(oMdlId:GetValue("AD1_CODMEM"),TamSx3("AD1_MEMO")[1],,,3,,,"AD1","AD1_CODMEM")
+						MSMM(,TamSx3("ADC_MEMO")[1],,cMemo,1,,,"ADC","ADC_CODMEM")	
+					EndIf 	      
+				EndIf	  
+			Next nX  
+			ADC->(MsUnLock())
+			
+			cNrOport := oMdlId:GetValue("AD1_NROPOR") 
+			cNewRev	 := Soma1(oMdlId:GetValue("AD1_REVISA"))	
+			
+			RecLock("AD1",.F.) 
+			For nX := 1 To Len(aCampos)
+				If !aCampos[nX][MODEL_FIELD_VIRTUAL]
+					If AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == "AD1_REVISA"
+						FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),cNewRev)
+					Else
+						FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),oMdlId:GetValue(aCampos[nX][MODEL_FIELD_IDFIELD]))
+					EndIf
+				Else
+					If aCampos[nX][MODEL_FIELD_TIPO] == "M" .AND. AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == "AD1_MEMO"
+						MSMM(oMdlId:GetValue("AD1_CODMEM"),TamSx3("AD1_MEMO")[1],,oMdlId:GetValue(aCampos[nX][MODEL_FIELD_IDFIELD]),1,,,"AD1","AD1_CODMEM")	
+					EndIf 	  
+				EndIf	
+			Next nX
+			AD1->(MsUnLock()) 
+
+		EndIf
+		
+	ElseIf oMdlId:ClassName() == "FWFORMGRID" 
+		
+		cPrfxo	:= PrefixoCpo(aMdlIds[nI][1])   
+		
+		For nY := 1 To oMdlId:Length()	
+			
+			oMdlId:GoLine(nY)
+		
+			If !oMdlId:IsDeleted() .AND. !Empty(oMdlId:GetValue(aMdlIds[nI][3]))
+				
+				RecLock(aMdlIds[nI][1],.T.)
+				
+				For nX := 1 To Len(aCampos)
+					If !(aCampos[nX][MODEL_FIELD_VIRTUAL])
+						If !("R_E_C_N_O_" $ aCampos[nX][MODEL_FIELD_IDFIELD])
+							If AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == cPrfxo+"_FILIAL"
+								FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),xFilial(aMdlIds[nI][1]))
+							ElseIf AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == cPrfxo+"_NROPOR"
+								FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),cNrOport)
+							ElseIf AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == cPrfxo+"_REVISA"
+								FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),cNewRev)
+							ElseIf AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == cPrfxo+"_HISTOR"
+								FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),"2")	
+							Else
+								FieldPut(FieldPos(aCampos[nX][MODEL_FIELD_IDFIELD]),oMdlId:GetValue(aCampos[nX][MODEL_FIELD_IDFIELD]))
+							EndIf
+						EndIf
+					Else 
+						If aMdlIds[nI][1] == "AD4"
+							If aCampos[nX][MODEL_FIELD_TIPO] == "M" .AND. AllTrim(aCampos[nX][MODEL_FIELD_IDFIELD]) == "AD4_MEMO"
+								cMemo := MSMM(oMdlId:GetValue("AD4_CODMEM"),TamSx3("AD4_MEMO")[1],,,3,,,"AD4","AD4_CODMEM")
+								MSMM(,TamSx3("AD4_MEMO")[1],,oMdlId:GetValue(aCampos[nX][MODEL_FIELD_IDFIELD]),1,,,"AD4","AD4_CODMEM")		
+							EndIf          
+						EndIf 		
+					EndIf	 
+				Next nX    
+			
+				(aMdlIds[nI][1])->(MsUnLock())           
+				 
+			EndIf  
+			 
+		Next nI
+				
+	EndIf
+	
+Next nI
+
+If !Empty(cNewRev)
+	oMdlAD1:LoadValue("AD1_REVISA",cNewRev) 
+EndIf
+ 
+RestArea(aArea)
+
+Return(.T.)   
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VROpo
+
+Verifica se havera uma revisão da Oportunidade de Venda por meio do Ponto de Entrada
+ou pela configuracao do parametro MV_FTREVIS. 
+
+@sample		Ft300VROpo()
+
+@param		Nenhum
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		11/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300VROpo(oModel)
+
+Local cModRevis := SuperGetMV("MV_FTREVIS")
+Local lNewRevis	:= .F.
+Local uRetorno	:= Nil
+Local lFt300Rev	:= ExistBlock("FT300REV")
+
+If lFt300Rev
+	uRetorno := ExecBlock("FT300REV",.F.,.F.)
+	If ValType(uRetorno) == "A"
+		lNewRevis := Ft300PeCmp(uRetorno,oModel)
+	EndIf
+EndIf
+
+If !lFt300Rev
+	Do Case
+		Case cModRevis == "1" // Nunca gera
+			lNewRevis := .F.
+		Case cModRevis == "2" // Pergunta ao usuario
+			If !IsInCallStack("FWMVCROTAUTO")
+				lNewRevis := Aviso( STR0021, STR0022, { STR0023, STR0024 }, 2 ) == 1 //"Atencao !"###"Deseja gerar uma nova revisao desta oportunidade de venda ?"###"Sim"###"Nao"
+			Else
+				lNewRevis := .T.
+			EndIf
+		Case cModRevis == "3" // Sempre gera
+			lNewRevis := .T.
+	EndCase
+EndIf
+	
+Return(lNewRevis)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300RetRev
+
+Retorna as revisoes das Oportunidades de Venda.
+
+@sample		Ft300RetRev(cNrOpor,aLstHeader,aLstCols,cLine)
+
+@param		ExpC1 - Numero da Oportunidade de Venda.
+			ExpA2 - Cabecalho da Oportunidade de Venda.
+			ExpA3 - Dados da Oportunidade de Venda.
+			ExpC4 - Bloco de bloco de codigo da lista de campos.
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300RetRev(cNrOpor,aLstHeader,aLstCols,cLine)
+
+Local aArea    		:= GetArea()
+Local aAreaSX3		:= SX3->(GetArea()) 
+Local aRevisoes		:= {}
+Local nConta		:= 0
+Local cAliasADC		:= ""
+Local lFT300CMP		:= ExistBlock("FT300CMP")
+Local aCampos   	:= {}
+Local aCamposUsu	:= {}
+Local aStru			:= {}
+Local cQuery		:= ""
+Local nStru			:= 1
+Local cFilADC			:= xFilial("ADC")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Campos da Oportunidade de Venda. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+aCampos :=	{	"AD1_REVISA"	,;
+				"AD1_DESCRI"	,;
+				"AD1_DTINI"		,;
+			  	"AD1_DTFIM"		,;
+			  	"AD1_PROVEN"	,;
+			  	"AD1_STAGE"	}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Executa ponto de entrada para pegar campos do usuário.³
+//³O retorno é uma array, sendo:                         ³
+//³array[n][1]: O nome do campo;                         ³
+//³array[n][2]: Posição que ficará na grid.              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFT300CMP
+	aCamposUsu := ExecBlock("FT300CMP",.F.,.F.)
+	If ValType(aCamposUsu) <> "A"
+		aCamposUsu := {}
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona campos do usuário.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nConta := 1 To Len(aCamposUsu)
+	aAdd(aCampos, "")
+	aIns(aCampos, aCamposUsu[nConta][2])
+	aCampos[aCamposUsu[nConta][2]] := aCamposUsu[nConta][1]
+Next nConta
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Carrega todas as revisoes da oportunidade de venda.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("ADC")
+//ADC_FILIAL+ADC_NROPOR+ADC_REVISA    
+ADC->(DbSetOrder(1))
+
+cAliasADC	:= GetNextAlias() 
+aStru 		:= ADC->(DbStruct())
+	
+cQuery := "SELECT ADC.*, ADC.R_E_C_N_O_ ADCRECNO "
+cQuery += "FROM "+RetSqlName("ADC")+" ADC "
+cQuery += "WHERE ADC.ADC_FILIAL='"+cFilADC+"' AND "
+cQuery +=       "ADC.ADC_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "ADC.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(ADC->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasADC,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasADC,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4])
+	EndIf
+Next nStru
+
+While ( (cAliasADC)->(!Eof()) .AND. (cFilADC + cNrOpor == (cAliasADC)->ADC_FILIAL + (cAliasADC)->ADC_NROPOR) )
+	aAdd(aRevisoes,{})
+	aAdd(aRevisoes[Len(aRevisoes)], .F.)
+	For nConta := 1 To Len(aCampos)
+		aAdd(aRevisoes[Len(aRevisoes)], (cAliasADC)->&(StrTran(aCampos[nConta], "AD1", "ADC")))
+	Next
+	aAdd(aRevisoes[Len(aRevisoes)], "ADC")
+	aAdd(aRevisoes[Len(aRevisoes)], (cAliasADC)->ADCRECNO)	
+	(cAliasADC)->(DbSkip())
+End
+  
+aAdd(aRevisoes,{})
+aAdd(aRevisoes[Len(aRevisoes)], .F.)
+
+For nConta := 1 To Len(aCampos)
+	aAdd(aRevisoes[Len(aRevisoes)], &("AD1->" + aCampos[nConta]))
+Next
+
+aAdd(aRevisoes[Len(aRevisoes)], "AD1")
+aAdd(aRevisoes[Len(aRevisoes)], AD1->(Recno()))	
+
+(cAliasADC)->(DbCloseArea())
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Monta o Header e o Cols do LISTBOX.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SX3->(DbSetOrder(2))
+
+aLstHeader	:= {""}
+aLstCols	:= aRevisoes
+cLine		:= "{||{ If(aLstCols[oList:nAt,1],oOk,oNo),"
+
+For nConta := 1 To Len(aCampos)
+	SX3->(DbSeek(aCampos[nConta]))
+	aAdd(aLstHeader, RetTitle(aCampos[nConta]))
+	If SX3->X3_TIPO == "N"
+		cLine += "PadL(AllTrim(Transform(aLstCols[oList:nAt,"+LTrim(Str((nConta+1)))+"],'"+Trim(SX3->X3_PICTURE)+"')),"+cValToChar(SX3->X3_TAMANHO)+"),"
+	Else
+		cLine += "aLstCols[oList:nAt," + AllTrim(Str((nConta+1))) + "],"
+	EndIf
+Next nConta
+
+cLine := SubStr(cLine, 0, Len(cLine)-1) + "}}"
+
+RestArea(aAreaSX3)
+RestArea(aArea)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300ClkRev
+
+Verifica se seleciona ou nao a revisao da Oportunidade de Venda.
+
+@sample		Ft300ClkRev(aRevisoes,nLinha)
+
+@param		ExpA1 - Revisoes da Oportunidade de Venda.
+			ExpN2 - Linha correspondente a revisao selecionada.
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300ClkRev(aRevisoes,nLinha)
+
+Local nRevisoes := 0
+
+If aRevisoes[nLinha,1]
+	aRevisoes[nLinha,1]:=.F.
+Else
+	aEval(aRevisoes,{|x| If(x[1],nRevisoes++,)})
+	If nRevisoes < 2
+		aRevisoes[nLinha,1]:=.T.
+	EndIf
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Compara
+
+Compara as revisoes da Oportunidade de Venda em forma de array.  
+
+@sample		Ft300Compara(aOrigem,aDestino)
+
+@param		ExpA1 - Array de Origem
+			ExpA2 - Array de Destino
+			
+@return		ExpA - Vetor estruturado para ser utilizado na Tree 
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300Compara(aOrigem,aDestino)
+
+Local aArea		:= GetArea()
+Local aOpVComp	:= {}
+Local nItem    	:= 0
+Local nPos     	:= 0
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Realiza a comparacao de todos os itens das revisoes da Oportunidade³
+//³e informa se existem modificacoes ou nao.                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Analisa a estrutura da revisao base.             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nItem:= 1 To Len(aOrigem)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Verifica se existe o item na Oportunidade de Venda a ser comparada.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	nPos:= Ascan(aDestino,{|x| x[4] == aOrigem[nItem,4]})
+	If (nPos > 0)
+		If Ft300Check(aOrigem[nItem,1],aDestino[nPos,1],aOrigem[nItem,2],aDestino[nPos,2])
+			Aadd(aOpVComp,{aDestino[nPos,1],aDestino[nPos,2],aDestino[nPos,3],;
+							aDestino[nPos,4],aDestino[nPos,5],aDestino[nPos,6],aDestino[nPos,7]})
+		Else
+			Aadd(aOpVComp,{aDestino[nPos,1],aDestino[nPos,2],aDestino[nPos,3] + STR0040,; //" - Modificado"
+							aDestino[nPos,4],aDestino[nPos,5],"M",aDestino[nPos,7]})
+		EndIf
+	Else         
+		Aadd(aOpVComp,{aOrigem[nItem,1],aOrigem[nItem,2],aOrigem[nItem,3] + STR0041,; //" - Excluido"
+						aOrigem[nItem,4],aOrigem[nItem,5],"E",aOrigem[nItem,7]})
+	EndIf
+Next nItem
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Analisa a existencia de novos itens na estrutura.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nItem:= 1 To Len(aDestino)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Verifica se existe o item no projeto a ser comparado.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	nPos:= Ascan(aOrigem,{|x| x[4] == aDestino[nItem,4]})
+	If (nPos == 0)
+		Aadd(aOpVComp,{aDestino[nItem,1],AllTrim(aDestino[nItem,2]),aDestino[nItem,3] + STR0042,; //" - Incluido"
+						aDestino[nItem,4],aDestino[nItem,5],"I",aDestino[nItem,7]})
+	EndIf
+Next nItem
+
+RestArea(aArea)
+
+Return(aOpVComp)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Check
+
+Verifica os dados das revisoes da Oportunidade de Venda.   
+
+@sample	Ft300Check(cAliasOrig,cAliasDest,cOrigem,cDestino)
+
+@param		ExpC1 - Alias de origem                                         
+			ExpC2 - Alias de destino                                       
+			ExpC3 - Chave de origem                                         
+			ExpC4 - Chave de destino
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300Check(cAliasOrig,cAliasDest,cOrigem,cDestino)
+
+Local lRetorno 	:= .T.
+Local aStrut	:= {}
+Local aDados	:= {}
+Local nCampo	:= 0
+Local cCompCp := "" //Campo que será utilizado na comparação 
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Analisa cada item das versoes do projeto para identificar as alteracoes.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea(cAliasOrig)
+DbSetOrder(1)
+If DbSeek(cOrigem,.T.)
+	aStrut:= &(cAliasOrig + "->(dbStruct())")
+	aDados:= Array(1,Len(aStrut))
+
+	aEval(aStrut,{|cValue,nIndex| aDados[1,nIndex]:= {aStrut[nIndex,1],FieldGet(FieldPos(aStrut[nIndex,1]))}})
+	
+	DbSelectArea(cAliasDest)
+	DbSetOrder(1)
+	If DbSeek(cDestino,.T.)
+		//Verifica se a comparação será efetuada entre tabelas distintas (AD1 e ADC)
+		If cAliasDest <> cAliasOrig
+			For	nCampo:= 1 To Len(aDados[1])
+				//Seleciona o campo de Origem para checar se ele existe na tabela de Destino		
+				cCompCp := PrefixoCpo(cAliasDest)+SubStr(aDados[1,nCampo,1],4)
+				If (cAliasDest)->(FieldPos(cCompCp)) > 0
+					If !("REVISA" $ aDados[1,nCampo,1]) .AND. !("HISTOR" $ aDados[1,nCampo,1]) .AND. ( aDados[1,nCampo,2] <> &cCompCp )
+						lRetorno:= .F.
+						Exit
+					EndIf
+				EndIf 
+			Next nCampo
+		Else
+			For	nCampo:= 1 To Len(aDados[1])			
+				If !("REVISA" $ aDados[1,nCampo,1]) .AND. !("HISTOR" $ aDados[1,nCampo,1]) .AND. (aDados[1,nCampo,2] <> FieldGet(nCampo))
+					lRetorno:= .F.
+					Exit
+				EndIf
+			Next nCampo
+		EndIf
+	EndIf
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Nav
+
+Posiciona nas diferencas entre as revisoes.
+
+@sample		Ft300Nav(nTipo,aOpVComp,oTree,oTree2)
+
+@param		ExpN1 - Tipo de pesquisa(avanca ou retrocede).              
+			ExpA2 - Array com estrutura da tree de revisoes.              
+			ExpO3 - Objeto da Tree 1.                                     
+			ExpO4 - Objeto da Tree 2.                                        
+	
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300Nav(nTipo,aOpVComp,oTree,oTree2)
+
+Local cCargoAtu	:= oTree2:GetCargo()
+Local nStep    	:= IIf(nTipo == 1,1,-1)
+Local nPos     	:= Ascan(aOpVComp,{|x| x[4] == cCargoAtu})
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Posiciona o tree nas diferencas entre as versoes do projeto.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nPos:= iIf(nPos == 0,1,nPos+nStep) TO iIf(nTipo == 1,Len(aOpVComp),1) STEP nStep
+	If aOpVComp[nPos,6] <> "N"
+		oTree:TreeSeek(aOpVComp[nPos,4])
+		oTree2:TreeSeek(aOpVComp[nPos,4])
+
+		oTree:Refresh()
+		oTree2:Refresh()
+		Exit
+	EndIf	
+Next nPos
+
+If (nTipo == 1) .AND. (nPos > Len(aOpVComp))
+	oTree2:SetFocus()
+	Aviso(STR0043,STR0044,{STR0014},2) //"Atenção"###"Próxima diferença não encontrada"###"Ok"
+ElseIf (nTipo == 2) .AND. (nPos < 1)
+	oTree2:SetFocus()
+	Aviso(STR0043,STR0045,{STR0014},2) //"Atenção"###"Diferença anterior não encontrada"###"Ok"
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300MontaTree
+
+Cria o Tree a partir do array.  
+
+@sample		Ft300MontaTree(oTree,aTree)
+
+@param		ExpO1: Objeto da Tree                                         
+			ExpA2: Vetor com estrutura da Tree                                        
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300MontaTree(oTree,aTree)
+
+Local nItem := 0
+Local cRes  := ""
+Local cTipo := ""
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Monta um tree a partir do array com a estrutura informados.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcRegua(Len(aTree))
+
+oTree:Reset()
+oTree:BeginUpdate()	
+
+For nItem:= 1 To Len(aTree)
+	cTipo:= aTree[nItem,6]
+
+	Do Case
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps da Oportunidade de Venda.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		Case (aTree[nItem,1] $ "ADCAD1")
+			If (cTipo == "N")
+				cRes:= "BPMSEDT4"
+			Else
+				cRes:= "NOTE"
+			EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps do Concorrente.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "AD3")
+			If (cTipo == "N")
+				cRes:= "PMSTASK1"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps do Vendedor.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "AD2")
+			If (cTipo == "N")
+				cRes:= "PMSTASK2"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps do Parceiro.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "AD4")
+			If (cTipo == "N")
+				cRes:= "PMSTASK3"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps do Contato.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "AD9")
+			If (cTipo == "N")
+				cRes:= "PMSTASK4"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps do Produto.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "ADJ")
+			If (cTipo == "N")
+				cRes:= "PMSTASK5"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+			
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os bitmaps da Evolucao da Venda.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    	Case (aTree[nItem,1] == "AIJ")
+			If (cTipo == "N")
+				cRes:= "PMSTASK6"
+			ElseIf (cTipo == "I")
+				cRes:= "BMPINCLUIR"
+			ElseIf (cTipo == "E")
+				cRes:= "EXCLUIR"
+			Else
+				cRes:= "NOTE"
+			EndIf
+	EndCase 
+
+	oTree:TreeSeek(aTree[nItem,5])
+	oTree:AddItem(aTree[nItem,3],aTree[nItem,4],cRes,cRes,,,2)
+	IncProc()
+Next nItem
+
+DBENDTREE oTree
+
+oTree:TreeSeek(aTree[1,4])
+oTree:EndUpdate()
+oTree:Refresh()
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Tree
+
+Funcao que monta o Tree da Oportunidade de Venda.   
+
+@sample		Ft300Tree(aCmp)
+
+@param		ExpA1 - Revisoes da Oportunidade de Venda.
+			
+@return		ExpA - Vetor estruturado para ser utilizado na Tree 
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300Tree(aCmp)
+
+Local aTree    	:= {}
+Local aArea    	:= GetArea()
+Local aStru		:= {}
+Local bCampo  	:= {|cCampo|(aCmp[1])->(FieldGet((aCmp[1])->(FieldPos(aCmp[1]+"_"+cCampo))))}
+Local cCargoPai	:= ""
+Local cCargo   	:= ""
+Local cNrOpor		:= ""
+Local cRevisa		:= ""
+Local cAliasAD2	:= ""
+Local cAliasAD3	:= ""
+Local cAliasAD4	:= ""
+Local cAliasAD9	:= ""
+Local cAliasADJ	:= ""
+Local cAliasAIJ	:= ""
+Local cQuery		:= ""
+Local nStru		:= 1
+Local cFilAC1		:= xFilial("AC1")
+Local cFilAC2		:= xFilial("AC2")
+Local cFilAC3		:= xFilial("AC3")
+Local cFilAC4		:= xFilial("AC4")
+Local cFilAD2		:= xFilial("AD2")
+Local cFilAD3		:= xFilial("AD3")
+Local cFilAD4		:= xFilial("AD4")
+Local cFilAD9		:= xFilial("AD9")
+Local cFilADJ		:= xFilial("ADJ")
+Local cFilAIJ		:= xFilial("AIJ")
+Local cFilSA3		:= xFilial("SA3")
+Local cFilSB1		:= xFilial("SB1")
+Local cFilSU5		:= xFilial("SU5")
+Local aPDFields     := {"AC3_NOME","A3_NOME","AC4_NOME","U5_CONTAT"}
+Local aPDConfir		:= {FATPDIsObfuscate("AC3_NOME",Nil,.T.),FATPDIsObfuscate("A3_NOME",Nil,.T.),FATPDIsObfuscate("AC4_NOME",Nil,.T.),FATPDIsObfuscate("U5_CONTAT",Nil,.T.)}
+Local cNEntObf		:= ""
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Insere a Oportunidade de venda ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea(aCmp[1])
+DbGoTo(aCmp[2])
+
+cNrOpor	:= Eval(bCampo,"NROPOR")
+cRevisa	:= Eval(bCampo,"REVISA")
+
+cCargoPai:= Pad("AD1ADC"+Eval(bCampo,"FILIAL")+cNrOpor,70)
+aAdd(aTree,{aCmp[1],Eval(bCampo,"FILIAL")+cNrOpor+cRevisa,Eval(bCampo,"DESCRI")+" - "+STR0039+cRevisa,cCargoPai,StrZero(0,70),"N",.F.})//"Revisão "
+
+DbSelectArea("AD3")
+//AD3_FILIAL+AD3_NROPOR+AD3_REVISA+AD3_CODCON
+AD3->(DbSetOrder(1))
+
+cAliasAD3	:= GetNextAlias()
+aStru		:= AD3->(DbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("AD3")+" AD3 "
+cQuery += "WHERE AD3.AD3_FILIAL='"+cFilAD3+"' AND "
+cQuery +=       "AD3.AD3_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "AD3.AD3_REVISA='"+cRevisa+"' AND "
+cQuery +=       "AD3.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(AD3->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasAD3,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasAD3,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4])
+	EndIf
+Next nStru
+
+While ( (cAliasAD3)->(!Eof()) .AND. (cAliasAD3)->AD3_FILIAL+(cAliasAD3)->AD3_NROPOR+(cAliasAD3)->AD3_REVISA == cFilAD3+cNrOpor+cRevisa )
+	If !Empty((cAliasAD3)->AD3_CODCON)
+		cCargo:= Pad("AD3"+(cAliasAD3)->AD3_FILIAL+(cAliasAD3)->AD3_NROPOR+(cAliasAD3)->AD3_CODCON,70)
+		If aPDConfir[1] .And. Empty(cNEntObf)
+			cNEntObf := FATPDObfuscate("Obfuscate")
+		EndIf
+		aAdd(aTree,{"AD3",(cAliasAD3)->AD3_FILIAL+(cAliasAD3)->AD3_NROPOR+(cAliasAD3)->AD3_REVISA+(cAliasAD3)->AD3_CODCON,Iif(aPDConfir[1],cNEntObf,AllTrim(Posicione("AC3",1,cFilAC3+(cAliasAD3)->AD3_CODCON,"AC3_NOME"))),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasAD3)->(DbSkip())
+End
+cNEntObf := "" 
+DbSelectArea("AD2")
+//AD2_FILIAL+AD2_NROPOR+AD2_REVISA+AD2_VEND
+AD2->(DbSetOrder(1))
+
+cAliasAD2	:= GetNextAlias()
+aStru		:= AD2->(DbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("AD2")+" AD2 "
+cQuery += "WHERE AD2.AD2_FILIAL='"+cFilAD2+"' AND "
+cQuery +=       "AD2.AD2_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "AD2.AD2_REVISA='"+cRevisa+"' AND "
+cQuery +=       "AD2.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(AD2->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasAD2,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasAD2,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4])
+	EndIf
+Next nStru
+
+While ( (cAliasAD2)->(!Eof()) .AND. (cAliasAD2)->AD2_FILIAL+(cAliasAD2)->AD2_NROPOR+(cAliasAD2)->AD2_REVISA == cFilAD2+cNrOpor+cRevisa )
+	If !Empty((cAliasAD2)->AD2_VEND)
+		cCargo:= Pad("AD2"+(cAliasAD2)->AD2_FILIAL+(cAliasAD2)->AD2_NROPOR+(cAliasAD2)->AD2_VEND,70)
+		If aPDConfir[2] .And. Empty(cNEntObf)
+			cNEntObf := FATPDObfuscate("Obfuscate")
+		EndIf
+		aAdd(aTree,{"AD2",(cAliasAD2)->AD2_FILIAL+(cAliasAD2)->AD2_NROPOR+(cAliasAD2)->AD2_REVISA+(cAliasAD2)->AD2_VEND,Iif(aPDConfir[2],cNEntObf,AllTrim(Posicione("SA3",1,cFilSA3+(cAliasAD2)->AD2_VEND,"A3_NOME"))),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasAD2)->(DbSkip())
+End
+cNEntObf := ""
+DbSelectArea("AD4")
+//AD4_FILIAL+AD4_NROPOR+AD4_REVISA+AD4_PARTNE  
+AD4->(DbSetOrder(1))
+
+cAliasAD4	:= GetNextAlias()
+aStru		:= AD4->(DbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("AD4")+" AD4 "
+cQuery += "WHERE AD4.AD4_FILIAL='"+cFilAD4+"' AND "
+cQuery +=       "AD4.AD4_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "AD4.AD4_REVISA='"+cRevisa+"' AND "
+cQuery +=       "AD4.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(AD4->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasAD4,.T.,.T.)
+	
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasAD4,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4])
+	EndIf
+Next nStru
+
+While ( (cAliasAD4)->(!Eof()) .AND. (cAliasAD4)->AD4_FILIAL+(cAliasAD4)->AD4_NROPOR+(cAliasAD4)->AD4_REVISA == cFilAD4+cNrOpor+cRevisa )
+	If !Empty((cAliasAD4)->AD4_PARTNE)	
+		cCargo:= Pad("AD4"+(cAliasAD4)->AD4_FILIAL+(cAliasAD4)->AD4_NROPOR+(cAliasAD4)->AD4_PARTNE,70)
+		If aPDConfir[3] .And. Empty(cNEntObf)
+			cNEntObf := FATPDObfuscate("Obfuscate")
+		EndIf
+		aAdd(aTree,{"AD4",(cAliasAD4)->AD4_FILIAL+(cAliasAD4)->AD4_NROPOR+(cAliasAD4)->AD4_REVISA+(cAliasAD4)->AD4_PARTNE,Iif(aPDConfir[3],cNEntObf,AllTrim(Posicione("AC4",1,cFilAC4+(cAliasAD4)->AD4_PARTNE,"AC4_NOME"))),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasAD4)->(DbSkip())
+End
+cNEntObf := ""
+DbSelectArea("AD9")
+//AD9_FILIAL+AD9_NROPOR+AD9_REVISA+AD9_CODCON  
+AD9->(DbSetOrder(1))
+
+cAliasAD9	:= GetNextAlias()
+aStru		:= AD9->(DbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("AD9")+" AD9 "
+cQuery += "WHERE AD9.AD9_FILIAL='"+cFilAD9+"' AND "
+cQuery +=       "AD9.AD9_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "AD9.AD9_REVISA='"+cRevisa+"' AND "
+cQuery +=       "AD9.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(AD9->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasAD9,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasAD9,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4])
+	EndIf
+Next nStru
+
+While ( (cAliasAD9)->(!Eof()) .AND. (cAliasAD9)->AD9_FILIAL+(cAliasAD9)->AD9_NROPOR+(cAliasAD9)->AD9_REVISA == cFilAD9+cNrOpor+cRevisa )
+	If !Empty((cAliasAD9)->AD9_CODCON)	
+		cCargo:= Pad("AD9"+(cAliasAD9)->AD9_FILIAL+(cAliasAD9)->AD9_NROPOR+(cAliasAD9)->AD9_CODCON,70)
+		If aPDConfir[4] .And. Empty(cNEntObf)
+			cNEntObf := FATPDObfuscate("Obfuscate")
+		EndIf
+		aAdd(aTree,{"AD9",(cAliasAD9)->AD9_FILIAL+(cAliasAD9)->AD9_NROPOR+(cAliasAD9)->AD9_REVISA+(cAliasAD9)->AD9_CODCON,Iif(aPDConfir[4],cNEntObf,AllTrim(Posicione("SU5",1,cFilSU5+(cAliasAD9)->AD9_CODCON,"U5_CONTAT"))),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasAD9)->(DbSkip())
+End
+cNEntObf := ""
+DbSelectArea("ADJ")
+//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_PROD 
+ADJ->(DbSetOrder(1))
+
+cAliasADJ	:= GetNextAlias()
+aStru		:= ADJ->(DbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("ADJ")+" ADJ "
+cQuery += "WHERE ADJ.ADJ_FILIAL='"+cFilADJ+"' AND "
+cQuery +=       "ADJ.ADJ_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "ADJ.ADJ_REVISA='"+cRevisa+"' AND "
+cQuery +=       "ADJ.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(ADJ->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasADJ,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasADJ,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4]) 
+	EndIf
+Next nStru
+
+While ( (cAliasADJ)->(!Eof()) .AND. (cAliasADJ)->ADJ_FILIAL+(cAliasADJ)->ADJ_NROPOR+(cAliasADJ)->ADJ_REVISA == cFilADJ+cNrOpor+cRevisa )
+	If !Empty((cAliasADJ)->ADJ_ITEM) .AND. !Empty((cAliasADJ)->ADJ_PROD)
+		cCargo:= Pad("ADJ"+(cAliasADJ)->ADJ_FILIAL+(cAliasADJ)->ADJ_NROPOR+(cAliasADJ)->ADJ_PROPOS+(cAliasADJ)->ADJ_ITEM+(cAliasADJ)->ADJ_PROD,70)
+		aAdd(aTree,{"ADJ",(cAliasADJ)->ADJ_FILIAL+(cAliasADJ)->ADJ_NROPOR+(cAliasADJ)->ADJ_PROPOS+(cAliasADJ)->ADJ_ITEM+(cAliasADJ)->ADJ_PROD,(cAliasADJ)->ADJ_ITEM+" / "+AllTrim(Posicione("SB1",1,cFilSB1+(cAliasADJ)->ADJ_PROD,"B1_DESC")),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasADJ)->(DbSkip())
+End
+
+
+cAliasAIJ	:= GetNextAlias()
+aStru		:= AIJ->(dbStruct())
+
+cQuery := "SELECT * "
+cQuery += "FROM "+RetSqlName("AIJ")+" AIJ "
+cQuery += "WHERE AIJ.AIJ_FILIAL='"+cFilAIJ+"' AND "
+cQuery +=       "AIJ.AIJ_NROPOR='"+cNrOpor+"' AND "
+cQuery +=       "AIJ.AIJ_REVISA='"+cRevisa+"' AND "
+cQuery +=       "AIJ.D_E_L_E_T_='' "
+cQuery += "ORDER BY "+SqlOrder(AIJ->(IndexKey()))
+
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasAIJ,.T.,.T.)
+
+For nStru := 1 To Len(aStru)
+	If aStru[nStru,2] <> "C"
+		TcSetField(cAliasAIJ,aStru[nStru,1],aStru[nStru,2],aStru[nStru,3],aStru[nStru,4]) 
+	EndIf
+Next nStru
+
+While ( (cAliasAIJ)->(!Eof()) .AND. (cAliasAIJ)->AIJ_FILIAL+(cAliasAIJ)->AIJ_NROPOR+(cAliasAIJ)->AIJ_REVISA == cFilAIJ+cNrOpor+cRevisa )
+	If !Empty((cAliasAIJ)->AIJ_PROVEN)	.AND. !Empty((cAliasAIJ)->AIJ_STAGE)
+		cCargo:= Pad("AIJ"+(cAliasAIJ)->AIJ_FILIAL+(cAliasAIJ)->AIJ_NROPOR+(cAliasAIJ)->AIJ_PROVEN+(cAliasAIJ)->AIJ_STAGE,70)
+		aAdd(aTree,{"AIJ",(cAliasAIJ)->AIJ_FILIAL+(cAliasAIJ)->AIJ_NROPOR+(cAliasAIJ)->AIJ_REVISA+(cAliasAIJ)->AIJ_PROVEN+AIJ_STAGE,AllTrim(Posicione("AC1",1,cFilAC1+(cAliasAIJ)->AIJ_PROVEN,"AC1_DESCRI"))+" / "+AllTrim(Posicione("AC2",1,cFilAC2+(cAliasAIJ)->AIJ_PROVEN+(cAliasAIJ)->AIJ_STAGE,"AC2_DESCRI")),cCargo,cCargoPai,"N",.F.})
+	EndIf
+	(cAliasAIJ)->(DbSkip())
+End
+
+(cAliasAD2)->(DbCloseArea())
+(cAliasAD3)->(DbCloseArea()) 
+(cAliasAD4)->(DbCloseArea())
+(cAliasAD9)->(DbCloseArea())
+(cAliasADJ)->(DbCloseArea())
+(cAliasAIJ)->(DbCloseArea())
+
+FATPDUnLoad()
+RestArea(aArea)	
+
+Return(aTree)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300GvItHist
+
+Define como historico(_HISTOR := "2") os itens da revisão anterior das tabelas(
+AD2-Time de Venda, AD3-Concorrentes, AD4-Parceiros, AD9-Contatos, ADJ - Produtos 
+e AIJ - Evolucao da Venda) associada a Oportunidade de Venda.
+
+@sample 	Ft300GvItHist(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300GvItHist(oMdlAD1)
+
+Local nX			:= 	0											// Auxiliar de loop. 
+Local cPref			:= ""	 										// Prefixo do campo. 
+Local cQuery		:= ""											// Query no formato ANSI SQL.
+Local aAliases		:= {"AD2","AD3","AD4"	,"AD9","ADJ","AIJ"} 	// Tabelas relacionadas a Oportunidade de Venda.
+Local cAliasTmp		:= GetNextAlias()								// Alias temporario.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Guarda os registros em um array para atualizacao ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nX := 1 to Len(aAliases) 
+
+	cPref := PrefixoCpo(aAliases[nX]) 
+	
+	DbSelectArea(aAliases[nX])                      
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Configuracao especifica para tabela ADJ          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If AllTrim(aAliases[nX])=="ADJ"
+		//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_CATEG+ADJ_PROD
+		DbSetOrder(2)
+	Else
+		DbSetOrder(1)
+	EndIf
+	
+	If Select(cAliasTmp) > 0
+		(cAliasTmp)->(DbCloseArea())
+	EndIf
+	
+	cQuery := "SELECT "+cPref+"_REVISA,"+cPref+"_HISTOR,"+cPref+".R_E_C_N_O_ NRECNO "
+	cQuery += "FROM "+RetSqlName(aAliases[nX])+" "+aAliases[nX]+" "
+	cQuery += "WHERE "+	aAliases[nX]+"."+cPref+"_FILIAL='"+xFilial(aAliases[nX])+"' AND "
+	cQuery +=       	aAliases[nX]+"."+cPref+"_NROPOR='"+oMdlAD1:GetValue("AD1_NROPOR")+"' AND "
+	cQuery +=       	aAliases[nX]+"."+cPref+"_REVISA='"+oMdlAD1:GetValue("AD1_REVISA")+"' AND "
+	cQuery += 			aAliases[nX]+".D_E_L_E_T_= '' "
+	cQuery += "ORDER BY "+SqlOrder((aAliases[nX])->(IndexKey()))
+	
+	cQuery := ChangeQuery(cQuery)
+	DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTmp,.T.,.T.)
+	
+	DbSelectArea(cAliasTmp)
+	
+	While ( (cAliasTmp)->(!Eof()) )    
+		 
+		If &(cPref+"_HISTOR") <> "1" 
+			(aAliases[nX])->(DbGoTo((cAliasTmp)->NRECNO))
+			RecLock(aAliases[nX],.F.)
+			(aAliases[nX])->&(cPref+"_HISTOR") := "1"
+			(aAliases[nX])->(MsUnLock()) 
+		EndIf 								
+		
+		(cAliasTmp)->(DbSkip())
+	
+	End
+
+	(cAliasTmp)->(DbCloseArea())
+	
+Next nX
+
+Return Nil 
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Hist
+
+Historico da Oportunidade de Venda.
+
+@sample	Ft300Hist
+
+@param		Nenhum
+
+@return	Nenhum
+
+@author	Anderson Silva
+@since		20/03/2014
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Hist()
+
+Local oModel 	:= FwModelActive()
+Local oMdlAD1	:= oModel:GetModel("AD1MASTER")
+Local cFiltro	:= "ADC_FILIAL == '"+xFilial("ADC")+"' .AND. ADC_NROPOR=='" +oMdlAD1:GetValue("AD1_NROPOR")+ "'"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Historico da Oportunidade de Venda. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+FATA300B(cFiltro)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300FilMdl
+
+Cria criterios de filtros para serem utilizados na carga dos models (ModelField/ModelGrid)
+da Oportunidade de Venda.
+
+@sample 	Ft300FilMdl(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel). 
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		31/03/2014
+@version	P12 
+/*/
+//------------------------------------------------------------------------------
+Function Ft300FilMdl(oModel) 
+
+Local oMdlADJ := oModel:GetModel("ADJDETAIL")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a carga dos Produtos da Oportunidade de Venda conforme a regra do parametro	³	
+//³a regra do parametro MV_FATMNTP.                              						³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Ft300FilADJ(oMdlADJ)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300IncCon
+
+Inclui um novo contato e associa o mesmo na tabela AC8.	 
+
+@sample		Ft300IncCon(cEntidade,cCodEnt,oLstBx)
+
+@param		ExpC1 - Entidade
+			ExpC2 - Codigo da Entidade
+			ExpC3 - Objeto ListBox de Contatos
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		07/04/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300IncCon(cEntidade,cCodEnt,oLstBx)
+
+Local aAreaSU5  	:= SU5->(GetArea())	// Guarda area atual
+Local aAreaAC8  	:= AC8->(GetArea())	// Guarda area atual
+Local cCodCont	  	:= ""          			// Codigo do Contato
+Local cContato		:= ""					// Nome do Contato                   
+Local nOpcA			:= 0                   	// Confirmou a Inclusao (1=Sim, 2=Nao) 
+Local nRecNo		:= 0
+
+Private INCLUI		:= .T. 
+
+SaveInter()
+
+// proteção da variavel private cCadastro
+If Type("cCadastro") == "C"
+	cCadastro :=  STR0374  //"Contatos - INCLUIR"
+EndIf
+
+nOpcA 	 	:= A70INCLUI("SU5",0,3) 
+cCodCont	:= SU5->U5_CODCONT
+cContato	:= Alltrim(SU5->U5_CONTAT)
+nRecNo		:= SU5->(RecNo())
+
+If nOpcA == 1
+	
+	DbSelectArea("AC8")
+	//AC8_FILIAL+AC8_CODCON+AC8_ENTIDA+AC8_FILENT+AC8_CODENT
+	AC8->(DbSetOrder(1))
+	
+	If AC8->(!DbSeek(xFilial("AC8")+cCodCont+cEntidade+xFilial(cEntidade)+cCodEnt))
+		RecLock("AC8",.T.)
+		AC8->AC8_FILIAL := xFilial("AC8")
+		AC8->AC8_FILENT := xFilial(cEntidade)
+		AC8->AC8_ENTIDA := cEntidade
+		AC8->AC8_CODENT := cCodEnt
+		AC8->AC8_CODCON := cCodCont
+		MsUnLock()
+	
+	EndIf
+	
+	If Empty(oLstBx:aArray[1][1])
+		aDel(oLstBx:aArray,1)
+		aSize(oLstBx:aArray,0)
+	EndIf 
+	
+	aAdd(oLstBx:aArray,{cCodCont,cContato,nRecNo})
+	oLstBx:Refresh()
+	
+EndIf
+
+RestInter()
+
+RestArea(aAreaSU5)
+RestArea(aAreaAC8)  
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Total
+
+Consistencia do Valor Total, campo ADJ_VALOR, do ModelGrid de Produtos.
+Esta funcao e executada a partir do X3_VALID dos campos ADJ_QUANT, ADJ_PRUNIT 
+e ADJ_VALOR. 
+
+@sample		Ft300Total()
+
+@param		Nenhum
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		24/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Total()
+
+Local lRetorno	:= .T.
+Local oModel		:= FwModelActive()
+Local cReadVar	:= AllTrim(ReadVar())
+Local oMdlADJ		:= oModel:GetModel("ADJDETAIL")
+Local nValTot		:= oMdlADJ:GetValue("ADJ_QUANT") * oMdlADJ:GetValue("ADJ_PRUNIT")
+Local xConteudo	:= oMdlADJ:GetValue(SubStr(cReadVar,4,Len(cReadVar)))
+
+If cReadVar == "M->ADJ_VALOR"
+	If xConteudo <> nValTot
+		lRetorno := .F.
+		Help(" ",1,"TOTAL") // Alterar esse help é o mesmo da NF
+	EndIf
+ElseIf cReadVar == "M->ADJ_QUANT"
+	oMdlADJ:LoadValue("ADJ_VALOR",(oMdlADJ:GetValue("ADJ_PRUNIT") * xConteudo))
+ElseIf cReadVar == "M->ADJ_PRUNIT"
+	oMdlADJ:LoadValue("ADJ_VALOR",(oMdlADJ:GetValue("ADJ_QUANT") * xConteudo))
+EndIf	
+ 
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300FilADJ
+
+Faz a carga dos Produtos da Oportunidade de Venda conforme a regra do parametro
+MV_FATMNTP. Podendo ser:
+1 - Apaga registros manuais e considera somente os das Propostas Comerciais.                     
+2 - Mantem o registro lancado na ADJ manualmente e exibe os registros 
+das Propostas Comerciais.
+3 - Mantem os manuais e não exibe (apesar de gravar) os registros gerados por 
+Propostas Comerciais.
+
+@sample 	Ft300FilADJ(oMdlADJ)
+
+@param		ExpO1 - ModelGrid dos Produtos da Oportunidade de Venda. 
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		22/04/2014 
+@version	P12
+/*/ 
+//------------------------------------------------------------------------------
+Function Ft300FilADJ(oMdlADJ)
+
+Local aArea			:= GetArea()
+Local aAreaADY		:= ADY->(GetArea())				// Area da tabela atual.
+Local nOpcADJ			:= 0								// Tratamento dado ao ADJ (ler documentacao abaixo)
+Local cCodProp		:= ""
+Local lExistProp		:= .F.
+Local oStructADJ		:= Nil
+Local cFilADY			:= xFilial("ADY")
+
+DbSelectArea("ADY")
+ADY->(DbSetOrder(2))	//ADY_FILIAL+ADY_OPORTU+ADY_REVISA+ADY_PROPOS
+
+DbSelectArea("ADJ")
+ADJ->(DbSetOrder(1))	//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_ITEM+ADJ_PROD
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³A variavel nOpcADJ, utilizada para  pode ter 3 valores:                                					³
+//³1 - Apaga registros manuais e considera somente os das Propostas Comerciais.           					³
+//³2 - Mantem o registro lancado na ADJ manualmente e exibe os registros das Propostas Comerciais.  		³
+//³3 - Mantem os manuais e não exibe (apesar de gravar) os registros gerados por Propostas Comerciais.	³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nOpcADJ := SuperGetMv("MV_FATMNTP",,1)
+
+If nOpcADJ == 1
+
+	If ADY->(DbSeek(cFilADY+AD1->AD1_NROPOR+AD1->AD1_REVISA))
+		While ( ADY->(!Eof()) .AND. ADY->ADY_FILIAL == cFilADY .AND.;
+				 ADY->ADY_OPORTU == AD1->AD1_NROPOR .AND. ADY->ADY_REVISA == AD1->AD1_REVISA )
+			If ADY->ADY_SINCPR
+				cCodProp := ADY->ADY_PROPOS
+			EndIf
+			lExistProp := .T.
+			ADY->(DbSkip())
+		EndDo
+	EndIf
+
+	If lExistProp
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Permissoes para Grid. ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		oStructADJ := oMdlADJ:GetStruct()
+		oStructADJ:SetProperty("*",MODEL_FIELD_WHEN,{||.F.})
+		oMdlADJ:SetOnlyQuery(.T.)
+		oMdlADJ:SetNoInsertLine(.T.)
+		oMdlADJ:SetNoDeleteLine(.T.)
+	EndIf
+
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Faz o Load no ModelGrid dos Produtos da Oportunidade. ³
+//³ Load é necessario pois o ModelGrid dos Produtos é 	  ³
+//³ reiniciado toda vez que Proposta Comercial é gravada. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oMdlADJ:bLoad := {||Ft300LdADJ(oMdlADJ,cCodProp,nOpcADJ)}
+
+RestArea(aAreaADY)
+RestArea(aArea)
+aSize(aAreaADY,0)
+aSize(aArea,0)
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AvlFCli
+
+Faz avaliacao financeira por Cliente.	
+
+@sample 	Ft300AvlFCli(cProposta,aSocios)
+
+@param		ExpC1 - Proposta Comercial selecionada.
+			ExpA2 - Array com os socios do Grupo Societario
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		03/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300AvlFCli(cProposta,aSocios)
+
+Local cSimb1		:= Alltrim(SuperGetMV("MV_SIMB1")) 		//Simbolo da moeda 1
+Local cCodigo 		:= ""  									//Codigo do bloqueio
+Local cStatus		:= ""  									//Tipo do bloqueio
+Local cLmtCred		:= "" 									//Limite de credito
+Local nVlrAval		:= 0	   								//Valor a ser avaliado
+Local nVlrCred		:= 0       								//Valor a ser adicionado ao limite de credito
+Local nI			:= 0       								//Incremento utilizado no laco For
+Local aCliCred 		:= {}       								//Cliente(s) com limite de credito insuficiente ou vencido
+Local aEmpenho 		:= {}  										//aEmpenho
+Local lCredito		:= .F.
+Local cFilADZ			:= xFilial("ADZ")
+Local cFilSA1			:= xFilial("SA1")
+
+DbSelectArea("ADY")
+//ADY_FILIAL+ADY_PROPOS
+ADY->(DbSetOrder(1))
+
+If ADY->(DbSeek(xFilial("ADY")+cProposta))
+	
+	DbSelectArea("ADZ")
+	//ADZ_FILIAL+ADZ_PROPOS+ADZ_REVISA+ADZ_FOLDER+ADZ_ITEM
+	ADZ->(DbSetOrder(3))
+	
+	If ADZ->(DbSeek(cFilADZ+ADY->ADY_PROPOS+ADY->ADY_PREVIS))
+		dbEval( {||nVlrAval += ADZ->ADZ_TOTAL},, {|| ADZ->ADZ_FILIAL == cFilADZ .AND. ;
+				ADZ->ADZ_PROPOS == ADY->ADY_PROPOS .AND. ADZ->ADZ_REVISA == ADY->ADY_PREVIS} )
+	EndIf
+	
+	DbSelectArea("SA1")
+	//A1_FILIAL+A1_COD+A1_LOJA
+	SA1->(DbSetOrder(1))
+	
+	For nI := 1 To Len(aSocios)
+		If SA1->(DbSeek(cFilSA1+aSocios[nI][2]+aSocios[nI][3]))
+			lCredito := MaAvalCred(aSocios[nI][2],aSocios[nI][3],nVlrAval,1,.T.,@cCodigo,@aEmpenho,@nVlrCred)
+			If !lCredito
+				If cCodigo == "01"
+					cStatus := STR0190 //"Reprovado por crédito"
+				ElseIf cCodigo == "04"
+					cStatus := STR0191 //"Limite de crédito vencido"
+				EndIf
+				cLmtCred := cSimb1+Space(1)+AllTrim(Transform(SA1->A1_LC,"@E 999,999,999.99"))
+				aAdd(aCliCred,{aSocios[nI][2],aSocios[nI][3],AllTrim(aSocios[nI][4]),cLmtCred,SA1->A1_VENCLC,cStatus})
+			EndIf
+		EndIf
+	Next nI
+	
+	If Len(aCliCred) > 0
+		Ft300LtCred(aCliCred,cProposta,ADY->ADY_PREVIS,ADY->ADY_DATA,nVlrAval)
+	Else
+		If Len(aSocios) == 1 
+			MsgInfo(STR0332) 		//"Cliente não possui restrição financeira."
+		Else
+			MsgInfo(STR0333) 		//"Grupo Societário não possui restrição financeira."
+		EndIf
+	EndIf
+Else
+	MsgStop(STR0334) 				//"Problemas para localizar a Proposta Comercial."	
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AvlFPro
+
+Faz avaliacao financeira para o Prospect.
+
+@sample 	Ft300AvlFPro(cProposta)
+
+@param		ExpO1 - Proposta Comercial selecionada.
+
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		03/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300AvlFPro(cProposta)
+
+Local cSimb1   	:= Alltrim(SuperGetMV("MV_SIMB1")) 		// Simbolo da moeda 1
+Local nVlrProp  	:= 0										// Valor total da proposta ja convertido para moeda do prospect
+Local nVlrAval  	:= 0	   									// Valor total da proposta a ser avaliado
+Local nMdaPros	:= SUS->US_MOEDALC  			   			// Moeda do prospect utilizada para verificacao do limite de credito
+Local nVlrCrd		:= SUS->US_LC								// Limite de credito definido para o prospect
+Local dVencCrd	:= SUS->US_VENCLC							// Data de vencimento do limite de credito
+Local dDataAtu	:= dDataBase								// Data Base
+Local cFilADZ		:= xFilial("ADZ")
+Local aPDFields := {"US_LC"}
+DbSelectArea("ADY")
+//ADY_FILIAL+ADY_PROPOS
+DbSetOrder(1)
+
+If ADY->(DbSeek(xFilial("ADY")+cProposta))
+	
+	DbSelectArea("ADZ")
+	//ADZ_FILIAL+ADZ_PROPOS+ADZ_REVISA+ADZ_FOLDER+ADZ_ITEM  
+	ADZ->(DbSetOrder(3))
+	
+	If ADZ->(DbSeek(cFilADZ+ADY->ADY_PROPOS+ADY->ADY_PREVIS))
+		dbEval( {||nVlrAval += ADZ->ADZ_TOTAL},, {|| ADZ->ADZ_FILIAL == cFilADZ .AND. ;
+		ADZ->ADZ_PROPOS == ADY->ADY_PROPOS .AND. ADZ->ADZ_REVISA == ADY->ADY_PREVIS} )
+	EndIf
+	
+EndIf
+
+If ( dVencCrd >=  dDataAtu ) .OR. Empty(dVencCrd)
+	
+	nVlrProp  := xMoeda(nVlrAval,nMdaPros,1,dDataAtu )
+	
+	If  nVlrCrd < nVlrProp
+		//Inicializa variaveis com lista de campos que devem ser ofuscados de acordo com usuario.
+		FATPDLoad(/*cUser*/,/*aAlias*/, aPDFields, /*cSource*/)
+		//"Limite excedido!"#"O valor total desta proposta é de "R$ XXX,XX#" para este prospect o valor limite de crédito é de "R$ XX,XX#OK
+		Aviso(STR0209,STR0210+cSimb1+" "+AllTrim(Transform(nVlrProp,PesqPict("ADZ","ADZ_TOTAL")))+STR0211+cSimb1+" "+FATPDObfuscate(AllTrim(Transform(nVlrCrd,PesqPict("SUS","US_LC"))),"US_LC")+".",{STR0175}, 2 )
+		FATPDUnLoad()
+	EndIf
+	
+Else
+	//"Limite vencido!"#"O limite de crédito para este prospect venceu no dia "dd/mm/aaaa.#OK
+	Aviso(STR0212,STR0213+dToc(dVencCrd)+".",{STR0175}, 2 )
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300PendF
+
+Apresenta as pendencias financeiras do cliente informado na Oportunidade de Venda.
+
+@sample 	Ft300PendF
+
+@param		Nenhum
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		02/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300PendF()
+
+Local aArea			:= GetArea()
+Local aAreaAC2		:= AC2->(GetArea())
+Local aAreaSM0 		:= SM0->(GetArea())
+Local oModel		:= FwModelActive()
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")		
+Local cCodCli		:= oMdlAD1:GetValue("AD1_CODCLI")
+Local cLojCli		:= oMdlAD1:GetValue("AD1_LOJCLI")	
+Local cProVen		:= oMdlAD1:GetValue("AD1_PROVEN")
+Local cStage		:= oMdlAD1:GetValue("AD1_STAGE")
+Local aGrupos   	:= {}
+Local aSocios   	:= {}
+Local aData   		:= {}
+Local lRateio		:= .F.
+Local cCodGpo   	:= ""
+Local nDias     	:= 1
+Local dDataRef  	:= cTod(" / / ")
+Local dDataLim		:= cTod(" / / ")
+Local nSomaAtr  	:= 0
+Local nVlrLim   	:= 0
+Local nI        	:= 0
+Local cSimb1    	:= Alltrim(SuperGetMV("MV_SIMB1"))
+Local lCliente  	:= .F.
+Local cName     	:= ""
+Local cQuery		:= ""
+Local cAbat			:= ""
+Local cAliasTmp   	:= GetNextAlias()
+Local lRetorno 		:= .T.
+Local lFT300Fin		:= ExistBlock("FT300FIN")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Executa ponto de entrada para validações de pendência financeira  ³
+//³ customizadas.													  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFT300Fin
+
+	uRetorno := ExecBlock("FT300FIN",.F.,.F.,{oModel})
+	If ValType(uRetorno) == "L"
+		lRetorno := uRetorno
+	EndIf
+
+Else
+
+	If !Empty(cCodCli) .AND. !Empty(cLojCli)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica na tabela AC2, qual o dia limite e qual o valor limite	³
+		//³ que o cliente pode ficar inadimplente.							  	³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		DbSelectArea("AC2")
+		//AC2_FILIAL+AC2_PROVEN+AC2_STAGE  
+		AC2->(DbSetOrder(1))
+		
+		If AC2->(DbSeek(xFilial("AC2")+cProVen+cStage))
+			
+			If ( AC2->AC2_AVFIN == "1" .AND. ( !Empty(AC2->AC2_VLRLIM) .OR. !Empty(AC2->AC2_DIALIM) ) )
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Verifica se o cliente faz parte de um grupo societario  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				aGrupos := Ft300BGpo(cCodCli,cLojCli) //Traz os grupos pertencente ao cliente
+				
+				If Len(aGrupos) == 1
+					aSocios :=	Ft300BSoc(aGrupos[1][2])
+					cName   := aGrupos[1][3]
+				ElseIf Len(aGrupos) > 1
+					Ft300Grupo(cCodCli,cLojCli,aGrupos,@aSocios,@lRateio,.T.,@cCodGpo)
+					aSocios :=	Ft300BSoc(cCodGpo)
+					For nI := 1 to Len(aGrupos)
+						If aGrupos[nI][1] = .T.
+							cName:= aGrupos[nI][3]
+						EndIf
+					Next
+				Else
+					lCliente := .T.
+					aAdd(aSocios,{.T.,cCodCli,cLojCli,Posicione("SA1",1,xFilial("SA1")+cCodCli+cLojCli,"A1_NOME")})
+				EndIf
+			Else
+				lRetorno := .F.
+				Help("",1,"FT300PENDF",,STR0325,1) //"Avaliação da pendencia financeira não foi configurada para este Processo / Estágio associado a esta Oportunidade de Venda."	
+			EndIf			
+		Else
+			lRetorno := .F.
+			Help("",1,"FT300PENDF",,STR0326,1) //"Problemas para localizar o Processo de Venda."	
+		EndIf
+		
+		If lRetorno
+		
+			If !Empty(AC2->AC2_VLRLIM) .AND. !Empty(AC2->AC2_DIALIM)
+				nVlrLim	:= AC2->AC2_VLRlIM
+				dDataRef	:= dDataBase-AC2->AC2_DIALIM
+			ElseIf !Empty(AC2->AC2_VLRLIM) .AND. Empty(AC2->AC2_DIALIM)
+				nVlrLim 	:= AC2->AC2_VLRlIM
+				dDataRef	:= dDataBase-nDias //Considera o dia anterior como data limite
+			ElseIf !Empty(AC2->AC2_DIALIM) .AND. Empty(AC2->AC2_VLRLIM)
+				nVlrLim 	:= 0
+				dDataRef	:= dDataBase-AC2->AC2_DIALIM
+			EndIf
+			
+			//Atribui os tipos de titulo de abatimento na variavel que sera utilizada no select
+			For nI := 1 To Len(MVPROVIS+"/"+MVRECANT+"/"+MV_CRNEG+"/"+MVABATIM) Step 4
+				cAbat := cAbat + "'" + SubStr(MVPROVIS+"/"+MVRECANT+"/"+MV_CRNEG+"/"+MVABATIM,nI,3) + "', "
+			Next nI
+			
+			cAbat := SubStr(cAbat,1,Len(cAbat)-2)
+			
+			SM0->(DbSetOrder(1))
+			SM0->(DbSeek(cEmpAnt))
+			
+			While SM0->(!Eof()) .AND. SM0->M0_CODIGO == cEmpAnt
+				
+				If Len(aSocios) > 0
+		
+					For nI := 1 to Len(aSocios)
+									
+						cQuery	:=	" SELECT	SE1.E1_PREFIXO, SE1.E1_NUM, SE1.E1_PARCELA, SE1.E1_TIPO, SE1.E1_VENCTO, SE1.E1_SITUACA,"
+						cQuery	+=	" SE1.E1_VENCREA, SE1.E1_FILIAL, SE1.E1_SALDO, SE1.E1_CLIENTE, SE1.E1_LOJA, SE1.E1_NATUREZ,SE1.E1_PORTADO"
+						cQuery	+=	" FROM " +	RetSqlName("SE1") + " SE1 "
+						cQuery	+=	" WHERE "
+						cQuery	+=	" SE1.E1_TIPO NOT IN (" + cAbat + ") "
+						cQuery	+=	" AND SE1.E1_SALDO > '" + Str(nVlrLim) + "'"
+						cQuery	+=	" AND SE1.E1_VENCREA <= '"  + Dtos(dDataRef) +"'"
+						cQuery	+=	" AND SE1.E1_CLIENTE =  '"  + aSocios[nI][2] +"'"
+						cQuery +=	" AND SE1.E1_LOJA = '"  + aSocios[nI][3] + "'"
+						cQuery	+=	" AND  SE1.E1_FILIAL = '" + xFilial("SE1",SM0->M0_CODFIL) + "'"
+						cQuery	+=	" AND SE1.D_E_L_E_T_ = '' "
+						cQuery	+=	" ORDER BY E1_FILIAL, E1_VENCREA DESC"
+						
+						cQuery	:= ChangeQuery(cQuery)
+						DbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery),cAliasTmp, .F., .T.)
+						
+						TcSetField(cAliasTmp,"E1_VENCREA","D", 8)
+						
+						While !(cAliasTmp)->(Eof())
+							nSomaAtr += (cAliasTmp)->E1_SALDO
+							dDataLim := (cAliasTmp)->E1_VENCREA
+							Aadd(aData,dDataLim)
+							(cAliasTmp)->(DbSkip())
+						End
+										
+						(cAliasTmp)->(DbCloseArea())
+						
+					Next nI
+					
+				EndIf
+				
+				SM0->(DbSkip())
+				
+			End
+			
+			If Len(aData) > 0 .AND. nSomaAtr > 0 // Verifica se há algum valor devedor e sua respectiva data de vencimento	
+				
+				aSort(aData)
+				nSomaAtr := cSimb1 + AllTrim(Transform(nSomaAtr,"@E 999,999,999,999.99"))
+				dDataLim := dToc(aData[1])
+				
+				If lCliente
+					Aviso(STR0172,STR0173 + nSomaAtr +  STR0174 + dDataLim ,{STR0175},2)   //"Pendencia Financeira!"##"O Cliente possui um debito de" ##" Titulo(s) em atraso desde",{"Ok"}
+				Else
+					Aviso(STR0172,STR0176 + Capital(cName) + STR0177 + nSomaAtr +  STR0174 + dDataLim + "",{STR0175},2)   //"Pendencia Financeira!"##"O grupo associado a este Cliente possui um debito de##" Titulo(s) em atraso desde",{"Ok"}
+				EndIf
+			Else
+				If lCliente 
+					Aviso(STR0172,STR0327,{STR0175},2) 								//"Não há pendência financeira para este Cliente."	 	
+				Else
+					Aviso(STR0172,STR0328+Capital(cName)+STR0329,{STR0175},2)	//"Não há pendência financeira para grupo associado a este Cliente."	
+				EndIf
+			EndIf
+			
+		EndIf
+		FATPDLogUser("FT300PENDF")
+	Else
+		lRetorno := .F.
+		Help("",1,"FT300PENDF",,STR0330,1) 	//"Não será possível realizar avaliação de pendência financeira para Prospect."
+	EndIf
+
+EndIf
+	
+RestArea(aArea)
+RestArea(aAreaAC2)
+RestArea(aAreaSM0)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Perfil
+
+Consulta o Perfil do Contato ou do Cliente.
+
+@sample 	Ft300Perfil()
+
+@param		Nenhum
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		31/03/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function	Ft300Perfil()
+
+Local oModel 	 	:= FWModelActive()																	// Retorna o model ativo.
+Local oMdlAD1 	:= oModel:GetModel("AD1MASTER")														// Obtem o modelo de dados AD1MASTER.
+Local cCodCli		:= oMdlAD1:GetValue("AD1_CODCLI")
+Local cLojCli		:= oMdlAD1:GetValue("AD1_LOJCLI")
+Local cCodPro		:= oMdlAD1:GetValue("AD1_PROSPE")
+Local cLojPro		:= oMdlAD1:GetValue("AD1_LOJPRO")
+Local lRetorno 	:= .T.                                                   	
+
+If ( ( !Empty(cCodCli) .AND. !Empty(cLojCli) ) .OR. ( !Empty(cCodPro) .AND. !Empty(cLojPro) ) )
+	TK010Con(,,,,,IIF(!Empty(cCodCli),"SA1","SUS"),IIF(!Empty(cCodCli),cCodCli+cLojCli,cCodPro+cLojPro))
+Else
+	lRetorno := .F.
+	MsgAlert(STR0234)
+EndIf 
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Track
+
+System Tracker da Oportunidade de Venda.
+
+@sample 	Ft300Track()
+
+@param		Nenhum
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		07/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Track() 
+
+Local oModel		:= FwModelActive()
+Local oMdlAD1 	:= oModel:GetModel("AD1MASTER")
+Local aEntidade	:= {{"AD1",oMdlAD1:GetValue("AD1_NROPOR")}}
+                                                                              
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Dispara o System Tracker ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+MaTrkShow(aEntidade) 
+           
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VisRev
+
+Visualizacao da Oportunidade de Venda do comparador. 
+
+@sample		Ft300VisRev(aRevisoes,nLinha)
+
+@param		ExpA1 - Revisoes da Oportunidade de Venda.
+			ExpN2 - Linha correspondente a revisao selecionada.
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300VisRev(aRevisoes,nLinha)
+
+Local cAlias 		:= aRevisoes[nLinha,Len(aRevisoes[nLinha])-1]
+Local nRecNo 		:= aRevisoes[nLinha,Len(aRevisoes[nLinha])]
+Local cViewDef	:= IIF(cAlias == "AD1", "VIEWDEF.FATA300", "VIEWDEF.FATA300B")
+
+DbSelectArea(cAlias)
+DbGoto(nRecNo)
+
+If IsInCallStack("FT600CR")
+	FWExecView(Upper(STR0003),"VIEWDEF.FATA600",MODEL_OPERATION_VIEW,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)
+Else
+	FWExecView(Upper(STR0003),cViewDef,MODEL_OPERATION_VIEW,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)
+EndIf 
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VisCom
+
+Visualiza Oportunidade de Venda comparada.  
+
+@sample		Ft300VisCom(oTree,aTree)
+
+@param		ExpO1 - Objeto do Menu                                         
+			ExpO2 - Objeto da Tree                                 
+	
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300VisCom(oTree,aTree)
+
+Local cCargo		:= oTree:GetCargo()
+Local aArea 		:= GetArea()
+Local nPos  		:= Ascan(aTree,{|x| x[4] == cCargo})
+Local cAlias		:= aTree[nPos,1]
+Local cSeek 		:= aTree[nPos,2]
+Local cViewDef	:= IIF(cAlias == "AD1", "VIEWDEF.FATA300", "VIEWDEF.FATA300B")
+
+DbSelectArea(cAlias)
+DbSetOrder(1)
+
+If cAlias == "ADZ" //Cabecalho da proposta comercial
+	DbsetOrder(3)
+Else
+	DbSetOrder(1)
+EndIf
+
+If DbSeek(cSeek)
+	If IsInCallStack("FT600CMP")
+		FWExecView(Upper(STR0003),"VIEWDEF.FATA600",MODEL_OPERATION_VIEW,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)
+	Else
+		FWExecView(Upper(STR0003),cViewDef,MODEL_OPERATION_VIEW,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)
+	EndIf
+Else
+	MsgStop(STR0340) //"Problemas para localizar o registro."
+EndIf
+
+RestArea(aArea)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Perc
+
+Retorna o percentual concluido da Oportunidade de Venda.
+
+@sample		Ft300Perc(cProven,cStage)
+
+@param		ExpC1 - Codigo do Processo de Venda.
+			ExpC2 - Estagio do Processo de Venda.
+			
+@return		ExpN - Percentual para conclusao da Oportunidade de Venda.
+
+@author		Anderson Silva
+@since		26/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Perc(cProven,cStage)
+
+Local aArea		:= GetArea()
+Local aAreaAC2	:= AC2->(GetArea())
+Local nReleva		:= 0   
+Local cFilAC2		:= xFilial("AC2")
+
+If !Empty(cProven) .AND. !Empty(cStage)	
+	
+	DbSelectArea("AC2")
+	//AC2_FILIAL+AC2_PROVEN+AC2_STAGE  
+	AC2->(DbSetOrder(1)) 
+	
+	If AC2->(DbSeek(cFilAC2+cProVen))
+	
+		While ( !AC2->( Eof() ) .AND. ( cFilAC2 + cProven == AC2->AC2_FILIAL + AC2->AC2_PROVEN );
+				 .AND. AC2->AC2_STAGE <= cStage )
+			nReleva += AC2->AC2_RELEVA 				        		
+			AC2->( dbSkip() )
+		End 		
+	
+	EndIf	
+	
+EndIf
+
+RestArea(aAreaAC2)
+RestArea(aArea)
+
+Return(nReleva)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300UpdEn
+
+Atualiza Oportunidades de Venda e Registros relacionados apos uma conversao de entidade 
+(Prospect -> Cliente).
+
+@sample 	Ft300UpdEn(cCodAnt,cCodAtu,cLojAnt,cLojAtu)
+
+@param		ExpC1 - Codigo da entidade anterior.
+			ExpC2 - Codigo da entidade convertida.
+			ExpC3 - Loja da entidade anterior.
+			ExpC4 - Loja da entidade convertida.
+			   
+@return		Nenhum
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300UpdEn(cCodAnt,cCodAtu,cLojAnt,cLojAtu)
+
+Local aArea			:= GetArea()
+Local aAreaAD1		:= AD1->(GetArea())
+Local aAreaADY		:= ADY->(GetArea())
+Local aAreaSCJ		:= SCJ->(GetArea())
+Local aAreaSCK		:= SCK->(GetArea())
+Local aAreaTFJ		:= TFJ->(GetArea())
+Local cFilAD1			:= xFilial("AD1")
+Local cFilADY			:= xFilial("ADY")
+Local cFilSCJ			:= xFilial("SCJ")
+Local cFilSCK			:= xFilial("SCK")
+Local cFilTFJ			:= xFilial("TFJ")
+Local cAliasTb		:= ""
+Local cQuery			:= ""
+Local aRecnos			:= {}            
+Local nX				:= 0 
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Atualiza as oportunidades ligadas ao Prospect ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cAliasTb 	:= GetNextAlias()
+cQuery		:= "SELECT R_E_C_N_O_ NUMREC FROM " + RetSqlName("AD1")
+cQuery		+= " WHERE AD1_FILIAL = '"+cFilAD1+"' AND AD1_PROSPE = '"+cCodAnt+"'"
+cQuery		+= " AND AD1_LOJPRO = '"+cLojAnt+"' AND D_E_L_E_T_ = ' '"
+	
+If Select(cAliasTb) > 0
+	(cAliasTb)->(DbCloseArea())
+EndIf
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTb,.F.,.T.)
+
+While (cAliasTb)->(!Eof()) 
+	aAdd(aRecnos,(cAliasTb)->NUMREC)
+	(cAliasTb)->(DbSkip())
+End
+
+(cAliasTb)->(DbCloseArea())
+
+DbSelectArea("AD1")
+//AD1_FILIAL+AD1_NROPOR+AD1_REVISA  
+AD1->(DbSetOrder(1))
+
+For nX := 1 to Len(aRecnos)
+	AD1->(DbGoTo(aRecnos[nX]))
+	RecLock("AD1",.F.)
+	AD1->AD1_PROSPE	:= ""
+	AD1->AD1_LOJPRO	:= ""
+	AD1->AD1_CODCLI	:= cCodAtu
+	AD1->AD1_LOJCLI	:= cLojAtu
+	MsUnLock() 
+Next nX
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Atualiza as propostas vinculadas ao Suspect. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cAliasTb 	:= GetNextAlias()
+cQuery		:= "SELECT R_E_C_N_O_ NUMREC FROM " + RetSqlName("ADY")
+cQuery		+= " WHERE ADY_FILIAL = '" + cFilADY + "' AND ADY_ENTIDA = '2'"
+cQuery		+= " AND ADY_CODIGO = '" + cCodAnt + "' AND ADY_LOJA = '" + cLojAnt + "'"
+cQuery		+= " AND D_E_L_E_T_ = ' '"
+	
+If Select(cAliasTb) > 0
+	(cAliasTb)->(DbCloseArea())
+EndIf
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTb,.F.,.T.)
+
+aRecnos := {}
+While (cAliasTb)->(!Eof())
+	aAdd(aRecnos,(cAliasTb)->NUMREC)
+	(cAliasTb)->(DbSkip())
+End 
+
+(cAliasTb)->(DbCloseArea())
+
+DbSelectArea("TFJ")
+// TFJ_FILIA+TFJ_PROPOS+TFJ_PREVIS
+TFJ->(DbSetOrder(2)) 
+
+DbSelectArea("ADY")
+//ADY_FILIAL+ADY_PROPOS
+ADY->(DbSetOrder(1))
+
+For nX := 1 to Len(aRecnos)
+	
+	ADY->(DbGoTo(aRecnos[nX]))
+	RecLock("ADY",.F.)
+	ADY->ADY_ENTIDA	:= "1"
+	ADY->ADY_CODIGO	:= cCodAtu
+	ADY->ADY_LOJA		:= cLojAtu
+	MsUnLock()
+	
+	If TFJ->(DbSeek(cFilTFJ+ADY->(ADY_PROPOS+ADY_PREVIS)))		
+		Reclock("TFJ",.F.)	
+		TFJ->TFJ_ENTIDA 	:= ADY->ADY_ENTIDA
+		TFJ->TFJ_CODENT	:= ADY->ADY_CODIGO
+		TFJ->TFJ_LOJA		:= ADY->ADY_LOJA
+		TFJ->(MsUnlock())
+	EndIf
+		
+Next nX
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Atualiza os orcamentos³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cAliasTb 	:= GetNextAlias()
+cQuery		:= "SELECT R_E_C_N_O_ NUMREC FROM " + RetSqlName("SCJ")
+cQuery		+= " WHERE CJ_FILIAL = '" + cFilSCJ + "'"
+cQuery		+= " AND CJ_PROSPE = '" + cCodAnt + "' AND CJ_LOJPRO = '" + cLojAnt + "'"
+cQuery		+= " AND (CJ_CLIENTE <> '" + cCodAtu + "' OR CJ_LOJA <> '" + cLojAtu + "')"
+cQuery		+= " AND D_E_L_E_T_ = ' '"
+	
+If Select(cAliasTb) > 0
+	(cAliasTb)->(DbCloseArea())
+EndIf
+	
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTb,.F.,.T.)
+
+aRecnos := {}
+While (cAliasTb)->(!Eof())
+	aAdd(aRecnos,(cAliasTb)->NUMREC)
+	(cAliasTb)->(DbSkip())
+End
+
+(cAliasTb)->(DbCloseArea())
+
+DbSelectArea("SCK")
+//CK_FILIAL+CK_NUM+CK_ITEM+CK_PRODUTO
+SCK->(DbSetOrder(1))
+
+DbSelectArea("SCJ")
+//CJ_FILIAL+CJ_NUM+CJ_CLIENTE+CJ_LOJA 
+SCJ->(DbSetOrder(1))
+
+For nX := 1 to Len(aRecnos)
+
+	SCJ->(DbGoTo(aRecnos[nX]))
+
+	RecLock("SCJ",.F.)
+	SCJ->CJ_CLIENTE	:= cCodAtu
+	SCJ->CJ_LOJA		:= cLojAtu
+	SCJ->CJ_CLIENT	:= cCodAtu
+	SCJ->CJ_LOJAENT	:= cLojAtu
+	MsUnLock()
+
+	If SCK->(DbSeek(cFilSCK+SCJ->CJ_NUM))
+	
+		While	SCK->(!Eof()) .AND.SCK->CK_FILIAL == cFilSCK .AND.;
+				SCK->CK_NUM == SCJ->CJ_NUM
+	
+			RecLock("SCK",.F.)
+			SCK->CK_CLIENTE	:= cCodAtu
+			SCK->CK_LOJA		:= cLojAtu
+			MsUnLock()                       
+	
+			SCK->(DbSkip())		
+		End
+
+	EndIf
+		
+Next nX
+ 
+RestArea(aAreaAD1)
+RestArea(aAreaADY)
+RestArea(aAreaTFJ)
+RestArea(aAreaSCJ)
+RestArea(aAreaSCK)
+RestArea(aArea)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300CodTmk
+
+Atualiza campo AD1_CODTMK da Oportunidade de Venda com ultimo atendimento
+do Call Center realizado para o Suspect convertido em Prospect.		
+
+@sample 	Ft300CodTmk(cCodPro,cLojPro)
+
+@param		ExpC1 - Codigo do Prospect.
+			ExpC2 - Loja do Prospect.
+			   
+@return		ExpC - Codigo do Atendimento
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300CodTmk(cCodPro,cLojPro)
+
+Local aArea		:= GetArea()			//Area corrente
+Local cCodTmk 	:= ""					//Codigo TMK
+
+Default cCodPro	:= ""
+Default cLojPro	:= ""
+
+DbSelectArea("ACH")
+//ACH_FILIAL+ACH_CODPRO+ACH_LOJPRO
+ACH->(DbSetOrder(4))
+
+If ACH->(DbSeek(xFilial("ACH")+cCodPro+cLojPro))
+	If !Empty(ACH->ACH_CODTMK)
+		cCodTmk := AllTrim(ACH->ACH_CODTMK)
+	EndIf
+EndIf  
+     	
+RestArea(aArea)
+
+Return(cCodTmk)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VrPro
+
+Função para desabilitar campo de Receita Estimado caso exista uma 
+Proposta Comercial sincronizada.
+
+@sample		Ft300VrPro()
+
+@param		ExpC1 - Número da Oportunidade
+
+@return		ExpL - Verdadeiro / Falso
+	
+@author		Aline Kokumai
+@since		22/04/2014
+@version	P1190                  
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300VrPro()
+
+Local aArea		:= GetArea()							//Area atual.
+Local aAreaADY	:= ADY->(GetArea())					//Area da tabela ADY.
+Local oModel		:= FwModelActive()					//Model da Oportunidade de Venda (MPFormModel).
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")		//ModelField da Oportunidade de Venda.
+Local cNroOpor	:= oMdlAD1:GetValue("AD1_NROPOR")	//Numero da oportunidade.
+Local lExisSincr	:= .T. 								//Variavel para identificar de existe proposta sincronizada. 
+Local nOpcADJ		:= 0									//Tratamento dado ADJ (ler documentacao abaixo)
+Local cFilADY		:= xFilial("ADY")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³A variavel nOpcADJ, utilizada para  pode ter 3 valores:                                ³
+//³1 - Apaga registros manuais e considera somente os das propostas                       ³
+//³2 - Mantem o registro lancado na ADJ manualmente e exibe os registros das propostas    ³
+//³3 - Mantem os manuais e não exibe (apesar de gravar) os registros gerados por propostas³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nOpcADJ	 := SuperGetMv("MV_FATMNTP",,1)
+
+If nOpcADJ == 1  .AND. !IsInCallStack("FATA600")
+
+	DbSelectArea("ADY")		
+	ADY->(DbSetOrder(2))	//ADY_FILIAL+ADY_OPORTU+ADY_REVISA+ADY_PROPOS
+	If ADY->(DbSeek(cFilADY+cNroOpor))
+		While ADY->(!Eof() .AND. ADY->ADY_FILIAL == cFilADY .AND. ADY->ADY_OPORTU==cNroOpor)
+			If ADY->ADY_SINCPR 
+				lExisSincr := .F. 	//Marca flag como falso para desabilitar campo no modo edição
+				Exit
+			EndIf						
+		ADY->(DbSkip())
+		End
+	EndIf
+	
+EndIf
+
+RestArea(aAreaADY)
+RestArea(aArea)
+	
+Return(lExisSincr)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300REstPro
+
+Retorna o valor da Receita Estimada da Proposta Comercial passada como parametro.
+
+@sample		Ft300REstPro(cCodProp,cRevProp)
+
+@param		ExpC1 - Código da Proposta Comercial.
+				
+@return		ExpN - Valor da Receita Estimada
+
+@author		Anderson Silva
+@since		23/04/2014
+@version	P12              
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300REstPro(cCodProp)
+
+Local aArea		:= GetArea()
+Local nRecEst	:= 0
+Local cAliasTmp	:= GetNextAlias()
+Local nMoeda	:= 0 
+DbSelectArea("ADY")
+//ADY_FILIAL+ADY_PROPOS
+ADY->(DbSetOrder(1))
+
+If ADY->(DbSeek(xFilial("ADY")+cCodProp))
+
+	BeginSql Alias cAliasTmp
+	
+		SELECT ADZ_MOEDA, SUM(ADZ_TOTAL) TOTAL
+		FROM %table:ADZ% ADZ 
+		WHERE	ADZ.ADZ_FILIAL = %xFilial:ADZ% AND ADZ.ADZ_PROPOS = %Exp:ADY->ADY_PROPOS% AND 
+				ADZ.ADZ_REVISA = %Exp:ADY->ADY_PREVIS% AND ADZ.%NotDel%
+		GROUP BY ADZ.ADZ_MOEDA
+						
+	EndSql
+	
+	While (cAliasTmp)->(!EOF())
+		nMoeda := Val( (cAliasTmp)->ADZ_MOEDA )
+		If  nMoeda > 1
+			nRecEst += xMoeda( (cAliasTmp)->TOTAL, nMoeda, 1 ,dDataBase, GetSX3Cache("ADZ_TOTAL","X3_DECIMAL")  )
+		Else
+			nRecEst += (cAliasTmp)->TOTAL
+		EndIf
+		
+		(cAliasTmp)->( DbSkip() )
+	EndDo
+
+	(cAliasTmp)->(DbCloseArea())
+
+EndIf	
+
+RestArea(aArea)
+aSize(aArea, 0)
+Return(nRecEst)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Param
+
+Carrega os parametros da analise de custo da Oportunidade de Venda.
+
+@sample 	Ft300Param()
+
+@param		Nenhum
+
+@return		ExpA - Parametros para calcular os custos.
+
+@author		Anderson Silva
+@since		28/03/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Param()
+
+Local aParam	:= {}
+Local cPerg		:= "FTA300"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ PARAMETROS                                                 ³
+//³ MV_PAR01 : Vendedor de                                     ³
+//³ MV_PAR02 : Vendedor ate                                    ³
+//³ MV_PAR03 : Data de                                         ³
+//³ MV_PAR04 : Data ate                                        ³
+//³ MV_PAR05 : Evento de                                       ³
+//³ MV_PAR06 : Evento ate                                      ³
+//³ MV_PAR07 : Produto de                                      ³
+//³ MV_PAR08 : Produto ate                                     ³
+//³ MV_PAR09 : Exibir por (Total,Vendedor,Data,Evento,Produto) ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Pergunte(cPerg,.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Carrega os parametros para a chamada da funcao ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aAdd(aParam,{"SELLER_FROM"	, MV_PAR01})
+aAdd(aParam,{"SELLER_TO"   	, MV_PAR02})
+aAdd(aParam,{"DATE_FROM"   	, MV_PAR03})
+aAdd(aParam,{"DATE_TO"     	, MV_PAR04})
+aAdd(aParam,{"EVENT_FROM"  	, MV_PAR05})
+aAdd(aParam,{"EVENT_TO"    	, MV_PAR06})
+aAdd(aParam,{"PRODID_FROM" 	, MV_PAR07})
+aAdd(aParam,{"PRODID_TO"   	, MV_PAR08})
+aAdd(aParam,{"DISPLAY"     	, MV_PAR09})
+
+Return(aParam)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300FUsr
+
+Executa a funcao do Usuario.
+
+@sample		Ft300FUsr(uAction)
+
+@param		ExpU1 - Acao em ADVPL codificada pelo usaurio.
+
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		15/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300FUsr(uAction)
+
+Local bError	:= ErrorBlock({|oError| Ft300Error(oError)}) //Bloco de erro
+
+Begin Sequence
+	&(uAction)
+End Sequence
+ErrorBlock(bError)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300CtrMenu
+
+Controla as propriedades do Menu PopUp. 
+
+@sample		Ft300CtrMenu(nTree,oMenu,oTree)
+
+@param		ExpN1 - Indice da Tree                                         
+			ExpO2 - Objeto do Menu                                         
+			ExpO3 - Objeto da Tree                                 
+	
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300CtrMenu(nTree,oMenu,oTree)
+ 
+Local cAlias	:= SubStr(oTree:GetCargo(),1,3)
+
+If (cAlias $ "AD1ADC")
+	oMenu:aItems[1]:Enable()
+	If (nTree == 2)
+		oMenu:aItems[2]:Enable()
+	EndIf
+Else
+	oMenu:aItems[1]:Disable()
+	If (nTree == 2)
+		oMenu:aItems[2]:Enable()
+	EndIf
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300PeCmp
+
+Compara os campos indicados pelo usuario no ponto de entrada Ft300Rev, 
+verificando se sera gerada uma nova revisao.
+
+@sample		Ft300PeCmp()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro 
+
+@author		Anderson Silva
+@since		29/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300PeCmp(aCpoRev,oModel)
+
+Local aArea			:= GetArea()
+Local aAreas		:= {}
+Local cCampo		:= ""
+Local nY			:= 0
+Local nZ			:= 0
+Local nX			:= 0
+Local cAliasAtu		:= ""
+Local cIdMdl		:= ""
+Local oMdlId		:= Nil
+Local oStruct		:= Nil
+Local aCampos		:= {}
+Local nPosCpo		:= 0
+Local aMdlIds		:= {}
+Local nRecNo		:= 0
+Local lRetorno		:= .F.
+
+aAdd(aMdlIds,{"AD1","AD1MASTER"})
+aAdd(aMdlIds,{"AD2","AD2DETAIL"})
+aAdd(aMdlIds,{"AD3","AD3DETAIL"})
+aAdd(aMdlIds,{"AD4","AD4DETAIL"})
+aAdd(aMdlIds,{"AD9","AD9DETAIL"})
+aAdd(aMdlIds,{"ADJ","ADJDETAIL"})
+aAdd(aMdlIds,{"AIJ","AIJDETAIL"})
+
+aSort(aCpoRev)
+
+For nY := 1 To Len(aMdlIds)
+	 
+	cAliasAtu	:= aMdlIds[nY][1]
+	cIdMdl		:= aMdlIds[nY][2]
+	oMdlId		:= oModel:GetModel(cIdMdl)
+	oStruct		:= oMdlId:GetStruct()
+	aCampos		:= aClone(oStruct:GetFields())
+	
+	DbSelectArea(cAliasAtu)
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Guarda a area atual da tabela que será comparada. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aAdd(aAreas,(cAliasAtu)->(GetArea()))
+	
+	If oMdlId:ClassName() == "FWFORMFIELDS"
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se houve alteracao nos campos do AD1. ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		
+		For nX := 1 To Len(aCpoRev)
+		
+			cCampo  := Upper(aCpoRev[nX])
+			nPosCpo := aScan(aCampos,{|x| AllTrim(x[MODEL_FIELD_IDFIELD]) == AllTrim(cCampo)})
+			
+			If nPosCpo > 0
+				
+				nRecNo := oMdlId:GetDataId()
+				(cAliasAtu)->(DbGoTo(nRecNo))
+				
+				If oMdlId:GetValue(cCampo) <> &(cAliasAtu+"->"+cCampo)
+					lRetorno := .T.
+					Exit
+				EndIf
+				
+			EndIf
+			
+		Next nX
+		
+	ElseIf oMdlId:ClassName() == "FWFORMGRID"
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Se nao foram detectadas alteracoes no AD1, verifica os itens. ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		For nZ := 1 To oMdlId:Length()
+			
+			oMdlId:GoLine(nZ)
+			
+			For nX := 1 To Len(aCpoRev)
+				
+				cCampo	 := Upper(aCpoRev[nX])
+				nPosCpo := aScan(aCampos,{|x| AllTrim(x[MODEL_FIELD_IDFIELD]) == AllTrim(cCampo)})
+				
+				If nPosCpo > 0
+					
+					nRecNo := oMdlId:GetDataId()
+					(cAliasAtu)->(DbGoTo(nRecNo))
+					
+					If oMdlId:GetValue(cCampo) <> &(cAliasAtu+"->"+cCampo)
+						lRetorno := .T.
+						Exit 
+					EndIf
+					
+				EndIf 
+				
+			Next nX
+			
+			If lRetorno
+				Exit
+			EndIf
+			
+		Next nZ
+		
+	EndIf     
+	
+	If lRetorno
+		Exit
+	EndIf
+	
+Next nY
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Restaura posicionamento das tabelas usadas na comparacao. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nX := 1 to Len(aAreas)
+	RestArea(aAreas[nX])
+Next nX
+
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Strut
+
+Retorna a estrutura da tabela selecionada. 
+
+@sample		Ft300Strut(cAlias)
+
+@param		ExpC1 - Tabela para montagem da estrutura.                             
+	
+@return		ExpA - Estrutura da Tabela
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300Strut(cAlias)
+
+Local aArea	:= GetArea()
+Local aRet 	:= {}                  
+
+DbSelectArea("SX3")
+DbSetOrder(1)
+DbSeek(cAlias)
+While ( (cAlias)->(!Eof()) .AND. ( SX3->X3_ARQUIVO == cAlias ) )
+	If X3Uso(X3_USADO) .AND. cNivel >= X3_NIVEL .AND. (!TRIM(SX3->X3_CAMPO) $ "_FILIAL") .AND.;
+		 (X3_CONTEXT <> "V") .AND. (X3_TIPO <> "M")
+		aAdd(aRet,{	TRIM(X3TITULO()),;
+						X3_CAMPO,;
+						X3_PICTURE,;
+						X3_TAMANHO,;
+						X3_DECIMAL,;
+						X3_VALID,;
+						X3_USADO,;
+						X3_TIPO,;
+						X3_ARQUIVO,;
+						X3_CONTEXT 	} )
+	EndIf
+	SX3->(DbSkip())
+EndDo
+
+RestArea(aArea)
+
+Return(aRet)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300GrCli
+
+Funcao para gerar um cliente a partir do Prospect.
+
+@sample 	Ft300GrCli(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+		
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300GrCli(oMdlAD1)
+
+Local aArea 		:= GetArea()							// Armazena a posicao da area atual
+Local aAreaSA1	:= SA1->(GetArea())					// Armazena a posicao da area SA1
+Local aAreaSCJ	:= SCJ->(GetArea())					// Armazena a posicao da area SCJ
+Local aAreaSCK	:= SCK->(GetArea())					// Armazena a posicao da area SCK
+Local aAreaTFJ	:= TFJ->(GetArea())					// Armazena a area da TFJ
+Local cFilSCK		:= xFilial("SCK")						// Armazena o codigo de filial para a area SCK
+Local cFilSCJ		:= xFilial("SCJ")
+Local nX			:= 0									// Contador de loop
+Local aRecOrc		:= {}									// Lista de registros de orcamentos para alteracao
+Local lSeek		:= .T.	
+Local cCodPro		:= oMdlAD1:GetValue("AD1_PROSPE")
+Local cLojPro		:= oMdlAD1:GetValue("AD1_LOJPRO")						
+Local cNrOport	:= oMdlAD1:GetValue("AD1_NROPOR")
+Local cRevisAtu	:= oMdlAD1:GetValue("AD1_REVISA")
+Local cNrOrcam	:= oMdlAD1:GetValue("AD1_NUMORC")
+Local lRetorno	:= .T.									// Permite a continuacao da rotina
+
+DbSelectArea("ADJ")
+ADJ->(DbSetOrder(1))	//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_PROD
+
+lSeek 		:= DbSeek(xFilial("ADJ")+cNrOport+cRevisAtu)
+lRetorno	:= !Empty(cNrOrcam) .OR. lSeek
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica o conteudo do parametro MV_FATOPCL, que define     ³
+//³se o cliente sera gerado apos o encerramento da oportunidade³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRetorno
+	lRetorno := SuperGetMV("MV_FATOPCL",,.T.)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Gera o codigo do cliente³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRetorno .And. oMdlAD1:GetValue("AD1_STATUS") == "9"
+	lRetorno := Tk273GrvPTC(cCodPro,cLojPro)
+EndIf
+
+//Verifica se a proposta é integração com gct, atualiza a tabela TFJ
+If lRetorno .AND. ADY->ADY_TPCONT = "4"	
+	DbSelectArea("TFJ")
+	TFJ->(DbSetOrder(2))
+	If TFJ->(DbSeek(xFilial("TFJ")+ADY->ADY_PROPOS+ADY->ADY_PREVIS))
+		If TFJ->TFJ_ENTIDA <> "1"
+			TFJ->TFJ_ENTIDA :=	"1"
+			If TFJ->TFJ_CODENT <> AD1->AD1_CODCLI .And. TFJ->TFJ_LOJA <> AD1->AD1_LOJCLI
+				TFJ->TFJ_CODENT	:= AD1->AD1_CODCLI
+				TFJ->TFJ_LOJA	:= AD1->AD1_LOJCLI
+			EndIf
+		EndIf	
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Atualiza os campos do codigo e loja do cliente para o cabecalho³
+//³e seus itens                                                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRetorno
+	
+	SCK->(DbSetOrder(1))   
+	
+	SCJ->(DbSetOrder(5)) //CJ_FILIAL+CJ_PROPOST
+	SCJ->(DbSeek(cFilSCJ+cNrOport+cRevisAtu))
+
+	While	SCJ->(!Eof()) .AND. SCJ->CJ_FILIAL == cFilSCJ .AND.;
+			SCJ->CJ_NROPOR == cNrOport
+		AAdd(aRecOrc,SCJ->(Recno()))
+		SCJ->(DbSkip())
+	EndDo
+
+	For nX := 1 to Len(aRecOrc)
+	
+		SCJ->(DbGoTo(aRecOrc[nX]))
+	
+		RecLock("SCJ",.F.)
+		SCJ->CJ_CLIENTE	:= Iif(!Empty(SUS->US_CODCLI),SUS->US_CODCLI,SCJ->CJ_CLIENTE)
+		SCJ->CJ_LOJA		:= Iif(!Empty(SUS->US_LOJACLI),SUS->US_LOJACLI,SCJ->CJ_LOJA)
+		SCJ->CJ_CLIENT	:= Iif(!Empty(SUS->US_CODCLI),SUS->US_CODCLI,SCJ->CJ_CLIENT)
+		SCJ->CJ_LOJAENT	:= Iif(!Empty(SUS->US_LOJACLI),SUS->US_LOJACLI,SCJ->CJ_LOJAENT)
+		MsUnLock()
+		
+		SCK->(DbSeek( cFilSCK + SCJ->CJ_NUM ))
+
+		While 	SCK->(!Eof()) .AND. SCK->CK_FILIAL == cFilSCK .AND.;
+				SCK->CK_NUM == SCJ->CJ_NUM
+
+			RecLock("SCK",.F.) 
+			SCK->CK_CLIENTE	:= Iif(!Empty(SUS->US_CODCLI),SUS->US_CODCLI,SCK->CK_CLIENTE)
+			SCK->CK_LOJA		:= Iif(!Empty(SUS->US_LOJACLI),SUS->US_LOJACLI,SCK->CK_LOJA)
+			SCK->(MsUnLock())
+
+			SCK->(DbSkip())
+		EndDo	
+
+	Next nX
+			
+EndIf
+
+RestArea(aAreaSA1)
+RestArea(aAreaSCJ)
+RestArea(aAreaSCK)
+RestArea(aAreaTFJ)
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300CanProp
+
+Cancela as Propostas Comerciais.
+
+@sample 	Ft300CanProp(cNrOport,cCodProp)
+
+@param		ExpC1 - Oportunidade de Venda.
+			ExpC2 - Proposta Comercial Vencedora.
+			ExpC3 - Status da Oportunidade de Venda.
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300CanProp(cNrOport,cCodProp,cStatOport)
+
+Local aArea		:= GetArea()
+Local aAreaADY	:= ADY->(GetArea())
+Local aAreaAAT	:= AAT->(GetArea())
+Local lIntECM		:= SuperGetMv("MV_CRMXECM",,.F.)
+Local cIdECM		:= ""
+Local lMultVist	:= SuperGetMv("MV_MULVIST",,.F.)  				// Multiplas Vistorias
+Local lPyme		:= IIF(Type("__lPyme") <> "U",__lPyme,.F.)		// Serie 3 do Protheus
+Local cFilADY		:= xFilial("ADY")
+Local cFilAAT		:= xFilial("AAT")
+Local cFilAGY		:= xFilial("AGY")
+
+Default cNrOport		:= ""
+Default cCodProp		:= ""
+Default cStatOport	:= ""
+
+DbSelectArea("AGY")
+AGY->(DbSetOrder(2))	//AGY_FILIAL+AGY_PROPOS+AGY_REVPRO
+
+DbSelectArea("AAT")
+AAT->(DbSetOrder(1))	//AAT_FILIAL+AAT_CODVIS
+
+DbSelectArea("ADY")
+ADY->(DbSetOrder(2))	//ADY_FILIAL+ADY_OPORTU+ADY_REVISA+ADY_PROPOS
+
+If ADY->(DbSeek(cFilADY+cNrOport))
+
+	While ADY->(!EOF()) .AND. ADY->ADY_FILIAL == cFilADY .AND. ADY->ADY_OPORTU == cNrOport
+
+		If ( Empty(cCodProp) .OR. ( ADY->ADY_PROPOS <> cCodProp ) )
+
+			RecLock("ADY",.F.)
+			If cStatOport == "2" .Or. cStatOport == "9"
+				ADY->ADY_STATUS := "C"
+				If ADY->ADY_SINCPR
+					ADY->ADY_SINCPR := .F. //Desmarcar proposta sincronizada se outra proposta foi vencida
+				EndIf
+			ElseIf cStatOport == "3"
+				ADY->ADY_STATUS := "D"
+			EndIf
+			ADY->(MsUnLock())
+
+			If !lPyme
+
+				If !lMultVist
+
+					// Cancela as vistorias para propostas canceladas
+					If AAT->(DbSeek(cFilAAT+ADY->ADY_CODVIS))
+						If AAT->AAT_STATUS $ "1|2"
+							RecLock("AAT",.F.)
+							AAT->AAT_STATUS := "4"
+							AAT->(MsUnLock())
+						EndIf
+					EndIf
+
+				Else
+
+					AAT->(DbSetOrder(2))
+					If AAT->(DbSeek(cFilAAT+ADY->ADY_OPORTU+ADY->ADY_PROPOS))
+						While ( AAT->(!Eof()) .AND. AAT->AAT_FILIAL == cFilAAT .AND.;
+								AAT->AAT_OPORTU == ADY->ADY_OPORTU .AND. AAT->AAT_PROPOS == ADY->ADY_PROPOS )
+							If AAT->AAT_STATUS $ "1|2"
+								RecLock("AAT",.F.)
+								AAT->AAT_STATUS := "4"
+								AAT->(MsUnLock())
+							EndIf
+							AAT->(DbSkip())
+						End
+					EndIf
+
+				EndIf
+
+			EndIf
+
+			If  lIntECM
+
+				AGY->(DbSetOrder(2))
+
+				If AGY->(DbSeek(cFilAGY+ADY->ADY_PROPOS+ADY->ADY_PREVIS))
+					cIdECM := AllTrim(AGY->AGY_IDECM)
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Atualiza o status da proposta no ECM.³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ  
+					If Empty(AGY->AGY_STATUS) .AND. Empty(AGY->AGY_TPAPV)
+						MsgRun(STR0207,,{|| A600ATECM(cEmpAnt,cFilAnt,ADY->ADY_PROPOS,cIdECM,"N")}) //"Encerrando as propostas no By You ECM..."
+					EndIf
+				EndIf
+
+			EndIf
+
+		Else //Marca a proposta vencida como sincronizada
+			If !ADY->ADY_SINCPR
+				RecLock("ADY",.F.)
+				ADY->ADY_SINCPR := .T.
+				ADY->(MsUnLock())
+			EndIF
+		EndIf
+
+		ADY->(DbSkip())
+	End
+
+EndIf
+
+RestArea(aAreaADY)
+RestArea(aAreaAAT)
+RestArea(aArea)
+Return Nil
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300FchProp
+
+Fecha a Proposta Comercial Vencedora.
+
+@sample 	Ft300FchProp(cCodProp)
+
+@param		ExpC1 - Proposta Comercial Vencedora.
+			
+@return		Nenhum
+
+@author		Enaldo Cardoso
+@since		25/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300FchProp(cCodProp)
+
+Local aArea 		:= GetArea()
+Local aAreaADY	:= ADY->(GetArea())
+
+Default cCodProp 	:= ""
+
+If !Empty(cCodProp)
+	DbSelectArea("ADY")
+	ADY->(DbSetOrder(1))	//ADY_FILIAL+ADY_PROPOS
+	If ADY->(DbSeek(xFilial("ADY")+cCodProp))
+		RecLock("ADY", .F.)
+		ADY->ADY_STATUS := "B"
+		ADY->(MsUnLock())
+	EndIf
+EndIf 		 
+
+RestArea(aAreaADY)
+RestArea(aArea)
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AtSTot
+
+Atualiza o SubTotal do rateio entre os socios do Grupo Societario.
+
+@sample 	Ft300AtSTot(oBrowse,oSay6)
+
+@param		ExpO1 - Objeto oBrowse.
+			ExpO2 - Objeto Say
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300AtSTot(oBrowse,oSay6)
+
+Local nPercTotal 	:= 0   		//Total do Subtotal.
+Local cPercTotal 	:= "0%"   	//Total do Subtotal.
+Local lRetorno		:= .F. 		//Retorno da validacao.
+
+aEval(oBrowse:aArray,{|x| nPercTotal += x[5]})
+cPercTotal := cValToChar(nPercTotal)+"%"
+
+If nPercTotal <= 100 
+	oSay6:SetText(cPercTotal)
+	oSay6:Refresh() 
+	lRetorno := .T.
+Else
+	MsgAlert(STR0153,STR0136)  //#"Rateio superior a 100%"#Atenção!
+EndIf
+
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300GrvRat
+
+Gravacao da configuracao de rateio da Proposta Comercial.   
+
+@sample		Ft300GrvRat(cProposta,cRevisao,cCodCli,cLoja,nPercen)
+
+@param		ExpC1: Codigo da Proposta Comercial. 
+			ExpC2: Revisao da Proposta Comercial. 
+			ExpC3: Codigo do Cliente.
+			ExpC4: Loja do Cliente. 
+			ExpC5: Percentual do rateio para o Cliente.  
+				
+@return		Nenhum
+
+@author		Anderson Silva
+@since		14/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300GrvRat(cProposta,cRevisao,cCodCli,cLoja,nPercen)
+
+Local aArea	 	:= GetArea()
+Local aAreaAAS	:= AAS->(GetArea())
+Local cFilAAS		:= xFilial("AAS")
+
+DbSelectArea("AAS")
+AAS->(DbSetOrder(1))	//AAS_FILIAL+AAS_PROPOS+AAS_PREVIS+AAS_CLIENT+AAS_LOJA
+If AAS->(!DbSeek(cFilAAS+cProposta+cRevisao+cCodCli+cLoja))
+	RecLock("AAS",.T.)
+	AAS->AAS_FILIAL	:= cFilAAS
+	AAS->AAS_PROPOS 	:= cProposta
+	AAS->AAS_PREVIS 	:= cRevisao
+	AAS->AAS_CLIENT 	:= cCodCli
+	AAS->AAS_LOJA   	:= cLoja
+	AAS->AAS_PERCEN 	:= nPercen
+	AAS->(MsUnLock())
+EndIf
+
+RestArea(aAreaAAS)
+RestArea(aArea)
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300CFPWF
+
+Confirma a selecao da Proposta Comercial selecionada pela função Ft300SPWF().
+
+@sample		Ft300CFPWF(oListBox,aList)
+
+@param		ExpO1 - Objeto Browse.
+			ExpA2 - Propostas comercial.
+			
+@return		ExpL - Verdadeiro / Falso. 
+
+@author		Anderson Silva
+@since		14/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300CFPWF(oListBox,aList)
+
+Local cProposta := ""       //Codigo da Proposta
+Local nI   		:= 0      	//Incremento utilizado no laco For
+Local lRetorno 	:= .F.    	//Retorno da validacao 
+
+//Inicializa o checkbox
+For nI := 1 To Len(aList)
+	If aList[nI][1]
+		cProposta := aList[nI,2]
+		Ft300PrepWF(cProposta)
+		lRetorno := .T.
+		Exit
+	EndIf
+Next nI
+
+If !lRetorno
+	Aviso(STR0136,STR0160,{STR0161},2) //Atencao//"Selecione uma proposta para disparar um Workflow!"/Fechar   
+EndIf
+
+Return(lRetorno)
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300PrepWF
+
+Prepara os dados com base na Proposta Comercial para serem enviados pelo WorkFlow.
+
+@sample		Ft300PrepWF(cProposta)
+
+@param		ExpC1 - Código da Proposta Comercial.
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		14/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300PrepWF(cProposta)
+
+Local aArea			:= GetArea()
+Local aAreaSCK		:= SCK->(GetArea())
+Local aAreaAGX		:= AGX->(GetArea())
+Local aCabAD1   	:= {}   //Cabecalho da oportunidade
+Local aLstProd  	:= {}   //Lista de produtos da proposta comercial
+Local aGpoProd   	:= {}   //Grupo de produtos agrupado
+Local aRspGroup  	:= {}   //Responsaveis pelos grupos de produtos
+Local aRspProd   	:= {}   //Responsaveis pelos produtos
+Local cEmail     	:= ""   //E-mail do responsavel
+Local nX 		 	:= 0    //Inc. utilizado no For grupo de produtos
+Local nCount 	 	:= 0    //Inc. utilizando no For Resp. pelos produtos
+Local nI 		 	:= 0    //Inc. utilizando no For Resp. pelos produtos
+Local nY 		 	:= 0    //Inc. utilizando no For Resp. pelos produtos
+Local nPos       	:= 0    //Posicao no array
+Local nTProsp    	:= 0    //Valor Total da Proposta
+Local cGpoProd		:= ""
+Local aDadUsr		:= {}
+Local cNomUsr		:= ""
+Local cFilSB1		:= xFilial("SB1")
+Local cFilAGV		:= xFilial("AGV")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Armazena no array aCabAD1 o cabecalho ³
+//³da oportunidade.                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aAdd(aCabAD1,{  AD1->AD1_NROPOR	 ,;   	 //Codigo da Oportunidade
+				AD1->AD1_DESCRI	 ,;      //Descricao da oportunidade
+				AD1->AD1_PROSPE  ,;      //Prospect
+				AD1->AD1_CODCLI	 ,;      //Cliente
+				AD1->AD1_PROVEN	 ,;      //Processo
+				AD1->AD1_STAGE	 ,;      //Estagio
+				AD1->AD1_DTFIM})         //Termino da oportunidade
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Armazena no array aLstProd os produtos ³
+//³da proposta comercial.                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SCK")
+//CK_FILIAL+CK_PROPOST+CK_ITEMPRO  
+SCK->(DbSetOrder(5))
+
+If SCK->(DbSeek(xFilial("SCK")+cProposta))
+
+	While SCK->(!Eof())
+		
+		If SCK->CK_PROPOST  == cProposta
+			
+			cGpoProd := Posicione("SB1",1,cFilSB1+SCK->CK_PRODUTO,"B1_GRUPO")
+			nTProsp += SCK->CK_VALOR
+			
+			aAdd(aLstProd,{;
+								SCK->CK_PRODUTO	,; 	//Cod. Produto
+								cGpoProd			,;  //Grupo do Produto
+								SCK->CK_DESCRI	,;  //Desc Produto
+								SCK->CK_QTDVEN	,;  //Qtd Venda
+								SCK->CK_PRUNIT	,;  //Preco de Lista
+								SCK->CK_PRCVEN	,; 	//Preco de Venda
+								SCK->CK_VALOR		,;	//Valor Total
+								SCK->CK_DESCONT	,;	//Desconto
+								SCK->CK_VALDESC}) 	//Valor Total com Desconto
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Agrupa os grupos de produtos ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			
+			If !Empty(cGpoProd)
+				nPos := aScan(aGpoProd,cGpoProd)
+				If nPos == 0
+					aAdd(aGpoProd,cGpoProd)  //Grupo de Produto
+				EndIf
+			EndIf
+			
+		EndIf    
+		SCK->(DbSkip())	
+	End
+	
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ordena os grupos por ordem crescente.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Asort(aGpoProd)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Localiza o responsavel de cada grupo de produtos,³
+//³armazenado no array aGpoProd e armazena no array ³
+//³aRspGroup o e-mail/grupo(s).                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+DbSelectArea("AGX")
+//AGX_FILIAL+AGX_GRUPO+AGX_CODRSP   
+AGX->(DbSetOrder(2))
+
+For nX := 1 To Len(aGpoProd)
+	
+	If AGX->(DbSeek(xFilial("AGX")+aGpoProd[nX])) //Grupo de Produto
+		
+		While AGX->(!Eof()) .AND. AGX->AGX_GRUPO == aGpoProd[nX]
+			
+			aDadUsr	:= FWSFAllUsers({AGX->AGX_CODRSP})
+			cNomUsr	:= aDadUsr[1][4]
+			cEmail 	:= AllTrim(POSICIONE("AGV",1,cFilAGV+AGX->AGX_CODRSP,"AGV_MAILAL")) 
+			nPos 	:= aScan(aRspGroup,{|x| x[2] == cEmail})
+			
+			If nPos == 0
+				aAdd(aRspGroup,{cNomUsr,cEmail,{AGX->AGX_GRUPO}})
+			Else
+				aAdd(aRspGroup[nPos][3],AGX->AGX_GRUPO)
+			EndIf
+			
+			AGX->(DbSkip())
+		End   
+		
+	EndIf
+	
+Next nX
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Localiza o responsavel por cada produto e  ³
+//³armazena no array aRspProd e-mail/produtos.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+For nCount := 1 To Len(aRspGroup)
+	
+	For nY := 1 To Len(aRspGroup[nCount][3])
+		
+		For nI := 1 To Len(aLstProd)
+			
+			nPos := aScan(aRspProd,{|x| x[2] == aRspGroup[nCount][2] })
+			
+			If aRspGroup[nCount][3][nY]  == aLstProd[nI][2]
+				
+				If nPos == 0 
+				
+					aAdd(aRspProd,{aRspGroup[nCount][1],;		//Nome do Usuario
+									 aRspGroup[nCount][2]	,;		//Email resp.
+									 {{	aLstProd[nI][1]	,; 		//Cod. Produto
+										aLstProd[nI][2]	,;  	//Grupo do Produto
+										aLstProd[nI][3]	,;		//Desc Produto
+										aLstProd[nI][4]	,;		//Qtd Venda
+										aLstProd[nI][5]	,; 		//Preco de Lista
+										aLstProd[nI][6]	,;		//Preco de Venda
+										aLstProd[nI][7]	,;		//Valor Total
+										aLstProd[nI][8]	,;		//Desconto
+										aLstProd[nI][9]	;		//Valor Total com Desconto
+															}}})
+					
+				Else 
+				
+					aAdd(aRspProd[nPos][3]	,; 		//Email resp.
+						 	{aLstProd[nI][1]	,;		//Cod. Produto
+						 	aLstProd[nI][2]	,;		//Grupo do Produto
+						 	aLstProd[nI][3]  	,;		//Desc Produto
+						 	aLstProd[nI][4]	,; 		//Qtd Venda
+						 	aLstProd[nI][5]	,; 		//Preco de Lista
+						 	aLstProd[nI][6]	,;		//Preco de Venda
+						 	aLstProd[nI][7]	,; 		//Valor Total
+						 	aLstProd[nI][8]	,;		//Desconto
+						 	aLstProd[nI][9]	;			//Valor Total com Desconto
+												})
+													
+				EndIf
+				
+			EndIf   
+			
+		Next nI
+		
+	Next nY
+	
+Next nCount
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Dispara o Workflow ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If Len(aRspProd) > 0
+	Ft300DspWF(aCabAD1,aRspProd,nTProsp)
+Else
+	Aviso(STR0170,STR0171,{STR0161},2) //"Não será possivel disparar um Workflow!"//"Não há responsável(is) pelo(s) produto(s) para esta proposta." //Fechar
+Endif
+
+RestArea(aAreaSCK)
+RestArea(aAreaAGX)
+RestArea(aArea)
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Item
+
+Funcao que exibe os dados a serem comparados.  
+
+@sample	Ft300Item(oTree,oTree2,aOrigem,aOpVComp,aCmp1,aCmp2)
+
+@param		ExpO1 - Objeto com a tree de origem.                             
+			ExpO2 - Objeto com a tree de destino.                            
+			ExpA3 - Vetor com estrutura da tree original.                    
+			ExpA4 - Vetor com a comparacao entre a tree original e destino.  
+			ExpA5 - Vetor com estrutura da revisao atual.                    
+			ExpA6 - Vetor com estrutura da revisao posterior.                                          
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300Item(oTree,oTree2,aOrigem,aOpVComp,aCmp1,aCmp2)
+
+Local aArea		:= GetArea()       
+Local aDados   	:= {}
+Local aStrut   	:= {}
+Local nPosComp 	:= 0
+Local nPosOrig 	:= 0
+Local cAlias   	:= ""
+Local cSeekComp	:= ""
+Local cSeekOrig	:= ""
+Local cRevisa1	:= ""
+Local cRevisa2	:= ""
+Local bCampo1  	:= {|cCampo|(aCmp1[1])->(FieldGet((aCmp1[1])->(FieldPos(aCmp1[1]+"_"+cCampo))))}
+Local bCampo2  	:= {|cCampo|(aCmp2[1])->(FieldGet((aCmp2[1])->(FieldPos(aCmp2[1]+"_"+cCampo))))}
+
+DbSelectArea(aCmp1[1])
+DbGoTo(aCmp1[2])
+cRevisa1	:= Eval(bCampo1,"REVISA")
+
+DbSelectArea(aCmp2[1])
+DbGoTo(aCmp2[2])
+cRevisa2	:= Eval(bCampo2,"REVISA")
+
+aAdd(aDados,{"",{STR0039+cRevisa1,CLR_BLACK},{STR0039+cRevisa2,CLR_BLACK}}) //"Revisão "
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica as informacoes do item que se deseja comparar.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nPosComp := Ascan(aOpVComp,{|x| x[4] == oTree2:GetCargo()})
+If (nPosComp > 0)
+	cAlias   	:= aOpVComp[nPosComp,1]
+	cSeekComp	:= aOpVComp[nPosComp,2]
+	oTree:TreeSeek(aOpVComp[nPosComp,4])
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Posiciona e armazena os dados do item a ser comparado.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea(cAlias)
+	DbSetOrder(1)
+	If DbSeek(cSeekComp)
+		aStrut:= Ft300Strut(cAlias)
+	
+		aEval(aStrut,{|cValue,nIndex| Aadd(aDados,{ aStrut[nIndex,1],;
+													{"",CLR_BLACK}	 ,;
+													{If(aOpVComp[nPosComp,6] <> "E",If(Empty(aStrut[nIndex,3]).AND. aStrut[nIndex][8]=="C",FieldGet(FieldPos(aStrut[nIndex,2])),Transform(FieldGet(FieldPos(aStrut[nIndex,2])),aStrut[nIndex,3])),;
+													""),;
+													CLR_BLACK}})})
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica os dados dos itens a serem comparados.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nPosOrig:= Ascan(aOrigem,{|x| x[4] == oTree2:GetCargo()})
+If (nPosOrig > 0)
+	cAlias   	:= aOrigem[nPosOrig,1]
+	cSeekOrig	:= aOrigem[nPosOrig,2]
+	oTree2:TreeSeek(aOrigem[nPosOrig,4])
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Posiciona e armazena os dados do item comparado.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea(cAlias)
+	DbSetOrder(1)
+	If DbSeek(cSeekOrig)
+		aStrut	:= Ft300Strut(cAlias)	
+		aEval(aStrut,{|cValue,nIndex| (aDados[nIndex+1,2,1]:= If(Empty(aStrut[nIndex,3]) .AND. aStrut[nIndex][8]=="C",FieldGet(FieldPos(aStrut[nIndex,2])),Transform(FieldGet(FieldPos(aStrut[nIndex,2])),aStrut[nIndex,3]))),;
+									   (aDados[nIndex+1,2,2]:= aDados[nIndex+1,3,2]:=If(aDados[nIndex+1,2,1] == aDados[nIndex+1,3,1],CLR_BLACK,CLR_HRED)) })
+	EndIf
+Else
+	aEval(aStrut,{|cValue,nIndex| (aDados[nIndex+1,2,2]:= aDados[nIndex+1,3,2]:=If(aDados[nIndex+1,2,1] == aDados[nIndex+1,3,1],CLR_BLACK,CLR_HRED)) })
+EndIf
+
+PmsDispBox(aDados,3,"",{40,120,120},,3,,RGB(250,250,250))
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300DspWF
+
+Dispara o WorkFlow para notificar os responsaveis pelos produtos da Proposta
+Comercial.
+
+@sample		Ft300DspWF(aCabAD1,aRspProd,nTProsp)
+
+@param		ExpA1 - Cabecalho da Oportunidade de Venda.
+			ExpA2 - Responsaveis pelos produtos. 
+			ExpN3 - Valor Total da Proposta Comercial.
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		15/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300DspWF(aCabAD1,aRspProd,nTProsp)
+
+Local oWF         	:= Nil   									//Objeto TWFProcess
+Local cSimbPrd		:= SuperGetMv("MV_SIMB1")+Space(1) 			//Simbolo da moeda padrao.
+Local nVTotIt 		:= 0     									//Valor total dos itens do produto
+Local nX			:= 0          								//Incremento utilizado no laco For
+Local nY 			:= 0          								//Incremento utilizado no laco For
+Local cArqHtm 		:= ""                                    	//Arquivo Html
+Local cPathWF 		:= "\workflow\"                        		//Caminho da pasta Workflow
+Local cIdioma 		:= ""
+
+cIdioma := Upper( Left( FWRetIdiom(), 2 ) )
+Do Case
+	Case cIdioma == 'ES'
+		cArqHtm := "WFLPrdSpa.htm"
+	Case cIdioma == 'EN'
+		cArqHtm :=	"WFLPrdEng.htm"
+	Otherwise
+		cArqHtm := "WFLPrdPor.htm"
+EndCase
+
+If File(cPathWF+cArqHtm)
+	
+	For nX := 1 To Len(aRspProd)
+		
+		//Zera o total dos itens
+		nVTotIt := 0
+		// Inicializa a classe TWFProcess (WorkFlow)
+		oWF := TWFProcess():New("000001",STR0159)   //"Workflow Processo de Venda"
+		
+		// Cria a tarefa para o processo
+		
+		oWF:NewTask(STR0162,cPathWF+cArqHtm) //"Preparando WF. Processo de Venda"
+		
+		// Destinatário do WorkFlow.
+		oWF:cTo := aRspProd[nX][2] //E-Mail do Resp
+		// Assunto da mensagem
+		oWF:cSubject := STR0163 	//Processo de Venda
+		//Anexa o banner TOTVS11 Workflow
+		Do Case
+			Case cPaisLoc $ "BRA|ANG|EQU|HAI|PTG"
+				oWF:AttachFile("\workflow\TotvsWFCRM.png")
+			Case cPaisLoc $ "ARG|BOL|CHI|COL|COS|DOM|MEX|PAN|PAR|PER|POR|SAL|URU|VEN"
+				oWF:AttachFile("\workflow\TotvsWFCRM_ESP.png")
+			Case cPaisLoc $ "EUA"
+				oWF:AttachFile("\workflow\TotvsWFCRM_ENG.png")
+		EndCase	
+		
+		// Preenche as variaveis no HTML do corpo do e-mail
+		oWF:oHtml:ValByName("xOport",Lower(aCabAD1[1][2]))																	  		//Descricao da oportunidade
+		oWF:oHtml:ValByName("xEstagio",Lower(Posicione("AC2",1,xFilial("AC2")+aCabAD1[1][5]+aCabAD1[1][6],"AC2_DESCRI")))	//Estagio
+		oWF:oHtml:ValByName("Codigo",aCabAD1[1][1])                                                                   	  	 		//Codigo da Oportunidade
+		oWF:oHtml:ValByName("Oport",Capital(aCabAD1[1][2]))														 	 	  			//Descricao da oportunidade
+		oWF:oHtml:ValByName("Entidade",IIF(!Empty(aCabAD1[1][3]),STR0181+aCabAD1[1][3],STR0182+aCabAD1[1][4]))	 		  	//Cliente/Prospect
+		oWF:oHtml:ValByName("Processo",Capital(Posicione("AC1",1,xFilial("AC1")+aCabAD1[1][5],"AC1_DESCRI")))				  	//Processo
+		oWF:oHtml:ValByName("Estagio",Capital(Posicione("AC2",1,xFilial("AC2")+aCabAD1[1][5]+aCabAD1[1][6],"AC2_DESCRI")))	//Estagio
+		oWF:oHtml:ValByName("TermOp",dToc(aCabAD1[1][7])) 																      		//Termino da oportunidade
+		oWF:oHtml:ValByName("nTProsp",cSimbPrd+AllTrim(cValToChar(Transform(nTProsp,"@E 999,999,999.99")))) 				  	//Valor Total da Proposta
+		oWF:oHtml:ValByName("cResp",aRspProd[nX][1]) 																		  			//Responsavel pelo produto
+		
+		
+		For nY := 1 To Len(aRspProd[nX][3])
+			
+			aAdd(oWF:oHtml:ValByName("IT.CProd"),aRspProd[nX][3][nY][1])                                 								  			//Cod. Produto
+			aAdd(oWF:oHtml:ValByName("IT.GPProd"),aRspProd[nX][3][nY][2])								    							   			//Grupo do Produto
+			aAdd(oWF:oHtml:ValByName("IT.Desc"),aRspProd[nX][3][nY][3])                                   								   			//Desc Produto
+			aAdd(oWF:oHtml:ValByName("IT.Qtd"),aRspProd[nX][3][nY][4])                                    								 	//Qtd Venda
+			aAdd(oWF:oHtml:ValByName("IT.PrcLst"),cSimbPrd+AllTrim(cValToChar(Transform(aRspProd[nX][3][nY][5],"@E 999,999,999.99"))))  	//Preco de Lista
+			aAdd(oWF:oHtml:ValByName("IT.PrcVd"),cSimbPrd+AllTrim(cValToChar(Transform(aRspProd[nX][3][nY][6],"@E 999,999,999.99"))))   	//Preco de Venda
+			aAdd(oWF:oHtml:ValByName("IT.VTot"),cSimbPrd+AllTrim(cValToChar(Transform(aRspProd[nX][3][nY][7],"@E 999,999,999.99"))))    	//Valor Total
+			aAdd(oWF:oHtml:ValByName("IT.PDesc"),aRspProd[nX][3][nY][8])                                   							   				//Desconto
+			aAdd(oWF:oHtml:ValByName("IT.VTDsc"),cSimbPrd+AllTrim(cValToChar(Transform(aRspProd[nX][3][nY][9],"@E 999,999,999.99"))))   	//Valor Total com Desconto
+			
+			nVTotIt += aRspProd[nX][3][nY][7] 															   								   				//Soma os valor total de cada item
+			
+		Next nY
+		
+		oWF:oHtml:ValByName("VTotIt",cSimbPrd+AllTrim(cValToChar(Transform(nVTotIt,"@E 999,999,999.99"))))   //Valor total dos itens
+		
+		//Adiciona imagem do rodapé
+		oWF:AttachFile("\workflow\RodapeFull.png")
+		
+		// Gera os arquivos de controle deste processo e envia a mensagem.
+		oWF:Start()
+		oWF:Finish()
+		
+	Next nX
+	
+Else
+	Aviso(STR0183,STR0184+cArqHtm+STR0185,{STR0186},2)  //Atenção "Não será possivel disparar um workflow, o arquivo WFLPrdPor.htm não foi encontrado no servidor!"  //Fechar                                                                                                                                                                                                 	
+EndIf
+
+Return Nil
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AdjDl
+Deleta registros da ADJ no caso de Deleção da Oportunidade
+
+@sample	Ft300AdjDl(oModel)
+@param	ExpO1 - ModelGrid da Oportunidade
+@return	Nil
+@author	Squad CRM/Faturamento
+@since		11/12/2017
+@version	12.1.18
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300AdjDl(oMdlAD1)
+	Local aArea		:= GetArea()
+	Local cFilADJ	:= ''
+	Local cOport	:= '' 
+	
+	If !Empty(oMdlAD1)
+		cFilADJ	:= xFilial('ADJ')
+		cOport	:= oMdlAD1:GetValue('AD1_NROPOR')
+		DbSelectArea("ADJ")
+		DbSetOrder(4)//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_PROPOS+ADJ_NUMORC+ADJ_ITEM
+		
+		If ADJ->( DbSeek(cFilADJ+cOport) )
+			While ADJ->(!Eof()) .AND. ( ADJ->ADJ_FILIAL == cFilADJ .AND. ADJ->ADJ_NROPOR == cOport )
+				RecLock("ADJ",.F.)
+				ADJ->( DbDelete() )
+				ADJ->( MsUnlock() )
+				ADJ->( DbSkip() )
+			EndDo
+		EndIf	
+		RestArea(aArea)
+	EndIf
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300GrvADJ
+Realiza a gravação dos dados da tabela ADJ
+
+@sample	F300GrvADJ(oModelADJ,oModelAD1,lNewRevis,nOPCADJ )
+@param	oMdlADJ 	- Objeto, Modelo de dados de produtos da oportunidade;
+		oMdlAD1 	- Objeto, Modelo de dados da Oportunidade;
+		lNewRevis	- Lógico, Indica se é uma nova revisão;
+		nOPCADJ		- Númerico, Indica conteúdo do paraemtro MV_FATMNTP
+@return	Nil
+@author	Squad CRM/Faturamento
+@since		11/12/2017
+@version	12.1.18
+/*/
+//------------------------------------------------------------------------------
+Static Function F300GrvADJ( oMdlADJ,oMdlAD1, lNewRevis, nOPCADJ  )
+Local oStructADJ	:= Nil 
+Local aCamposADJ	:= {}
+Local cFilialADJ	:= ''
+Local lInsert		:= .F.  
+Local nX			:= 0
+Local nY			:= 0
+	
+If oMdlADJ <> Nil .And. oMdlAD1 <> Nil .And. nOPCADJ <> 4
+	If oMdlADJ:IsOnlyQuery()  .And. !lNewRevis
+		oStructADJ := oMdlADJ:GetStruct()
+		aCamposADJ := oStructADJ:GetFields()
+		cFilialADJ := xFilial("ADJ")
+		ADJ->(DBSetOrder(1))//ADJ_FILIAL+ADJ_NROPOR+ADJ_REVISA+ADJ_ITEM+ADJ_PROD
+
+		For nX := 1 To oMdlADJ:Length()
+			oMdlADJ:GoLine( nX )
+			If ! oMdlADJ:IsDeleted()
+				lInsert := ADJ->( DBSeek( cFilialADJ + oMdlAD1:GetValue("AD1_NROPOR") + oMdlAD1:GetValue("AD1_REVISA") + oMdlADJ:GetValue("ADJ_ITEM") ) )
+
+				If lInsert
+					lInsert := .F.
+					While ADJ->(!Eof()) .And.;
+					      ADJ->ADJ_FILIAL == cFilialADJ .And.;
+					      ADJ->ADJ_NROPOR == oMdlAD1:GetValue("AD1_NROPOR") .And.;
+					      oMdlAD1:GetValue("AD1_REVISA") == ADJ->ADJ_REVISA .And.;
+					      ADJ->ADJ_ITEM == oMdlADJ:GetValue("ADJ_ITEM")
+
+						If  oMdlADJ:GetValue("ADJ_PROPOS") == ADJ->ADJ_PROPOS .and. ;
+							oMdlADJ:GetValue("ADJ_NUMORC") == ADJ->ADJ_NUMORC
+							lInsert := .T.
+							Exit
+						EndIf
+
+						ADJ->(DBSkip())
+					EndDo
+				EndIF
+
+				RecLock("ADJ",!lInsert)
+
+				For nY := 1 To Len(aCamposADJ)
+					If !aCamposADJ[nY][MODEL_FIELD_VIRTUAL]
+						If aCamposADJ[nY][MODEL_FIELD_IDFIELD] == "ADJ_FILIAL"
+							FieldPut(FieldPos(aCamposADJ[nY][MODEL_FIELD_IDFIELD]), cFilialADJ)
+						ElseIf aCamposADJ[nY][MODEL_FIELD_IDFIELD] == "ADJ_NROPOR"
+							FieldPut(FieldPos(aCamposADJ[nY][MODEL_FIELD_IDFIELD]),oMdlAD1:GetValue("AD1_NROPOR"))
+						ElseIf aCamposADJ[nY][MODEL_FIELD_IDFIELD] == "ADJ_REVISA"
+							FieldPut(FieldPos(aCamposADJ[nY][MODEL_FIELD_IDFIELD]),oMdlAD1:GetValue("AD1_REVISA"))
+						Else
+							FieldPut(FieldPos(aCamposADJ[nY][MODEL_FIELD_IDFIELD]),oMdlADJ:GetValue(aCamposADJ[nY][MODEL_FIELD_IDFIELD]))
+						EndIf
+					EndIf
+				Next nY
+
+				ADJ->( MsUnLock() )
+			EndIf
+
+		Next nX
+	EndIf
+EndIf
+Return Nil
+
+
+
+
+//-----------------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLoad
+    @description
+    Inicializa variaveis com lista de campos que devem ser ofuscados de acordo com usuario.
+	Remover essa função quando não houver releases menor que 12.1.27
+
+    @type  Function
+    @author Squad CRM & Faturamento
+    @since  05/12/2019
+    @version P12.1.27
+    @param cUser, Caractere, Nome do usuário utilizado para validar se possui acesso ao 
+        dados protegido.
+    @param aAlias, Array, Array com todos os Alias que serão verificados.
+    @param aFields, Array, Array com todos os Campos que serão verificados, utilizado 
+        apenas se parametro aAlias estiver vazio.
+    @param cSource, Caractere, Nome do recurso para gerenciar os dados protegidos.
+    
+    @return cSource, Caractere, Retorna nome do recurso que foi adicionado na pilha.
+    @example FATPDLoad("ADMIN", {"SA1","SU5"}, {"A1_CGC"})
+/*/
+//-----------------------------------------------------------------------------------
+Static Function FATPDLoad(cUser, aAlias, aFields, cSource)
+	Local cPDSource := ""
+
+	If FATPDActive()
+		cPDSource := FTPDLoad(cUser, aAlias, aFields, cSource)
+	EndIf
+
+Return cPDSource
+
+
+//-----------------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDUnload
+    @description
+    Finaliza o gerenciamento dos campos com proteção de dados.
+	Remover essa função quando não houver releases menor que 12.1.27
+
+    @type  Function
+    @author Squad CRM & Faturamento
+    @since  05/12/2019
+    @version P12.1.27
+    @param cSource, Caractere, Remove da pilha apenas o recurso que foi carregado.
+    @return return, Nulo
+    @example FATPDUnload("XXXA010") 
+/*/
+//-----------------------------------------------------------------------------------
+Static Function FATPDUnload(cSource)    
+
+    If FATPDActive()
+		FTPDUnload(cSource)    
+    EndIf
+
+Return Nil
+
+//-----------------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDIsObfuscate
+    @description
+    Verifica se um campo deve ser ofuscado, esta função deve utilizada somente após 
+    a inicialização das variaveis atravez da função FATPDLoad.
+	Remover essa função quando não houver releases menor que 12.1.27
+
+    @type  Function
+    @author Squad CRM & Faturamento
+    @since  05/12/2019
+    @version P12.1.27
+    @param cField, Caractere, Campo que sera validado
+    @param cSource, Caractere, Nome do recurso que buscar dados protegidos.
+    @param lLoad, Logico, Efetua a carga automatica do campo informado
+    @return lObfuscate, Lógico, Retorna se o campo será ofuscado.
+    @example FATPDIsObfuscate("A1_CGC",Nil,.T.)
+/*/
+//-----------------------------------------------------------------------------------
+Static Function FATPDIsObfuscate(cField, cSource, lLoad)
+    
+	Local lObfuscate := .F.
+
+    If FATPDActive()
+		lObfuscate := FTPDIsObfuscate(cField, cSource, lLoad)
+    EndIf 
+
+Return lObfuscate
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDObfuscate
+    @description
+    Realiza ofuscamento de uma variavel ou de um campo protegido.
+	Remover essa função quando não houver releases menor que 12.1.27
+
+    @type  Function
+    @sample FATPDObfuscate("999999999","U5_CEL")
+    @author Squad CRM & Faturamento
+    @since 04/12/2019
+    @version P12
+    @param xValue, (caracter,numerico,data), Valor que sera ofuscado.
+    @param cField, caracter , Campo que sera verificado.
+    @param cSource, Caractere, Nome do recurso que buscar dados protegidos.
+    @param lLoad, Logico, Efetua a carga automatica do campo informado
+
+    @return xValue, retorna o valor ofuscado.
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDObfuscate(xValue, cField, cSource, lLoad)
+    
+    If FATPDActive()
+		xValue := FTPDObfuscate(xValue, cField, cSource, lLoad)
+    EndIf
+
+Return xValue   
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLogUser
+    @description
+    Realiza o log dos dados acessados, de acordo com as informações enviadas, 
+    quando a regra de auditoria de rotinas com campos sensíveis ou pessoais estiver habilitada
+	Remover essa função quando não houver releases menor que 12.1.27
+
+   @type  Function
+    @sample FATPDLogUser(cFunction, nOpc)
+    @author Squad CRM & Faturamento
+    @since 06/01/2020
+    @version P12
+    @param cFunction, Caracter, Rotina que será utilizada no log das tabelas
+    @param nOpc, Numerico, Opção atribuída a função em execução - Default=0
+
+    @return lRet, Logico, Retorna se o log dos dados foi executado. 
+    Caso o log esteja desligado ou a melhoria não esteja aplicada, também retorna falso.
+
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDLogUser(cFunction, nOpc)
+
+	Local lRet := .F.
+
+	If FATPDActive()
+		lRet := FTPDLogUser(cFunction, nOpc)
+	EndIf 
+
+Return lRet  
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDActive
+    @description
+    Função que verifica se a melhoria de Dados Protegidos existe.
+
+    @type  Function
+    @sample FATPDActive()
+    @author Squad CRM & Faturamento
+    @since 17/12/2019
+    @version P12    
+    @return lRet, Logico, Indica se o sistema trabalha com Dados Protegidos
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDActive()
+
+    Static _lFTPDActive := Nil
+  
+    If _lFTPDActive == Nil
+        _lFTPDActive := ( GetRpoRelease() >= "12.1.027" .Or. !Empty(GetApoInfo("FATCRMPD.PRW")) )  
+    Endif
+
+Return _lFTPDActive  

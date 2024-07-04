@@ -1,0 +1,1247 @@
+#INCLUDE "ATFA370.ch"
+#INCLUDE "TBICONN.CH"
+//#INCLUDE "FILEIO.CH"
+#INCLUDE "PROTHEUS.CH"
+
+// 17/08/2009 - Ajuste para filiais com mais de 2 caracteres.
+
+Static aCt5 := {}	 // Variavel para armazenar os lancamentos padroes envolvidos na rotina - Melhora de perfomance na DetProva para SigaCtb
+
+Static __cExt 	:= GetDbExtension()
+Static lBlind	:= IsBlind()
+Static a330RegCTB := {} // Array com filiais a serem processadas na contabilizacao
+
+Static lFWCodFil := .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³  ATFA371 ³Autor  ³Claudio D. de Souza    ³Data  ³31/07/03  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de contabilizacao off-line do Ativo        		  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Atfa371                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGAATF                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Revisoes  ³ 11/12/2008 - Bruno C. Sobieski                             ³±±
+±±³          ³                                                            ³±±
+±±³          ³                                                            ³±±
+±±³          ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+FUNCTION ATFA371(lDireto, aPARAMAUTO)
+LOCAL nOpca    	:= 0
+LOCAL aButtons 	:= {}
+LOCAL aSays    	:= {}
+LOCAL cPerg		:= "AFA371"
+LOCAL cSEMATF	:= GetNextAlias()
+
+If GetMv( "MV_ATUSAL" )== "S"
+	MSGINFO("Esta rotina somente podera ser utilizada quando a atualizacao de saldos nao for on-line (MV_ATUSAL).","Contabilização Off Line")
+	Return .F.
+Endif
+
+DEFAULT lDireto		:= .F.
+DEFAULT aPARAMAUTO	:= {}
+
+PRIVATE cCadastro := STR0003 //"Contabilização off-line do Ativo fixo"
+Private nTipoLog := 3
+AADD(aSays, STR0001 ) //"Este programa tem como objetivo contabilizar as     "
+AADD(aSays, STR0002 ) //"correções, depreciações e correções das depreciações"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Variaveis utilizadas para parametros                         ³
+//³ mv_par01 // Data Inicial ?                                   ³
+//³ mv_par02 // Data Final ?                                     ³
+//³ mv_par03 // Aglutina Lancamentos: (Sim/Nao)                  ³
+//³ mv_par04 // Considera C.Custo (Sim/Nao)                      ³
+//³ mv_par05 // Considera Filiais Abaixo (Sim/Nao)               ³
+//³ mv_par06 // Da Filial                                        ³
+//³ mv_par07 // Ate a Filial                                     ³
+//³ mv_par08 // Do Bem                                           ³
+//³ mv_par09 // Ate o Bem                                        ³
+//³ mv_par10 // Movimentos por documento                         ³
+//³ mv_par11 // Registrar ?                                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+Pergunte(cPerg,.F.)
+
+
+IF lBlind .Or. lDireto // Processamento Batch ou Chamada Direta por outra Rotina
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Inicializa o log de processamento                            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	ProcLogIni( aButtons,"ATFA371" )
+
+	If mv_par05 == 1 // Seleciona filiais
+		If ATFCanProc(cSEMATF, mv_par01, mv_par02, mv_par06,mv_par07) // Data de, Data Ate, Filial de, Filial Ate
+			ProcLogAtu("INICIO")
+			BatchProcess(cCadastro, "Este programa tem como objetivo gerar Lançamentos Contábeis Off para as movimentações" + CRLF + "do módulo Ativo Fixo.",cPerg,{ || Atfa371Proc(.T.,aPARAMAUTO) }, { || .F. }) ////"Este programa tem como objetivo gerar Lançamentos Contábeis Off para as movimentações"#"do módulo Ativo Fixo."
+		EndIf
+	Else
+		If ATFCanProc(cSEMATF, mv_par01, mv_par02) // Data de, Data Ate, Filial a processar
+			ProcLogAtu("INICIO")
+			BatchProcess(cCadastro, "Este programa tem como objetivo gerar Lançamentos Contábeis Off para as movimentações" + CRLF + "do módulo Ativo Fixo.",cPerg,{ || Atfa371Proc(.T.,aPARAMAUTO) }, { || .F. })////"  Este programa tem como objetivo gerar Lançamentos Contábeis Off para as movimentações"#"do módulo Ativo Fixo."
+		EndIf
+	EndIf
+
+	//Libera o Processamento e envia mensagem no server (tempo)
+	ATFFreeProc(cSEMATF)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o log de processamento   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	ProcLogAtu("FIM")
+	RETURN .T.
+
+ELSE
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Inicializa o log de processamento                            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	ProcLogIni( aButtons,"ATFA371" )
+
+	AADD(aButtons, { 5,.T.,{|| Pergunte("AFA371",.T. ) } } )
+	AADD(aButtons, { 1,.T.,{|o| nOpca:= 1,o:oWnd:End()}})
+	AADD(aButtons, { 2,.T.,{|o| o:oWnd:End() }})
+
+
+	FormBatch( STR0003, aSays, aButtons,,,380) //"Contabilização off-line do Ativo fixo"
+
+	If nOpcA == 1
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o log de processamento   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		ProcLogAtu("INICIO")
+
+		If mv_par05 == 1 // Seleciona filiais
+			If ATFCanProc(cSEMATF, mv_par01, mv_par02, mv_par06,mv_par07) // Data de, Data Ate, Filial de, Filial Ate
+				ProcLogAtu("INICIO")
+				Processa({|lEnd| Atfa371Proc(@lEnd,.F.)},,,.T.)
+			EndIf
+		Else
+			If ATFCanProc(cSEMATF, mv_par01, mv_par02) // Data de, Data Ate, Filial a processar
+				ProcLogAtu("INICIO")
+				Processa({|lEnd| Atfa371Proc(@lEnd,.F.)},,,.T.)
+			EndIf
+		EndIf
+		//Libera o Processamento e envia mensagem no server (tempo)
+		ATFFreeProc(cSEMATF)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o log de processamento   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		ProcLogAtu("FIM")
+	Endif
+
+ENDIF
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o	 ³Atfa371Pro³ Autor ³ Claudio D. de Souza   ³ Data ³ 31/07/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de contabilizacao off-line do ativo				  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Atfa371Proc()											  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA371													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Atfa371Proc(lEnd,lBat,aPARAMAUTO)
+Local cLoteAtf 		:= LoteCont("ATF")
+Local cCodCusto 	:= ""
+Local cQuery
+Local cAliasQry
+Local cAliasSn3
+Local cAliasSn1
+Local nHdlPrv
+Local lCtb 			:= CtbInUse()
+Local lPadrao		:= VerPadrao("820")
+Local lATFInfl		:= If( cPaisLoc=="ARG", GetNewPar("MV_ATFINFL",.F.), .F. ) // Ajuste por Inflacao
+Local lPdrAju		:= .F.  // 830 - cPadrao para Ajuste por Inflacao (Paises Localizados)
+Local cProva 		:= ""
+
+Local aCamposTrc	:= {}
+Local cNomTRC		:="",cNomTRC1 :=""
+Local cFilDe  		:= cFilAnt
+Local cFilAte 		:= cFilAnt
+Local cFilOld 		:= cFilAnt
+Local nX	  		:= 0
+Local nRegistros	:=	0
+Local aFlagCTB 		:= {}
+Local lUsaFlag 		:= GetNewPar( "MV_CTBFLAG" , .F.) // controle de flags do CTB
+Local aStru   		:= SN4->(dbStruct())
+Local nTamFilial	:= IIf( lFWCodFil, FWGETTAMFILIAL, 2 )
+Local nInc			:= 0
+Local aSM0			:= {}
+
+Local cFilProc		:= ""
+Local lExclusivo	:= ADMTabExc("SN4")
+
+PRIVATE nJOBS:= IIf(lCtb , SuperGetMv('MV_A370THR',.F.,5) , 1 )
+Private aListaJob :={}  // lista de jobs carregados
+Private nTipoLog := mv_par05
+
+DEFAULT lBat	:= .F.
+lEnd	:=	.F.
+
+IF lBat .AND. ValType(aPARAMAUTO) == "A"
+	FOR nX := 1 to Len(aPARAMAUTO)
+		&("mv_par"+StrZero(nX,2)) := aPARAMAUTO[nX]
+	NEXT nX
+ENDIF
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Realiza a criacao e a abertura do arquivo de trabalho "TRC" e cria seu indice.    |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AADD(aCamposTrc,{ "TRC_FILIAL","C",nTamFilial,0 } )
+AADD(aCamposTrc,{ "TRC_SEQUEN","C",12,0 } )
+AADD(aCamposTrc,{ "TRC_LANTRC","C",03,0 } )
+AADD(aCamposTrc,{ "TRC_RECSN3","N",14,0 } )
+AADD(aCamposTrc,{ "TRC_RECSN4","N",14,0 } )
+AADD(aCamposTrc,{ "TRC_STATUS","C",1,0 } )
+AADD(aCamposTrc,{ "TRC_JOB"	,"C",2 ,0 } )
+AADD(aCamposTrc,{ "TRC_CICLO"	,"C",6,0 } )
+AADD(aCamposTrc,{ "TRC_TRIES"	,"N",3,0 } )
+cNomTRC   := CriaTrab(aCamposTrc,.f.)
+MsCreate(cNomTRC,aCamposTrc,"TOPCONN")
+cNomTRC1  := Substr(cNomTRC,1,7)+"Z"
+Sleep(1000)
+ATF371Proc( nTipoLog,"MENSAGEM","Criacao de arquivo temporario de processamento "+cNomTrc)
+Conout(cNomTrc)
+dbUseArea( .T.,"TOPCONN",cNomTRC,"TRC",.T.) //Cria compartilhado para multithread
+
+IndRegua("TRC",cNomTRC1,"TRC_FILIAL+TRC_STATUS+TRC_JOB+TRC_CICLO+TRC_SEQUEN")
+
+If mv_par05 == 1 // considera filiais
+  	cFilDe  := mv_par06
+  	cFilAte := mv_par07
+Endif
+ProcRegua(3)
+
+// Processa todo o arquivo de filiais ou apenas a filial atual
+aSM0 := AdmAbreSM0()
+For nInc := 1 To Len( aSM0 )
+	If aSM0[nInc][1] == cEmpAnt .AND. aSM0[nInc][2] <= cFilAte
+		cFilAnt := aSM0[nInc][2]
+
+		//Tratamento Gestao Corporativa
+		If Len(AllTrim(xFilial("SN4")) ) > 2
+			If Alltrim(cFilProc) != Alltrim(xFilial("SN4"))
+				cFilProc:= xFilial("SN4")
+			Else
+				Loop
+			EndIf
+		EndIf
+
+		nCtrlJob	:=	0
+		nLinhas	:=	mv_par10 + 1
+		cCiclo	:= "000001"
+		IncProc('Selecionando registros...')
+		cAliasQry := GetNextAlias()
+		cQuery := "SELECT	Count(N4_CBASE) CONTA "
+		cQuery += " FROM "+RetSqlName("SN4")+" SN4 "
+		cQuery += " WHERE "
+		cQuery += " N4_FILIAL = '"+xFilial("SN4")+"' AND "
+		cQuery += " N4_DATA  >= '"+Dtos(MV_PAR01)+"' AND "
+		cQuery += " N4_DATA  <= '"+Dtos(MV_PAR02)+"' AND "
+		cQuery += " N4_CBASE >= '" + MV_PAR08 + "' AND "
+		cQuery += " N4_CBASE <= '" + MV_PAR09 + "' AND "
+		cQuery += " N4_DCONTAB = ' ' AND "
+		cQuery += " N4_OCORR IN ('06','07','08', '10','11','12','20') AND "
+		cQuery += " N4_TIPOCNT IN ('2','3','5') AND "
+		cQuery += " SN4.D_E_L_E_T_=' ' "
+
+		cQuery := ChangeQuery(cQuery)
+		dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+		DbSelectArea(cAliasQry)
+		nRegistros	:=	(cAliasQry)->CONTA
+		DbCloseArea()
+
+		cAliasQry := GetNextAlias()
+		cAliasSn3 := "SN3"
+		cAliasSn1 := "SN1"
+
+
+		cQuery := "SELECT	N3_CUSTBEM, N4_CBASE, N4_ITEM, N4_OCORR, SN4.R_E_C_N_O_ RECNOSN4,SN3.R_E_C_N_O_ RECNOSN3,"
+		cQuery += "			SN1.R_E_C_N_O_ RECNOSN1 "
+
+		cQuery += "FROM "+RetSqlName("SN4")+" SN4,"
+		cQuery +=         RetSqlName("SN1")+" SN1,"
+		cQuery +=         RetSqlName("SN3")+" SN3 "
+
+		cQuery += "WHERE "
+		cQuery += "N4_FILIAL = '"+xFilial("SN4")+"' AND "
+		cQuery += "N4_DATA  >= '"+Dtos(MV_PAR01)+"' AND "
+		cQuery += "N4_DATA  <= '"+Dtos(MV_PAR02)+"' AND "
+		cQuery += "N4_CBASE >= '" + MV_PAR08 + "' AND "
+		cQuery += "N4_CBASE <= '" + MV_PAR09 + "' AND "
+		cQuery += "N4_DCONTAB = ' ' AND "
+		cQuery += "N4_OCORR IN ('06','07','08', '10','11','12', '20') AND "
+		cQuery += "N4_TIPOCNT IN ('2','3','5') AND "
+		cQuery += "N1_FILIAL='"+xFilial("SN1")+"' AND "
+		cQuery += "N1_CBASE = N4_CBASE AND "
+		cQuery += "N1_ITEM  = N4_ITEM  AND "
+		cQuery += "N3_FILIAL='"+xFilial("SN3")+"' AND "
+		cQuery += "N3_CBASE = N4_CBASE AND "
+		cQuery += "N3_ITEM  = N4_ITEM  AND "
+		cQuery += "N3_TIPO  = N4_TIPO  AND "
+		cQuery += "N3_SEQ   = N4_SEQ   AND "
+		cQuery += "N3_SEQREAV = N4_SEQREAV  AND "
+		cQuery += "SN4.D_E_L_E_T_=' '  AND "
+		cQuery += "SN1.D_E_L_E_T_=' '  AND "
+		cQuery += "SN3.D_E_L_E_T_=' ' "
+		cQuery += "ORDER BY N4_CBASE, N4_ITEM "
+
+		cQuery := ChangeQuery(cQuery)
+		dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+		aEval(aStru, {|e| If(e[2]!= "C" .And. (cAliasQry)->(FieldPos(Alltrim(e[1]))) > 0, TCSetField(cAliasQry, e[1], e[2],e[3],e[4]),Nil)})
+
+		// Se houver dados a contabilizar, existir o LP ou se nao existir o LP e nao for CTB
+		// contabiliza, ou seja somente contabiliza quando nao existir o LP se nao for SIGACTB
+		If lATFInfl .And. lPadrao
+			lPdrAju	:= VerPadrao("830")
+			lPadrao	:= lPdrAju
+		Endif
+		ProcRegua(Int(nRegistros/mv_par10))
+		If ( cAliasQry )->( ! Eof() ) .And.  lPadrao
+			While (cAliasQry)->(!Eof()) .And. !lEnd
+				/*
+				dbSelectArea("SN4")
+				MsGoto((cAliasQry)->RECNOSN4)
+				dbSelectArea("SN1")
+				MsGoto((cAliasQry)->RECNOSN1)
+				dbSelectArea("SN3")
+				MsGoto((cAliasQry)->RECNOSN3)
+	         */
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Se o usuario desejar utilizar centro de custo (MV_PAR04 ==1 ), a cada  ³
+				//³ despesa ser  considerado, caso contr rio, dever  ser analisado a obriga³
+				//³ toriedade do centro de custo na CONTA, se for obrigado ele sera        ³
+				//³ considerado.                                                           ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If mv_par04 == 1
+					// considerar centro de custo
+					cCodCusto := (cAliasQry)->N3_CUSTBEM
+				Endif
+
+				DbSelectArea(cAliasQry)
+				If lPadrao
+					cProva := "820"
+					If lATFInfl .And. ( (cAliasQry)->N4_OCORR $ "07|08" )
+						cProva := "830"
+					EndIf
+				Endif
+				//Se passou da quantidade de linhas para um JOB, gravo o próximo JOB para
+				//o registro
+				If nLinhas > mv_par10
+					IncProc("Gravando fila. Bem : "+(cAliasQry)->N4_CBASE+" - Item: "+(cAliasQry)->N4_ITEM   )
+					nCtrlJob++
+					nLinhas	:=	1
+					//Se ultrapassou o numero de JOBS configurado
+					//Jogar para o primeiro JOB novamente
+					If nCtrlJOB > nJobs
+						ProcRegua(nJobs)
+						nCtrlJob := 1
+						cCiclo	:= Soma1(cCiclo)
+					Endif
+				Endif
+				GravaRegCT(cFilAnt,(cAliasQry)->RECNOSN3,(cAliasQry)->RECNOSN4,cProva,nCtrlJob,cCiclo)
+				nLinhas++
+
+				DbSelectArea(cAliasQry)
+				DbSkip()
+			EndDo
+		Endif
+
+		DbSelectArea(cAliasQry)
+		DbCloseArea()
+
+		// Se o arquivo for compartilhado, processa apenas uma vez
+		If !lExclusivo
+			Exit
+		Endif
+	EndIf
+Next
+
+If lEnd
+	ATF371Proc( nTipoLog,"MENSAGEM","Processamento cancelado pelo usuario")
+	Aviso("Cancelado","Processamento cancelado pelo usuario.",{"Ok"})
+ElseIf ! Empty( a330RegCTB )
+	A371Contab(cNomTRC,cNomTRC1,lBat,@lEnd)
+EndIf
+
+If Select("TRC") > 0
+	DbSelectArea("TRC")
+	DbCloseArea()
+	MsErase(cNomTRC)
+Endif
+
+If Select("cArqTmp") > 0
+	DbSelectArea("cArqTmp")
+	DbCloseArea()
+	fErase(cArqTmp+GetDBExtension())
+	fErase(cArqTmp+IndexExt())
+Endif
+
+// Restaura a filial
+cFilAnt := cFilOld
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³ Fun‡…o    ³ A330Contab                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Autor     ³ Rodrigo de Almeida Sartorio              ³ Data ³ 29/01/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Descri‡…o ³ Processa geracao de lancamentos contabeis                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros ³ ExpC1 = Nome do processo utilizado na funcao ProcLogAtu    ³±±
+±±³           ³ ExpC2 = Nome do arquivo de trabalho                        ³±±
+±±³           ³ ExpC3 = Nome do indice do arquivo de trabalho              ³±±
+±±³           ³ ExpN4 = Numero de threads avaliadas anteriormente          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³  Uso      ³ MATA330                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A371Contab( cNomTRC, cNomTRC1, lBat,lEnd )
+
+// Armazena filial original
+LOCAL cFilBack := cFilAnt
+Local nTimeOut	:=	10000
+// Contador
+LOCAL nZ:=0
+LOCAL nA:=0
+
+// Retorna o StartPath
+nJobs:= SuperGetMv( 'MV_A370THR', .F. ,5 )
+nThreads := nJobs
+
+dbSelectArea("TRC")
+dbGoTop()
+
+If ! lBat
+	ProcRegua( nThreads * Len( a330RegCTB ), 16, 4)
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ajustar o tamanho do Array p/controlar todas as filiais      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aFlagCTBs := Array( Len( a330RegCTB ) )
+PutGlbValue("ATF371Canc","0")
+For nZ := 1 to Len( a330RegCTB )
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Posiciona registros para lancamento contabil                 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	cFilAnt := a330RegCTB[ nZ, 1 ]
+	//Tentar 10 vezes
+
+	// Controle de semaforo do CTB, para gravações simultaneas
+	ConOutR( "ATFA371 | Inicio da Serialização" + ' - CTBSerialI' )
+
+	While ! CTBSerialI( "CTBPROC", 'OFF')
+		ConOutR( "ATFA371 | Aguarde... Efetuando a tentativa de criação do Semaforo" ) //
+	EndDo
+
+	ConOutR( "ATFA371 | Fim da Serialização" + ' - CTBSerialI' )
+   //
+	For nA := 1 to 10
+		If ChamaJOB(cNomTrc,cFilAnt)
+	 		//Se subiram todos os JOBS continua
+			Exit
+		Endif
+	Next NA
+
+	//Se nao conseguiram subir todos, avisar o usuario e sair
+	If nA==11
+		MSGINFO("Falha na Criação de Threads para a filial "+cFilAnt+", por favor verifique o LOG e reinicie o processamento.","Contabilização Off Line")
+		// Restaura filial original apos processamento
+		cFilAnt := cFilBack
+		Return
+	Endif
+	lCancel	:=	.F.
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Calcula o registro original de cada thread e     ³
+	//³ aciona thread gerando arquivo de fila.           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	cDateTimeIni	:=	Dtoc(Msdate())+"-"+Time()
+	lContinua	:=	.T.
+	While !lCancel
+      //Verificar se finalizou
+		aDadosProc	:=	CheckProcess(cFilAnt,cNomTrc)
+		If aDadosProc[1] == 0
+			Exit
+		Else
+			If aDadosProc[1] >0
+				If !ChamaJOB(cNomTrc,cFilAnt)
+					If !IsBlind()
+						lCancel	:=	(Aviso("Alerta","Falha no processamento das Threads."+CRLF+"Tentar novamente?",{"Sim","Nao (Sair)"},,/*cCaption2*/, /*nRotAutDefault*/,/*cBitmap*/,/*lEdit*/,nTimeOut,1)==2)
+					Else
+					   lCancel	:=	.T.
+					Endif
+					If lCancel
+			   			ATF371Proc( nTipoLog,"ERRO","Nao foi possivel subir os JOBS. Cancelando.")
+			   		Endif
+				Endif
+			EnDif
+			If !IsBlind()
+
+				//oTimer:= TTimer():New(5000,{|| oDlg:End()  },oDlg)
+				//oTimer:Activate()
+
+				nOpcAviso := Aviso("Status filial atual: "+cFilAnt,"Inicio em   :"+cDateTimeIni+"."+CRLF+;
+																				"Processados/Pendentes/Cancelados:"+StrZero(aDadosProc[2],08)+"/"+StrZero(aDadosProc[1],08)+"/"+StrZero(aDadosProc[3],08)+"."+CRLF+;
+							 													StrZero(Len(aListaJob),2)+" JOBS em processamento .",{"Ver log","Refresh","Cancelar"},2,/*cCaption2*/, /*nRotAutDefault*/,/*cBitmap*/,/*lEdit*/,nTimeOut,2)
+				//Aviso(cCaption,cMensagem,aBotoes,nSize,cCaption2, nRotAutDefault,cBitmap,lEdit,nTimeOut,nOpcTimer)
+			Else
+				nOpcAviso := 2
+				Sleep(nTimeOut)
+			Endif
+			If nOpcAviso	== 1
+				ProcLogView()
+			ElseIf nOpcAviso ==3
+				lCancel	:=	.T.
+			Endif
+			If lEnd
+				ATF371Proc( nTipoLog,"MENSAGEM","Processamento cancelado pelo usuario")
+				lCancel	:=	.T.
+			Endif
+		Endif
+	EndDo
+	If lCancel
+		IncProc("Aguardando finalizacao de threads")
+		PutGlbValue("ATF371Canc","1")
+
+		//Avalia se a tabela esta exclusiva
+		If AdmTabExc("SN4")
+			ATF371Proc( nTipoLog,"MENSAGEM","Processamento filial "+cFilAnt+" cancelado pelo usuario")
+		Else
+			ATF371Proc( nTipoLog,"MENSAGEM","Processamento cancelado pelo usuario")
+		EndIf
+
+		While !CheckCanc(cFilAnt,cNomTrc)
+			If !IsBlind()
+				Aviso("Aguardando finalizacao de threads","Threads fechando documentos...",{"Refresh"},,/*cCaption2*/, /*nRotAutDefault*/,/*cBitmap*/,/*lEdit*/,nTimeOut,1)
+			Else
+				Sleep(nTimeOut)
+			Endif
+		Enddo
+		//Sair porque foi cancelado
+		lContinua	:=	.F.
+	Endif
+	If AdmTabExc("SN4") //Avalia se a tabela esta exclusiva
+  		ATF371Proc( nTipoLog,"MENSAGEM","Processamento filial "+cFilAnt+" finalizado")
+	Endif
+	//Finaliza serializacao
+	ConOutR( "ATFA371 | Inicio da Serialização" + ' - CTBSerialF' )
+	If ! CTBSerialF( "CTBPROC", "OFF" )
+		ConOutR( "ATFA371 | Aguarde... Efetuando a tentativa de finalizar do Semaforo" ) //
+		FreeUsedCode()  //libera codigos ainda travados
+	Endif
+	ConOutR( "ATFA371 | Fim da Serialização" + ' - CTBSerialF' )
+	//
+
+	If !lContinua
+		Exit
+	Endif
+Next nZ
+If lCancel
+	Aviso("Cancelado","Processamento cancelado pelo usuario.",{"Ok"})
+Else
+	Aviso("Finalizado","Processamento finalizado com sucesso.",{"Ok"})
+Endif
+// Restaura filial original apos processamento
+cFilAnt := cFilBack
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³GravaRegCT³ Autor ³Rodrigo de A Sartorio  ³ Data ³ 18/08/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Grava registro no arquivo de trabalho para contabilizacao  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cFilTRC    = Endereco do arquivo de contra-prova           ³±±
+±±³          ³ cAliasTRC  = Alias do Movimento SD1/SD2/SD3                ³±±
+±±³          ³ nRecTRC    = Numero do Registro do Movimento               ³±±
+±±³          ³ cSeqTRC    = Codigo sequencial do Movimento                ³±±
+±±³          ³ cLanctoTRC = Numero do Lancamento Padrao                   ³±±
+±±³          ³ cRotTRC    = Rotina que originou a chamada da funcao       ³±±
+±±³          ³ lProcLanc  = Avalia Lancamentos 667/669                    ³±±
+±±³          ³ nRecSB1    = Registro do SB1                               ³±±
+±±³          ³ nRecSF4    = Registro do SF4                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA330                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function GravaRegCT(cFil,nRecSn3,nRecSn4,cLanctoTRC,nCtrlJob,cCiclo)
+Local nAcho := ASCAN(a330RegCTB,{|x| x[1] == cFil})
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza array de controle de Filiais processadas                                 |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nAcho == 0
+	AADD(a330RegCTB,{cFil,1,0,"",""})
+Else
+	a330RegCTB[nAcho,2]+=1
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza registros                                                                |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("TRC")
+DbAppend()
+Replace TRC_FILIAL With cFil
+Replace TRC_RECSN3 With nRecSn3
+Replace TRC_RECSN4 With nRecSn4
+Replace TRC_LANTRC With cLanctoTRC
+Replace TRC_SEQUEN With cFil + StrZero(IIf(nAcho == 0,1,a330RegCTB[nAcho,2]),10,0)
+Replace TRC_STATUS With "0"
+Replace TRC_JOB 	 With StrZero(nCtrlJob,2)
+Replace TRC_CICLO  With cCiclo
+MsRUnlock()
+
+RETURN
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ChamaJob  ³ Autor ³ Bruno Sobieski        ³ Data ³ 22/11/08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Chama JOBS                                             	  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ATFA371							        				  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ChamaJOB(cArquivo,cFilProc)
+Local cNomeJob		:= ""
+Local cQuery		:= ""
+Local cAliasQry		:= GetNextAlias()
+Local lWait			:= .F.
+
+cQuery := "SELECT	DISTINCT TRC_JOB TRC_JOB "
+cQuery += "FROM "+cArquivo+" "
+cQuery += "WHERE "
+If AdmTabExc("SN4") //Avalia se a tabela esta exclusiva
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFilProc)+"' AND "
+Endif
+cQuery += " TRC_STATUS = '0' AND "
+cQuery += " D_E_L_E_T_= ' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+DBGoTop()
+
+//Variavel Privada da estrutura de controle
+aListaJob	:=	{}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Le o arquivo temporario de contas para processamento         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+While !Eof()
+
+	cNomeJob := Upper(cArquivo+ AllTrim( (cAliasQry)->TRC_JOB )  )
+	If !IsThreadOn(Val(GetGlbValue(cNomeJob+"_ID")) )
+		IncProc("Iniciando Job "+(cAliasQry)->TRC_JOB)
+		// Inicializa variavel global de controle do Job
+		// 0 = nao subiu ainda
+		PutGlbValue( cNomeJob , "0" )
+		aAdd(aListaJob,{cNomeJob,'0'})
+//																A370JCTB(cEmp    ,cFil      ,cNomTrc, cNomeJob,cJob                   ,cUsuarioCTB,nTipoLog,dDataBase)
+		StartJob( "A371JCTB", GetEnvServer(), .F., cEmpAnt , cFilProc , cArquivo, cNomeJob,(cAliasQry)->TRC_JOB ,cUserName,nTipoLog,dDataBase,(mv_par03 == 1),Threadid() )
+//		Exit
+		Sleep(500)
+		lWait	:=	.T.
+	Else
+		aAdd(aListaJob,{cNomeJob,"2"})
+	EndIf
+	DbSelectArea(cAliasQry)
+	DbSkip()
+Enddo
+DbSelectArea(cAliasQry)
+DbCloseArea()
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se os JOBs estao no "ar"   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lWait
+	Sleep( 800 * Len( aListaJob ))
+Endif
+
+IncProc( "Verificando status dos Jobs..." )
+// verifica o status dos jobs
+
+RETURN JOBSTATUS(Len(aListaJob))
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³JobStatus ºAutor  ³Microsiga           º Data ³  01/06/07   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³														                    º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ MP8 - Controladoria - CTB                                  º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+STATIC FUNCTION JOBSTATUS(nQuantos)
+LOCAL nX
+Local lCont      := .T.
+Local nVezesAbre := 0
+Local nVezesCon	 := 0
+Local aJobOk	 := {}
+Local aJOBAB	 := {}
+Local nJobCaidos	:=	0
+DEFAULT nQuantos	:=	1
+For nX := 1 To Len( aListaJob )
+	lCont 		:= .T.
+	nVezesAbre  := 1
+	nVezesCon	:= 1
+	While lCont
+		Do Case
+			// Verifica se o Job subiu
+			Case GetGlbValue(aListaJob[nX][1]) == '0'
+				If nVezesAbre >= 50
+					ATF371Proc( nTipoLog,"ALERTA","Nao foi possivel subir: "+aListaJob[nX][1])
+					lCont := .F.
+				Else
+					nVezesAbre++
+				EndIf
+
+				// Verifica se conseguiu se conectar
+			Case GetGlbValue(aListaJob[nX][1]) == '1'
+
+				If nVezesCon >= 10
+					ATF371Proc( nTipoLog,"ERRO","Erro de conexao: "+aListaJob[nX][1]+". Numero de tentativas excedido.")
+					lCont := .F.
+				Else
+					// Inicializa variavel global de controle de Job
+					PutGlbValue(aListaJob[nX][1],"0")
+					// Reinicia o JOB para tentar conectar novamente
+					ATF371Proc( nTipoLog,"ALERTA","Erro de conexao: "+aListaJob[nx][1]+". Tentativa numero: "+StrZero(nVezesCon,2)+". Nova tentativa sera realizada.")
+				EndIf
+				nVezesCon++
+				Sleep(1000)
+
+			// Verifica se o Job está no ar
+			Case GetGlbValue(aListaJob[nX][1]) == '2'
+				If !IsThreadOn(Val(GetGlbValue(aListaJob[nX][1]+"_ID")) )
+					ATF371Proc( nTipoLog,"ERRO","O JOB "+aListaJob[nX][1]+" caiu." )
+					nJobCaidos++
+					lCont := .F.
+   		   Else
+					aAdd(aJOBAB ,aListaJob[nX][1])
+					lCont := .F.
+   			Endif
+			// Verifica se o Job foi finalizado com sucesso
+			Case GetGlbValue(aListaJob[nX][1]) == '3'
+				aAdd(aJOBOK ,aListaJob[nX][1])
+				lCont := .F.
+			Otherwise
+				ATF371Proc( nTipoLog,"ERRO","Status Inesperado: "+aListaJob[nX][1]+" = ["+GetGlbValue(aListaJob[nX][1])+"]")
+				lCont := .F.
+		EndCase
+	EndDo
+Next
+
+//ConOut( "Verificao de status de JOBS - NO AR/FINALIZADOS/QUEDAS.: " + StrZero( Len( aJOBAB ),2 )+"/"+StrZero( Len( aJOBOK ),2  )+"/"+StrZero( nJobcaidos,2  )+"..."  )
+
+Return ( Len( aJOBAB ) >= nQuantos )
+
+
+Function ATF371Proc(nNivel,cTipo,cMsg,cDet,cUser)
+Local cNaoValidos	:=	""
+Do Case
+Case nNivel == 3
+	cNaoValidos	+=	"MENSAGEM"
+Case nNivel	== 2
+	cNaoValidos	+=	"MENSAGEM|ALERTA"
+Case nNivel	== 1
+	cNaoValidos	+=	"MENSAGEM|ALERTA|ERRO"
+EndCase
+//CONOUT(CmSG)
+If !(cTipo $ cNaoValidos)
+	ProcLogAtu(cTipo,cMsg,cDet,'ATFA371',cUser)
+Endif
+If cMsg <> Nil
+	PtInternal(1,cMsg)
+Endif
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CheckProcessºAutor  ³Microsiga           º Data ³  11/22/08 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Retorna os registros processados e os registros cancelados º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function CheckProcess(cFilProc,cArquivo)
+Local nRet1			:=	0
+Local nRet2			:=	0
+Local nRet3			:=	0
+Local cQuery		:=	""
+Local cAliasQry		:= GetNextAlias()
+Local lExclusivo	:= AdmTabExc("SN4") //Avalia se a tabela esta exclusiva
+
+cQuery := "SELECT	Count(*) CONTA "
+cQuery += "FROM "+cArquivo+" "
+cQuery += "WHERE "
+If lExclusivo
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFilProc)+"' AND "
+Endif
+cQuery += " TRC_STATUS ='0' AND
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+DbGoTop()
+nRet1	:=	CONTA
+DbCloseArea()
+
+cQuery := "SELECT	Count(*) CONTA "
+cQuery += "FROM "+cArquivo+" "
+cQuery += "WHERE "
+If lExclusivo
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFilProc)+"' AND "
+Endif
+cQuery += " TRC_STATUS ='1' AND
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+DbGoTop()
+nRet2	:=	CONTA
+DbCloseArea()
+cQuery := "SELECT	Count(*) CONTA "
+cQuery += "FROM "+cArquivo+" "
+cQuery += "WHERE "
+If lExclusivo
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFilProc)+"' AND "
+Endif
+cQuery += " TRC_STATUS ='2' AND
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+DbGoTop()
+nRet3	:=	CONTA
+DbCloseArea()
+
+Return {nRet1,nRet2,nRet3}
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CheckCanc ºAutor  ³Microsiga           º Data ³  11/22/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Verifica se existem registros a serem processados ainda    º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function CheckCanc(cFilProc,cArquivo)
+Local lRet	:=	.F.
+Local cQuery	:=	""
+
+Local	cAliasQry := GetNextAlias()
+cQuery := "SELECT	Count(*) CONTA"
+cQuery += "FROM "+cArquivo+" "
+cQuery += "WHERE "
+If AdmTabExc("SN4") //Avalia se a tabela esta exclusiva
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFilProc)+"' AND "
+Endif
+cQuery += " TRC_STATUS  = '0' AND "
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+lRet	:=	(CONTA == 0)
+DbCloseArea()
+Return lRet
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ISTHREADONºAutor  ³Microsiga           º Data ³  11/22/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Verifica se uma thread ainda esta ativa.                    º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+
+STATIC Function IsThreadOn(nThread)
+Local aList	:=GetUserInfoArray()
+
+Return (Ascan(aList,{|x| x[3] == nThread }) > 0)
+
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A371JCTB  ³ Autor ³Bruno Alejandro Sobiesk³ Rev. ³22.11.2008 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³Rotina de contabilizacao atraves de job                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cEmp     - Empresa                                           ³±±
+±±³          ³cFil     - Filial                                            ³±±
+±±³          ³cNomTRC  - Dados dos arquivos de contabilidade               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Materiais                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A371JCTB(cEmp,cFil,cNomTrc, cNomeJob,cJob,cUsuarioCTB,nTipoLog,dData,lAglut,nIdPai)
+// Variaveis que controlam valor dos lancamentos
+Local cLoteAtf		:= ""
+Local nTotal		:=	0
+Local aFlagCTB		:= {}
+Local cQuery		:=	""
+Local cAliasTRC		:=  "" //Não se deve inicializar variáveis no início da função que realiza JOB
+Local lUsaFlag		:= .F.
+Local cCiclo		:=	""
+Local lContinua		:=.T.
+Local lExclusivo	:= .T. //Não se deve inicializar variáveis no início da função que realiza JOB
+Private	nHdlPrv		:= 0	// Endereco do arquivo de contra prova dos lanctos cont.
+Private	cArquivo	:=""	// Nome do arquivo contra prova
+
+//__cInternet := ""
+Default nTipoLog	:=	1
+
+//Se ja foi iniciado nao inicia novamente
+If IsThreadOn(Val(GetGlbValue(cNomeJob+"_ID")) )
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ STATUS 2 - Conexao efetuada com sucesso 					 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	PutGlbValue( cNomeJob , "2" )
+//	ATF370Proc( nTipoLog,"MENSAGEM","JOB "+cNomeJob+" ja foi iniciado...",,cUsuarioCTB)
+	Return Nil
+Endif
+//Seta job para nao consumir licensas
+RpcSetType(3)
+
+RpcSetEnv( cEmp, cFil,,,'ATF')
+
+/*Inicia variáveis cAliasTRC e lExclusivo após o RpcSetEnv  
+  Não se deve inicializar variáveis no início da função que realiza JOB*/        
+        
+cAliasTRC  := GetNextAlias()
+lExclusivo := If(FindFunction("AdmTabExc"), AdmTabExc("SN4"), !Empty(XFilial("SN4"))) //Avalia se a tabela esta exclusiva
+
+//Alterada database para a database escolhida pelo usuário na ATFA371
+ddatabase := dData
+//cria um arquivo de controle para saber se o JOB esta no "ar"
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ STATUS 1 - Iniciando execucao do Job						 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PutGlbValue(cNomeJob, "1" )
+cUserName	:=	cUsuarioCTB
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ STATUS 2 - Conexao efetuada com sucesso 					 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PutGlbValue( cNomeJob , "2" )
+PutGlbValue( cNomeJob+"_ID" ,Str(threadid(),10))
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Iniciando o jobs                        					 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cHoraIni := Time()
+
+ATF371Proc( nTipoLog,"MENSAGEM",'Iniciado JOB :'+cNomeJob,,cUserName)
+
+cQuery := "SELECT	*  "
+cQuery += "FROM "+cNomTrc+" "
+cQuery += "WHERE "
+If lExclusivo
+	cQuery += "TRC_FILIAL = '"+XFilial("TRC",cFil)+"' AND "
+Endif
+cQuery += " TRC_STATUS ='0' AND "
+cQuery += " TRC_JOB 	  ='"+cJob+"' AND "
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTRC,.T.,.T.)
+DbGoTop()
+
+
+cCiclo	:=	""
+cLoteAtf := LoteCont("ATF")
+lUsaFlag := GetNewPar( "MV_CTBFLAG" , .F.) // controle de flags do CTB
+lContinua	:=	.T.
+While !KillApp() .And. !(cAliasTRC)->(Eof()) .And. lContinua
+	If cCiclo <> TRC_CICLO
+		If !IsThreadOn(nIdPai)
+			ATF371Proc( nTipoLog,"MENSAGEM",'Finalizando JOB :'+cNomeJob+". A thread pai foi finalizada.",,cUserName)
+			lContinua	:=	.F.
+		Else
+			//Se o usuario solicitou para cancelar, marca os registros da fila como cancelados.
+			If	GetGlbValue("ATF371Canc")=="1"
+				ATF371Proc( nTipoLog,"MENSAGEM","Processo finalizado pelo usuario. Filial " + cFil+" JOB "+cJob+".")
+				CancelFila(nTipoLog,cNomTrc,cFil,cJob,TRC_CICLO)
+				TcSqlExec("COMMIT")
+				lContinua	:=	.F.
+			Else
+				ATF371Proc( nTipoLog,"MENSAGEM","Iniciando lancamento da filial " + cFil+" JOB "+cJob+" ciclo : "+TRC_CICLO)
+				nHdlPrv := HeadProva(cLoteAtf,"ATFA371",Substr(cUsuario,7,6),@cArquivo)
+				cCiclo	:=	(cAliasTRC)->TRC_CICLO
+				nTotal	:=	0
+				aFlagCTB	:=	{}
+			Endif
+		Endif
+	Endif
+
+	If lContinua
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Checa se deve processar registro                             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//-- Posiciona registro na tabela SN3
+		SN3->(dbGoto((cAliasTRC)->TRC_RECSN3))
+		//-- Posiciona registro na tabela SN4
+		SN4->(dbGoto((cAliasTRC)->TRC_RECSN4))
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Tratamento p/utilizacao do controle de flags do CTB                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lUsaFlag
+			aAdd( aFlagCTB, {"N4_DCONTAB", dDataBase, "SN4", SN4->(Recno()) ,0,0,0})
+		EndiF
+
+		//-- Gera lancamento
+		nValLancto := DETPROVA(nHdlPrv,(cAliasTRC)->TRC_LANTRC,"ATFA371",cLoteAtf,,,,,,aCt5,,@aFlagCTB)
+		nTotal += nValLancto
+
+		If !lUsaFlag
+			If nValLancto > 0 .And. RecLock("SN4")
+				Replace N4_DCONTAB With dDataBase
+				SN4->(MsUnlock())
+			Endif
+		Endif
+
+		dbSelectArea(cAliasTRC)
+		(cAliasTRC)->(dbSkip())
+		If EOF() .Or. cCiclo <> TRC_CICLO
+			RodaProva( nHdlPrv , nTotal )
+			ATF371Proc( nTipoLog,"MENSAGEM","Fechando lancamento da filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+			If cA100Incl( cArquivo, nHdlPrv, 3, cLoteATF, .F. /*lDigita*/, lAglut,,,, @aFlagCTB)
+				aFlagCTB := {}
+				nHdlPrv := 0
+				cQuery := "UPDATE "+cNomTrc+" "
+				cQuery += " SET TRC_STATUS ='1' "
+				cQuery += " WHERE "
+				If lExclusivo
+					cQuery += " TRC_FILIAL = '"+XFilial("TRC",cFil)+"' AND "
+				Endif
+				cQuery += " TRC_JOB 	  ='"+cJob+"' AND "
+				cQuery += " TRC_CICLO  ='"+cCiclo+"' AND "
+				cQuery += " D_E_L_E_T_=' ' "
+	//			cQuery := MsParse(cQuery, IIf('ISERIES'$Upper(TcSrvType()),"DB2",Alltrim(TcGetDB()) ) )
+				cRet := TcSqlExec(cQuery)
+				ATF371Proc( nTipoLog,"MENSAGEM","Marcacao de registros contabilizados na fila. Filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+				If cRet <> 0
+					ATF371Proc( nTipoLog,"ERRO","Erro na marcacao de registros da fila. Filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo,TCSQLError()+" Query:"+cQuery )
+					TcSqlExec("COMMIT")
+					lContinua	:=	.F.
+				EndIf
+				TcSqlExec("COMMIT")
+			Else
+				ATF371Proc( nTipoLog,"ERRO","Erro na geracao do lancamento " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+//				Conout("Erro na geracao do lancamento " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+				ErroProc(nTipoLog,cNomTrc,cFil,cJob,cCiclo)
+				lContinua	:=	.F.
+			Endif
+		Endif
+	Endif
+EndDo
+ATF371Proc( nTipoLog,"MENSAGEM","Finalizando JOB "+cJob+" da filial " + cFil+".")
+PutGlbValue( cNomeJob , "3" )
+
+RpcClearEnv()
+//Finalizacao
+RETURN
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CancelFilaºAutor  ³Microsiga           º Data ³  11/22/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Cancela fila de processamento.                             º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ErroProc(nTipoLog,cNomTrc,cFil,cJob,cCiclo)
+Local cRet			:=	""
+Local cQuery 		:= ""
+Local cAliasQry		:=	GetNextAlias()
+Local nTries		:=	0
+Local nMaxTries		:=	5
+Local lExclusivo	:= AdmTabExc("SN4") //Analisa se a tabela esta exclusiva
+//Se houve erro verifica se tem ainda tentativas a serem feitas antes de marcar para nao ser mais processado
+cQuery := "SELECT DISTINCT TRC_TRIES TRC_TRIES FROM "+cNomTrc+" "
+cQuery += " WHERE "
+If lExclusivo
+	cQuery += " TRC_FILIAL = '"+XFilial("TRC",cFil)+"' AND "
+Endif
+cQuery += " TRC_JOB 	  ='"+cJob+"' AND "
+cQuery += " TRC_CICLO  ='"+cCiclo+"' AND "
+cQuery += " TRC_STATUS ='0' AND "
+cQuery += " D_E_L_E_T_=' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry,.T.,.T.)
+DbSelectArea(cAliasQry)
+nTries	:=	(cAliasQry)->TRC_TRIES
+DbCloseArea()
+
+cQuery := "UPDATE "+cNomTrc+" "
+If (nTries >= nMaxTries)
+	cQuery += " SET TRC_STATUS ='2' "
+Else
+	cQuery += " SET TRC_TRIES = " + STR(nTries + 1)
+Endif
+cQuery += " WHERE "
+If lExclusivo
+	cQuery += " TRC_FILIAL = '"+XFilial("TRC",cFil)+"' AND "
+Endif
+cQuery += " TRC_JOB 	  ='"+cJob+"' AND "
+cQuery += " TRC_CICLO  ='"+cCiclo+"' AND "
+cQuery += " TRC_STATUS ='0' AND "
+cQuery += " D_E_L_E_T_=' ' "
+//cQuery := MsParse(cQuery, IIf('ISERIES'$Upper(TcSrvType()),"DB2",Alltrim(TcGetDB()) ) )
+cRet := TcSqlExec(cQuery)
+If (nTries >= nMaxTries)
+	ATF371Proc( nTipoLog,"ERRO","Cancelando processamento da filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo+". Numero maximo de tentativas atingido. Verificar o Log e tentar novamente.")
+Else
+	ATF371Proc( nTipoLog,"ERRO","Reiniciando JOB processamento da filial " + cFil+" JOB "+cJob+" a partir do ciclo : "+cCiclo+". Tentativa "+Str(nTries)+" de "+Str(nMaxTries)+".")
+Endif
+If cRet <> 0
+	ATF371Proc( nTipoLog,"ERRO","Erro na marcacao de tentativas da fila. Filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+EndIf
+TcSqlExec("COMMIT")
+Return
+
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CancelFilaºAutor  ³Microsiga           º Data ³  11/22/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Cancela fila de processamento.                             º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function CancelFila(nTipoLog,cNomTrc,cFil,cJob,cCiclo)
+Local cRet	:=	""
+Local	cQuery := ""
+
+cQuery := "UPDATE "+cNomTrc+" "
+cQuery += " SET TRC_STATUS ='2' "
+cQuery += " WHERE "
+If AdmTabExc("SN4") //Analisa se a tabela esta exclusiva
+	cQuery += " TRC_FILIAL = '"+XFilial("TRC",cFil)+"' AND "
+Endif
+cQuery += " TRC_JOB 	  ='"+cJob+"' AND "
+cQuery += " TRC_STATUS ='0' AND "
+cQuery += " D_E_L_E_T_=' ' "
+//cQuery := MsParse(cQuery, IIf('ISERIES'$Upper(TcSrvType()),"DB2",Alltrim(TcGetDB()) ) )
+cRet := TcSqlExec(cQuery)
+ATF371Proc( nTipoLog,"MENSAGEM","Marcacao de registros cancelados na fila. Filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+If cRet <> 0
+	ATF371Proc( nTipoLog,"ERRO","Erro na marcacao de registros cancelados da fila. Filial " + cFil+" JOB "+cJob+" ciclo : "+cCiclo)
+	TcSqlExec("COMMIT")
+EndIf
+
+Return
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³AdmAbreSM0³ Autor ³ Orizio                ³ Data ³ 22/01/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorna um array com as informacoes das filias das empresas ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function AdmAbreSM0()
+	Local aArea			:= SM0->( GetArea() )
+	Local aAux			:= {}
+	Local aRetSM0		:= {}
+	Local lFWLoadSM0	:= .T.
+	Local lFWCodFilSM0 	:= .T.
+
+	If lFWLoadSM0
+		aRetSM0	:= FWLoadSM0()
+	Else
+		DbSelectArea( "SM0" )
+		SM0->( DbGoTop() )
+		While SM0->( !Eof() )
+			aAux := { 	SM0->M0_CODIGO,;
+						IIf( lFWCodFilSM0, FWGETCODFILIAL, SM0->M0_CODFIL ),;
+						"",;
+						"",;
+						"",;
+						SM0->M0_NOME,;
+						SM0->M0_FILIAL }
+
+			aAdd( aRetSM0, aClone( aAux ) )
+			SM0->( DbSkip() )
+		End
+	EndIf
+
+	RestArea( aArea )
+Return aRetSM0

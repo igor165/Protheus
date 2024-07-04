@@ -1,0 +1,4105 @@
+#INCLUDE "FINA390.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+STATIC lCTLIPAG 	:= .F.
+STATIC _lJURXFIN	:= .F.
+STATIC nVLMINPG 	:= 0
+STATIC lUsaFlag		:= .F. 
+STATIC lFinVDoc		:= .F.		//Controle de validacao de documentos obrigatorios
+STATIC lF390Tit 	:= .F.                        
+STATIC lValImp  	:= .F. //Ponto de Entrada para manipular o valor do cheque
+STATIC lF390GRV		:= .F.
+STATIC cCposTRB		:= ""
+STATIC _oFINA3901   := NIL
+STATIC __oPreparA	:= NIL
+STATIC __oPreparB	:= NIL
+STATIC __oPreparC	:= NIL
+STATIC nTamSeq		:= NIL
+STATIC aIndices		:= {}
+STATIC aPesqui		:= {}
+Static aCbx			:= {}
+Static lPodeTVA		:= .F.
+Static __lF390GCH   := .F.
+Static __lA390Hst	:= .F.
+Static __lA390Avu	:= .F.
+Static __cCtBaixa	:= ""
+
+Static __cTitulos   := ""
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} FinA390
+Geração de Cheques sobre titulos s/baixa de titulos ou cheques avulsos.
+
+@author  Wagner Xavier 
+@since 27/02/95
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function FinA390(nPosArotina,xAutoCab,nOpcAuto)
+
+Local nSavRec		:= RecNo()
+Local lRotAuto		:= (xAutoCab <> NIL)
+Local aAutoCab
+
+Private aRotina 	:= MenuDef()
+Private cBanco390	:= ''
+Private cAgencia390 := ''
+Private cConta390	:= ''
+Private cCheque390	:= ''
+Private dVencIni	:= CTOD("//")
+Private dVencFim	:= CTOD("//")
+Private nLimite		:= 0
+Private cNatur390	:= ''
+Private cBenef390	:= ''
+Private cForn390	:= ''
+Private cHist390	:= ''
+Private aTitulos	:= {}
+Private cFil390		:= ''
+Private cLojaBen	:= ''
+Private nValor390	:= 0
+Private lGestaoCorp := AdmGetGest()
+Private cCadastro	:= OemToAnsi(STR0006)  //"Cheques a Pagar"
+Private cMarca		:= GetMark()
+Private cLote
+
+DEFAULT nPosArotina := 0
+
+IniStatic()
+
+// Chamada da função pergunte											  ³
+SetKey (VK_F12,{|a,b| AcessaPerg("FIN390",.T.)})
+pergunte("FIN390",.F.)
+
+LoteCont( "FIN" )
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+	dbSelectArea("SE2")
+	bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+	Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+Else	
+	If lRotAuto
+		//------------------------------------------------------
+		//                Rotina Automatica
+		//------------------------------------------------------
+		If nOpcAuto == 2 // cheque s/ Titulo
+			fA390Tit( "SE2", RECNO(),,,,xAutoCab,lRotAuto)
+		ElseIf nOpcAuto == 3 // cheque avulso
+			aAutoCab := SE2->(MSArrayXDB(xAutoCab,nil,3))
+			If Len(aAutoCab)>0
+				fa390Avu( "SE2", RECNO(),,,,xAutoCab,lRotAuto)
+			Endif
+		ElseIf nOpcAuto == 5 // Cancelamento de Cheque
+			fA390Can( "SE2", RECNO(),,,,xAutoCab,lRotAuto)
+		Endif
+	Else
+		IF ExistBlock("F390BROW")
+			ExecBlock("F390BROW",.f.,.f.)
+		Endif
+
+		mBrowse( 6, 1,22,75,"SE2",,"E2_IMPCHEQ",,,, F390Legenda(),,,,,,,,IIF(ExistBlock("F390BFIL"),ExecBlock("F390BFIL",.f.,.f.),NIL) )
+	Endif	
+Endif
+
+If __oPreparA != NIL
+	__oPreparA:Destroy()
+	__oPreparA := NIL
+Endif
+
+If __oPreparB != NIL
+	__oPreparB:Destroy()
+	__oPreparB := NIL
+Endif
+
+If __oPreparC != NIL
+	__oPreparC:Destroy()
+	__oPreparC := NIL
+Endif
+
+cCposTRB := ""
+
+dbSelectArea("SE2")
+dbSetOrder(1)
+dbGoTo( nSavRec )
+
+Set Key VK_F12 To
+Return
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fA390Tit
+Geração de Cheques sobre titulos
+
+@author Mauricio Pequim Jr
+@since   12/04/2018
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fA390Tit(cAlias,cCampo, nOpcE, aM,lAut,aAutoCab,lRotAuto)
+
+Local lPanelFin := IsPanelFin()
+Local oDlg		:= NIL
+Local oDlg1		:= NIL
+Local oValor	:= 0
+Local oQtdTit	:= 0
+LOCAL cArquivo	:= ""
+LOCAL nTotal	:= 0
+LOCAL nHdlPrv	:= 0
+LOCAL cPadrao	:= "566"
+LOCAL lPadrao	:= VerPadrao(cPadrao)
+Local lHead		:= .F.
+Local nRegSEF	:= 0
+Local cLiberado	:= GetMv("MV_LIBCHEQ")
+Local nOpca		:= 0
+Local lEntrada 	:= ExistBlock("A390CHEQ")
+Local nRecSe2Atu  := 0
+Local lMostra	:= .F.
+Local lAglutina	:= .F.
+Local lContabiliza := .F.
+Local lEntrada2	:= ExistBlock("A390SEF")
+Local lA390Acr 	:= ExistBlock("A390ACR")
+Local lF390FIL 	:= ExistBlock("F390FIL")
+Local oLimite		:= NIL
+Local nAcrescimo	:= 0
+Local oBanco390		:= NIL
+Local oAge390		:= NIL
+Local oConta390		:= NIL
+Local oCheque390	:= NIL
+Local oBenef390		:= NIL
+
+Local cSequen	:= ""
+Local aBut390	:= {}
+Local aSize		:= {}
+Local oPanel	:= NIL
+Local dDataEmiss := dDatabase
+Local aFlagCTB	:= {}
+
+//REESTRUTURAÇÃO SE5
+Local oModelMov := NIL		//FWLoadModel("FINM030")
+Local oFKA		:= NIL
+Local oSubFK5	:= NIL
+Local cLog 		:= ""
+Local cCamposE5	:= ""
+Local cChaveCH	:= ""
+Local cChaveMov	:= ""
+LOCAL nOrdSA6	:= 1
+
+//GESTAO
+Local oBtnFil	:= Nil
+Local cFilCorr	:= ""
+Local cArqSE2	:= "SE2"
+Local cAliasSE2	:= ""
+Local aSelFil	:= {cFilAnt}
+Local aCampos	:= {}
+Local aEstruct	:= {}
+Local aTmpFil	:= {}
+Local nX		:= 0
+Local nIndice	:= 1
+Local bSet16	:= NIL
+
+DEFAULT aAutoCab := {}
+DEFAULT lRotAuto := .F.
+
+Private lInverte	:= .F.
+Private cMarca		:= GetMark()
+Private nValor		:= 0
+Private nQtdTit		:= 0
+Private nJuros		:= 0
+Private dBaixa		:= CTOD('')
+
+dBaixa := CriaVar("E2_BAIXA")
+
+aTam		:= TamSX3("E2_FORNECE")
+cBanco390	:= CriaVar("EF_BANCO")
+cAgencia390 := Criavar("EF_AGENCIA")
+cConta390	:= Criavar("EF_CONTA")
+cCheque390	:= CriaVar("EF_NUM")
+dVencIni 	:= dDataBase
+dVencFim 	:= dDataBase
+nLimite		:= 0
+cNatur390	:= CriaVar("E5_NATUREZ")
+cBenef390	:= CriaVar("EF_BENEF")
+cForn390 	:= Space(aTam[1])
+cHist390 	:= CriaVar("EF_HIST")
+cLojaBen    := CriaVar("EF_LOJA")
+STRLCTPAD	:= " "
+__cTitulos  := ""
+
+If nTamSeq == NIL
+	nTamSeq	:= TamSX3("E5_SEQ")[1]
+Endif
+
+cSequen	:= Replicate( "0", nTamSeq )
+
+If __lA390Hst
+	cHist390 :=padr(ExecBlock("A390HIST",.F.,.F.),TamSX3("EF_HIST")[1])
+Endif
+
+// Verifica se data do movimento não é menor que data limite de movimentacao no financeiro
+If !DtMovFin(,,"1")
+	Return
+Endif	
+
+// Desenha tela de entrada de dados
+While .T.
+
+	If !lRotAuto
+		aSize := MSADVSIZE()
+		If lPanelFin  //Chamado pelo Painel Financeiro			
+			dbSelectArea(cAlias)
+			oPanelDados := FinWindow:GetVisPanel()
+			oPanelDados:FreeChildren()
+			aDim := DLGinPANEL(oPanelDados)
+			DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM 0,0 To 0,0 PIXEL STYLE nOR( WS_VISIBLE, WS_POPUP )							
+			//----------------------------------------------------------------------
+			// Observacao Importante quanto as coordenadas calculadas abaixo:
+			//----------------------------------------------------------------------
+			// a funcao DlgWidthPanel() retorna o dobro do valor da area do
+			// painel, sendo assim este deve ser dividido por 2 antes da subtracao 
+			// e redivisao por 2 para a centralizacao.
+			//----------------------------------------------------------------------
+			nEspLarg := ((DlgWidthPanel(oPanelDados)/2) - 192) /2		 					
+			nEspLin  := 0
+		Else   
+			nEspLarg := 0
+		  	nEspLin  := 5	
+			DEFINE MSDIALOG oDlg FROM 15,1 TO 240,495 TITLE OemToAnsi(STR0011) PIXEL  //"Pagamentos com Cheques"
+		Endif   
+	
+		nOpca := 0	
+	
+		//Guardo o indice de entrada para a rotina de pesquisa
+		nIndice := SE2->(IndexOrd())
+	
+		oDlg:lMaximized := .F.
+		oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+		oPanel:Align := CONTROL_ALIGN_ALLCLIENT    		
+	
+		@ 000+nEspLin, 004+nEspLarg TO 025+nEspLin, 196+nEspLarg OF oPanel	PIXEL
+		@ 027+nEspLin, 004+nEspLarg TO 052+nEspLin, 196+nEspLarg OF oPanel	PIXEL
+		@ 054+nEspLin, 004+nEspLarg TO 076+nEspLin, 196+nEspLarg OF oPanel	PIXEL
+		@ 078+nEspLin, 004+nEspLarg TO 103+nEspLin, 196+nEspLarg OF oPanel	PIXEL
+	
+		@ 002+nEspLin, 011+nEspLarg SAY 	OemToAnsi(STR0012) 			SIZE 21, 07 OF oPanel PIXEL  //"Banco"
+		@ 012+nEspLin, 011+nEspLarg MSGET	oBanco390 VAR cBanco390		SIZE 21, 08 OF oPanel Hasbutton PIXEL F3 "SA6"	Valid Fa390Banco(0, .F.) .And. FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.);
+																		Picture "@!" OBFUSCATED RetGlbLGPD('EF_BANCO') When !RetGlbLGPD('EF_BANCO')
+		@ 002+nEspLin, 047+nEspLarg SAY 	OemToAnsi(STR0013)			SIZE 28, 07 OF oPanel PIXEL  //"Agˆncia"
+		@ 012+nEspLin, 047+nEspLarg MSGET	oAge390 VAR cAgencia390		SIZE 28, 08 OF oPanel PIXEL 			Valid Fa390Banco(0, .F.) .And. FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.);
+																		Picture "@!" OBFUSCATED RetGlbLGPD('EF_AGENCIA') When !RetGlbLGPD('EF_AGENCIA')
+		@ 002+nEspLin, 082+nEspLarg SAY 	OemToAnsi(STR0014)			SIZE 25, 07 OF oPanel PIXEL  //"Conta"
+		@ 012+nEspLin, 082+nEspLarg MSGET	oConta390 VAR cConta390		SIZE 39, 08 OF oPanel PIXEL 			Valid If(Fa390Banco(0, .F.),FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.),oBanco390:SetFocus());
+																		Picture "@!" OBFUSCATED RetGlbLGPD('EF_CONTA') When !RetGlbLGPD('EF_CONTA')
+		@ 002+nEspLin, 128+nEspLarg SAY 	OemToAnsi(STR0015)			SIZE 46, 07 OF oPanel PIXEL  //"N£mero Cheque"
+		@ 012+nEspLin, 128+nEspLarg MSGET 	oCheque390 VAR cCheque390	SIZE 46, 08 OF oPanel PIXEL 			Valid Fa390Cheq(1) ;
+																		Picture "@!" OBFUSCATED RetGlbLGPD('EF_NUM') When !RetGlbLGPD('EF_NUM')
+	
+		@ 029+nEspLin, 011+nEspLarg SAY 	OemToAnsi(STR0016)			SIZE 53, 07 OF oPanel PIXEL  //"Vencidos"
+		@ 039+nEspLin, 011+nEspLarg SAY 	OemToAnsi(STR0017)			SIZE 32, 07 OF oPanel PIXEL  //"Entre"
+		@ 037+nEspLin, 027+nEspLarg MSGET	dVencIni 					SIZE 45, 08 OF oPanel Hasbutton PIXEL
+		@ 038+nEspLin, 077+nEspLarg SAY 	OemToAnsi(STR0018)			SIZE 10, 07 OF oPanel PIXEL  //"e"
+		@ 037+nEspLin, 085+nEspLarg MSGET	dVencFim 					Valid  dVencFim >= dVencIni	SIZE 45, 08 OF oPanel Hasbutton PIXEL
+		@ 027+nEspLin, 135+nEspLarg SAY 	OemToAnsi(STR0019)			SIZE 53, 07 OF oPanel PIXEL  //"Valor do Cheque"
+		@ 037+nEspLin, 135+nEspLarg MSGET	oLimite VAR nLimite			Picture"@E 9,999,999,999.99" SIZE 57, 11 OF oPanel Hasbutton PIXEL
+		oLimite:cReadvar:="NLIMIT190"  // direcionador de help
+		
+		@ 056+nEspLin, 011+nEspLarg SAY 	OemToAnsi(STR0020)			SIZE 35, 07 OF oPanel PIXEL  //"Fornecedor"
+		@ 064+nEspLin, 011+nEspLarg MSGET	cForn390 	F3 "SA2" Valid fa390Fornece() SIZE 70, 08 OF oPanel Hasbutton PIXEL
+		@ 056+nEspLin, 109+nEspLarg SAY 	OemToAnsi(STR0022)SIZE 53, 07 OF oPanel PIXEL  //"Benefici rio"
+		@ 064+nEspLin, 109+nEspLarg MSGET	oBenef390 VAR cBenef390	Picture "@!S30"	SIZE 84, 08 OF oPanel PIXEL;
+																		OBFUSCATED RetGlbLGPD('EF_BENEF') When !RetGlbLGPD('EF_BENEF')
+	
+		@ 080+nEspLin, 011+nEspLarg SAY 	OemToAnsi(STR0021)			SIZE 32, 07 OF oPanel PIXEL  //"Natureza"
+		@ 088+nEspLin, 011+nEspLarg MSGET	cNatur390	F3 "SED" Picture "@!" Valid fa390Natur()  SIZE 40, 08 OF oPanel Hasbutton PIXEL
+	
+		@ 080+nEspLin, 061+nEspLarg SAY 	OemToAnsi(STR0023)			SIZE 35, 07 OF oPanel PIXEL  //"Hist¢rico"
+		@ 088+nEspLin, 061+nEspLarg MSGET	cHist390	Picture "@!S35" SIZE 128, 08 OF oPanel PIXEL
+	                
+	
+		If lPanelFin  //Chamado pelo Painel Financeiro			
+			oDlg:Move(aDim[1],aDim[2],aDim[4]-aDim[2], aDim[3]-aDim[1])			
+			ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,;
+			{||nOpca := 1,Iif(Fa390Ok(oDlg),oDlg:End(),nOpca:=0)},;
+			{||nOpca := 0, oDlg:End()})
+			
+			cAlias := FinWindow:cAliasFile     
+			dbSelectArea(cAlias)					
+			FinVisual(cAlias,FinWindow,(cAlias)->(Recno()),.T.)
+	
+	   Else	
+	
+			DEFINE SBUTTON FROM 07, 211 TYPE 1 ACTION (nOpca := 1, Iif(Fa390Banco(0, .T.) .And. Fa390Ok(oDlg), oDlg:End(), nOpca := 2)) ENABLE OF oPanel
+			DEFINE SBUTTON FROM 20, 211 TYPE 2 ACTION {|| nOpca := 0, oDlg:End() } ENABLE OF oPanel
+	
+			DEFINE SBUTTON Var oBtnFil FROM 33, 211 TYPE 05 ACTION { || aSelFil := Fa390Fil()} ENABLE OF oPanel
+					oBtnFil:cCaption := STR0064		//"Filiais"
+					oBtnFil:cToolTip := STR0065		//"Seleciona filiais"
+			
+			ACTIVATE MSDIALOG oDlg CENTERED
+		Endif	
+	
+	Else
+		//------------------------------------------------------
+		//                Rotina Automatica
+		//------------------------------------------------------
+		aValidGet:= {}
+		If (nT := ascan(aAutoCab,{|x| x[1]='AUTBANCO'})) > 0
+			cBanco390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_BANCO")[1])
+	 		Aadd(aValidGet,{'cBanco390' ,cBanco390,"Fa390Banco(1)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTAGENCIA'})) > 0
+			cAgencia390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_AGENCIA")[1])
+	 		Aadd(aValidGet,{'cAgencia390' ,cAgencia390,"Fa390Banco(2)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCONTA'})) > 0
+			cConta390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_CONTA")[1])
+	 		Aadd(aValidGet,{'cConta390' ,cConta390,"Fa390Banco(3)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCHEQUE'})) > 0
+			cCheque390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_NUM")[1])
+	 		Aadd(aValidGet,{'cCheque390' ,cCheque390,"Fa390Cheq(1)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTVENCINI'})) > 0
+			dVencIni	:=	aAutoCab[nT,2]
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTVENCFIM'})) > 0
+			dVencFim	:=	aAutoCab[nT,2]
+	 		Aadd(aValidGet,{'dVencFim' ,dVencFim,"dVencFim>=dVencIni",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTVALOR'})) > 0
+			nLimite	:=	aAutoCab[nT,2]
+	 		Aadd(aValidGet,{'nLimite' ,nLimite,"nLimite>0",.T.})
+	 	EndIf
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTFORN'})) > 0
+			cForn390	:=	Padr(aAutoCab[nT,2],TamSX3("E2_FORNECE")[1])
+	 		Aadd(aValidGet,{'cForn390' ,cForn390,"fa390Fornece()",.T.})
+	 	EndIf
+	 	If (nT := ascan(aAutoCab,{|x| x[1]='AUTBENEF'})) > 0
+			cBenef390	:=	aAutoCab[nT,2]
+	 	EndIf	
+	 	If (nT := ascan(aAutoCab,{|x| x[1]='AUTNATUREZA'})) > 0
+			cNatur390	:=	Padr(aAutoCab[nT,2],TAMSX3("E5_NATUREZ")[1])
+	 		Aadd(aValidGet,{'cNatur390' ,cNatur390,"fa390Natur()",.T.})
+	 	EndIf
+	 	If (nT := ascan(aAutoCab,{|x| x[1]='AUTHIST'})) > 0
+			cHist390	:=	aAutoCab[nT,2]
+	 	EndIf
+ 	
+	 	If ! SE2->(MsVldGAuto(aValidGet)) // consiste os gets
+			nOpca := 0 // Cancela
+		Else
+			nOpca := 1  // Confirma
+	   EndIf     
+
+	EndIf
+	
+	If nOpca == 0 
+		Exit
+	Elseif nOpca == 2
+		Loop
+	Endif
+
+	// Filtro do Usuário
+	IF lF390FIL
+		cFil390 := ExecBlock("F390FIL",.f.,.f.)
+	Else
+		cFIl390 := ""
+	Endif
+		
+	aSize(aCampos,0)
+	aSize(aEstruct,0)
+	F390GetCampos(aCampos,aEstruct,lRotAuto)	
+
+	MsgRun(STR0027,STR0007,{|| cArqSE2 := f390QryA(@cAliasSE2, aCampos, aEstruct, aSelFil, aTmpFil)}) //"Selecionando Registros..."###"Cheques s/Titulos"
+	
+	If cArqSE2 == "NOACESS"  // Caso o usuario não tenha nenhuma permissão aborta o processo do bordero
+		Help(" ",1,"RECNO")
+		Return
+	EndIf
+
+	If Empty(cArqSE2) .or. (cArqSE2)->(RECCOUNT()) == 0
+		Help(" ",1,"RECNO")
+		Loop
+	Endif
+	
+	If nLimite > 0
+		Fa390Marca(cArqSE2,cMarca,nLimite)
+	Endif
+
+	(cArqSE2)->(dbsetOrder(2))	//Parar na primeira de pesquisa já que o indice 1 é sempre o "E2_OK+E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO"
+	(cArqSE2)->(DbGoTop())
+	
+	If lRotAuto .And. nLimite > 0 .And. nLimite != nValor 
+		Help(' ', 1, "F390VALCHQ", Nil, STR0080 + " " + cValToChar(nLimite) + " " + STR0081 + " " + cValTochar(nValor) + " " + STR0082 + ": " + __cTitulos, 2,0,,,,,, {STR0083}) 
+		lMsErroAuto := .T.
+		Exit
+	EndIF	
+
+	nOpca := 0
+	
+	If !lRotAuto	
+
+		AADD(aBut390,{"PESQUISA",{||Fa390Pesq(oMark,cArqSE2,nIndice)},STR0078,STR0001}) //"Pesquisar..(CTRL-P)"###"Pesquisar"
+		bSet16 := SetKey(16,{||Fa390Pesq(oMark,cAliasSE2,nIndice)})	
+	
+		//Faz o calculo automatico de dimensoes de objetos
+		oSize := FwDefSize():New(.T.)
+		
+		oSize:lLateral := .F.
+		oSize:lProp	:= .T. // Proporcional
+		
+		oSize:AddObject( "1STROW" ,  100, 15, .T., .T. ) // Totalmente dimensionavel
+		oSize:AddObject( "2NDROW" ,  100, 95, .T., .T. ) // Totalmente dimensionavel
+		
+		oSize:aMargins := { 2, 2, 1, 2 } // Espaco ao lado dos objetos 0, entre eles 3 
+		
+		oSize:Process() // Dispara os calculos		
+		
+		a1stRow := {oSize:GetDimension("1STROW","LININI"),;
+					oSize:GetDimension("1STROW","COLINI"),;
+					oSize:GetDimension("1STROW","LINEND"),;
+					oSize:GetDimension("1STROW","COLEND")}
+		
+		a2ndRow := {oSize:GetDimension("2NDROW","LININI"),;
+					oSize:GetDimension("2NDROW","COLINI"),;
+					oSize:GetDimension("2NDROW","LINEND"),;
+					oSize:GetDimension("2NDROW","COLEND")}
+	
+		DEFINE MSDIALOG oDlg1 TITLE STR0069 From oSize:aWindSize[1],oSize:aWindSize[2] to oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL  //"Geração de Cheques"
+		oDlg1:lMaximized := .T.
+		
+		@ a1stRow[1] + 001, a1stRow[2] + 001  To a1stRow[3]-001,a1stRow[4]-001 PIXEL OF oDlg1	
+
+		@ a1stRow[1] + 003, a1stRow[2] + 005 SAY STR0028 + If(RetGlbLGPD('EF_BANCO'),'***',cBanco390)					FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1   //"Banco: "
+		@ a1stRow[1] + 003, a1stRow[2] + 070 SAY STR0029 + If(RetGlbLGPD('EF_AGENCIA'),'*****',cAgencia390)				FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1   //"Agência: "
+		@ a1stRow[1] + 003, a1stRow[2] + 130 Say STR0030 + If(RetGlbLGPD('EF_CONTA'),'*******',cConta390)				FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1    //"Conta: "
+		@ a1stRow[1] + 003, a1stRow[2] + 190 SAY STR0031 + If(RetGlbLGPD('EF_NUM'),'********',SubStr(cCheque390,1,15))	FONT oDlg1:oFont SIZE 120,10  PIXEL Of oDlg1  //"Nro Cheque: "
+	
+		@ a1stRow[1] + 015, a1stRow[2] + 005 Say STR0032       						SIZE 90,10  PIXEL Of oDlg1   //"Nro Titulos Selecionados: "
+		@ a1stRow[1] + 015, a1stRow[2] + 070 Say oQtdTit VAR nQtdTit Picture "999"	SIZE 50,10  PIXEL Of oDlg1 
+		@ a1stRow[1] + 015, a1stRow[2] + 130 Say STR0033							SIZE 50,10  PIXEL Of oDlg1  //"Valor Total: "
+		@ a1stRow[1] + 015, a1stRow[2] + 190 Say oValor VAR nValor Picture "@E 999,999,999.99" SIZE 50,10 PIXEL Of oDlg1 
+
+		oMark :=MsSelect():New(cAliasSE2,"E2_OK","E2_IMPCHEQ",aCampos,@lInverte,@cMarca,{a2ndRow[1],a2ndRow[2],a2ndRow[3],a2ndRow[4]})
+
+		oMark:bMark := {||Fa390Exibe(cMarca,oValor,oQtdTit,1,nLimite,cArqSE2)}
+		oMark:bAval	:= {||Fa390bAval(cMarca,oValor,oQtdTit,oMark,1,cArqSE2)}
+		oMark:oBrowse:lhasMark = .t.
+		oMark:oBrowse:lCanAllmark := .t.
+		oMark:oBrowse:bAllMark := { || FA390Inverte(cMarca,oValor,oQtdTit,1,nLimite,oMark,.T.,cArqSE2) }
+	   
+		If lPanelFin  //Chamado pelo Painel Financeiro					
+			ACTIVATE MSDIALOG oDlg1 ON INIT FaMyBar(oDlg1,{|| If(Fa390TdOK(),(nOpca := 1,oDlg1:End()),nOpca:=0)},{|| nOpca := 2,oDlg1:End()},aBut390)		
+	   Else		
+			ACTIVATE MSDIALOG oDlg1 ON INIT EnchoiceBar(oDlg1,{|| If(Fa390TdOK(),(nOpca := 1,oDlg1:End()),nOpca:=0)},{|| nOpca := 2,oDlg1:End()},,aBut390) CENTERED
+	   Endif
+
+	Else
+		//-----------------------------------------------------
+		//                Rotina Automatica
+		//-----------------------------------------------------
+		If Fa390TdOK()
+			nOpca	:= 1
+		EndIf		
+	EndIf    
+
+	SetKey(16,bSet16)
+
+
+	If nOpca == 1 .And. (nValor == 0 .Or. (nLimite > 0 .And. nLimite != nValor)) 
+		Help(' ', 1, "F390VALCHQ", Nil, STR0080 + " " + cValToChar(nLimite) + " " + STR0081 + " " + cValTochar(nValor) + " " + STR0082 + ": " + __cTitulos, 2,0,,,,,, {STR0083})  
+		Exit
+	EndIF	
+
+
+	If nOpca == 1
+
+		BEGIN TRANSACTION
+
+		If cPaisLoc == "COL"
+			cComprobante := Tabela("YG","CE")
+			F390GrvCprb(cComprobante)
+		EndIf
+
+		DbSelectArea(cArqSE2)
+		(cArqSE2)->(dbSetOrder(1))	//E2_OK E2_FILIAL + E2_FORNECE + E2_LOJA + E2_PREFIXO + E2_PARCELA + E2_TIPO
+		(cArqSE2)->(dbSeek(cMarca))
+
+		SE2->(DbSetOrder(2))	//E2_FILIAL + E2_FORNECE + E2_LOJA + E2_PREFIXO + E2_PARCELA + E2_TIPO	
+		aTitulos := {}
+		
+		cFilCorr := cFilAnt
+		While (cArqSE2)->(!Eof())
+
+			If (cArqSE2)->E2_OK == cMarca
+
+				nRecSe2Atu := (cArqSE2)->NUM_REG
+				SE2->(DbGoto(nRecSE2Atu))
+				cFilAnt := SE2->E2_FILORIG
+
+				//GESTAO 
+				// Este array pode ser utilizado caso haja necessidade de ser saber todos os titulos que foram utilizados para formar o cheque.      					³
+				Aadd(aTitulos,{ SE2->E2_PREFIXO,SE2->E2_NUM,SE2->E2_PARCELA,SE2->E2_TIPO,SE2->E2_FORNECE,SE2->E2_LOJA,SE2->E2_FILIAL})
+				cChaveTit := SE2->(E2_FILIAL + E2_FORNECE + E2_LOJA + E2_PREFIXO + E2_PARCELA )
+
+				//Marca titulos de abatimento com marca de cheque impresso
+				If (cArqSE2)->VLSOMAABAT > 0
+					While SE2->(!Eof()) .And. SE2->(E2_FILIAL + E2_FORNECE + E2_LOJA + E2_PREFIXO + E2_PARCELA ) == cChaveTit
+						IF SE2->E2_TIPO $ MVABATIM .And. E2_SALDO > 0
+							// Atualiza flag do arquivo
+							RecLock("SE2",.F.)
+							Replace E2_IMPCHEQ With "S"
+							MsUnlock()
+						EndIf
+						SE2->(dbSkip())
+					EndDo
+					
+				Endif
+
+				SE2->(dbGoto(nRecSe2Atu))				
+
+				If lA390Acr
+					nAcrescimo := 0			// Campo do Usuario
+					nAcrescimo := Execblock("A390ACR",.F.,.F.)		//Tratamento do usuario
+					nValor += nAcrescimo		//soma o resultado do acrescimento no cheque totalizador
+				Endif
+
+				SE2->(dbGoto(nRecSe2Atu))
+				
+				IF __lF390GCH
+					dDataEmiss := ExecBlock("F390GCHE",.f.,.f.)
+					IF valtype (dDataEmiss) <> "D" 
+						dDataEmiss := dDatabase
+					EndIF				            
+				Else 	
+					dDataEmiss 	:= dDataBase 
+				EndIf								
+				
+				nValTit := F390VALLIQ(cArqSE2)
+
+				If nValTit > 0
+					// Atualiza arquivo de cheques.
+					cChaveCH := FWUUIDV4()
+					Reclock( "SEF", .T. )
+					SEF->EF_FILIAL	:= xFilial()
+					SEF->EF_NUM		:= cCheque390
+					SEF->EF_BANCO	:= cBanco390
+					SEF->EF_AGENCIA	:= cAgencia390
+					SEF->EF_CONTA	:= cConta390
+					SEF->EF_DATA	:= dDataEmiss
+					SEF->EF_VALOR	:= nValTit
+					SEF->EF_BENEF	:= cBenef390
+					SEF->EF_IMPRESS	:= "A"
+					SEF->EF_PREFIXO	:= SE2->E2_PREFIXO
+					SEF->EF_TITULO	:= SE2->E2_NUM
+					SEF->EF_PARCELA	:= SE2->E2_PARCELA
+					SEF->EF_TIPO	:= SE2->E2_TIPO
+					SEF->EF_FORNECE	:= SE2->E2_FORNECE
+					SEF->EF_LOJA	:= SE2->E2_LOJA
+					SEF->EF_HIST	:= cHist390
+					SEF->EF_LIBER	:= cLiberado
+					SEF->EF_ORIGEM 	:= "FINA390TIT"
+					SEF->EF_FILORIG	:= cFilAnt
+					SEF->EF_IDSEF	:= cChaveCH
+					SEF->EF_FILCHQ	:= cFilCorr	
+
+		            If cPaisLoc == "COL"
+    		            SEF->EF_COMPROB	:= cComprobante
+    		        EndIf 
+    		        
+					SEF->( MsUnlock() )
+
+					// Ponto de Entrada A390SEF								  
+					// Para grava‡äes complementares no item do cheque
+					If lEntrada2
+						ExecBlock("A390SEF",.F.,.F.) 
+					Endif
+				EndIF
+
+				//Gravo informação do cheque no titulo principal
+				Reclock( "SE2" )
+				SE2->E2_IMPCHEQ	:= "S"
+				SE2->E2_NUMBCO	:= cCheque390
+				MsUnlock()
+				STRLCTPAD := cBanco390+"-"+cAgencia390+"-"+cConta390+"-"+cCheque390
+
+				// Realiza lan‡amentos contábeis pelo SE2: Coloca SEF em Eof(), pois a segunda sequencia será  
+				// feita pelo SEF posicionado no registro totalizador e o SE2 estar em Eof() 
+				// Soma dos debitos igual ao total do credito                  ³
+				lContabiliza := IIF(mv_par03==1, .T.,.F.)
+				If lContabiliza
+					lContabiliza := IIF(__cCtBaixa $ "AC", .T.,.F.)
+				Endif
+				If lPadrao .and. lContabiliza
+					nRegSEF := SEF->(Recno())
+					
+					// Desposiciona para ignorar SEF gerado neste momento.
+					SEF->(dbGoBottom())
+					SEF->(dbSkip())
+					
+					// Posiciona fornecedor para utilizar sua conta contabil
+					SA2->(MsSeek(xFilial("SA2",SE2->E2_FILORIG)+SE2->(E2_FORNECE+E2_LOJA))) 
+					IF !lHead
+						// Inicializa Lancamento Contabil
+						nHdlPrv := HeadProva( cLote,;
+												"FINA390" ,;
+												Substr( cUsuario, 7, 6 ),;
+												@cArquivo )
+						lHead:=.T.
+					Endif
+
+					// Prepara Lancamento Contabil
+					If lUsaFlag // Armazena em aFlagCTB para atualizar no modulo Contabil 
+						aAdd( aFlagCTB, {"EF_LA", "S", "SEF", nRegSEF, 0, 0, 0} )
+					Endif
+					nTotal += DetProva( nHdlPrv,;
+										cPadrao,;
+										"FINA390" /*cPrograma*/,;
+										cLote,;
+										/*nLinha*/,;
+										/*lExecuta*/,;
+										/*cCriterio*/,;
+										/*lRateio*/,;
+										/*cChaveBusca*/,;
+										/*aCT5*/,;
+										/*lPosiciona*/,;
+										@aFlagCTB,;
+										/*aTabRecOri*/,;
+										/*aDadosProva*/ )
+
+					SEF->( DbGoto(nRegSEF) )
+
+					If !lUsaFLAG .and. nTotal > 0
+						RecLock("SEF")
+						Replace EF_LA With "S"
+						MsUnlock()
+					Endif
+				Endif
+			Endif
+
+			DbSelectArea(cArqSE2)
+			(cArqSE2)->(DbSkip())
+		EndDo
+
+		cFilAnt := cFilCorr
+
+		If nValor > 0
+			// Atualiza arquivo de cheques.
+			cChaveCH := FWUUIDV4()			
+			Reclock( "SEF", .T. ) 
+			SEF->EF_FILIAL		:= xFilial("SEF")
+			SEF->EF_NUM			:= cCheque390
+			SEF->EF_BANCO		:= cBanco390
+			SEF->EF_AGENCIA 	:= cAgencia390
+			SEF->EF_CONTA		:= cConta390
+			SEF->EF_DATA 		:= dDataEmiss
+			SEF->EF_VALOR		:= nValor
+			SEF->EF_BENEF		:= cBenef390
+			SEF->EF_HIST 		:= cHist390
+			SEF->EF_LIBER		:= cLiberado
+			SEF->EF_ORIGEM  	:= "FINA390TIT"
+			SEF->EF_FILORIG 	:= cFilAnt
+			SEF->EF_IDSEF		:= cChaveCH
+			SEF->EF_FILCHQ 		:= cFilAnt
+
+			If cPaisLoc == "COL" //Necessito para buscar NIT/CC do Beneficiario
+				SEF->EF_LOJA    := cLojaBen
+				SEF->EF_FORNECE	:= cForn390
+				SEF->EF_COMPROB := cComprobante
+			EndIf
+
+			MsUnlock()
+		EndIf
+
+		If nValor > 0 .And. cLiberado == "S"
+			cSequen := FinSeqSeF(cBanco390,cAgencia390,cConta390,cCheque390,"P", "CH|CA|CD")
+
+			// Grava registro referente a movimentação Bancária
+			nOrdSA6:=SA6->( IndexOrd() )
+			DbSetOrder( 1 )
+			SA6->( msSeek( xFilial("SA6") + cBanco390 + cAgencia390 + cConta390 ) )
+			cMoedaBco := STRZERO( Max( SA6->A6_MOEDA, 1 ), 2 ) 
+			SA6->( DbSetOrder( nOrdSA6 ) )
+			
+			//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+			If !Empty(cCamposE5)
+				cCamposE5 += "|"
+			Endif
+			cCamposE5 += "{"
+			cCamposE5 += " {'E5_BENEF'	, '"+cBenef390+"'}"	
+			cCamposE5 += ",{'E5_DTDIGIT', dDataBase}"			
+			cCamposE5 += ",{'E5_CLIFOR'	, '"+cForn390+"'}"
+			cCamposE5 += "}"
+			
+			oModelMov := FWLoadModel("FINM030")			  		
+			oModelMov:SetOperation( 3 ) //Inclusao
+			oModelMov:Activate()
+			oModelMov:SetValue( "MASTER"	, "E5_GRV", .T. )	//Informa se vai gravar SE5 ou não		
+			oModelMov:SetValue( "MASTER"	,  "NOVOPROC", .T.  )
+			oModelMov:SetValue( "MASTER"	, "E5_CAMPOS", cCamposE5 ) //Informa os campos da SE5 que serão gravados indepentes de FK5
+			
+			cChaveMov := FWUUIDV4()
+			
+			oFKA := oModelMov:GetModel( "FKADETAIL" )												
+			oFKA:SetValue( 'FKA_IDORIG'	, cChaveMov)			
+			oFKA:SetValue( 'FKA_TABORI'	, 'FK5' )
+			  		
+			// Informacoes do movimento
+			oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+			oSubFK5:SetValue( "FK5_VALOR"	, nValor )
+			oSubFK5:SetValue( "FK5_DATA"	, dDataBase )
+			oSubFK5:SetValue( "FK5_NATURE"	, cNatur390 )
+			oSubFK5:SetValue( "FK5_RECPAG"	, "P" )
+			oSubFK5:SetValue( "FK5_TPDOC"	, "CH" )
+			oSubFK5:SetValue( "FK5_BANCO"	, cBanco390 )
+			oSubFK5:SetValue( "FK5_AGENCI"	, cAgencia390 )
+			oSubFK5:SetValue( "FK5_CONTA"	, cConta390 )
+			oSubFK5:SetValue( "FK5_NUMCH"	, cCheque390 )
+			oSubFK5:SetValue( "FK5_HISTOR"	, LEFT(cHist390, 40) )
+			oSubFK5:SetValue( "FK5_DTDISP"	, dDataBase )
+			oSubFK5:SetValue( "FK5_SEQ"		, cSequen )
+			oSubFK5:SetValue( "FK5_MOEDA"	, cMoedaBco )
+			oSubFK5:SetValue( "FK5_ORIGEM"	, Funname() )
+			oSubFK5:SetValue( "FK5_FILORI"	, cFilAnt )
+			
+			If SpbInUse()
+				oSubFK5:SetValue( "FK5_MODSPB"	, "3" )
+			Endif
+			
+			//Dados do Cheque
+			If !oFKA:IsEmpty()
+				oFKA:AddLine()
+			Endif
+			oFKA:SetValue( 'FKA_IDORIG', cChaveCH )
+			oFKA:SetValue( 'FKA_TABORI', 'SEF' )		
+			
+			If oModelMov:VldData()
+			    oModelMov:CommitData()
+			Else
+			    lRet := .F.
+			    cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+			    cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+			    cLog += cValToChar(oModelMov:GetErrorMessage()[6])        	
+			    
+			    Help( ,,"M030VALID",,cLog, 1, 0 )	  		    		
+			Endif
+
+			oModelMov:DeActivate()
+			oModelMov:Destroy()
+			oModelMov:= Nil
+
+			// Atualiza saldo bancario.
+			AtuSalBco(cBanco390,cAgencia390,cConta390,SE5->E5_DATA,SE5->E5_VALOR,"-")
+		Endif
+
+		END TRANSACTION 
+		
+		//Envio de e-mail pela rotina de checklist de documentos obrigatorios
+		If lFinVDoc
+			FA390ValDocs(aTitulos)
+		EndIf
+		
+		If nValor > 0
+
+			If lEntrada
+				ExecBlock("A390CHEQ",.F.,.F.)
+			Endif
+
+			lContabiliza := IIF(mv_par03==1, .T.,.F.)
+			If lContabiliza
+				lContabiliza := IIF(__cCtBaixa $ "AC", .T.,.F.)
+			Endif				
+
+			If (lPadrao := VerPadrao( cPadrao)) .and. lContabiliza
+				IF !lHead
+					// Inicializa Lancamento Contabil
+					nHdlPrv := HeadProva( cLote,;
+					                      "FINA390" /*cPrograma*/,;
+					                      Substr( cUsuario, 7, 6 ),;
+					                      @cArquivo )
+					lHead:=.T.
+				Endif
+
+				If !(SE2->(EOF()))
+					SE2->(dbGoBottom())
+					SE2->(dbSkip())
+				Endif
+
+				// Prepara Lancamento Contabil
+				If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil 
+					aAdd( aFlagCTB, {"EF_LA", "S", "SEF", SEF->( Recno() ), 0, 0, 0} )
+				Endif
+				nTotal += DetProva( nHdlPrv,;
+									cPadrao,;
+									"FINA390" /*cPrograma*/,;
+									cLote,;
+									/*nLinha*/,;
+									/*lExecuta*/,;
+									/*cCriterio*/,;
+									/*lRateio*/,;
+									/*cChaveBusca*/,;
+									/*aCT5*/,;
+									/*lPosiciona*/,;
+									@aFlagCTB,;
+									/*aTabRecOri*/,;
+									/*aDadosProva*/ )
+				
+				lAglutina:=Iif(mv_par04==1,.t.,.f.)
+				lMostra	:=Iif(mv_par02==1,.t.,.f.)
+
+				// Efetiva Lan‡amento Contabil 
+				RodaProva( nHdlPrv,;
+							nTotal)
+
+				cA100Incl( cArquivo,;
+							nHdlPrv,;
+							3 /*nOpcx*/,;
+							cLote,;
+							lMostra /*lDigita*/,;
+							lAglutina,;
+							/*cOnLine*/,;
+							/*dData*/,;
+							/*dReproc*/,;
+							@aFlagCTB,;
+							/*aDadosProva*/,;
+							/*aDiario*/ )
+				aFlagCTB := {}  // Limpa o coteudo apos a efetivacao do lancamento
+
+				If !lUsaFlag
+					RecLock("SEF")
+					Replace EF_LA With "S"
+					MsUnlock()
+				Endif
+			EndIf
+		EndIf
+		dbSelectArea( "SE2" )
+	ElseIf nOpca == 2
+		RetIndex("SE2")
+		Set Filter to
+	EndIf
+	//Fecha o TRB criado
+	F390Clean()
+
+	Exit
+EndDo
+
+MsUnlockAll()
+
+For nX := 1 To Len(aTmpFil)
+	CtbTmpErase(aTmpFil[nX])
+Next
+
+IF ExistBlock("F390BROW")
+	ExecBlock("F390BROW",.f.,.f.)
+Endif
+
+STRLCTPAD := " "
+nValor := 0
+aTmpFil := {}
+aIndices := {}
+aPesqui := {}
+aCbx := {}
+
+Return (.T.)
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fa390Avu
+Geração de Cheque Avulso
+
+@author  Wagner Xavier 
+@since 27/02/95
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fa390Avu( cAlias, nRec, nOpcE, aM,lAut,aAutoCab,lRotAuto)
+
+Local lPanelFin		:= IsPanelFin()
+LOCAL oDlg			:= NIL
+Local cPadrao		:="567"
+LOCAL lPadrao		:= VerPadrao( cPadrao )
+LOCAL cArquivo		:= ""
+LOCAL nTotal		:= 0
+LOCAL nHdlPrv		:= 0
+LOCAL nOpca 		:= 0
+Local cLiberado		:= GetMv("MV_LIBCHEQ")
+Local oBanco390		:= NIL
+Local oAge390		:= NIL
+Local oConta390		:= NIL
+Local oCheque390	:= NIL
+Local oBenef390		:= NIL
+Local aValidGet		:= {}
+Local nTamSeq		:= TamSX3("E5_SEQ")[1]
+Local cSequen		:= Replicate( "0", nTamSeq )
+Local cStringSE5	:= ""
+Local aFlagCTB		:= {}
+
+//REESTRUTURAÇÃO SE5
+Local oModelMov := NIL	//FWLoadModel("FINM030")
+Local oFKA 		:= NIL
+Local oSubFK5 	:= NIL
+Local cLog 		:= ""
+Local cCamposE5 := ""
+Local cChaveCH  := ""
+Local cChaveMov	:= ""
+Local nOrdSA6	:= 1
+Local cMoedaBco	:= 1
+
+DEFAULT aAutoCab := {}
+DEFAULT lRotAuto := .F.
+
+cBanco390		:= CriaVar("EF_BANCO")
+cAgencia390 	:= Criavar("EF_AGENCIA")
+cConta390		:= Criavar("EF_CONTA")
+nValor390		:= 0
+cBenef390		:= CriaVar("EF_BENEF"  )
+cHist390 		:= CriaVar("EF_HIST"   )
+cNatur390		:= CriaVar("E5_NATUREZ")
+cCheque390		:= CriaVar("EF_NUM"    )
+cForn390		:= CriaVar("EF_FORNECE")
+nSavRec			:= RecNO()
+
+// Verifica se data do movimento não é menor que data limite de movimentacao no financeiro
+If !DtMovFin(,,"1")
+	Return
+Endif	
+
+While .T.
+	If nOpca == 1
+		cBanco390	:= CriaVar("EF_BANCO"  )
+		cAgencia390 := Criavar("EF_AGENCIA")
+		cConta390	:= Criavar("EF_CONTA"  )
+		cHist390    := CriaVar("EF_HIST"   )
+		cNatur390   := CriaVar("E5_NATUREZ")
+		cCheque390  := CriaVar("EF_NUM"    )
+		cForn390    := CriaVar("EF_FORNECE")
+		cLojaBen    := CriaVar("EF_LOJA"   )
+		cBenef390	:= CriaVar("EF_BENEF"  )
+		nValor390   := 0
+		nOpca := 0
+	Elseif nOpca == 2
+		nOpca := 0
+	Endif
+
+	If __lA390Hst
+		cHist390:=padr(ExecBlock("A390HIST",.f.,.f.),TamSX3("EF_HIST")[1])
+	Endif                   
+		
+	If ! lRotAuto
+		aSize := MSADVSIZE()
+		If lPanelFin  //Chamado pelo Painel Financeiro						
+			oPanelDados := FinWindow:GetVisPanel()
+			oPanelDados:FreeChildren()
+			aDim := DLGinPANEL(oPanelDados)
+			DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM 0,0 To 0,0 PIXEL STYLE nOR( WS_VISIBLE, WS_POPUP )							
+			//------------------------------------------------------------------
+			// Observacao Importante quanto as coordenadas calculadas abaixo:
+			//------------------------------------------------------------------
+			// a funcao DlgWidthPanel() retorna o dobro do valor da area do
+			// painel, sendo assim este deve ser dividido por 2 antes da 
+			// subtracao e redivisao por 2 para a centralizacao.
+			//------------------------------------------------------------------
+			nEspLarg := ((DlgWidthPanel(oPanelDados)/2) - 193) /2		 					
+			nEspLin  := 0
+					
+	   	Else   
+		   	nEspLarg := 0 
+		  	nEspLin  := 5
+			DEFINE MSDIALOG oDlg FROM 15,6 TO 244,485 TITLE OemToAnsi(STR0035) PIXEL  //"Cheques Avulsos"
+	   	Endif
+
+	  	oDlg:lMaximized := .F.
+		oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+		oPanel:Align := CONTROL_ALIGN_ALLCLIENT    			   
+	   
+		@ 000+nEspLin, 011+nEspLarg TO 028+nEspLin, 193+nEspLarg OF oPanel	PIXEL
+		@ 031+nEspLin, 011+nEspLarg TO 105+nEspLin, 193+nEspLarg OF oPanel	PIXEL
+	   
+		//primeiro quadro
+		@ 002+nEspLin, 016+nEspLarg SAY 		OemToAnsi(STR0012)		SIZE 021, 07 OF oPanel PIXEL  //"Banco"
+		@ 011+nEspLin, 016+nEspLarg MSGET	oBanco390 VAR cBanco390		SIZE 021, 08 OF oPanel Hasbutton PIXEL ;
+														Valid (Fa390Banco(0/*nGet*/,.F./*lVldBloq*/) .And. FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.)) ;
+														F3 "SA6" Picture "@!" OBFUSCATED RetGlbLGPD('EF_BANCO') When !RetGlbLGPD('EF_BANCO')
+														
+		@ 002+nEspLin, 052+nEspLarg SAY 		OemToAnsi(STR0013)			SIZE 028, 07 OF oPanel PIXEL  //"Agˆncia"
+		@ 011+nEspLin, 052+nEspLarg MSGET	oAge390 VAR cAgencia390		SIZE 028, 08 OF oPanel PIXEL ;
+														Valid (Fa390Banco(0/*nGet*/,.F./*lVldBloq*/) .And. FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.)) ;
+														Picture "@!" OBFUSCATED RetGlbLGPD('EF_AGENCIA') When !RetGlbLGPD('EF_AGENCIA')
+		
+		@ 002+nEspLin, 087+nEspLarg SAY 		OemToAnsi(STR0014)		SIZE 028, 07 OF oPanel PIXEL  //"Conta"		
+		@ 011+nEspLin, 087+nEspLarg MSGET	oConta390 VAR cConta390		SIZE 039, 08 OF oPanel PIXEL ;
+														Valid If(Fa390Banco(0/*nGet*/,.F.),FaPrNumChq(cBanco390,cAgencia390,cConta390,@oCheque390,@cCheque390,.T.),oBanco390:SetFocus());
+														Picture "@!" OBFUSCATED RetGlbLGPD('EF_CONTA') When !RetGlbLGPD('EF_CONTA')
+														
+														
+		@ 002+nEspLin, 134+nEspLarg SAY 		OemToAnsi(STR0015)		SIZE 046, 07 OF oPanel PIXEL  //"N£mero Cheque"
+		@ 011+nEspLin, 133+nEspLarg MSGET 	oCheque390 VAR	cCheque390	SIZE 049, 08 OF oPanel PIXEL ;
+														Valid Fa390Cheq(1) Picture "@!" OBFUSCATED RetGlbLGPD('EF_NUM') When !RetGlbLGPD('EF_NUM')
+	
+  	  	// segundo quadro
+		@ 033+nEspLin, 018+nEspLarg SAY 		OemToAnsi(STR0019)  	SIZE 053, 07 OF oPanel PIXEL  //"Valor do Cheque"
+		@ 043+nEspLin, 018+nEspLarg MSGET	nValor390 Picture "@E 9999,999,999.99" Valid (nValor390 > 0);
+																		SIZE 063, 08 OF oPanel Hasbutton PIXEL
+		@ 033+nEspLin, 120+nEspLarg SAY 		OemToAnsi(STR0021)      SIZE 046, 07 OF oPanel PIXEL  //"Natureza"
+		@ 043+nEspLin, 119+nEspLarg MSGET	cNatur390 F3 "SED"   Valid If(nOpca==0,fa390Natur(),.T.) Picture "@!"  SIZE 060, 08 OF oPanel Hasbutton PIXEL
+		@ 056+nEspLin, 018+nEspLarg SAY 		OemToAnsi(STR0023)      SIZE 053, 07 OF oPanel PIXEL  //"Hist¢rico"
+		@ 066+nEspLin, 018+nEspLarg MSGET	cHist390 	Picture "@!S35" SIZE 168, 08 OF oPanel PIXEL
+		If cPaisLoc != "COL"
+			@ 079+nEspLin, 018+nEspLarg SAY 	OemToAnsi(STR0022)      SIZE 053, 07 OF oPanel PIXEL  //"Benefici rio"
+			@ 089+nEspLin, 018+nEspLarg MSGET oBenef390 VAR cBenef390 Picture "@!S29" SIZE 168, 08 OF oPanel PIXEL OBFUSCATED RetGlbLGPD('EF_BENEF') When !RetGlbLGPD('EF_BENEF')
+		Else
+			@ 079+nEspLin, 018+nEspLarg SAY 	OemToAnsi(STR0020)      SIZE 35, 07 OF oPanel PIXEL  //"Fornecedor"
+			@ 089+nEspLin, 018+nEspLarg MSGET cForn390 	F3 "SA2" Valid fa390Fornece() SIZE 28, 08 OF oPanel PIXEL
+			@ 079+nEspLin, 060+nEspLarg SAY 	OemToAnsi(STR0022)      SIZE 53, 07 OF oPanel PIXEL  //"Benefici rio"
+			@ 089+nEspLin, 060+nEspLarg MSGET cBenef390	Picture "@!S30"	SIZE 126, 08 OF oPanel PIXEL
+		EndIf
+		
+		If lPanelFin  //Chamado pelo Painel Financeiro						
+			oDlg:Move(aDim[1],aDim[2],aDim[4]-aDim[2], aDim[3]-aDim[1])			
+			ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,;
+			{||If(Fa390Ok(oDlg),(nOpca := 1,oDlg:End()),nOpca:=0)},;
+			{||nOpca:=0, oDlg:End()})
+			
+			cAlias := FinWindow:cAliasFile     
+			dbSelectArea(cAlias)					
+			FinVisual(cAlias,FinWindow,(cAlias)->(Recno()),.T.)	
+   		Else				
+			DEFINE SBUTTON FROM 07, 204 TYPE 1 ACTION (nOpca := 1, Iif(Fa390Banco(0, .T.) .And. Fa390Ok(oDlg),oDlg:End(),nOpca:=2))  ENABLE OF oPanel
+			DEFINE SBUTTON FROM 20, 204 TYPE 2 ACTION (nOpca:=0,oDlg:End()) ENABLE OF oPanel
+		
+			ACTIVATE MSDIALOG oDlg CENTERED 
+		Endif	
+	Else
+		//------------------------------------------------------
+		//                Rotina Automatica
+		//------------------------------------------------------
+		aValidGet:= {}
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTBANCO'})) > 0
+			cBanco390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_BANCO")[1])
+	 		Aadd(aValidGet,{'cBanco390' ,cBanco390,"Fa390Banco(1)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTAGENCIA'})) > 0
+			cAgencia390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_AGENCIA")[1])
+	 		Aadd(aValidGet,{'cAgencia390' ,cAgencia390,"Fa390Banco(2)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCONTA'})) > 0
+			cConta390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_CONTA")[1])
+	 		Aadd(aValidGet,{'cConta390' ,cConta390,"Fa390Banco(3)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCHEQUE'})) > 0
+			cCheque390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_NUM")[1])
+	 		Aadd(aValidGet,{'cCheque390' ,cCheque390,"Fa390Cheq(1)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTVALOR'})) > 0
+			nValor390	:=	aAutoCab[nT,2]
+	 		Aadd(aValidGet,{'nValor390' ,nValor390,"nValor390>0",.T.})
+	 	EndIf	
+	 	If (nT := ascan(aAutoCab,{|x| x[1]='AUTNATUREZA'})) > 0
+			cNatur390	:=	Padr(aAutoCab[nT,2],TAMSX3("E5_NATUREZ")[1])
+	 		Aadd(aValidGet,{'cNatur390' ,cNatur390,"fa390Natur()",.T.})
+	 	EndIf		 	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTFORN'})) > 0
+			cForn390	:=	Padr(aAutoCab[nT,2],TamSX3("E2_FORNECE")[1])
+	 		Aadd(aValidGet,{'cForn390' ,cForn390,"fa390Fornece()",.T.})
+	 	EndIf
+	 	If (nT := ascan(aAutoCab,{|x| x[1]='AUTBENEF'})) > 0
+			cBenef390	:=	aAutoCab[nT,2]
+	 	EndIf	
+	 	
+	 	If ! SE2->(MsVldGAuto(aValidGet)) // consiste os gets
+			nOpca := 0 // Cancela
+		Else
+			nOpca := 1  // Confirma
+	   EndIf     
+	Endif	
+
+	If nOpca == 0
+		Exit
+	Elseif nOpca == 2 
+		Loop
+	ElseIf nOpca == 1
+		
+		// Grava cheque no sistema.
+		BEGIN TRANSACTION
+			
+			Reclock( "SEF", .T. ) 
+			cChaveCH := FWUUIDV4()
+			SEF->EF_FILIAL	:= cFilial
+			SEF->EF_NUM		:= cCheque390
+			SEF->EF_VALOR	:= nValor390
+			SEF->EF_BANCO	:= cBanco390
+			SEF->EF_AGENCIA	:= cAgencia390
+			SEF->EF_CONTA	:= cConta390
+			SEF->EF_BENEF	:= cBenef390
+			SEF->EF_DATA	:= dDataBase
+			SEF->EF_HIST	:= cHist390
+			SEF->EF_LIBER  	:= cLiberado
+			SEF->EF_ORIGEM 	:= "FINA390AVU"
+			SEF->EF_FORNECE	:= cForn390
+			SEF->EF_LOJA   	:= cLojaBen
+			SEF->EF_FILORIG	:= cFilAnt
+			SEF->EF_IDSEF	:= cChaveCH
+			SEF ->EF_NATUR	:= cNatur390
+			SEF->EF_FILCHQ  := cFilAnt
+			
+			If cPaisLoc == "COL"
+				cComprobante := Tabela("YG","CE")
+				F390GrvCprb(cComprobante)
+			 	SEF->EF_COMPROB := cComprobante
+			EndIf  
+
+			MsUnlock( )
+			
+			// Registra na movimentação Bancária.
+			If ( cLiberado == "S" )		
+				dbSelectArea("SE5")
+				dbSetOrder(11) // E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ+DTOS(E5_DATA)
+				cStringSE5 := xFilial("SE5")+ cBanco390 + cAgencia390 + cConta390	 + cCheque390
+				If dbSeek(cStringSE5)			
+					While cStringSE5 == SE5->(E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ) .and. !eof()
+						If (SE5->E5_TIPODOC $ "CH³CA³CD" .And. SE5->E5_SITUACA != "C" )
+							If PadL(AllTrim(cSequen),nTamSeq,"0") < PadL(AllTrim(SE5->E5_SEQ),nTamSeq,"0")
+								cSequen := SE5->E5_SEQ
+							Endif
+						Endif 
+						DbSkip()
+					Enddo
+				Endif    
+				
+				If Len(AllTrim(cSequen)) < nTamSeq
+					cSequen := PadL(AllTrim(cSequen),nTamSeq,"0")
+				Endif
+				cSequen := Soma1(cSequen,nTamSeq)
+				
+				nOrdSA6:=SA6->( IndexOrd() )
+				DbSetOrder( 1 )
+				SA6->( msSeek( xFilial("SA6") + cBanco390 + cAgencia390 + cConta390 ) )
+				cMoedaBco := STRZERO( Max( SA6->A6_MOEDA, 1 ), 2 ) 
+				SA6->( DbSetOrder( nOrdSA6 ) )
+				
+				//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+				If !Empty(cCamposE5)
+					cCamposE5 += "|"
+				Endif
+				cCamposE5 := "{"	
+				cCamposE5 += " {'E5_BENEF'	, '"+cBenef390+"'}"	
+				cCamposE5 += ",{'E5_DTDIGIT'	, dDataBase}"			
+				cCamposE5 += ",{'E5_CLIFOR'	, '"+cForn390+"'}"
+				cCamposE5 += ",{'E5_LOJA'	, '"+cLojaBen+"'}"
+				cCamposE5 += "}"			
+
+				oModelMov := FWLoadModel("FINM030")		  		
+				oModelMov:SetOperation( 3 ) //Inclusao
+				oModelMov:Activate()
+				oModelMov:SetValue( "MASTER"	, "E5_GRV", .T. )	//Informa se vai gravar SE5 ou não		
+				oModelMov:SetValue( "MASTER"	, "NOVOPROC", .T.  ) 
+				oModelMov:SetValue( "MASTER"	, "E5_CAMPOS", cCamposE5 ) //Informa os campos da SE5 que serão gravados indepentes de FK5
+				
+				cChaveMov := FWUUIDV4()
+				
+				oFKA := oModelMov:GetModel( "FKADETAIL" )												
+				oFKA:SetValue( 'FKA_IDORIG'	, cChaveMov)			
+				oFKA:SetValue( 'FKA_TABORI'	, 'FK5' )
+				  		
+				// Informacoes do movimento
+				oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+				oSubFK5:SetValue( "FK5_BANCO"	, cBanco390 )
+				oSubFK5:SetValue( "FK5_AGENCI"	, cAgencia390 )
+				oSubFK5:SetValue( "FK5_CONTA"	, cConta390 )
+				oSubFK5:SetValue( "FK5_RECPAG"	, "P" )
+				oSubFK5:SetValue( "FK5_DATA"		, dDataBase )
+				oSubFK5:SetValue( "FK5_HISTOR"	, LEFT(cHist390, 40) )
+				oSubFK5:SetValue( "FK5_VALOR"	, nValor390 )
+				oSubFK5:SetValue( "FK5_NUMCH"	, cCheque390 )
+				oSubFK5:SetValue( "FK5_NATURE"	, cNatur390 )
+				oSubFK5:SetValue( "FK5_TPDOC"	, "CA" )
+				oSubFK5:SetValue( "FK5_DTDISP"	, dDataBase )
+				oSubFK5:SetValue( "FK5_SEQ"		, cSequen )
+				oSubFK5:SetValue( "FK5_FILORI"	, cFilAnt )
+				oSubFK5:SetValue( "FK5_MOEDA"	, cMoedaBco )
+				oSubFK5:SetValue( "FK5_ORIGEM"	, Funname() )
+
+				If SpbInUse()
+					oSubFK5:SetValue( "FK5_MODSPB"	, "3" )
+				EndIf
+				
+				//Dados do Cheque
+				If !oFKA:IsEmpty()
+					oFKA:AddLine()
+				EndIf
+				oFKA:SetValue( 'FKA_IDORIG', cChaveCH )			
+				oFKA:SetValue( 'FKA_TABORI', 'SEF' )		
+				
+				If oModelMov:VldData()
+				    oModelMov:CommitData()
+				Else
+				    lRet := .F.
+				    cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+				    cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+				    cLog += cValToChar(oModelMov:GetErrorMessage()[6])        	
+				    
+				    Help( ,,"M030VALID",,cLog, 1, 0 )	  		    		
+				Endif				
+				oModelMov:DeActivate()
+				oModelMov:Destroy()
+				oModelMov:= Nil
+
+
+				// Atualiza saldo bancario.
+				 AtuSalBco(cBanco390,cAgencia390,cConta390,SE5->E5_DATA,SE5->E5_VALOR,"-")
+			EndIf
+	
+		END TRANSACTION
+		
+		If lRotAuto
+			Exit
+		Endif	
+		
+		// Ativa um ponto de entrada para eventual execblock chamado A390AVU  										  ³
+		If __lA390Avu
+			ExecBlock("A390AVU",.F.,.F.)
+		Endif
+
+		// Monta Lan‡amento contabil.	
+		If (lPadrao := VerPadrao( cPadrao ) .and. mv_par03 == 1)
+
+			// Inicializa Lancamento Contabil 
+			nHdlPrv := HeadProva( cLote,;
+			                      "FINA390" /*cPrograma*/,;
+			                      Substr( cUsuario, 7, 6 ),;
+			                      @cArquivo )
+
+
+			// Prepara Lancamento Contabil
+			If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil 
+				aAdd( aFlagCTB, {"EF_LA", "S", "SEF", SEF->( Recno() ), 0, 0, 0} )
+			Endif
+			nTotal += DetProva( nHdlPrv,;
+								cPadrao,;
+								"FINA390" /*cPrograma*/,;
+								cLote,;
+								/*nLinha*/,;
+								/*lExecuta*/,;
+								/*cCriterio*/,;
+								/*lRateio*/,;
+								/*cChaveBusca*/,;
+								/*aCT5*/,;
+								/*lPosiciona*/,;
+								@aFlagCTB,;
+								/*aTabRecOri*/,;
+								/*aDadosProva*/ )
+
+
+			// Efetiva Lan‡amento Contabil
+			RodaProva( nHdlPrv,;
+						nTotal)
+
+			cA100Incl( cArquivo,;
+						nHdlPrv,;
+						3 /*nOpcx*/,;
+						cLote,;
+						Iif(mv_par02==1,.T.,.F.) /*lDigita*/,;
+						.F. /*lAglut*/,;
+						/*cOnLine*/,;
+						/*dData*/,;
+						/*dReproc*/,;
+						@aFlagCTB,;
+						/*aDadosProva*/,;
+						/*aDiario*/ )
+			aFlagCTB := {}  // Limpa o coteudo apos a efetivacao do lancamento
+			 
+ 			If !lUsaFlag
+ 				RecLock("SEF")
+				Replace EF_LA With "S"
+				MsUnlock()				
+			Endif
+			
+		EndIf
+	EndIf
+EndDo
+
+// Recupera a Integridade dos dados	
+MsUnlockAll()
+dbSelectArea("SE2")
+dbSetOrder(1)
+dbGoTo( nSavRec )
+
+Return
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fa390Can
+Cancela cheques sobre titulo
+
+@author  Alessandro Freire
+@since 19/04/1996
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fa390Can(cAlias,cCampo, nOpcE, aM,lAut,aAutoCab,lRotAuto)
+
+Local lPanelFin		:= IsPanelFin()
+LOCAL oDlg			:= NIL
+LOCAL nOrder		:= IndexOrd()
+LOCAL nRec			:= Recno()
+LOCAL lF390Canc		:= ExistBlock("F390CANC")
+Local lCancelou		:= .F.
+Local oBanco390		:= NIL
+Local oAge390		:= NIL
+Local oConta390		:= NIL
+Local oCheque390	:= NIL
+
+Local lMostra		:= .T.
+LOCAL lF390CBX		:= ExistBlock("F390CBX")
+Local lAvulso		:= .F.
+Local nT			:= 0
+Local aValidGet		:= {}
+Local lReutiliza	:= .F.
+
+DEFAULT aAutoCab := {}
+DEFAULT lRotAuto := .F.
+
+PRIVATE cBanco390
+PRIVATE cAgencia390
+PRIVATE cConta390
+PRIVATE cCheque390
+PRIVATE nOpcA
+
+While .T.
+
+	// Verifica se data do movimento não ‚ menor que data limite de movimentacao no financeiro
+	If !DtMovFin(,,"1")
+		Exit
+	Endif	
+
+	// Procura no SEF o registro correspondente do SE2 posiciona no momento.
+	dbSelectArea( "SEF" )
+	dbSetOrder( 3 )
+	If dbSeek( xFilial("SEF", SE2->E2_FILORIG) + SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO) )
+
+		// Procura no SEF o registro que contem o No. do Cheque. Considera Fornecedor na Chave
+		While SEF->( !Eof() .And. SEF->(EF_FILIAL+EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO) == xFilial("SEF", SE2->E2_FILORIG) + SE2->( E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO ) )
+			If ( ! Empty( SEF->EF_NUM ) .And. SEF->EF_FORNECE == SE2->E2_FORNECE )
+				Exit   // EF_NUM PREENCHIDO E MESMO FORNECEDOR 
+			EndIf
+			SEF->( dbSkip() )
+		EndDo
+		
+		//se posicionou no registro correto
+		If	SEF->( !Eof() .And. SEF->(EF_FILIAL+EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO) == xFilial("SEF", SE2->E2_FILORIG) + SE2->( E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO )  .And. ;
+			 ! Empty(EF_NUM) .And. EF_FORNECE == SE2->E2_FORNECE )
+
+			// Recebe dados do cheque a ser cancelado.
+			cBanco390	:= SEF->EF_BANCO
+			cAgencia390 := SEF->EF_AGENCIA
+			cConta390	:= SEF->EF_CONTA
+			cCheque390	:= SEF->EF_NUM
+			dData390 	:= SEF->EF_DATA
+		Else
+			lAvulso := .T.
+		EndIf
+	
+	Else
+		lAvulso := .T.
+	EndIf
+	
+	If lAvulso
+		cBanco390		:= CriaVar("EF_BANCO")
+		cAgencia390 	:= Criavar("EF_AGENCIA")
+		cConta390		:= Criavar("EF_CONTA")
+		cCheque390		:= CriaVar("EF_NUM")
+	Endif	
+	
+	nOpca := 0
+	
+	If !lRotAuto
+		aSize := MSADVSIZE()
+		If lPanelFin  //Chamado pelo Painel Financeiro			
+			dbSelectArea(cAlias)
+			oPanelDados := FinWindow:GetVisPanel()
+			oPanelDados:FreeChildren()
+			aDim := DLGinPANEL(oPanelDados)
+			DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM 0,0 To 0,0 PIXEL STYLE nOR( WS_VISIBLE, WS_POPUP )							
+			//---------------------------------------------------------------------
+			// Observacao Importante quanto as coordenadas calculadas abaixo: 
+			//---------------------------------------------------------------------
+			// a funcao DlgWidthPanel() retorna o dobro do valor da area do	
+			// painel, sendo assim este deve ser dividido por 2 antes da 
+			// subtracao e redivisao por 2 para a centralizacao. 
+			//--------------------------------------------------------------------
+			nEspLarg := ((DlgWidthPanel(oPanelDados)/2) - 145) /2		 					
+			nEspLin  := 0
+					
+		Else   
+			nEspLarg := 2 
+			nEspLin  := 2
+			DEFINE MSDIALOG oDlg FROM 010,005 TO 190,315 TITLE OemToAnsi(STR0038) PIXEL //"Cancelar Cheque"
+		Endif
+		
+		oDlg:lMaximized := .F.
+		oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+		oPanel:Align := CONTROL_ALIGN_ALLCLIENT    			
+		
+		@ 003+nEspLin,005+nEspLarg TO 072+nEspLin,150+nEspLarg OF oPanel PIXEL
+		
+		@ 007+nEspLin,010+nEspLarg	Say OemToAnsi(STR0040) 								OF oPanel PIXEL //"Banco : "
+		@ 007+nEspLin,055+nEspLarg MSGET oBanco390 VAR cBanco390 F3 "SA6" Picture "@!"	OF oPanel PIXEL Hasbutton Valid If(Fa390Banco(0/*nGet*/,.F./*lVldBloq*/),.T.,.F.) OBFUSCATED RetGlbLGPD('EF_BANCO') When !RetGlbLGPD('EF_BANCO')
+		
+		@ 023+nEspLin,010+nEspLarg	Say OemToAnsi(STR0041)  							OF oPanel PIXEL //"Agência : "
+		@ 023+nEspLin,055+nEspLarg MSGET oAge390 VAR cAgencia390 Picture "@!"			OF oPanel PIXEL Valid If(Fa390Banco(0/*nGet*/,.F./*lVldBloq*/),.T.,.F.) OBFUSCATED RetGlbLGPD('EF_AGENCIA') When !RetGlbLGPD('EF_AGENCIA')
+
+		@ 039+nEspLin,010+nEspLarg	Say OemToAnsi(STR0042) 								OF oPanel PIXEL //"Conta : "
+		@ 039+nEspLin,055+nEspLarg MSGET oConta390 VAR cConta390 Picture "@!"			OF oPanel PIXEL Valid If(Fa390Banco(0/*nGet*/,.F.),.T.,oBanco390:SetFocus()) OBFUSCATED RetGlbLGPD('EF_CONTA') When !RetGlbLGPD('EF_CONTA')
+
+		@ 055+nEspLin,010+nEspLarg	Say OemToAnsi(STR0043)  							OF oPanel PIXEL //"Núm Cheque:"
+		@ 055+nEspLin,055+nEspLarg MSGET oCheque390 VAR cCheque390	Picture "@!"		OF oPanel PIXEL Valid If(nOpca==1,Fa390Cheq(2),.T.) OBFUSCATED RetGlbLGPD('EF_NUM') When !RetGlbLGPD('EF_NUM')
+	
+		
+		If lPanelFin  //Chamado pelo Painel Financeiro			
+			oDlg:Move(aDim[1],aDim[2],aDim[4]-aDim[2], aDim[3]-aDim[1])			
+			ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,;
+			{||nOpca := 1,If(!Empty(cBanco390) .and. Fa390Banco(3),oDlg:End(),nOpca:=0)},;
+			{||oDlg:End()})				
+		Else	
+			DEFINE SBUTTON FROM 077,097 TYPE 1 ACTION (nOpca := 1,If(!Empty(cBanco390) .and. Fa390Banco(0/*nGet*/,.T.) .and. Fa390Cheq(2),oDlg:End(),nOpca:=0)) ENABLE OF oPanel
+			DEFINE SBUTTON FROM 077,124 TYPE 2 ACTION oDlg:End() ENABLE OF oPanel	
+			ACTIVATE MSDIALOG oDlg CENTERED
+		Endif
+	Else
+		//------------------------------------------------------
+		//                Rotina Automatica
+		//------------------------------------------------------
+		aValidGet:= {}
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTBANCO'})) > 0
+			cBanco390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_BANCO")[1])
+	 		Aadd(aValidGet,{'cBanco390' ,cBanco390,"Fa390Banco(1)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTAGENCIA'})) > 0
+			cAgencia390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_AGENCIA")[1])
+	 		Aadd(aValidGet,{'cAgencia390' ,cAgencia390,"Fa390Banco(2)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCONTA'})) > 0
+			cConta390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_CONTA")[1])
+	 		Aadd(aValidGet,{'cConta390' ,cConta390,"Fa390Banco(3)",.T.})
+	 	EndIf	
+	  	If (nT := ascan(aAutoCab,{|x| x[1]='AUTCHEQUE'})) > 0
+			cCheque390	:=	Padr(aAutoCab[nT,2],TAMSX3("EF_NUM")[1])
+	 		Aadd(aValidGet,{'cCheque390' ,cCheque390,"Fa390Cheq(2)",.T.})
+	 	EndIf
+	 	
+		If (nT := AScan(aAutoCab, {|x| x[1] == "AUTCHQIMPR"})) > 0
+			If ValType(aAutoCab[nT][2]) == "L" 
+				lReutiliza := aAutoCab[nT][2]
+			EndIf
+	 	EndIf
+
+	 	If ! SE2->(MsVldGAuto(aValidGet)) // consiste os gets
+			nOpca := 0 // Cancela
+		Else
+			nOpca := 1  // Confirma
+		EndIf
+
+	EndIf
+
+	If nOpca  == 2 .Or. nOpca == 0
+		Exit			
+	EndIf
+
+	If nOpca == 1
+	    //cheque foi posicionado pela funcao Fa390Cheq(2)
+		lAvulso := ( Alltrim(SEF->EF_ORIGEM) == "FINA390AVU" )
+			
+		If  SEF->EF_IMPRESS == "C"
+			Help( " ", 1, "JA CANCELA")
+			Exit
+		EndIf
+
+		If dDatabase < SEF->EF_DATA
+			MsgStop(STR0068,STR0052 ) //"Cancelamento somente permitido para Data base superior a data de inclusão do cheque. Operação não realizada!"
+			Exit
+		EndIf
+
+		If ! Fa390ExistRed(cBanco390,cAgencia390,cConta390,cCheque390)
+			//Ponto de entrada para permissao ou nao do cancelamento do cheque
+			If lF390Canc
+				If !(ExecBlock("F390CANC",.F.,.F.))
+					Exit
+				Endif
+			Endif
+		
+			BEGIN TRANSACTION
+				lMostra	 :=Iif(mv_par02==1,.t.,.f.)
+				lCancelou := IIF( SEF->EF_ORIGEM <> "FINA550", fa390ver(lMostra, lGestaoCorp, lAvulso, lReutiliza), .F. )
+			END TRANSACTION
+
+			If lCancelou != Nil .And. ! lCancelou
+				// No retorno da Fa390Ver, o SE2 e o SEF estao posicionados nos
+				// registros que foram invalidados.
+				If Alltrim( SEF->EF_ORIGEM ) == "FINA550"
+					Help( " ", 1, "ORIGEM190")
+				   Exit
+				ElseIf Empty( SE2->E2_IMPCHEQ ) .Or. Alltrim( SEF->EF_ORIGEM ) == "FINA550"
+					Help( " ", 1, "ORIGEM390" )
+					Exit
+				ElseIf SEF->EF_IMPRESS == "C"
+					Help( " ", 1, "JA CANCELA")
+					Exit
+				Endif	
+			ElseIf lCancelou == Nil
+				//Ponto de entrada para complementos de gravacao apos cancelamento do cheque
+				If lF390CBX
+					ExecBlock("F390CBX",.F.,.F.)
+				Endif
+				Exit
+			Endif
+		Else
+			Help( " ", 1, "HA_REDEPOS" )//"Já existe redeposito para este cheque, não é permitido seu cancelamento. Para estornar completamente o movto. deste cheque, efetue o redepósito do restante do cheque.
+			Exit
+		Endif		
+	EndIf
+EndDo
+
+dbSelectArea( cAlias )
+dbSetOrder( nOrder )
+dbGoto( nRec )
+
+If lPanelFin
+	dbSelectArea(FinWindow:cAliasFile)					
+	FinVisual(FinWindow:cAliasFile,FinWindow,(FinWindow:cAliasFile)->(Recno()),.T.)
+Endif
+
+Return( Nil )
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fa390Red
+Redeposito de cheques 
+
+@author  Pilar S. Albaladejo 
+@since 16/05/1997
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fa390Red()
+
+Local lPanelFin		:= IsPanelFin()
+Local oDlg			:= NIL
+Local oValor		:= 0
+Local oQtdTit		:= 0
+LOCAL cAlias		:= "SEF"
+Local cIndex		:= ""
+Local nValTot		:= 0
+Local cPadrao		:="569"
+Local lPadrao		:= VerPadrao( cPadrao )
+LOCAL cArquivo		:= ""
+LOCAL nTotal		:= 0
+LOCAL nHdlPrv		:= 0
+LOCAL nProxReg		:= 0
+LOCAL nRecAnt		:= 0
+LOCAL nRecAtu		:= 0
+LOCAL lChqLiber		:= .F.
+Local lF390RedP		:= ExistBlock("F390REDP")
+Local oBanco390		:= NIL
+Local oAge390		:= NIL
+Local oConta390		:= NIL
+Local oCheque390	:= NIL
+Local cMvCarteir	:= GetMv("MV_CARTEIR")
+
+Local lCarrega	:= .T.
+Local aCampos	:= {}		/* GESTAO */
+Local aFlagCTB	:= {}
+
+//REESTRUTURAÇÃO SE5
+Local oModelMov := NIL
+Local oFKA		:= NIL
+Local oSubFK5	:= NIL
+Local cLog 		:= ""
+Local cCamposE5 := ""
+Local cChaveMov	:= ""
+Local cMoedaBco	:= 1
+Local nTamChq	:= TamSX3("FK5_NUMCH")[1]
+Local lF390LSEF := ExistBlock("F390LSEF")
+
+PRIVATE cBanco390
+PRIVATE cAgencia390
+PRIVATE cConta390
+PRIVATE cCheque390
+Private cNatur390
+PRIVATE nOpcA
+Private lInverte	:= .F.
+Private nValor 	:= 0
+Private nQtdTit	:= 0
+Private cLote
+
+// Verifica o numero do Lote
+LoteCont( "FIN" )
+
+cBanco390		:= CriaVar("EF_BANCO")
+cAgencia390 	:= Criavar("EF_AGENCIA")
+cConta390		:= Criavar("EF_CONTA")
+cCheque390		:= CriaVar("EF_NUM")
+cNatur390		:= CRIAVAR("ED_CODIGO")
+cHist390 		:= CriaVar("EF_HIST")
+
+lPadrao := VerPadrao( cPadrao )
+
+If __lA390Hst
+	cHist390:=padr(ExecBlock("A390HIST",.f.,.f.),TamSX3("EF_HIST")[1])
+Endif                   
+
+// Verifica se data do movimento não é menor que data limite de movimentacao no financeiro
+If !DtMovFin(,,"1")
+	Return
+Endif	
+lCarrega := .T.
+
+While .T.
+
+	// Procura no SEF o registro correspondente do SE2. 
+	dbSelectArea( "SEF" )
+	dbSetOrder( 3 )
+
+	If lCarrega
+		If dbSeek( xFilial()+;
+				SE2->E2_PREFIXO+;
+				SE2->E2_NUM+;
+				SE2->E2_PARCELA+;
+				SE2->E2_TIPO+;
+				SE2->E2_NUMBCO )
+
+			// Recebe dados do cheque a ser redepositado
+			cBanco390		:= SEF->EF_BANCO
+			cAgencia390	:= SEF->EF_AGENCIA
+			cConta390		:= SEF->EF_CONTA
+			cCheque390		:= SEF->EF_NUM
+		EndIf
+	Endif   
+	
+	nOpca := 0
+	aSize := MSADVSIZE()
+	If lPanelFin  //Chamado pelo Painel Financeiro					
+		oPanelDados := FinWindow:GetVisPanel()
+		oPanelDados:FreeChildren()
+		aDim := DLGinPANEL(oPanelDados)
+		DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM 0,0 To 0,0 PIXEL STYLE nOR( WS_VISIBLE, WS_POPUP )							
+		//-----------------------------------------------------------------
+		// Observacao Importante quanto as coordenadas calculadas abaixo:  
+		//-----------------------------------------------------------------
+		// a funcao DlgWidthPanel() retorna o dobro do valor da area do
+		// painel, sendo assim este deve ser dividido por 2 antes da 
+		// subtracao e redivisao por 2 para a centralizacao.
+		//-----------------------------------------------------------------
+		nEspLarg := (((DlgWidthPanel(oPanelDados)/2) - 260) /2)-5
+		nEspLin  := 0
+	Else   
+   		nEspLarg := 2 
+	  	nEspLin  := 2		
+		DEFINE MSDIALOG oDlg FROM 010, 005 TO 265, 540 TITLE OemToAnsi(STR0039) PIXEL //"Redepositar Cheque"
+	Endif
+	
+	oDlg:lMaximized := .F.
+	oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+	oPanel:Align := CONTROL_ALIGN_ALLCLIENT    			
+	
+	@ 003+nEspLin,005+nEspLarg TO 108+nEspLin,260+nEspLarg OF oPanel PIXEL
+	
+	@ 007+nEspLin,010+nEspLarg	Say OemToAnsi(STR0040) 					OF oPanel PIXEL //"Banco : "
+	@ 007+nEspLin,055+nEspLarg MSGET oBanco390 VAR cBanco390 F3 "SA6"	SIZE 25, 10	OF oPanel PIXEL Hasbutton Valid If(nOpca<>0,Fa390Banco(0/*nGet*/,.F./*lVldBloq*/),.T.);
+																			Picture "@!" OBFUSCATED RetGlbLGPD('EF_BANCO') When !RetGlbLGPD('EF_BANCO')
+	
+	@ 023+nEspLin,010+nEspLarg	Say OemToAnsi(STR0041)  				OF oPanel PIXEL //"Agˆncia : "
+	@ 023+nEspLin,055+nEspLarg MSGET oAge390 VAR cAgencia390			SIZE 25, 10	OF oPanel PIXEL Valid If(nOpca<>0,Fa390Banco(0/*nGet*/,.F./*lVldBloq*/),.T.);
+																			Picture "@!" OBFUSCATED RetGlbLGPD('EF_AGENCIA') When !RetGlbLGPD('EF_AGENCIA')
+
+	@ 039+nEspLin,010+nEspLarg	Say OemToAnsi(STR0042) 					OF oPanel PIXEL //"Conta : "
+	@ 039+nEspLin,055+nEspLarg MSGET oConta390 VAR cConta390			SIZE 55, 10	OF oPanel PIXEL Valid If(nOpca<>0,IF(Fa390Banco(0/*nGet*/,.T.),.T.,(oBanco390:SetFocus(),nOpca := 2)),.T.);
+																			Picture "@!" OBFUSCATED RetGlbLGPD('EF_CONTA') When !RetGlbLGPD('EF_CONTA')
+
+	@ 055+nEspLin,010+nEspLarg	Say OemToAnsi(STR0043)  				OF oPanel PIXEL //"N£m Cheque:"
+	@ 055+nEspLin,055+nEspLarg MSGET oCheque390 VAR cCheque390			SIZE 55, 10	OF oPanel PIXEL Valid If(nOpca<>0,Fa390Cheq(2),.T.);
+																			Picture "@!" OBFUSCATED RetGlbLGPD('EF_NUM') When !RetGlbLGPD('EF_NUM')
+
+	@ 71+nEspLin,010+nEspLarg	Say OemToAnsi(STR0044)  											OF oPanel PIXEL //"Natureza:"
+	@ 71+nEspLin,055+nEspLarg MSGET cNatur390	F3 "SED" Valid If(nOpca<>0,Fa390Natur(),.T.)	SIZE 65, 10 OF oPanel PIXEL Hasbutton
+	
+	@ 87+nEspLin,010+nEspLarg	Say OemToAnsi(STR0048)  											OF oPanel PIXEL //"Hist¢rico:"
+	@ 87+nEspLin,055+nEspLarg MSGET cHist390	Picture "@!S35"           		SIZE 200,10 OF oPanel PIXEL
+	
+	If lPanelFin  //Chamado pelo Painel Financeiro			
+		oDlg:Move(aDim[1],aDim[2],aDim[4]-aDim[2], aDim[3]-aDim[1])			
+		ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,;
+		{||nOpca := 1,Iif(Fa390Ok(oDlg),oDlg:End(),nOpca:=2)},;
+		{||nOpca := 0,oDlg:End()})		
+		
+	Else	
+		DEFINE SBUTTON FROM 113,209 TYPE 1 ACTION (nOpca := 1,;
+				Iif(Fa390Ok(oDlg),oDlg:End(),nOpca:=2)) ENABLE OF oPanel
+		DEFINE SBUTTON FROM 113,236 TYPE 2 ACTION (nOpca := 0,oDlg:End()) ENABLE OF oPanel
+		ACTIVATE MSDIALOG oDlg CENTERED
+	Endif
+
+	If nOpca == 0
+		Exit
+	EndIf
+
+	If nOpca == 2
+		lCarrega := .F.
+		Loop
+	Endif
+	
+	// Verifica se cheque esta liberado
+	nRecAnt := SEF->(Recno())
+	lChqLiber := .F.
+	lCarrega := .T.
+	dbSetOrder(4)
+	If dbSeek(xFilial("SEF")+cCheque390+cBanco390+cAgencia390+cConta390)
+		While !Eof() .and. SEF->(EF_FILIAL+EF_NUM+EF_BANCO+EF_AGENCIA+EF_CONTA) == xFilial("SEF")+cCheque390+cBanco390+cAgencia390+cConta390
+			If Empty(SEF->EF_TITULO)
+				If SEF->EF_LIBER != "S"
+					Help( " ",1,"fa390Nolib" )
+					lChqLiber := .F.
+				Else
+					lChqLiber := .T.
+				EndIf
+				Exit
+			Else
+				dbSkip()
+				Loop
+			Endif
+		Enddo
+	Else
+		lChqLiber := .T.
+	Endif
+	If !lChqLiber
+		Exit
+	Endif	
+	dbSetOrder(3)
+	dbGoto(nRecAnt)
+	
+	// Monta express„o do Filtro para seleção
+	cIndex := CriaTrab(nil,.f.)
+	cChave := IndexKey(11)
+		
+	// Montagem dos campos na Array
+	aCampos := {}
+	AADD(aCampos,{"EF_OK","","  ",""})
+	AADD(aCampos,{"EF_FILORIG","",SX3->(RetTitle("EF_FILORIG")),""})
+	SX3->(dbSetOrder(1))	//X3_ARQUIVO+X3_ORDEM
+	SX3->(dbSeek("SEF"))
+	While !(SX3->(EOF())) .And. (SX3->X3_ARQUIVO == "SEF")
+		IF (X3USO(SX3->X3_USADO)  .AND. cNivel >= SX3->X3_NIVEL .and. SX3->X3_CONTEXT # "V") .Or.;
+			(SX3->X3_PROPRI == "U" .AND. SX3->X3_CONTEXT!="V" .AND. SX3->X3_TIPO !='M')				
+			AADD(aCampos,{SX3->X3_CAMPO,"",Alltrim(SX3->(X3Titulo())),SX3->X3_PICTURE})
+		Endif
+		SX3->(dbSkip())
+	Enddo
+
+	/* GESTAO */
+	IndRegua("SEF",cIndex,cChave,,FA390Chec1(),OemToAnsi(STR0027))  //"Selecionando Registros..."
+	nIndex := RetIndex("SEF")
+	dbSelectArea("SEF")
+	dbSetOrder(nIndex+1)
+
+	dbGoTop()
+	If BOF() .and. EOF()
+		Help(" ",1,"RECNO")
+	ElseIf nOpca == 1
+
+		// Mostra Browse para selecao dos titulos do cheque
+		nOpcA := 0
+		dbSelectArea(cAlias)
+		dbSetOrder(nIndex+1)
+
+		//Faz o calculo automatico de dimensoes de objetos
+		oSize := FwDefSize():New(.T.)
+		
+		oSize:lLateral := .F.
+		oSize:lProp	:= .T. // Proporcional
+		
+		oSize:AddObject( "1STROW" ,  100, 15, .T., .T. ) // Totalmente dimensionavel
+		oSize:AddObject( "2NDROW" ,  100, 95, .T., .T. ) // Totalmente dimensionavel
+		
+		oSize:aMargins := { 2, 2, 1, 2 } // Espaco ao lado dos objetos 0, entre eles 3 
+		
+		oSize:Process() // Dispara os calculos		
+		
+		a1stRow := {oSize:GetDimension("1STROW","LININI"),;
+					oSize:GetDimension("1STROW","COLINI"),;
+					oSize:GetDimension("1STROW","LINEND"),;
+					oSize:GetDimension("1STROW","COLEND")}
+		
+		a2ndRow := {oSize:GetDimension("2NDROW","LININI"),;
+					oSize:GetDimension("2NDROW","COLINI"),;
+					oSize:GetDimension("2NDROW","LINEND"),;
+					oSize:GetDimension("2NDROW","COLEND")}
+		
+		DEFINE MSDIALOG oDlg1 TITLE STR0045 From oSize:aWindSize[1],oSize:aWindSize[2] to oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL  //"Geração de Cheques"	
+		oDlg1:lMaximized := .T.
+
+		@ a1stRow[1] + 001, a1stRow[2] + 001  To a1stRow[3]-001,a1stRow[4]-001 PIXEL OF oDlg1	
+		@ a1stRow[1] + 003, a1stRow[2] + 005 SAY STR0028 + If(RetGlbLGPD('EF_BANCO'),'***',cBanco390) 					FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1   //"Banco: "
+		@ a1stRow[1] + 003, a1stRow[2] + 070 SAY STR0029 + If(RetGlbLGPD('EF_AGENCIA'),'*****',cAgencia390)				FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1   //"Agência: "
+		@ a1stRow[1] + 003, a1stRow[2] + 130 SAY STR0030 + If(RetGlbLGPD('EF_CONTA'),'*******',cConta390)				FONT oDlg1:oFont SIZE 50,10  PIXEL Of oDlg1    //"Conta: "
+		@ a1stRow[1] + 003, a1stRow[2] + 190 SAY STR0031 + If(RetGlbLGPD('EF_NUM'),'********',SubStr(cCheque390,1,15)) 	FONT oDlg1:oFont SIZE 120,10  PIXEL Of oDlg1  //"Nro Cheque: "
+
+		@ a1stRow[1] + 015, a1stRow[2] + 005 Say STR0032       						SIZE 90,10  PIXEL Of oDlg1   //"Nro Titulos Selecionados: "
+		@ a1stRow[1] + 015, a1stRow[2] + 070 Say oQtdTit VAR nQtdTit Picture "999"	SIZE 50,10  PIXEL Of oDlg1 
+		@ a1stRow[1] + 015, a1stRow[2] + 130 Say STR0033							SIZE 50,10  PIXEL Of oDlg1  //"Valor Total: "
+		@ a1stRow[1] + 015, a1stRow[2] + 190 Say oValor VAR nValor Picture "@E 999,999,999.99" SIZE 50,10 PIXEL Of oDlg1 
+
+		oMark :=MsSelect():New(cAlias,"EF_OK",,aCampos,@lInverte,@cMarca,{a2ndRow[1],a2ndRow[2],a2ndRow[3],a2ndRow[4]})
+
+		oMark:bMark := {||Fa390Exibe(cMarca,oValor,oQtdTit,2,,cArqSE2)}
+		oMark:oBrowse:lhasMark = .t.
+		oMark:oBrowse:lCanAllmark := .t.
+		oMark:bAval	:= {||Fa390bAval(cMarca,oValor,oQtdTit,oMark,2)}
+		oMark:oBrowse:bAllMark := { || FA390Inverte(cMarca,oValor,oQtdTit,2,,oMark)}
+		
+		If lPanelFin  //Chamado pelo Painel Financeiro					
+			ACTIVATE MSDIALOG oDlg1 ON INIT FaMyBar(oDlg1,{|| nOpca := 1,oDlg1:End()},{|| nOpca := 2,oDlg1:End()})
+		Else			
+			ACTIVATE MSDIALOG oDlg1 ON INIT EnchoiceBar(oDlg1,{|| nOpca := 1,oDlg1:End()},{|| nOpca := 2,oDlg1:End()}) CENTERED
+		Endif   
+
+		If nOpca == 1
+			dbSelectArea("SEF")
+			dbGoTop( )
+			nValTot := 0
+			While SEF->(!Eof())
+
+				nRecAtu := SEF->(Recno())
+				SEF->(dbSkip())
+				nProxReg := SEF->(RecNo())
+				SEF->(dbGoTo(nRecAtu))
+			
+				If SEF->EF_OK == cMarca
+
+					// Libera registro do SE2
+					dbSelectArea( "SE2" )
+					dbSetOrder( 1 )
+					If dbSeek(xFilial("SE2",SEF->EF_FILORIG)+SEF->(EF_PREFIXO + EF_TITULO + EF_PARCELA + EF_TIPO + EF_FORNECE + EF_LOJA))
+						dbSelectArea("SE5")
+						SE5->( dbSetOrder(7))
+						If SE5->( dbSeek( xFilial("SE5",SEF->EF_FILORIG)+SEF->(EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO) ) )
+
+							While (SE5->( !Eof() )) .And. ( xFilial("SE5",SEF->EF_FILORIG)+SEF->(EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO) = SE5->(E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO) )
+
+								If ( SE5->E5_CLIFOR+SE5->E5_LOJA == SE2->E2_FORNECE+SE2->E2_LOJA ) .and. ;
+										Substr(SE5->E5_BANCO,1,2) != "CX" .and. ;
+										!(SE5->E5_BANCO $ cMvCarteir) .and. ;
+										SE5->E5_SEQ == SEF->EF_SEQUENC
+
+									//Limpo o numero do cheque
+									RecLock("SE5")
+									E5_NUMCHEQ	:= Space(nTamChq)
+									MsUnlock()
+
+									//Procuro o movimento na FK5 e limpo o numero do cheque
+									FKA->(dbSetOrder(3))	//FKA_FILIAL+FKA_TABORI+FKA_IDORIG
+									If FKA->(DBSeek(xFilial("FKA") + "FK2" + SE5->E5_IDORIG))
+										FKA->(dbSetOrder(2))	//FKA_FILIAL+FKA_TABORI+FKA_IDORIG
+										cIdProcFKA := FKA->FKA_IDPROC
+										While FKA->(!EOF()) .AND. FKA->(FKA_FILIAL+FKA_IDPROC) == xFilial("FKA") + cIdProcFKA
+											If FKA->FKA_TABORI == "FK5"
+												FK5->(DbSetOrder(1))
+												If FK5->(DBSeek(xFilial("FK5")+FKA->FKA_IDORIG))
+													RecLock("FK5")
+													FK5_NUMCH :=  Space(nTamChq)
+													MsUnlock()
+												Endif
+											Endif
+											FKA->(dbSkip())
+										EndDo
+									Endif
+								EndIf
+								SE5->(dbSkip())
+							Enddo
+						EndIf
+						RecLock("SE2",.F.)
+						Replace SE2->E2_IMPCHEQ With " "
+						Replace SE2->E2_NUMBCO  With CriaVar("E2_NUMBCO")
+						MsUnlock( )
+
+					EndIf
+					
+					// Libera registro do SEF
+					dbSelectArea("SEF")
+					nValTOT	+= SEF->EF_VALOR
+
+					//Ponto de entrada para finalidade de tratamento na deleção de liberação para tesouraria.
+					If lF390LSEF 
+						ExecBlock("F390LSEF",.F.,.F.)
+					EndIf
+
+					RecLock("SEF",.F.)
+					If SEF->EF_IMPRESS == "A"
+						// Caso seja cheque aglutinado, apaga o N. do Cheque
+						Replace SEF->EF_NUM with ""
+					Endif
+					Replace SEF->EF_IMPRESS With " "
+					
+					SEF->(dbDelete())
+
+					If !lUsaFlag .and. lPadrao 
+						Replace SEF->EF_LA With "S"
+					EndIf	
+
+					MsUnlock()
+
+					// P.Entrada para complemento de gravacao do SEF
+					If lF390RedP
+						ExecBlock("F390REDP",.F.,.F.)
+					Endif  
+				Endif		
+				dbSelectArea( "SEF" )
+				dbGoto(nProxReg)
+			EndDo
+
+			If nValTot > 0
+
+				// Grava registro referente a movimentação Bancária
+				DbSetOrder( 1 )
+				SA6->( msSeek( xFilial("SA6") + cBanco390 + cAgencia390 + cConta390 ) )
+				cMoedaBco := STRZERO( Max( SA6->A6_MOEDA, 1 ), 2 ) 
+							
+				//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+				If !Empty(cCamposE5)
+					cCamposE5 += "|"
+				Endif
+				cCamposE5 += "{"
+				cCamposE5 += "{'E5_DTDIGIT'	, dDataBase}"
+				cCamposE5 += "}"
+				
+				oModelMov := FWLoadModel("FINM030") //Recarrega o Model de movimentos para pegar o campo do relacionamento (SE5->E5_IDORIG)  		
+				oModelMov:SetOperation( 3 ) //Inclusao
+				oModelMov:Activate()
+				oModelMov:SetValue( "MASTER"	, "E5_GRV", .T. )	//Informa se vai gravar SE5 ou não
+				oModelMov:SetValue( "MASTER"	,  "NOVOPROC", .T.  ) 		
+				oModelMov:SetValue( "MASTER"	, "E5_CAMPOS", cCamposE5 ) //Informa os campos da SE5 que serão gravados indepentes de FK5
+				
+				cChaveMov := FWUUIDV4()
+				
+				oFKA := oModelMov:GetModel( "FKADETAIL" )												
+				oFKA:SetValue( "FKA_IDORIG"	, cChaveMov)			
+				oFKA:SetValue( "FKA_TABORI"	, "FK5" )
+						
+				// Informacoes do movimento
+				oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+				oSubFK5:SetValue( "FK5_VALOR"	, nValTot )
+				oSubFK5:SetValue( "FK5_DATA"	, dDataBase )
+				oSubFK5:SetValue( "FK5_NATURE"	, cNatur390 )
+				oSubFK5:SetValue( "FK5_RECPAG"	, "R" ) 
+				oSubFK5:SetValue( "FK5_TPDOC"	, "CH" )
+				oSubFK5:SetValue( "FK5_BANCO"	, cBanco390 )
+				oSubFK5:SetValue( "FK5_AGENCI"	, cAgencia390 )
+				oSubFK5:SetValue( "FK5_CONTA"	, cConta390 )
+				oSubFK5:SetValue( "FK5_NUMCH"	, cCheque390 )
+				oSubFK5:SetValue( "FK5_HISTOR"	, LEFT(cHist390, 40) )
+				oSubFK5:SetValue( "FK5_DTDISP"	, dDataBase )
+				oSubFK5:SetValue( "FK5_VLMOE2"	, nValTot )
+				oSubFK5:SetValue( "FK5_MOEDA"	, cMoedaBco )
+				oSubFK5:SetValue( "FK5_ORIGEM"	, Funname() )
+				oSubFK5:SetValue( "FK5_FILORI"	, cFilAnt )
+				
+				If SpbInUse()
+					oSubFK5:SetValue( "FK5_MODSPB"	, "3" )
+				Endif
+				
+				If oModelMov:VldData()
+					oModelMov:CommitData()
+				Else
+					lRet := .F.
+					cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[6])        	
+					
+					Help( ,,"M030VALID",,cLog, 1, 0 )	  		    		
+				Endif
+				oModelMov:DeActivate()
+				oModelMov:Destroy()
+				oModelMov:= Nil
+
+				// Atualiza saldo bancario.
+				AtuSalBco(cBanco390,cAgencia390,cConta390,SE5->E5_DATA,SE5->E5_VALOR,"+")
+
+				If lPadrao
+
+					// Inicializa Lancamento Contabil
+					nHdlPrv := HeadProva( cLote,;
+									"FINA390" /*cPrograma*/,;
+										Substr( cUsuario, 7, 6 ),;
+										@cArquivo )
+
+					
+					// Prepara Lancamento Contabil
+					If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil 
+						aAdd( aFlagCTB, {"E5_LA", "S", "SE5", SE5->( Recno() ), 0, 0, 0} )
+					Endif
+					nTotal += DetProva( nHdlPrv,;
+										cPadrao,;
+										"FINA390" /*cPrograma*/,;
+										cLote,;
+										/*nLinha*/,;
+										/*lExecuta*/,;
+										/*cCriterio*/,;
+										/*lRateio*/,;
+										/*cChaveBusca*/,;
+										/*aCT5*/,;
+										/*lPosiciona*/,;
+										@aFlagCTB,;
+										/*aTabRecOri*/,;
+										/*aDadosProva*/ )
+
+					// Efetiva Lan‡amento Contabil 
+					RodaProva( nHdlPrv,;
+								nTotal )
+
+					cA100Incl( cArquivo,;
+								nHdlPrv,;
+								3 /*nOpcx*/,;
+								cLote,;
+								Iif(mv_par02==1,.T.,.F.) /*lDigita*/,;
+								.F. /*lAglut*/,;
+								/*cOnLine*/,;
+								/*dData*/,;
+								/*dReproc*/,;
+								@aFlagCTB,;
+								/*aDadosProva*/,;
+								/*aDiario*/ )
+					aFlagCTB := {}  // Limpa o coteudo apos a efetivacao do lancamento
+				EndIf
+			EndIf
+		Endif
+
+	ElseIf nOpca == 2
+		RetIndex("SEF")
+		Set Filter to
+		Loop
+	EndIf
+	Exit
+EndDo
+
+MsUnlockAll()
+
+// Restaura os indices
+dbSelectArea("SEF")
+RetIndex("SEF")
+Set Filter To
+
+If !Empty( cIndex )
+	dbSelectArea("SEF")
+	ferase (cIndex+OrdBagExt())
+Endif
+
+If lPanelFin
+	dbSelectArea(FinWindow:cAliasFile)					
+	FinVisual(FinWindow:cAliasFile,FinWindow,(FinWindow:cAliasFile)->(Recno()),.T.)
+Endif	
+
+Return (.T.)
+
+
+//---------------------------------------------------------------------------
+//
+//				FUNCOES GENERICAS DO PROGRAMA 
+//
+//---------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Chec1
+Retorna condição para filtro (Indregua)
+
+@author  Pilar S. Albaladejo 
+@since 16/05/1997
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function Fa390Chec1()
+
+LOCAL cFiltro := ""
+
+cFiltro += 'EF_NUM = "' + cCheque390 + '"'
+cFiltro += ' .AND. EF_BANCO = "' + cBanco390 + '"'
+cFiltro += ' .AND. EF_AGENCIA = "' + cAgencia390 + '"'
+cFIltro += ' .AND. EF_CONTA = "' + cConta390 + '"'
+cFiltro += ' .AND. EF_IMPRESS = "A"'
+
+/* 
+GESTAO */
+If lGestaoCorp
+	cFiltro += " .AND. ((EF_FILCHQ == '" + cFilAnt + "') .OR. (Empty(EF_FILCHQ) .AND. EF_FILORIG == '" + cFilAnt + "')) " 
+Endif
+
+/* GESTAO */
+Return cFiltro
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fa390Natur
+Valida natureza digitada.	
+
+@author  Wagner Xavier 
+@since 21/03/1994
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fa390Natur( )
+
+Local cAlias := Alias( )
+Local lRet	 := .t.   
+
+DbSelectArea("SED")
+DbSetOrder(1)
+SED->(dbseek(xFilial("SED")+ cNatur390))
+
+If !( ExistBlock("FA390NATUR") .And. ExecBlock("FA390NATUR",.F.,.F.) )
+	If Empty( cNatur390 )
+		lRet := .f.
+	Endif
+Endif
+
+// Naturezas sinteticas / analiticas
+If lRet .and. !(FinVldNat(.F.,cNatur390))
+	 lRet := .f.
+Endif
+
+If lRet .and. !Empty( cNatur390 )	
+	//Validacao extra do usuario
+	IF ExistBlock("F390NATU")
+		lRet := ExecBlock("F390NATU",.f.,.f.)
+	Endif
+Endif
+
+dbSelectArea( cAlias )
+
+Return lRet
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} fa390Fornece
+Valida fornecedor digitado
+
+@author  Wagner Xavier 
+@since 21/03/1994
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function fa390Fornece()
+Local cAlias := Alias( )
+Local lRet	 := .t.
+Local lAltera := IIF(IsInCallStack("fa390ok"),.F.,.T.)
+
+If Empty( cForn390 )
+	Return ( .T. )
+Endif
+
+dbSelectArea( "SA2" )
+If cForn390 != SA2->A2_COD
+	If !(MsSeek( cFilial + cForn390 ) )
+		Help( " ",1,"fa390Forn" )
+		lRet := .f.
+	End
+Endif
+
+If lAltera .or. Empty(cBenef390)
+	cBenef390 := SA2->A2_NOME
+Endif
+
+If ExistBlock("F390BEN")
+	cBenef390 :=ExecBlock("F390BEN",.F.,.F.,cBenef390)
+Endif
+If cPaisLoc == "COL"
+   cLojaBen := SA2->A2_LOJA
+Endif
+dbSelectArea( cAlias )
+Return lRet
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Exibe
+Exibe Totais de titulos selecionados	
+
+@author Mauricio Pequim Jr
+@since   12/04/2018
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function Fa390Exibe(cMarca,oValor,oQtdTit,nNum,nLimite,cArqSE2)
+
+Local lMarkTit := .t.                                 
+Local lValImp  := ExistBlock("F390Valor") //Ponto de Entrada para manipular o valor do cheque
+Local nValImp  := 0  
+Local aTitulos := {}
+Local cFilCorr	:= ""
+
+Private nValSel:= 0
+Default nLimite := 0
+Default cArqSE2	:= "SE2"
+/*
+GESTAO */
+cFilCorr := cFilAnt
+If lGestaoCorp
+	SE2->(DbGoTo((cArqSE2)->NUM_REG))
+	cFilAnt := SE2->E2_FILORIG
+Endif
+/* GESTAO */
+If nNum == 1
+	//-----------------------------------------------------------------
+	// PONTO DE ENTRADA F390TIT
+	// Verifica se titulo pode ser marcado para compor o cheque,
+	// caso tenha sido alterada a marca‡Æo do titulo, ExecBlock 
+	// dever  retornar .F., para nÆo haver altera‡Æo dos acumuladores
+	// de valores e numero de titulos.
+	//-----------------------------------------------------------------
+	If (ExistBlock("F390TIT"))
+		lMarkTit := ExecBlock("F390TIT",.F.,.F.)
+	Endif
+
+	// Caso tenha integracao Documentos
+	IF lFinVDoc
+		If !CN062ValDocs("05",.F.)
+			lMarkTit := .F.
+		Endif					
+	EndIf
+	
+	If lMarkTit
+		// Calcula os juros para o titulo selecionado para compor o valor do cheque. 
+		Fa080Juros(SE2->E2_MOEDA)
+		
+		If If(lGestaoCorp,((cArqSE2)->E2_OK == cMarca),(SE2->E2_OK == cMarca .And. SE2->E2_FILIAL == cFilial))
+			IF !E2_TIPO $ MVABATIM  
+				nValSel:= xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))+ (nJuros + nValor)
+				If nLimite >0 .And.  nValSel <= nLimite  
+					nValor += xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+					nValor := nValor + nJuros
+					nQtdTit++
+				ElseIf  nLimite ==0
+					nValor += xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+					nValor := nValor + nJuros
+					nQtdTit++
+				Else
+					If lGestaoCorp
+						RecLock(cArqSE2)
+						(cArqSE2)->E2_OK := "  "
+					Else
+					RecLock("SE2")
+					SE2->E2_OK := "  "
+					Endif
+					MsUnlock()                                                                          
+					Help(" ",1,"FA390VLR",, OemToAnsi(STR0049)+ CHR(10)+OemToAnsi(STR0050);    // "Valor selecionado ultrapassa o valor informado"   ## "Valor Informado    :
+					     + Trans(nLimite, "@E 99,999,999,999.99") + CHR(10)+ OemToAnsi(STR0051)+ Trans(nValSel, "@E 99,999,999,999.99")  ,1,0) //"Valor Selecionado: " 
+				EndIf 
+
+			Else
+				
+				nValor -= xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+				nValor := nValor - nJuros
+				nQtdTit++
+			EndIf
+			
+		Else
+			If If(lGestaoCorp,.T.,SE2->E2_FILIAL == cFilial)
+				IF !E2_TIPO $ MVABATIM
+					nValor -= xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+					nValor := nValor - nJuros
+				Else
+					nValor += xMoeda((E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE),SE2->E2_MOEDA,1,,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+					nValor := nValor + nJuros
+				End
+				nQtdTit--
+			Endif
+		EndIf
+	Endif
+Else
+	If SEF->EF_OK == cMarca .And. If(lGestaoCorp,.T.,SEF->EF_FILIAL == cFilial)
+		IF !EF_TIPO $ MVABATIM
+			nValor += EF_VALOR
+		Else
+			nValor -= EF_VALOR
+		End
+		nQtdTit++
+	Else
+		If If(lGestaoCorp,.T.,SEF->EF_FILIAL == cFilial)
+			IF !EF_TIPO $ MVABATIM
+				nValor -= EF_VALOR
+			Else
+				nValor += EF_VALOR
+			End
+			nQtdTit--
+		Endif
+	EndIf
+EndIf
+
+//Manipula o valor do cheque de acordo com o valor do imposto passado no ExecBlock
+If lValImp 
+	Aadd(aTitulos,{SE2->E2_PREFIXO,SE2->E2_NUM,SE2->E2_PARCELA,SE2->E2_TIPO,SE2->E2_FORNECE,;
+			SE2->E2_LOJA,SE2->E2_VALOR,SE2->E2_SALDO,SE2->E2_PIS,SE2->E2_COFINS,SE2->E2_CSLL})
+	nValImp := ExecBlock("F390Valor",.F.,.F.,{nValor,aTitulos})
+	If If(lGestaoCorp,(cArqSE2)->E2_OK == cMarca,SE2->E2_OK == cMarca .And. SE2->E2_FILIAL == xFilial("SE2"))
+		nValor  -= nValImp
+	ElseIf If(lGestaoCorp,.T.,SE2->E2_FILIAL == xFilial("SE2"))
+		nValor  += nValImp
+	EndIf
+EndIf
+/*
+GESTAO */
+cFilAnt := cFilcorr
+/* GESTAO */
+
+oValor:Refresh()
+oQtdTit:Refresh()
+
+Return
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Inverte
+Inverte marcacoes
+
+@author Mauricio Pequim Jr
+@version P12
+@since   12/04/2018
+@return  Nil
+/*/
+//-----------------------------------------------------------------------
+Static Function Fa390Inverte(cMarca,oValor,oQtdTit,nNum,nLimite,oMark,lTodos,cArqSE2)
+
+Local nReg		:= 0
+Local cAlias 	:= Alias()
+Local lMarkTit	:= .T.
+Local nValImp	:= 0  
+Local aTitulos	:= {}
+Local cFilCorr	:= ""
+Local lPrimeiro := .T.
+
+DEFAULT nLimite:=0
+DEFAULT lTodos := .T.
+DEFAULT cArqSE2	:= "SE2"
+
+If nNum == 1					// Fa390Tit chamou esta rotina (nNum == 1)
+	/*
+	GESTAO */
+	cFilCorr := cFilAnt
+	nReg := (cArqSE2)->(Recno())
+
+	If lTodos
+		(cArqSE2)->(DbGoTop())
+	Endif
+
+	While !lTodos .Or. (cArqSE2)->(!Eof()) 
+
+		SE2->(DbGoto((cArqSE2)->NUM_REG))
+		cFilAnt := SE2->E2_FILORIG
+
+		lMarkTit := .T.
+
+		nValTit := F390VALLIQ(cArqSE2)
+
+		If (cArqSE2)->(MsRLock()) .and. SE2->(MsRLock())
+
+			If (cArqSE2)->E2_OK == cMarca
+				(cArqSE2)->E2_OK	:= "  "
+				(cArqSE2)->(MsUnlock())
+
+				SE2->E2_OK	:= "  "
+				SE2->(MsUnlock())	
+
+				nValor	-= nValTit
+				nQtdTit--
+			Else
+				//-----------------------------------------------------------------
+				// PONTO DE ENTRADA F390TIT
+				// Verifica se titulo pode ser marcado para compor o cheque,
+				// caso tenha sido alterada a marca‡Æo do titulo, ExecBlock
+				// dever  retornar .F., para nÆo haver altera‡Æo dos acumuladores
+				// de valores e numero de titulos.
+				//-----------------------------------------------------------------
+				If lF390Tit
+					lMarkTit := ExecBlock("F390TIT",.F.,.F.)
+				Endif
+
+				// Caso tenha integracao Documentos
+				IF lFinVDoc
+					If !CN062ValDocs("05",.F.,.F.,lTodos)
+						lMarkTit := .F.					
+					EndIf
+				EndIf			 
+
+				// Caso tenha integracao SIGAPFS (MV_JURXFIN = .T.), valida as regras para manipulação do título.
+				If lMarkTit .and. _lJURXFIN
+					If !(Fa390Juri(SE2->(RECNO()),lTodos, @lPrimeiro))
+						lMarkTit := .F.
+					EndIf
+				EndIf
+
+				If lMarkTit
+					(cArqSE2)->E2_OK := cMarca
+					(cArqSE2)->(MsUnlock())
+					SE2->(MsUnlock())
+					nValor	+= nValTit
+					nQtdTit++
+				Else
+					RecLock((cArqSE2))
+					(cArqSE2)->E2_OK := "  "
+					(cArqSE2)->(MsUnlock())
+				EndIf
+			EndIf
+
+			//Manipula o valor do cheque de acordo com o valor do imposto passado no ExecBlock
+			If lValImp 
+				Aadd(aTitulos,{SE2->E2_PREFIXO,SE2->E2_NUM,SE2->E2_PARCELA,SE2->E2_TIPO,SE2->E2_FORNECE,;
+						SE2->E2_LOJA,SE2->E2_VALOR,SE2->E2_SALDO,SE2->E2_PIS,SE2->E2_COFINS,SE2->E2_CSLL})
+				nValImp := ExecBlock("F390Valor",.F.,.F.,{nValor,aTitulos})
+				If (cArqSE2)->E2_OK == cMarca
+					nValor  -= nValImp
+				Else
+					nValor  += nValImp
+				EndIf
+			EndIf
+		EndIf
+		If lTodos
+			(cArqSE2)->(dbSkip())
+		Else
+			nReg := (cArqSE2)->(Recno())
+			Exit
+		Endif
+	Enddo
+	cFilAnt := cFilCorr
+	(cArqSE2)->(dbGoto(nReg))
+Else
+	dbSelectArea("SEF")
+	nReg := Recno()
+	If lTodos
+		dbSeek(cFilial)
+	EndIf	
+
+	While (!lTodos .Or. !Eof()) 
+
+		If SEF->(MsRLock())
+			If SEF->EF_OK == cMarca	
+				SEF->EF_OK := "  "
+				SEF->(MsUnlock())	
+				If !SEF->EF_TIPO $ MVABATIM
+					nValor	-= SEF->EF_VALOR
+				Else
+					nValor	+= SEF->EF_VALOR
+				EndIf
+				nQtdTit--
+			Else
+				RecLock("SEF")
+				SEF->EF_OK := cMarca		
+				If !SEF->EF_TIPO $ MVABATIM
+					nValor	+= SEF->EF_VALOR
+				Else
+					nValor	-= SEF->EF_VALOR
+				EndIf
+				nQtdTit++
+			EndIf
+
+			//Manipula o valor do cheque de acordo com o valor do imposto passado no ExecBlock
+			If lValImp 
+				Aadd(aTitulos,{SE2->E2_PREFIXO,SE2->E2_NUM,SE2->E2_PARCELA,SE2->E2_TIPO,SE2->E2_FORNECE,;
+						SE2->E2_LOJA,SE2->E2_VALOR,SE2->E2_SALDO,SE2->E2_PIS,SE2->E2_COFINS,SE2->E2_CSLL})
+				nValImp := ExecBlock("F390Valor",.F.,.F.,{nValor,aTitulos})
+				If SEF->EF_OK == cMarca
+					nValor  -= nValImp
+				Else
+					nValor  += nValImp
+				EndIf
+			EndIf
+		EndIf
+		If lTodos
+			SEF->(dbSkip())
+		Else
+			nReg := SEF->(Recno())
+			Exit
+		Endif  
+	Enddo
+	SEF->(dbGoto(nReg))
+EndIf
+
+dbSelectArea(cAlias)
+oValor:Refresh()
+oQtdTit:Refresh()
+oMark:oBrowse:Refresh(.t.)
+
+Return Nil
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Ok
+Verifica se dados essenciais foram digitados
+
+@author  Pilar S. Albaladejo 
+@since   20/12/1996
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function Fa390Ok(oDlg)
+
+Local nX
+Local lRet := .T.
+
+For nX := 1 To Len(oDlg:aControls)
+	If ValType(oDlg:aControls[nX]) == "O" .And.;
+		!Empty(oDlg:aControls[nX]:bValid)
+		
+		lRet:=Eval(oDlg:aControls[nX]:bValid)
+		If ValType(lRet) != "L"
+			lRet := .T.
+		Endif	
+		If !lRet
+			Help(" ",1,"Fa390Erro1")
+			Exit // Sai no primeiro campo invalido
+		Endif	
+		
+	Endif
+Next
+
+If lRet .And. ExistBlock("FA390TOK")
+	lRet := Execblock("FA390TOK",.F.,.F.,oDlg)
+Endif
+
+Return lRet
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390ExistRed
+Verifica se existe redepósito para um cheque
+
+@author  Claudio D. de Souza
+@since   07/11/2003
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Static Function Fa390ExistRed(cBanco390,cAgencia390,cConta390,cCheque390)
+
+Local lRet := .F.
+Local aArea := GetArea()
+Local aAreaSe5 := SE5->(GetArea())
+
+// Pesquisa o cheque no SE5 e se encontrar nao permite o Cancelamento, pois ja existe um redeposito
+DbSelectArea("SE5")
+DbSetOrder(11)
+If MsSeek(xFilial("SE5")+cBanco390+cAgencia390+cConta390+cCheque390)
+	While SE5->(!Eof()) .And. ;
+		SE5->(E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ) == xFilial("SE5")+cBanco390+cAgencia390+cConta390+cCheque390
+		If SE5->E5_RECPAG == "R"
+			lRet := .T.
+			Exit
+		Endif
+		dbSkip()
+	Enddo
+Endif
+SE5->(RestArea(aAreaSe5))
+RestArea(aArea)
+
+Return lRet
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} Fa390TdOK
+Verifica os titulos para geracao do cheque/titulo 
+
+@author  Nilton Pereira
+@since   07/11/2004
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Function Fa390TdOK()
+
+Local lRet := .T.   
+
+// Pto de entrada para validacao dos titulos para geracao do CH 
+If ExistBlock("F390FILUSU")
+	lRet := ExecBlock("F390FILUSU",.f.,.f.)
+	If !ValType(lRet) == "L"
+		lRet := .T.
+	Endif
+Endif
+
+Return lRet 
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Pesq
+Tela de pesquisa dos titulos filtrados 
+
+@author Mauricio Pequim Jr
+@version P12
+@since   12/04/2018
+@return  Nil
+/*/
+//-----------------------------------------------------------------------------------------------------
+Static Function Fa390Pesq(oMark, cAliasSE2, nIndice)	
+
+Local cCampo	:= (cAliasSE2)->(IndexKey()) 
+Local cSeek 	:= IIF("_FILIAL" $ cCampo, xFilial("SE2"), "")
+Local nX 		:= 0
+
+If Len(aPesqui) == 0 .and. Len(aIndices) > 0
+	For nX := 1 to Len(aIndices)
+		cDescInd := Alltrim(aIndices[nX,1])
+		aAdd(aPesqui,{cDescInd ,nX})
+		aAdd(aCbx,cDescInd)	
+	Next
+Endif
+
+dbSelectArea(cAliasSE2)
+
+nRet := F390Psq(oMark:oBrowse,aPesqui,cSeek)
+oMark:oBrowse:Refresh(.T.)
+
+Return Nil
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} F390Psq
+Pesquina no arquivo temprário 
+
+@author Mauricio Pequim Jr
+@version P12
+@since   12/04/2018
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function F390Psq(oBrowse,aPesqui,cSeek)
+
+Local oDlg		:= NIL
+Local oCbx		:= NIL
+Local cCampo	:= SPACE(100)
+Local cOrd		:= ""
+Local lSeek		:= .F.
+Local nRet		:= 0
+Local cAlias	:= Alias()
+Local nRecOri 	:= (cAlias)->(Recno())
+
+DEFINE MSDIALOG oDlg FROM 00,00 TO 100,550 PIXEL TITLE STR0001 //"Pesquisar"
+	
+@ 05,05 COMBOBOX oCBX VAR cOrd ITEMS aCbx SIZE 236,15 PIXEL OF oDlg FONT oDlg:oFont
+@ 22,05 MSGET oBigGet VAR cCampo SIZE 236,12 PIXEL
+
+DEFINE SBUTTON FROM 05,245 TYPE 1 OF oDlg ENABLE ACTION (nRet := 1,lSeek := .T., oDlg:End() )
+DEFINE SBUTTON FROM 20,245 TYPE 2 OF oDlg ENABLE ACTION oDlg:End()
+	
+ACTIVATE MSDIALOG oDlg CENTERED
+
+If lSeek
+	dbSetOrder(aPesqui[aScan(aCbx,Alltrim(cOrd))][2]+1)		                        
+
+	If dbSeek(cSeek+RTRIM(cCampo))
+		nRet := Recno()
+	Else
+		nRet := nRecOri
+	EndIf
+			
+	If oBrowse != Nil	
+		oBrowse:Refresh()
+	EndIf
+Endif
+
+Return nRet
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Marca
+
+Seleciona titulos na Inicializacao da rotina quando houver um limite para o cheque sobre titulos
+ 
+@Author	Nilton Pereira
+@since	21/10/2004
+/*/
+//-----------------------------------------------------------------------------------------------------
+Static Function Fa390Marca(cArqSE2,cMarca,nLimite)
+
+Local cAliasAnt := Alias()
+Local lRet		:= .T.
+Local cFilCorr	:= ""
+Local nValTit	:= 0
+
+//Controle de validacao de documentos obrigatorios
+If lFinVDoc	== NIL
+	lFinVDoc	:= IIF(GetNewPar("MV_FINVDOC","2")=="1",.T.,.F.)
+Endif
+
+dbSelectArea(cArqSE2)
+dbGoTop()
+
+cFilCorr := cFilAnt
+
+While !Eof() .and. If(!lGestaoCorp, cFilial == SE2->E2_FILIAL, .T.)
+	lRet := .T.
+
+	SE2->(DbGoTo((cArqSE2)->NUM_REG))
+	cFilAnt := SE2->E2_FILORIG
+	
+	//Desconta o valor dos impostos presente no(s) titulo(s)
+	nValTit := F390VALLIQ(cArqSE2)
+
+	// Verifica a apresentação dos documentos
+	IF lFinVDoc
+		If !CN062ValDocs("05",.F.)
+			lRet := .F. 
+		EndIf
+	EndIf			 
+	
+	If lRet
+		//Verifico se o valor total selecionado está dentro do valor limite, se for o caso.
+		If (nValTit + nValor <= nLimite) 
+			If (cArqSE2)->(MsRLock()) .and. SE2->(MsRLock())
+				SE2->E2_OK := cMarca
+				(cArqSE2)->E2_OK := cMarca
+				nValor	+= nValTit
+				nQtdTit++
+				__cTitulos += If(Empty(__cTitulos), SE2->E2_NUM, + "|" + SE2->E2_NUM)
+			Else
+				(cArqSE2)->(MsUnLock()) 
+				SE2->(MsUnLock())
+			EndIf
+		EndIf
+	EndIf
+	
+	If nValor >= nLimite
+		Exit
+	Endif
+	
+	(cArqSE2)->(dbSkip())
+Enddo
+
+cFilAnt := cFilCorr
+(cArqSE2)->(dbGotop())
+
+dbSelectArea(cAliasAnt)
+
+Return
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} MenuDef
+Utilizacao de menu Funcional
+
+Parametros do array aRotina
+1. Nome a aparecer no cabecalho
+2. Nome da Rotina associada
+3. Reservado
+4. Tipo de Transação a ser efetuada:
+	1 - Pesquisa e Posiciona em um Banco de Dados
+	2 - Simplesmente Mostra os Campos
+	3 - Inclui registros no Bancos de Dados
+	4 - Altera o registro corrente
+	5 - Remove o registro corrente do Banco de Dados
+5. nIvel de acesso
+6. Habilita Menu Funcional
+
+@author Ana Paula N. Silva
+@version P12
+@since   29/11/2006
+@return  Array com opcoes da rotina. 
+*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+Local aRotina := {	{OemToAnsi(STR0001), "AxPesqui", 0 , 1,,.F.},;  // "Pesquisar" 
+					{OemToAnsi(STR0002), "fA390Tit", 0 , 2},;  // "Chq s/Tit" 
+					{OemToAnsi(STR0003), "fA390Avu", 0 , 3},;  // "Avulsos"   
+					{OemToAnsi(STR0004), "fa390Red", 0 , 3},;  // "Redeposito"
+					{OemToAnsi(STR0005), "fa390Can", 0 , 3},;  // "caNcelar"
+					{OemToAnsi(STR0067), "CTBC662", 0 , 3},;  // "Tracker Contábil"
+					{OemToAnsi(STR0060), "F390Legenda", 0 ,2,,.F. } }  // "Legenda"  
+Return(aRotina)
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} Fa390bAval
+
+Marca um determinado titulo na MsSelect
+ 
+@Author	Marcio Menon 
+@since	04/10/2004
+/*/
+//-----------------------------------------------------------------------------------------------------
+Static Function Fa390bAval(cMarca,oValor,oQtdTit,oMark,nNum,cArqSE2)
+
+Local lRet 	   := .T.		
+
+DEFAULT cArqSE2	  := "SE2"
+
+// Verifica se o registro nao esta sendo utilizado em outro terminal
+If nNum == 1		//Rotina fA390Tit()
+	SE2->(DbGoto((cArqSE2)->NUM_REG))
+
+	// Verifica se o registro nao esta sendo utilizado em outro terminal
+	//-- Parametros da Funcao LockByName() :
+	//   1o - Nome da Trava
+	//   2o - usa informacoes da Empresa na chave
+	//   3o - usa informacoes da Filial na chave 
+	If (cArqSE2)->(MsRLock()) .and. SE2->(MsRLock())
+		FA390Inverte(cMarca,oValor,oQtdTit,1,nLimite,oMark,.F.,cArqSE2)
+	Else
+		lRet := .F.
+	EndIf
+ElseIf nNum == 2
+	If SEF->(MsRLock())
+		FA390Inverte(cMarca,oValor,oQtdTit,2,,oMark,.F.)
+	Else
+		lRet := .F.
+	EndIf
+EndIf
+
+If !lRet
+	If nNum == 1		//Rotina fA390Tit()
+		IW_MsgBox(STR0053,STR0052,"STOP")	//"Este título está sendo utilizado em outro terminal."###"Atenção"
+	ElseIf nNum == 2	//Rotina fa390Red()
+		IW_MsgBox(STR0054,STR0052,"STOP")	//"Este cheque está sendo utilizado em outro terminal."###"Atenção"
+	EndIf
+Endif	
+
+Return lRet
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F390Legenda
+Cria uma janela contendo a legenda da mBrowse ou retorna a para o BROWSE
+ 
+@Author	Mauricio Pequim Jr.
+@since	30/05/2008
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F390Legenda(nReg)
+
+Local aLegenda := { {"BR_VERDE"		, STR0058 },;	//"NAO IMPRESSO"							
+					{"BR_VERMELHO"	, STR0059 } }	//"IMPRESSO"
+Local uRetorno := .T.
+
+If nReg = Nil	// Chamada direta da funcao onde nao passa, via menu Recno eh passado
+	uRetorno := {}
+	Aadd(uRetorno, { 'E2_IMPCHEQ = "N" .OR. Empty(E2_IMPCHEQ)', aLegenda[1][1] } )
+	Aadd(uRetorno, { 'E2_IMPCHEQ = "S"'						  , aLegenda[2][1] } )
+Else
+	BrwLegenda(cCadastro, STR0060, aLegenda) // "Legenda"
+Endif
+
+Return uRetorno
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FinA390T
+Chamada semi-automatica utilizado pelo gestor financeiro 
+ 
+@Author	Mauricio Pequim Jr.
+@since	30/05/2008
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function FinA390T(aParam)
+	cRotinaExec := "FINA390"
+	ReCreateBrow("SE2",FinWindow)      		
+	FinA390(aParam[1])
+	ReCreateBrow("SE2",FinWindow)      	
+
+	dbSelectArea("SE2")
+	
+	INCLUI := .F.
+	ALTERA := .F.
+	
+Return .T.
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FA390ValDocs
+Funcao de posicionamento da tabela SE2 para envio de e-mail pela funcao de validacao dos 
+documentos obrigatorios.
+ 
+@Author	Mauricio Pequim Jr.
+@since	30/05/2008
+/*/
+//-----------------------------------------------------------------------------------------------------
+Static Function FA390ValDocs(aTitulos)
+
+Local aArea			:= {}
+Local aAreaSE2		:= {}
+Local cTitulo		:= ""
+Local cSE2Filtro	:= SE2->(dbFilter())
+Local nX			:= 0
+
+If lFinVDoc
+	
+	aArea 		:= GetArea()
+	aAreaSE2	:= SE2->(GetArea())
+	
+	//Limpa o filtro da tabela SE2
+	If !Empty(cSE2Filtro)
+		SE2->(dbClearFilter())
+	EndIf
+	
+	dbSelectArea("SE2")
+	SE2->(dbSetOrder(1))		//E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA
+	SE2->(dbGoTop())
+	For nX := 1 To Len(aTitulos)
+		SE2->(dbGoTop())
+		cTitulo := aTitulos[nX,7]+aTitulos[nX,1]+aTitulos[nX,2]+aTitulos[nX,3]+aTitulos[nX,4]+aTitulos[nX,5]+aTitulos[nX,6]
+		If SE2->(dbSeek(cTitulo))		//Posiciona no titulo para envio de e-mail pela funcao de validacao dos documentos.
+			CN062ValDocs("05",.F.,.T.)
+		EndIf
+	Next nX
+
+	//Retorna os filtros da tabela SE2
+	If !Empty(cSE2Filtro) 
+		SE2->(dbSetfilter({||&cSE2Filtro},cSE2Filtro)) 
+	EndIf
+	
+	RestArea(aAreaSE2)
+	RestArea(aArea)
+	
+EndIf
+
+Return()
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Fil
+Permite determinar as filias para selecao dos cheques
+ 
+@Author	Mauricio Pequim Jr.
+@since	30/05/2008
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function Fa390Fil()
+
+Local aRet	:= {}
+
+AdmSelecFil("",,.F.,@aRet,"SE2",.T.,.F.)
+
+If Empty(aRet)
+	Aadd(aRet,cFilAnt)
+Endif
+
+Return(aRet)
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} fa390Ver
+Faz a busca nos bancos de dados para o cancelamento
+ 
+@Author	Alessandro Freire
+@since	18/04/1996
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function fa390ver(lMostra, lGestaoCorp, lAvulso, lReutiliza)
+LOCAL nRegSEF	:= 0
+LOCAL nRegSE2	:= 0
+LOCAL lEstorna 	:= .F.
+LOCAL lContinua	:= .F.
+LOCAL cPadrao	:= ""
+LOCAL cArquivo 	:= ""
+LOCAL nTotal	:= 0
+LOCAL nHdlPrv	:= 0
+LOCAL cString	:= ""
+LOCAL lCancela 	:= .F.
+LOCAL nRecSE2Atu := 0
+LOCAL nValorTot	:= 0
+LOCAL cStringSE5 := ""
+LOCAL nRecSE5	:= 0
+LOCAL lF390CBX2 := ExistBlock("F390CBX2")
+Local lBxConc	:= GetNewPar("MV_BXCONC","2") == "1"
+Local oModelMov	:= Nil 
+Local cLog 		:= ""
+Local cCamposE5	:= ""
+Local lRet 		:= .T.
+Local oSubFKA	:= Nil
+Local cSit		:=" "
+Local nRecChqTot := 0
+Local cSitChq 	:= ""
+Local cArqTrab	:= ""
+Local bCond		:= Nil 
+Local cFilCheque := cFilAnt
+
+DEFAULT lMostra := .T.
+DEFAULT lGestaoCorp := .F.
+DEFAULT lAvulso := .F.
+Default lReutiliza	:= .F.
+
+VALOR := 0		// Contabilizacao pelo total
+
+// Posiciona no cheque do banco selecionado.
+dbSelectArea("SA2")
+dbSelectArea("SE2")
+dbSelectArea("SE5")
+dbSelectArea("SEF")
+
+SEF->(dbSetOrder(1))
+SEF->(dbSeek(xFilial()+cBanco390+cAgencia390+cConta390+cCheque390))
+dData390 := SEF->EF_DATA
+cString := (xFilial()+SEF->(EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO+EF_FORNECE+EF_LOJA))
+
+// Verifica no SE2 se o cheque foi gerado pelo fina390. Caso sim, nÆo deixa cancelar pelo FINA190. 
+SE2->(DbSetOrder(1))
+If SE2->(DbSeek(cString)) .And. Empty(SE2->E2_IMPCHEQ)
+	Return .F.
+EndIf
+
+nRegSE2    := SE2->(Recno())
+nRegSEF    := SEF->(Recno())
+cStringSE5 := xFilial("SE5")+ cBanco390 + cAgencia390 + cConta390 + SEF->EF_NUM
+
+SE5->(DbSetOrder(11))
+If SE5->(DbSeek(cStringSE5))
+	While SE5->(!Eof()) .And. cStringSE5 == SE5->(E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ)
+		If SE5->E5_NUMCHEQ == SEF->EF_NUM .And. SE5->E5_TIPODOC $ "CH³CA³CD" .And. SE5->E5_SITUACA != "C"
+			nRecSE5 := SE5->(Recno())
+			
+			If Empty(SE5->E5_SEQ)
+				nRecSE5 := SE5->(Recno())
+				Exit
+			Endif
+			
+			If !Empty(SE5->E5_RECONC) .And. !lBxConc
+				Help(" ",1,"MOVRECONC")
+				Return
+			Endif
+		Endif
+		SE5->(DbSkip())
+	Enddo
+EndIf
+//-------------------------------------------------------------
+// Verifica se deve cancelar ou deletar o cheque. 
+// Deve ser cancelado quando o cheque ja foi impresso.
+// Deve ser deletado quando ainda nao foi impresso.
+//-------------------------------------------------------------
+// Na ordem 1 do SEF o cheque ‚ o ultimo registro e os
+// primeiros sao os titulos aglutinados. Portanto deve-se 
+// ir ao ultimo registro e verificar se o cheque
+// foi impresso ou nao, retornando depois ao primeiro
+// para o resto do processamento.
+//-------------------------------------------------------------
+
+//Filial do cheque
+If !Empty(SEF->EF_FILCHQ)
+	cFilCheque := SEF->EF_FILCHQ
+ElseIf !Empty(SEF->EF_FILORIG)
+	cFilCheque := SEF->EF_FILORIG
+EndIf
+
+//Seleciono o registro do cheque para saber e verifico se o mesmo foi impresso
+nRecChqTot := F390RegChq(xFilial("SEF", cFilCheque), cBanco390, cAgencia390, cConta390, cCheque390)
+
+//Posiciono no registro do cheque (totalizador)
+SEF->(dbGoTo(nRecChqTot))
+
+If SEF->EF_IMPRESS == "C"
+	Return( .F. )
+ElseIf SEF->EF_IMPRESS == "S"
+	If !(IsBlind())
+		If MSGYESNO(STR0074 +CRLF+ STR0075 +CRLF+ ;	//"Este cheque foi impresso anteriormente."###"Deseja reutilizar este número de cheque?"
+			STR0076 +CRLF+;							//"Sim - O registro do cheque será deletado para que possa ser reutilizado."
+			STR0077 , STR0052)						//"Não - O registro do cheque será cancelado e não poderá ser reutilizado."###"Atenção"
+			lReutiliza := .T.
+		Else
+			lReutiliza	:= .F.
+		EndIf
+	EndIf
+
+	If lReutiliza //Sim
+		cSitChq 	:= " "	//Será DELETADO para reaproveitamento do cheque
+	Else
+		cSitChq		:= "C"	//Será CANCELADO e não permitirá reaproveitamento do cheque
+		lCancela	:= .T.	// Deve ser cancelado e nao deletado.
+	Endif
+
+	RecLock("SEF",.F.)
+	SEF->EF_IMPRESS := cSitChq
+	SEF->(MsUnlock())
+EndIf
+
+//Posiciona no registro do fornecedor. (Para contabilização)
+SA2->(DbSetOrder(1))
+SA2->(DbSeek(xFilial("SA2", SE2->E2_FILORIG)+SE2->(E2_FORNECE+E2_LOJA)))
+
+//Retorna para o registro inicial, do cheque
+SEF->(DbGoto(nRegSEF))
+
+If !lAvulso
+	cArqTrab := F390CNCHq(cBanco390,cAgencia390,cConta390,cCheque390)
+	bCond	 := {||(cArqTrab)->(!Eof())}
+Else 
+	cArqTrab := "SEF"
+	bCond := {|| (cArqTrab)->(!Eof()) .And. xFilial("SEF")+(cArqTrab)->(EF_NUM+EF_BANCO+EF_AGENCIA+EF_CONTA) ==;
+	(cArqTrab)->EF_FILIAL + cCheque390+cBanco390+cAgencia390+cConta390}
+Endif
+
+While Eval(bCond)
+	If !lAvulso
+		SEF->(dbGoTo((cArqTrab)->REGSEF))
+	Endif
+
+	// Ponto de entrada para tratamento de dados antes do cancelamento do cheque
+	IF lF390GRV 
+		ExecBlock("F390GRV",.F.,.F.)
+	Endif
+
+	// Verifica se o cancelamento e de cheque avulso ou de sobre titulo e executa o lancamento contabil correspondente. 
+	lContinua := .f.
+	If SEF->EF_ORIGEM != "FINA390AVU"
+		If !Empty( SEF->(EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO))
+			cPadrao := "571"
+			If VerPadrao(cPadrao)
+				lContinua := .t.
+			Endif
+		Endif
+	Else
+		cPadrao := "568"
+		If VerPadrao(cPadrao) .and. SEF->EF_IMPRESS # "A"
+			lContinua :=	((SEF->EF_LA == 'S') .AND. EMPTY(cSitChq)) .OR.;	// Se Contabilizou Emissão e Cheque Será DELETADO
+						 	!EMPTY(cSitChq)  									// Ou quando Cheque não será DELETADO
+		Endif
+	Endif
+
+	// Contabiliza o cancelamento do cheque sobre titulos e também
+	// desposiciona o SE2 para considerar apenas o SEF
+	If lContinua
+		// Posiciona fornecedor para utilizar sua conta contabil
+		SA2->(MsSeek(xFilial("SA2")+SE2->(E2_FORNECE+E2_LOJA)))
+		SE2->(DbGoto(0))
+		
+		If nHdlPrv == 0
+			nHdlPrv:=HeadProva(cLote,"FINA390",Substr(cUsuario,7,6),@cArquivo)
+		Endif
+		
+		If nHdlPrv > 0
+			nTotal+=DetProva(nHdlPrv,cPadrao,"FINA390",cLote)
+			nValorTot += SEF->EF_VALOR
+		Endif
+	Endif
+
+	If SEF->EF_LIBER == "S"
+		lEstorna := .T.
+	Endif
+
+	//----------------------------------------------------------------------------------
+	// Desbloqueia a inclusao de novo cheque no titulo
+	//----------------------------------------------------------------------------------
+	// dado o dbseek porque vários títulos podem ter sido aglutinados no mesmo cheque.
+	dbSelectArea("SE2")
+	SE2->(DbSetOrder(1))
+	If SE2->(dbSeek( xFilial("SE2", SEF->EF_FILORIG) + SEF->(EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO+EF_FORNECE+EF_LOJA)))
+		RecLock("SE2")
+		SE2->E2_IMPCHEQ	:= " "
+		SE2->E2_NUMBCO 	:= Space(15)
+		SE2->(MsUnlock())
+
+		//Ponto de entrada para complementos de gravacao apos cancelamento do cheque
+		If lF390CBX2
+			ExecBlock("F390CBX2",.F.,.F.)
+		Endif
+
+		// dado o dbseek para posicionar no primeiro docto que atenda a chave, pois o titulo de abatimento 
+		// pode estar em posicao anterior ao titulo
+		nRecSe2Atu := SE2->(Recno())
+		SE2->(DbSetOrder(6))
+		SE2->(DbSeek(xFilial("SE2", SEF->EF_FILORIG)+ SEF->(EF_FORNECE+EF_LOJA+EF_PREFIXO+EF_TITULO+EF_PARCELA)))
+		
+		//Desbloqueia a inclusao de novo cheque no titulo - Abatimento
+		While SE2->(!Eof()) .And. SE2->(E2_FORNECE+E2_LOJA+E2_PREFIXO+E2_NUM+E2_PARCELA) == ;
+								  SEF->(EF_FORNECE+EF_LOJA+EF_PREFIXO+EF_TITULO+EF_PARCELA)
+			If SE2->E2_TIPO $ MVABATIM
+				RecLock( "SE2" )
+				SE2->E2_IMPCHEQ	:= CriaVar( "E2_IMPCHEQ" )
+				SE2->E2_NUMBCO 	:= CriaVar( "E2_NUMBCO" )
+				SE2->(MsUnlock())
+			Endif
+			SE2->(dbSkip())
+		Enddo
+		
+		SE2->(DbSetOrder(1))
+		SE2->(DbGoto(nRecSe2Atu))
+	Endif
+	
+	dbSelectArea(cArqTrab)
+	(cArqTrab)->(dbSkip())
+Enddo
+
+// Estorno do cheque cancelado no SE5 ( se houve movimentação)
+// Retorna ao primeiro titulo aglutinado no cheque
+SEF->(DbGoto(nRegSEF))
+SE5->(DbSetOrder(1))
+
+If nRecSE5 > 0
+	SE5->(DbGoto(nRecSE5))
+	While ( SE5->(!Eof()) 							.And. ;
+			SE5->E5_FILIAL	== xFilial("SE5")		.And. ;
+			SE5->E5_BANCO + SE5->E5_AGENCIA + SE5->E5_CONTA == ;
+			SEF->EF_BANCO + SEF->EF_AGENCIA + SEF->EF_CONTA )
+
+		If SE5->E5_NUMCHEQ == SEF->EF_NUM .And. SE5->E5_TIPODOC $ "CH³CA³CD" .And. SE5->E5_SITUACA != "C"
+			If SE5->E5_LA == "S " .or. lCancela .or. SE5->E5_DTDISPO < dDataBase
+				//------------------------------------------------------
+				// Grava o registro de estorno
+				//------------------------------------------------------
+				cCamposE5 := " { "
+				cCamposE5 += " {'E5_TIPODOC','EC'} "
+				cCamposE5 += ",{'E5_MODSPB','3'} "
+				cCamposE5 += " } "
+				
+				oModelMov	:= FWLoadModel("FINM030") //Model de Movimento Bancário 
+				oModelMov:SetOperation( MODEL_OPERATION_UPDATE ) //Alteração
+				oModelMov:Activate()
+				oModelMov:SetValue( "MASTER", "E5_CAMPOS", cCamposE5 ) //Informa os campos da SE5 que serão gravados indepentes de FK5
+				oModelMov:SetValue( "MASTER", "HISTMOV", OemToAnsi( STR0036 )) //"Cancelamento de Cheque"
+				oModelMov:SetValue( "MASTER", "E5_GRV", .T. ) //habilita gravação de SE5
+				oModelMov:SetValue( "MASTER", "E5_OPERACAO", 2 ) //E5_OPERACAO 2 = Grava E5 com E5_TIPODOC = 'ES' e gera estorno na FK5
+				oSubFKA	:= oModelMov:GetModel("FKADETAIL")
+				oSubFKA:SeekLine( { {"FKA_IDORIG", SE5->E5_IDORIG } } )
+				If oModelMov:VldData()
+					oModelMov:CommitData()
+				Else
+				    lRet := .F.
+					cLog := cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_IDFIELDERR]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_ID]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_MESSAGE])        	
+					    
+			    	Help( ,,"M030VALID",,cLog, 1, 0 )
+				Endif
+			Else
+				//Carrego model de Movimento Bancário
+				oModelMov	:= FWLoadModel("FINM030") //Model de Movimento Bancário 
+				oModelMov:SetOperation( MODEL_OPERATION_UPDATE ) //Alteração
+				oModelMov:Activate()
+				oModelMov:SetValue( "MASTER", "E5_GRV", .T. ) //habilita gravação de SE5
+				oModelMov:SetValue( "MASTER", "E5_OPERACAO", 1 ) //E5_OPERACAO 1 = Altera E5_SITUACA da SE5 para 'C' e gera estorno na FK5
+				oSubFKA	:= oModelMov:GetModel("FKADETAIL")
+				oSubFKA:SeekLine( { {"FKA_IDORIG", SE5->E5_IDORIG } } )
+				If oModelMov:VldData()
+					oModelMov:CommitData()
+				Else
+				    lRet := .F.
+					cLog := cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_IDFIELDERR]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_ID]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[MODEL_MSGERR_MESSAGE])        	
+					    
+			    	Help( ,,"M030VALID",,cLog, 1, 0 )
+				EndIf
+			Endif
+			oModelMov:DeActivate()
+			oModelMov:Destroy()
+			oModelMov:= Nil
+
+			AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, dDataBase, SE5->E5_VALOR	, "+" )
+			Exit
+		Endif
+		dbSkip()
+	EndDo
+Endif
+
+// Apaga ou cancela regitros do cadastro de cheques
+dbSelectArea(cArqTrab)
+If !lAvulso
+	(cArqTrab)->(dbGoTop())
+Endif
+
+While Eval(bCond)
+	If !lAvulso
+		SEF->(dbGoTo((cArqTrab)->REGSEF))
+	Endif
+
+   If SEF->EF_ORIGEM != "FINA390AVU"
+		//Se o titulo ja foi baixado, nao se pode exclui-lo do SEF, pois o usuário pode querer juntá-lo a um novo cheque.	
+		cSit 	:= " "
+		BeginSQL Alias "TMPSE5X"	
+			SELECT E5.E5_SITUACA 
+			FROM %Table:SE5% E5
+			WHERE E5.%NotDel% AND	
+			E5.E5_FILIAL = %xFilial:SE5% AND
+			E5.E5_BANCO = %Exp:SEF->EF_BANCO% AND
+			E5.E5_AGENCIA = %Exp:SEF->EF_AGENCIA% AND
+			E5.E5_CONTA = %Exp:SEF->EF_CONTA% AND
+			E5.E5_DATA  = %Exp:DtoS(SEF->EF_DATA)% AND
+			E5.E5_NUMCHEQ = %Exp:SEF->EF_NUM% AND 
+			E5.E5_SITUACA = %exp:cSit% AND
+			E5.E5_FORNECE = %Exp:SEF->EF_FORNECE%
+		EndSQL
+		
+		If TMPSE5X->(!Eof()) .and. !(TMPSE5X->E5_SITUACA $ "C|E|X")
+
+			If SEF->EF_IMPRESS != 'C'
+				RecLock("SEF",.F.)
+				SEF->EF_IMPRESS := " "
+				SEF->EF_NUM := Space( Len(SEF->EF_NUM) )
+				msUnlock()
+			Endif
+		EndIf
+		
+		TMPSE5X->(dbCloseArea())
+		
+		dbSelectArea("SEF")
+	
+	Endif
+		
+	// Apaga o cheque se ainda nao foi impresso
+	If SEF->EF_IMPRESS == "A" 
+		RecLock("SEF")
+		dbDelete()
+		MsUnlock()
+	EndIf
+
+	(cArqTrab)->(dbSkip())
+Enddo
+
+//Posiciono no cheque totalizador
+SEF->(dbGoTo(nRecChqTot))
+If !SEF->(Eof()) .And. !SEF->(Bof()) .And. Empty( SEF->EF_TITULO) .And. Empty(SEF->EF_IMPRESS)
+	RecLock("SEF")
+  	dbDelete()
+	MsUnlock()
+EndIf
+
+If nValorTot > 0
+	If nHdlPrv == 0
+		nHdlPrv:= HeadProva(cLote,"FINA390",Substr(cUsuario,7,6),@cArquivo)
+	Endif
+
+	If nHdlPrv > 0
+		// Posiciona no registro aglutinador do SE5
+		dbSelectArea("SE5")
+		SE5->(DbSetOrder(3))
+		SE5->(DbGoto(nRecSE5))
+		SEF->(DbGoto(0))
+		FK5->(DbGoto(0))
+		
+		VALOR := nValorTot
+		nTotal+= DetProva(nHdlPrv, cPadrao, "FINA390", cLote)
+	Endif
+
+	// Executa a contabilizacao, desposicionando o SEF para considerar apenas o registro
+	If nHdlPrv != 0 .and. nTotal > 0
+		RodaProva(nHdlPrv,nTotal)
+		cA100Incl(cArquivo,nHdlPrv,3,cLote,lMostra,.F.)
+	Endif
+Endif
+
+dbSelectArea("SEF")
+dbSeek(xFilial())
+
+dbSelectArea("SE2")
+dbGoTo( nRegSE2 )
+
+Return( Nil )
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa390Juri()
+Verifica se tem integracao com o SIGAPFS e realiza as validacoes da 
+integracao
+
+@param nRecno     Recno do título da SE2 (Contas a pagar)
+@param lTodos     Indica se foi pressionada a opcao de selecionar  
+                  todos os titulos
+@param lPrimeiro  Quando encontrar o primeiro título que não atenda 
+                  a validação e exibir sua mensagem, retorna por 
+                  referencia que não serão exibidas novas mensagens 
+				  caso ocorram inconsistencias nos próximos títulos.
+
+@Return lRet      .T. Indica se as validacoes estão corretas.
+
+@author Jorge Luis Branco Martins Junior
+@since 09/10/2017
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function Fa390Juri(nRecno, lTodos, lPrimeiro)
+Local lRet      := .T.
+Local lIntSJURI := SuperGetMv("MV_JURXFIN",.T.,.F.)
+
+If lIntSJURI .And. FindFunction("JVldBxPag")
+	lRet := JVldBxPag(nRecno, lTodos, @lPrimeiro)
+EndIf
+
+Return lRet
+
+
+//-----------------------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F390GETSOMA
+Esta função Verifica se o calculo da função SumAbatPag() já foi efetuado para o registro atual de cAliasSE2
+@type function
+@author Mauricio Pequim Jr
+@since 04/04/2018
+@version 1.0
+@return $numerico, $Valor do título posicionado, atualizado.
+@example
+	nTotAbat := F390GETAbatSOMA()
+/*/
+//-----------------------------------------------------------------------------------------------------------------------
+STATIC Function F390GETSOMA(cAliasSE2 As Character)
+
+Local nRet As Numeric
+Local nJuros As Numeric
+Local nAcresc As Numeric
+Local nDecresc As Numeric
+Local nAbatim As Numeric
+Local nVlReal As Numeric
+Local nVa As Numeric	// VA
+
+nRet := 0
+nJuros := 0
+nAcresc := 0
+nDecresc := 0
+nAbatim := 0
+nVlReal := 0
+nVa	:= 0	// VA
+
+If TableInDic('FKD')
+	// Valores acessórios.
+	If lPodeTVA .and. FAPodeTVA( (cAliasSE2)->E2_TIPO, (cAliasSE2)->E2_NATUREZ, .F., "P" )
+
+		nVa	:= FValAcess( (cAliasSE2)->E2_PREFIXO, (cAliasSE2)->E2_NUM, (cAliasSE2)->E2_PARCELA, (cAliasSE2)->E2_TIPO, (cAliasSE2)->E2_FORNECE, (cAliasSE2)->E2_LOJA, (cAliasSE2)->E2_NATUREZ, Iif(Empty(dBaixa),.F.,.T.), "" , "P", , , (cAliasSE2)->E2_MOEDA, (cAliasSE2)->E2_MOEDA , (cAliasSE2)->E2_TXMOEDA )
+
+		DBSelectArea( cAliasSE2 )
+		RecLock( cAliasSE2, .F. )
+		If nVa > 0
+			(cAliasSE2)->E2_SDACRES += nVa
+		Else
+			(cAliasSE2)->E2_SDDECRE += nVa
+		EndIf
+		(cAliasSE2)->VLACESS	:= nVa	// VA
+		
+		MSUnLock()
+	EndIf
+EndIf
+
+If (cAliasSE2)->CALCULADO != '1'
+	nAcresc  := xMoeda( (cAliasSE2)->E2_SDACRES ,(cAliasSE2)->E2_MOEDA,1 )
+	nDecresc := xMoeda( (cAliasSE2)->E2_SDDECRE ,(cAliasSE2)->E2_MOEDA,1 )
+	nAbatim  := SumAbatPag((cAliasSE2)->E2_PREFIXO, (cAliasSE2)->E2_NUM, (cAliasSE2)->E2_PARCELA, (cAliasSE2)->E2_FORNECE, (cAliasSE2)->E2_MOEDA, "V", (cAliasSE2)->E2_BAIXA, (cAliasSE2)->E2_LOJA)
+	nJuros 	 := Fa080Juros((cAliasSE2)->E2_MOEDA)
+	nVlReal  := xMoeda((cAliasSE2)->E2_SALDO,(cAliasSE2)->E2_MOEDA,1,,,If(cPaisLoc=="BRA",(cAliasSE2)->E2_TXMOEDA,0))
+
+	(cAliasSE2)->VLSOMAABAT := nAbatim	//Controle de valores de abatimento (utilizado para marcar o campo E2_IMPCHEQ dos titulos de abatimento)
+	(cAliasSE2)->E2_DESCONT := nAbatim + nDecresc
+	(cAliasSE2)->E2_JUROS	:= nJuros + nAcresc
+	(cAliasSE2)->E2_VLCRUZ	:= nVlReal + (cAliasSE2)->E2_JUROS - (cAliasSE2)->E2_DESCONT
+	(cAliasSE2)->CALCULADO	:= '1'
+EndIf
+
+nRet := (cAliasSE2)->E2_VLCRUZ
+
+Return nRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F390GetCampos
+Preenche 2 arrays de campos, sendo: 1 para exibição em MarkBrowse e 1 para criação de tabela temporaria.
+
+@author Mauricio Pequim Jr
+@since 04/04/2018
+
+@version P12
+/*/
+//-------------------------------------------------------------------
+STATIC FUNCTION F390GetCampos(aCampos as Array, aEstruct as Array, lRotAuto AS Logical )
+
+Local nX As Numeric
+Local cIndex As Character
+Local aIndex As Array
+Local aRestrict As Array
+
+/**Inicialização */
+DEFAULT aCampos  := {}	// Campos para o MarkBrowse - Deve ser passado por referência
+DEFAULT aEstruct := {}	// Campos para a tabela temporária - Deve ser passado por referência
+DEFAULT lRotAuto := .F.
+
+nX := 0
+cIndex := ""
+aIndex := {}
+aRestrict := { "E2_OK"      ,"E2_FILIAL" ,"E2_PREFIXO","E2_NUM"    ,"E2_PARCELA","E2_TIPO"   ,"E2_FORNECE","E2_LOJA"   ,;
+				"E2_NOMFOR" ,"E2_EMISSAO","E2_VENCTO" ,"E2_VENCREA","E2_VALOR"  ,"E2_SALDO"  ,"E2_JUROS"  ,"E2_DESCONT",;
+				"E2_VLCRUZ" ,"E2_HIST"   ,"E2_NATUREZ","E2_FILORIG","E2_NUMBOR" ,"E2_MOEDA"  ,"E2_TXMOEDA","E2_IMPCHEQ",;
+				"E2_BAIXA"  ,"E2_SDACRES","E2_SDDECRE"}
+
+cCposTRB	:= ""
+aIndices 	:= {}
+aPesqui		:= {}
+aCbx		:= {}
+
+//Tela de indices para seleção
+FinCposSix("SE2",@aIndices,@aRestrict,,,lRotAuto)
+
+// Posiciona no dicionário das colunas da SE2
+dbSelectArea("SX3")
+SX3->(dbSetOrder(1))	//X3_ARQUIVO+X3_ORDEM
+SX3->(dbSeek("SE2"))
+SX3->(dbSetOrder(2))	//X3_CAMPO
+
+For nX := 1 to Len(aRestrict)
+	If SX3->(dbSeek(aRestrict[nX]))
+		
+		If !(Alltrim(SX3->X3_CAMPO)) $ "E2_IMPCHEQ|E2_BAIXA|E2_SDACRES|E2_SDDECRE"
+			AADD(aCampos,{SX3->X3_CAMPO,"",X3Titulo(),SX3->X3_PICTURE})
+			
+			If AllTrim(SX3->X3_CAMPO) == "E2_JUROS"
+				aCampos[nX,3] := "(+) " + STR0070	//"Acréscimos"
+			ElseIf AllTrim(SX3->X3_CAMPO) == "E2_DESCONT"
+				aCampos[nX,3] := "(-) " + STR0071	//"Decréscimos"
+			ElseIf AllTrim(SX3->X3_CAMPO) == "E2_VLCRUZ"
+				aCampos[nX,3] := "(=) " + STR0072	//"Valor Atualizado"
+			Endif
+		EndIf
+
+		AADD(aEstruct,{SX3->X3_CAMPO,SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	Endif
+Next
+
+aEval(aEstruct,{|x| cCposTRB += Alltrim(x[1]) + ","})
+
+If lPodeTVA
+	AADD( aEstruct	, { "VLACESS","N", TamSX3("FKD_VLCALC")[1],TamSX3("FKD_VLCALC")[2] })	// MGOMES VA 02/07/2018
+	AADD( aCampos	, { "VLACESS","" , STR0079, PesqPict( "SE2", "E2_VALOR" ) })			// ###STR0079 "Vl. Acessório" 	// VA
+EndIf 
+AADD(aEstruct,{"NUM_REG","N",10,0})
+AADD(aEstruct,{"VLSOMAABAT","N",16,2})
+AADD(aEstruct,{"CALCULADO","C",1,0})
+
+SX3->(dbSetOrder(1))	//X3_ARQUIVO+X3_ORDEM
+
+RETURN NIL
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} f390QryA 
+
+Faz a query de filtro dos titulos
+
+@author Mauricio Pequim Jr
+@since 04/04/2018
+
+@version P11
+/*/
+//-------------------------------------------------------------------
+Static Function f390QryA(cAliasSE2 As Character, aCampos As Array, aEstruct As Array, aSelFil As Array, aTmpFil As Array)
+
+Local cQuery As Character
+Local cFiltro As Character
+Local cIndex As Character
+Local cTmpFil As Character
+Local cTmpSE2Fil As Character
+Local cFILSE2 As Character
+Local lE2_MSBLQL As Logical
+
+DEFAULT cAliasSE2	:= ""
+DEFAULT aCampos		:= {}
+DEFAULT aEstruct	:= {}
+DEFAULT aSelFil		:= {cFilAnt}
+DEFAULT aTmpFil 	:= {}
+
+cQuery	:= ""
+cFiltro	:= ""
+cIndex	:= ""
+cTmpFil	:= ""
+cTmpSE2Fil := ""
+cFILSE2	:= ""
+lE2_MSBLQL := SE2->(ColumnPos("E2_MSBLQL"))
+
+dbSelectArea("SE2")
+
+cIndex	:= SE2->(IndexKey())
+
+cFilSE2 := GetRngFil(aSelFil,"SE2",.T.,@cTmpSE2Fil) //"Favor Aguardar..."###"Cheques s/Titulos"
+aAdd(aTmpFil, cTmpSE2Fil)
+
+cQuery := "SELECT "
+cQuery += cCposTRB
+cQuery += "R_E_C_N_O_ NUM_REG "
+cQuery += "FROM " + RetSqlName("SE2") + " "
+cQuery += " WHERE E2_FILIAL " + cFILSE2
+cQuery += " AND E2_SALDO > 0"
+cQuery += " AND E2_VENCREA Between '" + Dtos(dVencIni) + "' AND '"+ Dtos(dVencFim) + "'"
+cQuery += " AND E2_IMPCHEQ = '" + Space(Len(SE2->E2_IMPCHEQ)) + "'"
+cQuery += " AND E2_TIPO NOT IN " + F390FormatIn()
+
+If ! Empty( cForn390 )
+	cQuery += " AND E2_FORNECE = '" + cForn390 + "'"
+EndIf
+//Titulos bloqueados
+If lE2_MSBLQL
+	cQuery += " AND E2_MSBLQL <> '1'"
+Endif
+
+//Che.s/tit.em bordero ?
+If mv_par01 == 2
+	cQuery += " AND E2_NUMBOR = '" + Space(Len(SE2->E2_NUMBOR)) + "'"
+EndIf
+
+//Titulos liberados quando se controla liberação de pagamentos
+If lCTLIPAG 
+	cQuery += " AND E2_DATALIB != ' ' "
+Endif
+
+If lGestaoCorp .AND. !(Empty(cFil390))
+	cQuery += " AND (" + cFil390 + ")"
+Endif
+
+cQuery += " AND D_E_L_E_T_ = ' '"
+
+cQuery := ChangeQuery(cQuery)
+						
+cArqNew := F390MTTMP(cQuery,aCampos,@aEstruct,@cAliasSE2,cIndex)
+
+If !Empty(cArqNew)
+	dbSelectArea(cAliasSE2)
+	dbSetOrder(2)		
+	dbgotop()
+Endif
+
+Return cArqNew
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F090MTTMP 
+
+Monta a temporaria da query
+
+@author Mauricio Pequim Jr
+@since 04/04/2018
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function F390MTTMP(cQuery As Character, aCampos As Array, aEstruct As Array, cAliasSE2 As Character, cIndex As Character)
+
+Local cArqTrab As Character
+Local cFilSE2 As Character
+Local cQuery2 As Character
+Local cChave As Character
+Local nTcSql As Numeric
+Local nValTit As Numeric
+Local nX As Numeric
+Local lRet As LOGICAL
+
+nTcSql		:= 0
+cArqTrab	:= GetNextAlias()
+cFilSE2		:= ""
+cQuery2		:= ''
+lRet		:= .T.
+cChave		:= ""
+nValTit		:= 0
+nX			:= 0
+
+//Deleta a tabela temporária no banco de dados, caso já exista	
+If _oFINA3901 <> Nil
+	_oFINA3901:Delete()
+	_oFINA3901 := Nil
+Endif
+
+// Criação da Tabela Temporßria 
+_oFINA3901 := FWTemporaryTable():New( cArqTrab )  
+_oFINA3901:SetFields(aEstruct) 
+
+_oFINA3901:AddIndex("1", {"E2_OK","E2_FILIAL","E2_PREFIXO","E2_NUM","E2_PARCELA","E2_TIPO"})
+
+//Adiciono o índice da tabela temporária
+For nX := 1 To Len(aIndices)
+	cTmpIdx := "Tmp_Idx_"+StrZero((nX+1),2)
+	aChave	:= StrToKarr(Alltrim(aindices[nX,3]),"+")
+
+	_oFINA3901:AddIndex(cTmpIdx,aChave)	
+Next
+
+_oFINA3901:Create() 	
+
+cQuery2 := " INSERT "
+If ALLTRIM(tcGetdb()) == "ORACLE"
+	cQuery2 += " /*+ APPEND */ "
+Endif
+
+If AllTrim(TcGetDb()) == "DB2"
+	cQuery := STRTRAN( cQuery, "FOR READ ONLY", "" )
+EndIf
+
+cCposTRB += "NUM_REG"
+
+cQuery2 += " INTO "+_oFINA3901:GetRealName()+" ("+cCposTRB+") " + cQuery
+
+Processa({|| nTcSql := TcSQLExec(cQuery2)})
+
+If nTcSql < 0
+	Help(" ",1,"F090MTTMP",, STR0073 ,1,0) //"Não foi possivel montar a tabela temporaria, favor verificar o seu ambiente Protheus."
+	cArqTrab := ""
+Else
+	cAliasSE2 := _oFINA3901:GetAlias()
+	(cAliasSE2)->(DBGOTOP())
+
+	While !(cAliasSE2)->(EOF())
+		// Para o Brasil, apresenta somente os titulos cuja moeda e' a mesma do banco selecionado para baixa.
+		// Caso a moeda do banco estiver vazia ou caso o motivo de baixa nao movimente banco, considero apenas a moeda forte
+		// Caso trabalhe com liberacao de pagamento
+		nValTit := F390VALLIQ(cAliasSE2)
+
+		IF nValTit <= nVLMINPG
+			(cAliasSE2)->(DBDelete()) 
+			(cAliasSE2)->(DbSkip())
+			Loop
+		Endif
+
+		If !lGestaoCorp .AND. !Empty( cFil390 ) .And. !( &cFil390 )
+			(cAliasSE2)->(DBDelete()) 
+			(cAliasSE2)->(DbSkip())
+			Loop
+		EndIf
+
+		(cAliasSE2)->(DbSkip())
+	EndDo
+
+	(cAliasSE2)->(__DBPack())
+
+EndIf
+
+Return cArqTrab
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} function F390FormatIn
+Formata separadores de string para uso em cláusula IN de queries.
+@author Mauricio Pequim Jr
+@since 04/04/2018
+
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function F390FormatIn()
+	
+Local cString := MVPROVIS+"/"+MV_CPNEG+"/"+MVABATIM+"/"+MVPAGANT
+
+cString	:=	StrTran(cString,',','/')
+cString	:=	StrTran(cString,';','/')
+cString	:=	StrTran(cString,'|','/')
+cString	:=	StrTran(cString,'\','/')
+
+cString := Formatin(cString,"/")
+
+Return cString
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F090Clean
+
+Limpa o objeto da temporarytable
+ 
+@author Mauricio Pequim Jr
+@since 04/04/2018
+
+/*/
+//-----------------------------------------------------------------------------------------------------
+Static Function F390Clean()
+
+If _oFINA3901 <> Nil
+	_oFINA3901:Delete()
+	_oFINA3901 := Nil
+Endif
+
+Return  
+
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FinSeqSeF
+
+Encontra a proxima sequencia para o movto do cheque.
+
+@author Mauricio Pequim Jr
+@since 04/04/2018
+
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function FinSeqSeF(cBanco AS Character ,cAgencia AS Character,cConta AS Character,cCheque AS Character,cCart AS Character,;
+					cTipoIn AS Character,cTipoNotIn AS Character)
+
+Local aArea As Array
+Local aAreaSe5 As Array
+Local cSequencia As Character
+Local cQuery As Character
+
+DEFAULT cBanco		:= ""
+DEFAULT cAgencia	:= ""
+DEFAULT cConta		:= ""
+DEFAULT cCheque		:= ""
+DEFAULT cTipoNotIn	:= ""
+DEFAULT cTipoIn		:= ""
+
+aArea		:= {}
+aAreaSe5	:= {}
+cSequencia	:= ""
+cQuery		:= ""
+
+//Inicializa Staticas
+If nTamSeq == NIL
+	nTamSeq		:= TamSX3("E5_SEQ")[1]
+EndIF
+
+cSequencia	:= Replicate("0",nTamSeq)
+
+If __oPreparA == nil
+	cQuery := "SELECT MAX(E5_SEQ) MAXSEQ"
+	cQuery += " FROM "+RetSqlName("SE5")+" SE5"
+	cQuery += " WHERE SE5.E5_FILIAL= ? AND"
+	cQuery += " SE5.E5_BANCO= ? AND"
+	cQuery += " SE5.E5_AGENCIA= ? AND"
+	cQuery += " SE5.E5_CONTA= ? AND"
+	cQuery += " SE5.E5_NUMCHEQ= ? AND"
+	cQuery += " SE5.E5_RECPAG = ? AND"
+	cQuery += " SE5.E5_SITUACA != 'C' AND"
+	If !Empty(cTipoIn)
+		cQuery += " SE5.E5_TIPODOC IN " + FormatIn(cTipoIn,"|") + " AND"
+	EndIf
+	cQuery += " SE5.D_E_L_E_T_=' '"
+
+	cQuery := ChangeQuery(cQuery)
+	__oPreparA:=FWPreparedStatement():New(cQuery)
+Endif
+
+__oPreparA:SetString(1,xFilial("SE5"))
+__oPreparA:SetString(2,cBanco)
+__oPreparA:SetString(3,cAgencia)
+__oPreparA:SetString(4,cConta)
+__oPreparA:SetString(5,cCheque)
+__oPreparA:SetString(6,cCart)
+
+cQuery:=__oPreparA:GetFixQuery()
+
+//dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),"FaBaixaCR",.T.,.T.)
+cSequencia := Left(MpSysExecScalar(cQuery,"MAXSEQ"), nTamSeq) //left incluido para corrigir problema em banco postgres - nao remover	
+
+If Len(AllTrim(cSequencia)) < nTamSeq
+	cSequencia := PadL(cSequencia,nTamSeq,"0")
+Endif
+
+cSequencia := Soma1(cSequencia,nTamSeq)
+
+Return cSequencia
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F390RegChq
+
+Retorna o recno do cheque Verifica se o cheque foi impresso ou cancelado.
+Se cancelado, não faz um novo cancelamento
+Se impresso, perguntará ao usuário se o mesmo deseja reaproveitar o número de cheque
+
+@author Mauricio Pequim Jr
+@since 11/04/2018
+
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F390RegChq(cFilial390 AS Character ,cBanco390 AS Character,cAgencia390 AS Character,cConta390 AS Character,cCheque390 AS Character)
+
+Local cQuery As Character
+Local nRecCheq As Numeric
+
+DEFAULT cFilial390 := ''
+DEFAULT cBanco390 := ''
+DEFAULT cAgencia390 := ''
+DEFAULT cConta390 := ''
+DEFAULT cCheque390 := ''
+
+cQuery := ""
+nRecCheq := 0
+
+If __oPreparB == nil
+
+	cQuery 	:= "SELECT R_E_C_N_O_ RECCHQ FROM "+ RetSqlName("SEF") +" SEF "
+	cQuery 	+= "WHERE EF_FILIAL = ? AND"
+	cQuery 	+= " EF_BANCO = ? AND"
+	cQuery 	+= " EF_AGENCIA = ? AND"		
+	cQuery 	+= " EF_CONTA = ? AND"		
+	cQuery 	+= " EF_NUM = ? AND"			
+	cQuery 	+= " EF_TITULO = ' ' AND"				
+	cQuery 	+= " D_E_L_E_T_ = ' ' "
+
+	cQuery 	:= ChangeQuery(cQuery)
+	__oPreparB:=FWPreparedStatement():New(cQuery)
+Endif
+
+__oPreparB:SetString(1,cFilial390)
+__oPreparB:SetString(2,cBanco390)
+__oPreparB:SetString(3,cAgencia390)
+__oPreparB:SetString(4,cConta390)
+__oPreparB:SetString(5,cCheque390)
+	
+cQuery := __oPreparB:GetFixQuery()
+
+nRecCheq := MpSysExecScalar(cQuery,"RECCHQ")
+
+Return nRecCheq
+
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} f390ValLiq
+Debita o valor dos impostos do saldo do titulo
+para compor o valor liquido do cheque *Caso haja impostos.
+
+@param cAliasSE2 - Alias da tabela temporaria.
+
+@return nValor - Retorna o valor do cheque com o desconto
+dos impostos.
+
+@author  Vinicius do Prado
+@since 28/06/2019
+@version 12
+/*/
+//-----------------------------------------------------------------------
+Static Function F390VALLIQ(cAliasSE2 as Character ) as Numeric
+
+	Local nTotImp    as Numeric
+	Local nValor     as Numeric
+	Local lIrfBaixa  as Logical
+	Local aImpPCC    as Array
+	Local cTipoForn  as Character
+	Local nSalImp    as Numeric
+	Local lPccBaixa  as Logical		
+	Local lIssBaixa  as Logical
+	Local nMinIss    as Numeric
+	Local aAreaAnt   as Array
+
+	lPccBaixa	:= SuperGetMv("MV_BX10925", .F., '1') == '1' //1 = Baixa, 2 = Emissao
+	lIssBaixa   := SuperGetMv("MV_MRETISS",  .F., '1') == '2' //1 = Emissao, 2 = Baixa
+	nMinIss     := GetMv("MV_VRETISS") //Valor minimo de ISS
+	aAreaAnt    := GetArea()
+	nTotImp		:= 0
+	nValor		:= 0
+	nSalImp		:= 0
+	aImpPCC		:= {}	
+
+	DbSelectArea("SA2")
+	SA2->(Dbsetorder(1))
+	SA2->(Dbseek(xFilial("SA2")+(cAliasSE2)->(E2_FORNECE+E2_LOJA)))
+
+	cTipoForn := SA2->A2_TIPO		
+	lIrfBaixa := SA2->A2_CALCIRF == "2"
+
+	//Volto a me posicionar na SE2
+	DbSelectArea("SE2")
+	SE2->(Dbsetorder(1))
+
+	//Posiciono no Registro pelo RECNO
+	SE2->(DbGoto((cAliasSE2)->NUM_REG))
+
+	//Verifica se o titulo nao esta em bordero e pendente de retencao e se existe um valor limite
+	If !(("4" $ SE2->(E2_PRETPIS + E2_PRETCSL + E2_PRETCOF + E2_PRETIRF)) .AND. !Empty(SE2->E2_NUMBOR))
+
+		//Deduz PCC
+		If lPccBaixa .AND. SE2->(E2_PIS + E2_COFINS + E2_CSLL) > 0
+			nSalImp := salRefPag(SE2->E2_FORNECE + SE2->E2_LOJA,,,,,,, .F.)
+			aImpPCC := NewMinPcc(dDataBase, nSalImp, SE2->E2_NATUREZ, "P", SE2->(E2_FORNECE + E2_LOJA)) 
+			nTotImp := aImpPCC[2] + aImpPCC[3] + aImpPCC[4]
+		EndIf
+		
+		//Deduz ISS
+		If lIssBaixa .AND. (SE2->E2_ISS > nMinIss) 
+			nTotImp += SE2->E2_ISS - SE2->E2_VRETISS //Deduzo o valor pendente de ISS diretamente do valor do cheque
+		EndIf
+
+		//Deduz IRRF
+		If lIrfBaixa .AND. SE2->E2_IRRF > 0
+			nTotImp +=  FCalcIRBx(0,cTipoForn,dDatabase,dDatabase,/*lAltValor*/,/*nTxmoeda*/,/*cMotBx*/)
+		EndIf
+
+	EndIF
+
+	F390GETSOMA(cAliasSE2)
+
+	nValor := (cAliasSE2)->E2_VLCRUZ - nTotImp
+
+	RestArea(aAreaAnt)
+
+return nValor
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} F390CNCHq
+Retornar TRB com todos os titulos que compuseram o cheque s/ titulo
+
+@param cBanco390 - Banco
+@param cAgencia390 - Banco
+@param cConta390 - Banco
+@param cCheque390 - Banco
+
+@return cAlsAux - Alias do TRB contendo o recno da SEF dos componentes
+do cheque s/ titulo.
+
+@author  Mauricio Pequim Jr
+@since 18/12/2019
+@version 12
+/*/
+//-----------------------------------------------------------------------
+
+Function F390CNCHq(cBanco390,cAgencia390,cConta390,cCheque390)
+
+	Local cQryChq := ""
+	Local cAlsAux := ""
+
+	DEFAULT cBanco390 := ""
+	DEFAULT cAgencia390 := ""
+	DEFAULT cConta390 := ""
+	DEFAULT cCheque390 := ""
+
+	If __oPreparC == NIL
+		cQryChq := "SELECT SEF.R_E_C_N_O_ REGSEF "
+		cQryChq += "FROM " + RetSqlName("SEF") + " SEF "
+		cQryChq += "WHERE EF_BANCO = ? "
+		cQryChq += "AND EF_AGENCIA = ? "
+		cQryChq += "AND EF_CONTA = ? "
+		cQryChq += "AND EF_NUM = ? "
+		cQryChq += "AND D_E_L_E_T_ = ' ' "
+		cQryChq := ChangeQuery(cQryChq)
+		__oPreparC := FWPreparedStatement():New(cQryChq)
+	EndIF
+	
+	__oPreparC:SetString(1, cBanco390)
+	__oPreparC:SetString(2, cAgencia390)
+	__oPreparC:SetString(3, cConta390)
+	__oPreparC:SetString(4, cCheque390)
+	cQryChq := __oPreparC:GetFixQuery()			
+
+	cAlsAux := MpSysOpenQuery(cQryChq)
+
+Return cAlsAux
+
+
+
+/*/{Protheus.doc} IniStatic
+	Função responsavel por inicializar as variaveis estaticas 
+	@type  Static Function
+	@author Vitor Duca
+	@since 29/08/2020
+	@version 1.0
+/*/
+Static Function IniStatic()
+
+	lPodeTVA	:= ExistFunc("FAPodeTVA")
+	lCTLIPAG 	:= SuperGetMv("MV_CTLIPAG",.T.,.F.)
+	_lJURXFIN	:= SuperGetMv("MV_JURXFIN",.T.,.F.)
+	nVLMINPG 	:= SuperGetMv("MV_VLMINPG",.T., 0 )
+	lUsaFlag	:= SuperGetMV("MV_CTBFLAG",.T.,.F.) 
+	lFinVDoc	:= (GetNewPar("MV_FINVDOC","2") == "1")		//Controle de validacao de documentos obrigatorios
+	lF390Tit 	:= ExistBlock("F390TIT")                        
+	lValImp  	:= ExistBlock("F390VALOR") //Ponto de Entrada para manipular o valor do cheque
+	lF390GRV	:= ExistBlock("F390GRV")
+	__lF390GCH  := ExistBlock("F390GCHE") 
+	__lA390Hst 	:= ExistBlock("A390HIST")
+	__lA390Avu	:= ExistBlock("A390AVU")
+	__cCtBaixa	:= GETMV("MV_CTBAIXA")
+
+Return 
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} F390GrvCprb
+Ajustar descrição do Comprovante (Localização COL)
+
+@param cComprobante - Código do Comprovante
+
+@author  Mauricio Pequim Jr
+@since 10/09/2020
+@version 12
+/*/
+//-----------------------------------------------------------------------
+
+Static Function F390GrvCprb(cComprobante)
+
+	Local cComprobX  as Character
+
+	Default cComprobante := ""
+
+	cComprobX := ""
+
+	If !Empty(cComprobante)
+		cComprobX := StrZero(Val(cComprobante) + 1, Len(cComprobante))
+		FWPutSX5(, "YG", "CE", cComprobX, cComprobX, cComprobX, cComprobX)
+	EndIf
+
+Return

@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "AYUDA"
+	#define STR0002 "Estatus de peso certificado no válido."
+	#define STR0003 "Instrucción de embarque debe estar con peso 'Certificado'."
+	#define STR0004 "Existe un proceso de workflow generado"
+	#define STR0005 "El Portal AGRO no está habilitado. Verifique el parámetro MV_AGRO024."
+	#define STR0006 "WF Certificación de peso"
+	#define STR0007 "Proceso iniciado con éxito en el Portal AGRO"
+	#define STR0008 "Error en la integración con el Portal AGRO:"
+	#define STR0009 "Instrucción de embarque iniciada por el Portal Agro."
+	#define STR0010 "Modificación, borrado o aprobación comercial debe realizarse vía Portal Agro por la solicitud"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "HELP"
+		#define STR0002 "Status of Certified Weight invalid."
+		#define STR0003 "Boarding Instruction must have 'Certified' weight."
+		#define STR0004 "There already is a workflow process generated "
+		#define STR0005 "AGRO Portal is not enabled. Check MV_AGRO024 parameter."
+		#define STR0006 "WF weight certification"
+		#define STR0007 "Process successfully started in AGRO Portal  "
+		#define STR0008 "Error in the integration with AGRO Portal: "
+		#define STR0009 "Boarding Instruction started by AGRO Portal."
+		#define STR0010 "Edition, deletion or business approval must be made through Agro Portal by request "
+	#else
+		#define STR0001 "AJUDA"
+		#define STR0002 "Status de Peso Certificado Inválido."
+		#define STR0003 "Instrução de Embarque deve estar com peso 'Certificado'."
+		#define STR0004 "Já existe um processo de workflow gerado "
+		#define STR0005 "O Portal AGRO não está habilitado. Verifique o Parâmetro MV_AGRO024."
+		#define STR0006 "WF certificação de peso"
+		#define STR0007 "Processo iniciado com suscesso no Portal AGRO  "
+		#define STR0008 "Erro na integração com o Portal AGRO: "
+		#define STR0009 "Instrução de Embarque iniciada pelo Portal Agro."
+		#define STR0010 "Alteração, exclusão ou aprovação comercial deve ser realizado via Portal Agro pela solicitação "
+	#endif
+#endif

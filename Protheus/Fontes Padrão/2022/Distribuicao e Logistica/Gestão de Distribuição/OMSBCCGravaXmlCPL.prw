@@ -1,0 +1,4 @@
+#INCLUDE "PROTHEUS.CH"
+
+Function OMSCLS0001()
+Return

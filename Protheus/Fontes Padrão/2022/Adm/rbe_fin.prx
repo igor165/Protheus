@@ -1,0 +1,517 @@
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE 'FIN.CH'
+#INCLUDE 'SET.CH'
+
+Static __lRelease := If( GetRPORelease() > "12.1.033", .T., .F. )
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RBE_FIN
+Funções de compatibilização e/ou conversão de dados para as tabelas do sistema.
+
+@sample RBE_FIN("12", "2", "003", "005", "BRA")
+
+@param cVersion - Versão do Protheus
+@param cMode - Modo de execução - "1" = Por grupo de empresas / "2" = Por grupo de empresas + filial (filial completa)
+@param cRelStart - Release de partida - (Este seria o Release no qual o cliente está)
+@param cRelFinish - Release de chegada - (Este seria o Release ao final da atualização)
+@param cLocaliz - Localização (país) - Ex. "BRA"
+
+@return lRet
+
+@author norbertom
+@since 14/12/2017
+@version P12
+/*/
+//-------------------------------------------------------------------
+Function RBE_FIN( cVersion As Char, cMode As Char, cRelStart As Char, cRelFinish As Char, cLocaliz As Char )
+Local lRet As Logical
+Local aArqUpd As Array  
+Local nX As Numeric
+  
+Default cVersion := ''
+Default cMode := ''
+Default cRelStart := ''
+Default cRelFinish := ''
+Default cLocaliz := ''
+
+aArqUpd := {}
+
+If cMode == "1"
+	//Ajuste do grupo de campos 115 (Histórico de movimentações)
+	UpdSXGHist( @aArqUpd )
+	UpdSX3Hist( @aArqUpd )
+
+	//Ajuste do grupo de campos 157 (Arquivo CNAB)
+	UpdSXGArq( @aArqUpd )
+	UpdSX3Arq( @aArqUpd )
+
+	//Ajuste do grupo de campos 134 (Sequência de baixa)
+	UpdSXGSeq( @aArqUpd )
+	
+	If __lRelease
+		UpdSX3Seq( @aArqUpd )
+	EndIf
+
+EndIf
+
+lRet := Len(aArqUpd) > 0
+
+If lRet
+	__SetX31Mode(.F.) //Bloqueia alterações no dicionário
+	For nX := 1 To Len(aArqUpd)
+		DbSelectArea(aArqUpd[nX])
+		&(aArqUpd[nX])->(DbCloseArea())
+		X31UpdTable( aArqUpd[nX] ) //Atualiza o dicionário
+
+		If __GetX31Error() //Se houve Erro na Rotina
+			HELP( 'RBE_FIN', 1, " GetX31Error", Nil, STR0027 + aArqUpd[nx] + STR0028, 1, 0 ) //"Atencao!"###"Ocorreu um erro desconhecido durante a atualizacao da tabela : "###". Verifique a integridade do dicionario e da tabela."###"Continuar"
+		EndIf
+	Next nX
+	__SetX31Mode(.T.) //Libera alterações no dicionário
+EndIF
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} UpdSX3Hist
+Atualiza dicionario SX3 - Campos especificos FK1_HISTOR,FK2_HISTOR,FK5_HISTOR,FK6_HISTOR
+
+@author  norbertom
+@since   14/12/2017
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function UpdSX3Hist(aArqUpd As Array) As Logical
+Local nX As Numeric
+Local nTamHist As Numeric
+Local aLista As Array
+
+Default aArqUpd := {}
+
+aLista := {'FK1_HISTOR','FK2_HISTOR','FK5_HISTOR','FK6_HISTOR'}
+
+DbSelectArea('SX3')
+SX3->(dbSetOrder(2)) // X3_CAMPO
+nTamHist := TamSX3('E5_HISTOR')[1]
+For nX := 1 To Len(aLista)
+	If SX3->(dbSeek(aLista[nX])) .AND. ((SX3->X3_TAMANHO <> nTamHist) .OR. (SX3->X3_GRPSXG <> '115'))
+		RecLock("SX3",.F.)
+		SX3->X3_TAMANHO := nTamHist
+		SX3->X3_GRPSXG := '115'
+		SX3->(MsUnlock())
+		
+		AdicLstDic( @aArqUpd, SubStr(aLista[nX],1,3) )
+	EndIF
+Next nX
+
+Return (Len(aArqUpd) > 0)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} UpdSXGHist
+Atualiza dicionario SXG - Grupo de Campos 115 - Historico de Movimentações
+
+@author  norbertom
+@since   14/12/2017
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function UpdSXGHist(aArqUpd As Array) As Logical
+Local lFound As Logical
+Local nTamHist As Numeric
+
+Default aArqUpd := {}
+
+nTamHist := TamSX3('E5_HISTOR')[1]
+DbSelectArea('SXG')
+lFound := SXG->(dbSeek('115'))
+
+If !lFound .OR. (SXG->XG_SIZE <> nTamHist)
+	RecLock('SXG',!lFound)
+	SXG->XG_GRUPO := '115'
+	SXG->XG_DESCRI := 'Historico SE5'
+	SXG->XG_DESSPA := 'Historial SE5'
+	SXG->XG_DESENG := 'SE5 History'
+	SXG->XG_SIZEMAX := 255
+	SXG->XG_SIZEMIN := 40
+	SXG->XG_SIZE := nTamHist
+	SXG->XG_PICTURE := '@!'
+	SXG->(MsUnlock())
+	
+	AdicLstDic( @aArqUpd, "SXG" )
+EndIf
+
+Return (Len(aArqUpd) > 0)
+
+/*/{Protheus.doc} UpdSXGSeq
+Atualiza dicionario SXG - Grupo de Campos 134 - Sequência de baixa
+
+@author pedro.alencar
+@since 26/12/2017
+@version P12
+/*/
+Static Function UpdSXGSeq( aArqUpd As Array ) As Logical
+	Local lRet As Logical
+	Local nTamSeq As Numeric
+	Default aArqUpd := {}
+	
+	lRet := .F.
+	
+	//Pega o maior tamanho de sequência de baixa configurado na base
+	nTamSeq := PegaTamSeq()
+		
+	//Se não encontrou o grupo 134, cria o grupo de campos já com o maior tamanho encontrado na base
+	If SXG->( !msSeek('134') )
+		RecLock( "SXG", .T. )
+		SXG->XG_GRUPO := "134"
+		SXG->XG_DESCRI := "Sequencia de baixa"
+		SXG->XG_DESSPA := "Secuencia de baja"
+		SXG->XG_DESENG := "Write-off sequence"
+		SXG->XG_SIZEMAX := 4
+		SXG->XG_SIZEMIN := 2		
+		SXG->XG_SIZE := nTamSeq
+		SXG->XG_PICTURE := "@!"
+		SXG->( MsUnlock() )
+				
+		lRet := .T.
+	EndIf
+
+	If lRet
+		AdicLstDic( @aArqUpd, "SXG" )
+	Endif
+
+Return lRet
+
+/*/{Protheus.doc} PegaTamSeq
+Verifica qual é o maior tamanho de sequência de baixa configurado na base
+
+@author pedro.alencar
+@since 26/12/2017
+@version P12
+/*/
+Static Function PegaTamSeq() As Numeric
+	Local nRet As Numeric
+	Local nX As Numeric
+	Local aListaCpo As Array
+	
+	aListaCpo := {}
+	AADD( aListaCpo, "E1_SEQBX" )
+	AADD( aListaCpo, "E2_SEQBX" )
+	AADD( aListaCpo, "E5_SEQ" )
+	AADD( aListaCpo, "FK1_SEQ" )
+	AADD( aListaCpo, "FK2_SEQ" )
+	AADD( aListaCpo, "FK5_SEQ" )
+	AADD( aListaCpo, "FQ_SEQDES" )
+	AADD( aListaCpo, "FQ_SEQORI" )
+	AADD( aListaCpo, "FIP_SEQBX" )
+	AADD( aListaCpo, "FIS_SEQBX" )
+	AADD( aListaCpo, "FR2_SEQBX" )
+	AADD( aListaCpo, "EI_SEQ" )
+	AADD( aListaCpo, "EV_SEQ" )
+	AADD( aListaCpo, "EZ_SEQ" )
+	
+	If __lRelease
+		AADD( aListaCpo, "EF_SEQUENC" )
+	EndIf		
+	
+	SX3->( dbSetOrder(2) ) //X3_CAMPO
+	
+	nRet := 0
+	For nX := 1 To Len(aListaCpo)
+		If SX3->( msSeek( aListaCpo[nX] ) )
+			If SX3->X3_TAMANHO > nRet
+				nRet := SX3->X3_TAMANHO
+			Endif
+		EndIf
+	Next nX
+	
+	//Verifica se o nRet não está fora do limite mínimo e máximo do grupo de campos de sequência de baixa (134)
+	If nRet > 4
+		nRet := 4
+	ElseIf nRet < 2
+		nRet := 2
+	Endif
+	
+Return nRet
+
+/*/{Protheus.doc} AdicLstDic
+Função para adicionar o alias do dicionário no vetor que será usado para atualizar os dicionários nele contido
+
+@param aArqUpd, Vetor que guardará a lista de todos os dicionários que serão atualizados - Informado por referência
+@param cAliasDic, Alias do dicionário que será adicionado no vetor
+@return lRet, valor booleano que indica se o alias foi adicionado no vetor informado (se falso, então o alias já estava no vetor)
+
+@author pedro.alencar
+@since 26/12/2017
+@version P12
+/*/
+Static Function AdicLstDic( aArqUpd As Array, cAliasDic As Char ) As Logical
+	Local lRet As Logical
+	Default aArqUpd := {}
+	Default cAliasDic := ""
+	
+	lRet := .F.
+	
+	//Só adiciona o alias do dicionário se o mesmo já não estiver no vetor 
+	If aScan( aArqUpd, cAliasDic ) == 0
+		AADD( aArqUpd, cAliasDic )
+		lRet := .T.
+	EndIf
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} UpdSX3Seq
+Função para verificar o tamanho do campo EF_SQUENC e do grupo de campos 134.
+Chamada para componente Ajustadic para atualizar SX3 e SXG.
+
+@author  douglas.oliveira
+@since   11/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function UpdSX3Seq(aArqUpd As Array) As Logical
+Local nX 		As Numeric
+Local nTamSEQ 	As Numeric
+Local aLista 	As Array
+Local aDicAlt 	As Array
+Local nTamLST   As Numeric
+Local cDic      As Char
+
+Default aArqUpd := {}
+
+nX 		:= 0
+nTamSEQ := 0
+aLista 	:= {"EF_SEQUENC"}
+nTamLST := 0
+aDicAlt := {}
+
+nTamSEQ := TamSXG('134')[1]
+
+For nX := 1 To Len(aLista)
+    nTamLST := TamSX3("EF_SEQUENC")[1]
+
+		Do case 
+			Case nTamSEQ < nTamLST .And. nTamLST <= TamSXG('134')[4] // Se entrar neste case vamos alterar o grupo e campos 
+				aadd(aDicAlt,{"134",{"XG_SIZE",nTamLST}})
+                cDic:= "SXG"
+							
+			Case nTamSEQ > nTamLST // Se entrar neste case vamos alterar os campos 
+                aadd(aDicAlt,{"EF_SEQUENC",{"X3_TAMANHO",nTamSEQ}})
+                cDic:= "SX3"
+				
+			Otherwise 
+                cDic:= ""
+				aArqUpd:= {}
+		
+		EndCase
+
+    If cDic <> ""
+        Ajustadic(cDic,aDicAlt)
+    EndIf        
+
+Next nX
+
+Return (Len(aArqUpd) > 0)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Ajustadic
+Componente para ajustar o tamanho do campo no SX3 e o tamanho do grupo de campos no SXG.
+
+@author  douglas.oliveira
+@since   11/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function Ajustadic(cDicSX As Char, aDicAlt As Array) As Logical
+
+Local nX 		As Numeric
+Local nY		As Numeric
+Local cField 	As Char
+Local aFields 	As Array
+Local aFieldatu	As Array
+
+nX := 0
+nY := 0
+cField := ""
+aFields := {}
+aFieldatu := {}
+
+Default cDicSX := "" 
+Default aDicAlt := {}
+
+If cDicSX == "SX3"
+
+    SX3->(DbSetOrder(2))
+
+    For nX := 1 to Len(aDicAlt)
+        
+        SX3->(DbSeek(aDicAlt[nX][1]))
+            RecLock(cDicSX,.F.)
+            cField := aDicAlt[nX][2][1]
+            SX3->&cField:= aDicAlt[nX][2][2]
+        SX3->(MsUnlock())
+
+    Next nX
+	
+Elseif cDicSX == "SXG"
+    
+    For nX := 1 to Len(aDicAlt)
+
+        SXG->(DbSeek(aDicAlt[nX][1]))
+            RecLock(cDicSX,.F.)
+            cField := aDicAlt[nX][2][1]
+            SXG->&cField:= aDicAlt[nX][2][2]
+        SXG->(MsUnlock())
+    
+        aFields := FWSX3Util():GetAllGroupFields("134")
+
+        For nY := 1 to Len(aFields)
+
+            aadd(aFieldatu,{aFields[nY],{"X3_TAMANHO",aDicAlt[nX][2][2]}})
+
+        Next nY
+
+        Ajustadic("SX3",aFieldatu)
+
+    Next nX
+
+EndIf
+
+Return
+
+	
+//-------------------------------------------------------------------
+/*/{Protheus.doc} UpdSX3Arq
+Função para verificar o tamanho do campo ARQCNAB e do grupo de campos ???.
+Chamada para componente Ajustadic para atualizar SX3 e SXG.
+
+@author pequim
+@since 02/05/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function UpdSX3Arq(aArqUpd As Array) As Logical
+Local nX 		As Numeric
+Local nTamArqA 	As Numeric
+Local nTamArqM 	As Numeric
+Local nTamSX3M  As Numeric
+Local aLista 	As Array
+Local cDic      As Char
+
+Default aArqUpd := {}
+
+nX 		 := 0
+aLista 	 := {"E5_ARQCNAB","FK1_ARCNAB","FK2_ARCNAB"}
+cDic	 := ""
+
+nTamArqA := TamSXG('157')[1]	//Tamanho atual do Grupo 157 no SXG
+nTamArqM := TamSXG('157')[4]	//Tamanho máximo do Grupo 157 no SXG
+nTamSX3M := GetTamArq()			//Maior tamanho dentre os campos da lista
+
+SX3->(dbSetOrder(2)) // X3_CAMPO
+
+For nX := 1 To Len(aLista)
+
+	If SX3->(dbSeek(aLista[nX])) .AND. ((SX3->X3_TAMANHO <> nTamSX3M) .OR. (SX3->X3_GRPSXG <> '157'))
+		RecLock("SX3",.F.)
+		SX3->X3_TAMANHO := nTamSX3M
+		SX3->X3_GRPSXG := '157'
+		SX3->(MsUnlock())
+
+		If nX == 1
+			cTabela := "SE5"
+		Else
+			cTabela := SubStr(aLista[nX],1,3)
+		Endif
+
+		AdicLstDic( @aArqUpd, cTabela )
+	EndIF
+
+Next nX
+
+FwFreeArray(aLista)
+aLista := {}
+
+Return (Len(aArqUpd) > 0)
+
+
+//---------------------------------------------------------------------
+/*/{Protheus.doc} UpdSXGArq
+Atualiza dicionario SXG - Grupo de Campos ??? - ARQCNAB
+
+@author pequim
+@since 02/05/2022
+@version P12
+/*/
+//---------------------------------------------------------------------
+Static Function UpdSXGArq( aArqUpd As Array ) As Logical
+	Local lRet As Logical
+	Local nTamArq As Numeric
+
+	Default aArqUpd := {}
+	
+	lRet := .F.
+	
+	//Pega o maior tamanho de sequência de baixa configurado na base
+	nTamArq := GetTamArq()
+		
+	//Se não encontrou o grupo 157, cria o grupo de campos já com o maior tamanho encontrado na base
+	If SXG->( !msSeek('157') )
+		RecLock( "SXG", .T. )
+		SXG->XG_GRUPO	:= "157"
+		SXG->XG_DESCRI	:= "Arquivo CNAB"
+		SXG->XG_DESSPA	:= "Archivo CNAB"
+		SXG->XG_DESENG	:= "CNAB file"
+		SXG->XG_SIZEMAX := 150
+		SXG->XG_SIZEMIN := 12		
+		SXG->XG_SIZE 	:= nTamArq
+		SXG->XG_PICTURE := "@!"
+		SXG->( MsUnlock() )
+		
+		lRet := .T.
+	EndIf
+
+	If lRet
+		AdicLstDic( @aArqUpd, "SXG" )
+	Endif
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/
+{Protheus.doc} GetTamArq
+Verifica qual é o maior tamanho de ARQCNAB configurado na base
+
+@author pequim
+@since 02/05/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function GetTamArq() As Numeric
+	Local nRet As Numeric
+	Local nX As Numeric
+	Local aListaCpo As Array
+	
+	aListaCpo := {}
+	AADD( aListaCpo, "E5_ARQCNAB" )
+	AADD( aListaCpo, "FK1_ARCNAB" )
+	AADD( aListaCpo, "FK2_ARCNAB" )
+	
+	SX3->( dbSetOrder(2) ) //X3_CAMPO
+	
+	nRet := 0
+	For nX := 1 To Len(aListaCpo)
+		If SX3->( msSeek( aListaCpo[nX] ) )
+			If SX3->X3_TAMANHO > nRet
+				nRet := SX3->X3_TAMANHO
+			Endif
+		EndIf
+	Next nX
+	
+	//Verifica se o nRet não está fora do limite mínimo e máximo do grupo de campos de ARQCNAB (157)
+	nRet := Iif (nRet > 150, 150, IIF(nRet < 12, 12, nRet))
+
+	FwFreeArray(aListaCpo)
+	aListaCpo := {}
+
+Return nRet

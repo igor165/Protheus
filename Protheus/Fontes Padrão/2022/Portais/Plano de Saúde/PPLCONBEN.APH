@@ -1,0 +1,672 @@
+<% 
+	#DEFINE cBrwDefSO "BrwGridSol"
+	#DEFINE cBrwDefBO "BrwGridBO"
+	#DEFINE nTpPor    getTpPortal()
+	#DEFINE cCodUsr   HttpSession->USR_INFO[1]:OWSUSERLOGPLS:CUSERLOGINCODE
+	Local oHtml := WCHtml():New() 
+	
+%>
+
+<%=oHtml:getDType(.T.,.T.)%>
+
+<script language="JavaScript">
+<!--  
+
+var cBrwGridSol		= <%="'"+cBrwDefSO+"'"%> 
+var cBrwGridItens 	= <%="'"+cBrwDefBO+"'"%>
+var oBrwGridSol;
+var oBrwGridItens;
+var nTpPor          = <%=STR(nTpPor)%>
+var cCodUsr         = <%="'"+cCodUsr+"'"%>
+var cRec          	 = ""
+var aMotivo = {};
+
+//-----------------------------------------------------------
+// Carrega Combo de status
+//-----------------------------------------------------------
+function CarregaCombo() {    
+	comboLoad("Field_STATUS",Array('1$Pendente de documentação','2$Em análise','3$Processado','4$Aprovado','5$Rejeitado','6$Aprovado Parcialmente','7$Aprovado Automaticamente'));                             
+} 
+
+//-----------------------------------------------------------
+// Função que exibe a grid de solicitações
+//-----------------------------------------------------------
+function fGetBen() {	
+	
+	var cProt	 	= getField('Field_PROTOC');
+	var cStatus 	= getField('Field_STATUS');
+	var cWhere 		= "Field_TPPOR=" + nTpPor + "|" + "Field_CODUSR=" + cCodUsr + "|" + "Field_PROTOC=" + cProt + "|" + "Field_STATUS=" + cStatus + "|" + "Field_TIPO= '2'";
+	//valida parametros
+	if ( isEmpty(cStatus) && isEmpty(cProt) ) {
+		alert('Por favor, informe pelo menos um dos filtros!');
+		return
+	}
+	//-----------------------------------------------------------
+	// Limpa o browse de beneficiários
+	//-----------------------------------------------------------
+	if (wasDef( typeof(oBrwGridItens) ) ) {
+		oBrwGridItens.setEmptyDiv();
+	}
+	//-----------------------------------------------------------
+	// verifica se foi chamado pela navegacao
+	//-----------------------------------------------------------
+	var cBuscaTReg = getGridCall(cBrwGridSol,'fGetBen');
+	
+	//-----------------------------------------------------------
+	// web function que vai executar a query do grid						   
+	//-----------------------------------------------------------
+	Ajax.open("W_PPLGDGRID.APW?cFunName=PLBRWBBA&nPagina=" + getField(cBrwGridSol+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg, {
+				callback: carregaGridBen, 
+				error: exibeErro} );
+}
+
+//-----------------------------------------------------------
+// callback da função que pega os dados para preencher o grid
+//-----------------------------------------------------------
+function carregaGridBen(v) { 
+	var aResult = v.split("|");
+	//-----------------------------------------------------------
+	// Se existe registro define propriedades
+	//-----------------------------------------------------------
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nRegPagSol	= aResult[3];
+    var aDadSol 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+	//----------------------------------------------------------------------------
+	// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+	//----------------------------------------------------------------------------
+	if (lContinua) {		
+		//-----------------------------------------------------------
+		// Cria objeto do browse
+		//-----------------------------------------------------------
+		oBrwGridSol = new gridData(cBrwGridSol);
+		//-----------------------------------------------------------
+		// Monta Browse 
+		//-----------------------------------------------------------
+		oBrwGridSol.load({fFunName:'fGetBen',
+							nRegPagina:nRegPagSol,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							lOverflow:true,
+							lShowLineNumber:false,
+							lChkBox:false,
+							aBtnFunc:"[{info:'Exibe Itens',img:'items.png',funcao:'fGetItens'},{info:'Imprimir',img:'100.gif',funcao:'fImpSol'},{info:'Observações',img:'message.png',funcao:'fGeneralObs'},{info:'Anexos',img:'anexo.jpg',funcao:'fGetAttach'}]",
+							aHeader: aHeader,							
+							aCols: aDadSol,
+							cColLeg:'BBA_STATUS',							
+							aCorLeg:"[{valor:'1',imgcor:'icon-yellow'},{valor:'2',imgcor:'icon-orange'},{valor:'3',imgcor:'icon-green'},{valor:'4',imgcor:'icon-blue'},{valor:'5',imgcor:'icon-red'},{valor:'6',imgcor:'icon-brown'},{valor:'7',imgcor:'icon-pink'}]"});
+			
+				if(oBrwGridSol.aCols.length > 0){
+					updGridSchemeColor();  
+					var z = 0;
+					var w = 0;
+					var imgAnexo = null;
+					var imgObs = null;
+					var oCell = null;
+					var lLeg = false;
+					var lAnexo = true;
+					var oTable = oBrwGridSol.getObjCols();
+					while ((z < oTable.rows.length)) {
+						lLeg = false;
+						for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+
+							oCell = oTable.rows[z].cells[w];
+						
+							if((oCell.innerHTML).search("icon-") != -1 && !lLeg){
+								lLeg = true;
+								//legenda amarela significa pendente de documentação
+								if(((oCell.innerHTML).search("icon-yellow") == -1) && ((oCell.innerHTML).search("icon-red") == -1)) 
+									lAnexo = false;
+							}
+								
+							else if((oCell.innerHTML).search("anexo.jpg") != -1){
+								imgAnexo = $(oCell).find("img[src$='anexo.jpg']")[0];
+							}
+							else if((oCell.innerHTML).search("message.png") != -1){						
+								imgObs = $(oCell).find("img[src$='message.png']")[0];
+								var str = $(imgObs).attr("onclick")
+								var inicio = str.indexOf("(");
+								var fim = str.indexOf(")");
+								//se a função não tem parâmetro(que é a Observação em si) não exibo o icone
+								if(str.substr(inicio,fim) == '("")' || str.substr(inicio,fim) == '()') 
+									imgObs.style.display = 'none';
+							}						
+						}
+						if(!lAnexo)
+							imgAnexo.style.display = 'none';
+						
+						z++;
+					}
+				}	
+	}					
+	//-----------------------------------------------------------
+	//³ Mensagem de erro
+	//-----------------------------------------------------------
+	if ( !isEmpty(cMsg) ) alert(cMsg);
+}
+
+//-----------------------------------------------------------
+// Função que exibe a grid de itens da solicitação
+//-----------------------------------------------------------
+function fGetItens(cDados) {	
+	cDados = cDados.split("~");
+	cChave = cDados[0];		
+	var cWhere 		= "Field_CodSol="+cChave;
+	//-----------------------------------------------------------
+	// Limpa o browse de beneficiários
+	//-----------------------------------------------------------
+	if (wasDef( typeof(oBrwGridItens) ) ) {
+		oBrwGridItens.setEmptyDiv();
+	}
+	//-----------------------------------------------------------
+	// verifica se foi chamado pela navegacao
+	//-----------------------------------------------------------
+	var cBuscaTReg = getGridCall(cBrwGridItens,'fGetItens');
+	
+	//-----------------------------------------------------------
+	// web function que vai executar a query do grid						   
+	//-----------------------------------------------------------
+	Ajax.open("W_PPLGDGRID.APW?cFunName=PLSITBEN&nPagina=" + getField(cBrwGridItens+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg+"&cRotinLGPD=PPLCONBEN", {
+				callback: carregaGridItens, 
+				error: exibeErro} );
+} 
+
+//-----------------------------------------------------------
+// Callback da função que carrega os itens da solitação
+//-----------------------------------------------------------
+function carregaGridItens(v) { 
+	var aResult = v.split("|");
+	//-----------------------------------------------------------
+	// Se existe registro define propriedades
+	//-----------------------------------------------------------
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nRegPagIte	= aResult[3];
+    var aDadIte	 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+	//----------------------------------------------------------------------------
+	// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+	//----------------------------------------------------------------------------
+	if (lContinua) {		
+		//-----------------------------------------------------------
+		// Cria objeto do browse
+		//-----------------------------------------------------------
+		oBrwGridItens = new gridData(cBrwGridItens);
+		//-----------------------------------------------------------
+		// Monta Browse 
+		//-----------------------------------------------------------
+		oBrwGridItens.load({fFunName:'fGetItens',
+							nRegPagina:nRegPagIte,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							lOverflow:true,
+							aBtnFunc:"[{info:'Editar',img:'lapis.gif',funcao:'fAltSol'}]",
+							lShowLineNumber:false,
+							lChkBox:false,
+							aHeader: aHeader,						
+							aCols: aDadIte	});	
+
+	}
+	//-----------------------------------------------------------
+	//³ Mensagem de erro
+	//-----------------------------------------------------------
+	if ( !isEmpty(cMsg) ) alert(cMsg);
+}
+
+function fImpSol(nRecno) {
+	
+	ChamaPoP('W_PPLRELGEN.APW?cFunName=PLSIMPBEN&cRecno=' + nRecno,'bol','yes',0,925,605);
+}
+
+function fGeneralObs(cTexto){
+	modalBS("<i style='color:#639DD8;' class='fa fa-info-circle'></i>&nbsp;&nbsp;Observação", "<p>" + cTexto + "</p>", "@Fechar~closeModalBS();", "white~#84CCFF", "large");
+} 
+
+function fGetAttach(cDados){
+	
+	aDadRet   = cDados.split("~");
+	cChave    = aDadRet[0];	
+	cRecReg   = aDadRet[1];
+	cOperacao = aDadRet[2].trim();
+	cNumProt  = aDadRet[3];
+	cAlitab   = "BBA";
+	
+	if(cOperacao == "Exclusão"){
+		Ajax.open("W_PPLUPGEN.APW?cModo=2&cRecno="+ cRecReg +"&cChave="+cChave+"&NumInd=1&cAlitab=BBA", {callback: UploadExc, error: exibeErro} );
+	}else{
+		Ajax.open("W_PPLUPGEN.APW?cModo=2&cRecno="+ cRecReg +"&cChave="+cChave+"&NumInd=1&cAlitab=BBA&lIncBen=true", {callback: UploadPadrao, error: exibeErro} );
+	}
+	comboLoad('Field_MOTBLO',aMotivo);
+}
+
+function UploadPadrao(v) {
+	
+	var cHTMPad = document.getElementById("CHTM");
+	var conblur = " window.frames['principal'].setValOnblur(); ";
+
+	cHTMPad.innerHTML = v;
+
+	modalBS("<i style='color:#639DD8;' class='fa fa-paperclip fa-lg'></i>&nbsp;&nbsp;Anexos", "<form name='frmUpl' id='frmUpl' action='' method='post' >" + cHTMPad.innerHTML  + "</form>", "@Fechar~window.frames['principal'].closePop('" + cRecReg  + "','" + cOperacao +"');", "white~#84CCFF");	
+	
+	//pego o botão da tela de anexos genericas e faço o click para carregar a grid de documentos
+		parent.document.getElementById("btn_Oculto").style.display="none";
+		parent.document.getElementById("btn_Oculto").click(); 
+
+		parent.document.getElementById("closeModal").onclick = 'window.frames["principal"].closePop(' + cRecReg + ',' + cOperacao + ');';
+}  
+
+//////////////////////////////////////////////////////////////////////////////////////////
+//
+//Tela de upload para solicitações de bloqueio (exclusão)
+//
+//////////////////////////////////////////////////////////////////////////////////////////
+function UploadExc(v) {
+	
+	var CHTM = document.getElementById("CHTM");
+	var conblur = " window.frames['principal'].setValOnblur(); ";
+
+	CHTM.innerHTML = v;
+	
+	modalBS("<i style='color:#639DD8;'></i>&nbsp;&nbsp;Anexos de bloqueio", "<div class='alert alert-warning alert-dismissible' id='alert_doc0' role='alert'<br/> </div> <input type='hidden' name='cMotivo' id='cMotivo' value='2'> <div id='CHTM1'> <label>Selecione o motivo de exclusão:</label><select name='Field_MOTIVO_HIdden0'  id='Field_MOTIVO_HIdden0' onblur = " + conblur + " class='form-control  TextoInputOB  ' ><option value='0' selected=''>--------Selecione um  Motivo--------</option></select> </div> <br/> <form name='frmUpl' id='frmUpl' action='' method='post'>" + CHTM.innerHTML +  "</form> <br>", "@Concluir~window.frames['principal'].closePop('" + cRecReg + "','" + cOperacao +"');", "white~#84CCFF"); //12-04 
+	
+	parent.document.getElementById('cMotivo').value = aMotivo;
+	
+	if (arrayMotivo() == 1){
+		document.getElementById("Field_MOTIVO_HIdden").click();
+	}
+
+	parent.document.getElementById("closeModal").onclick = 'window.frames["principal"].closePop(' + cRecReg + ',' + cOperacao + ');';
+	//parent.document.getElementById("closeModal").onclick = function() { closePop(cRecno, cOperacao); }
+		//pego o botão da tela de anexos genericas e faço o click para carregar a grid de documentos
+		parent.document.getElementById("btn_Oculto").style.display="none";
+		parent.document.getElementById("btn_Oculto").click();
+		
+	parent.comboLoad("Field_MOTIVO_HIdden0",aMotivo);
+}  
+
+//-----------------------------------------------------------
+// Função que altera o alertBS com a lista de documentos
+//-----------------------------------------------------------
+function setValOnblur() {
+
+	document.getElementById('Field_MOTIVO_HIdden').selectedIndex = parent.document.getElementById('Field_MOTIVO_HIdden0').selectedIndex;
+ 	document.getElementById('Field_MOTIVO_HIdden').click();
+	
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//Faz a chamada da função que executará o processo de anexar o arquivo e 
+//finalizar a solicitação
+//
+////////////////////////////////////////////////////////////////////////////////
+function closePop(cRecno, cTipoOperacao){
+
+	if(cTipoOperacao == "Exclusão"){
+		
+		if(parent.document.getElementById("LinhaBrowse_Upload_Gen1") == null){ 
+			alert("É necessário anexar pelo menos um arquivo");
+
+		}else if(parent.document.getElementById('Field_MOTIVO_HIdden0').selectedIndex == 0){ 
+			alert("Selecione o motivo de exclusão");
+		
+		}else if(parent.document.getElementById('DtExclu').value == ""){ 
+			alert("Digite a data de exclusão");
+
+		}else{
+			var x = parent.document.getElementById('Field_MOTIVO_HIdden0').value.split("~");
+			var dtExclu = parent.document.getElementById('DtExclu').value;
+
+			parent.document.getElementById("closeModal").removeAttribute("onclick"); //removo a função de onclick que coloquei na modal generica
+			Ajax.open("W_PLEXC2BEN.APW?&cRecno="+ cRecno + "&cCodMot=" + x[0] + "&dDtExclu=" + dtExclu , { callback: ConcluiAnexo, error: exibeErro});
+		}
+	}else if(cTipoOperacao == "Inclusão" || cTipoOperacao == "Alteração"){
+		
+		var elem = parent.document.getElementById("closeModal");
+		
+		$(elem).prop('onclick',null).off('click'); //removo a função de onclick que coloquei na modal generica 
+
+		var nAnexo = parseInt(parent.document.getElementById("anexo").value);
+		
+		if(nAnexo > 0){
+			Ajax.open("W_PPLSTAOPC.APW?cRecno="+cRecno, {callback: fechaPop, error:ExibeErro} );
+		}else{
+			closeModalBS();
+		}
+	}
+}   
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//efetua as validações antes de anexar o arquivo e finaliza a solicitação
+//alterando o status para em análise
+//
+////////////////////////////////////////////////////////////////////////////////
+function ConcluiAnexo(v){ //12-04 função inteira
+
+	var aRetSoli = v.split("|");
+
+	//usuário bloqueado na data digitada
+	if(aRetSoli[0] == "true")  {
+		alert(aRetSoli[1]); //mensagem de retorno
+	
+	//usuário não está bloqueado na data digitada e finaliza o processo
+	}else if(aRetSoli[0] == "false")  { 
+		if(aRetSoli[2] == "true"){
+			alert(aRetSoli[3]);
+		}
+		closeModalBS();
+		ChamaPoP('W_PPLRELGEN.APW?cFunName=PLSIMPBEN&cRecno=' + aRetSoli[1],'bol','yes',0,925,605); 
+		fGetBen();
+	} //12-04 fim
+}
+
+function fechaPop(){
+	closeModalBS();
+}                
+
+function fAltSol(cDados){
+ 	aDadRet  = cDados.split("~");
+	cRecno   = aDadRet[0];	
+	cTipMan	 = aDadRet[1];
+	cDataAux = aDadRet[2];
+
+	if(cTipMan == "1"){
+		cDataAux = cRecno;
+	}
+	Ajax.progresso(); 
+    cRecno = cRecno.toString().replace(/[^\d]+/g,"");
+	
+	Ajax.open("W_PPLALTSO.APW?cChave=PPLALTSOL&cRecno="+cRecno+"&cTipMan="+cTipMan+"&cDataAux="+cDataAux+"&cRotinLGPD=PPLCONBEN",{callback: CadGen , error:exibeErro });
+}
+
+function CadGen(){
+	window.frames.location="W_PPLCADGEN.APW?cChave=PPLALTSOL&cRecno="+cRecno+"&cTipMan="+cTipMan+"&cDataAux="+cDataAux+"&cRotinLGPD=PPLCONBEN";
+}
+
+//-----------------------------------------------------------
+// Tamanho do aMotivo para exibir o alert corretamente
+//-----------------------------------------------------------
+function arrayMotivo(){
+	return aMotivo.length;
+}
+
+//-----------------------------------------------------------
+// Carrega o combo de motivos
+//-----------------------------------------------------------
+function locadMotivo(){
+	Ajax.open("W_PLBMTBLOQ.APW", { callback: carregaMotivo, error: exibeErro});
+	
+}
+
+//-----------------------------------------------------------------------
+// Retorna os tipos de documentos de acordo com o motivo selecionado
+//-----------------------------------------------------------------------
+function buscaDocObrigatorio(codigoMotivo)
+{
+	aCodMot = codigoMotivo.split("~");
+	
+	Ajax.open("W_PLBLIDOC.APW?cCOdMOt=" + aCodMot[0], {callback:ExibeAlert, Erro: exibeErro} );
+}
+
+//-----------------------------------------------------------
+// Preenche o alertBS
+//-----------------------------------------------------------
+function ExibeAlert(lista_doc) {
+	
+	var aLista = lista_doc.split("@");
+	var cText = '<strong>Atenção!</strong> É necessário anexar o(s) seguinte(s) documento(s): ';
+	var nTam = aLista.length;
+	
+	for (var i = 0; i < nTam; i++)
+	{
+		cText += aLista[i]+'<br>';
+	}
+
+	if (aLista.length == 1){
+		cText = '';
+	}
+	
+	document.getElementById('alert_doc').innerHTML = cText;
+	parent.document.getElementById('alert_doc0').innerHTML = cText;
+}
+
+//-----------------------------------------------------------
+// Carrega o combo de motivos
+//-----------------------------------------------------------
+function carregaMotivo(v){
+		
+	var aResult2 	= v.split("|");
+	var aCols2		= {};
+	var nqtdTip2 	= 0;
+	var nI			= 0;
+	var aRet		= {};
+
+	if (!isEmpty(aResult2)) {
+		aCols2 = eval(aResult2[0]);
+		nqtdTip2 = aCols2.length;	
+		aRet = new Array(nqtdTip2);
+	}
+
+	for (nI=0; nI < nqtdTip2; nI++)
+	{
+     	aRet[nI] = aCols2[nI][1].value; 
+    }
+	
+	comboLoad("Field_MOTIVO_HIdden",aRet);
+
+	aMotivo = aRet;
+
+	parent.comboLoad("Field_MOTBLO",aMotivo);
+}
+
+function fcarrComb(x)
+{
+	comboLoad('Field_MOTIVO_HIdden0', aMotivo);
+}
+
+//-->
+</script>
+
+<%
+
+//-------------------------------------------------------------------
+//	Instanciando o form
+//-------------------------------------------------------------------
+
+oForm := WCForm():New("Form1")  
+oForm:setTitle("Consulta de solicitações de Beneficiários")
+
+//-------------------------------------------------------------------
+//	Tabela principal
+//-------------------------------------------------------------------
+
+oTabela := WCTable():New()
+
+	//-------------------------------------------------------------------
+	//	Criando uma linha
+	//-------------------------------------------------------------------
+
+	oLiMat := WCLine():New()
+
+		//-------------------------------------------------------------------
+		//		Criando um fieldset para os campos
+		//-------------------------------------------------------------------
+ 		oFSPar := WCFieldSet():New("Parâmetros")		
+			
+			//-------------------------------------------------------------------
+			//		Campo para informar o protocolo da solicitação
+			//-------------------------------------------------------------------
+			oProtoc := WCComponent():New("F","Field_PROTOC","Protocolo:",,"20")
+			oProtoc:setPlaceHolder("Informe o protocolo da sua solicitação")
+			oFSPar:setAddCFS(oProtoc)
+
+			//-------------------------------------------------------------------
+			//		Campo para informar o status da solicitação
+			//-------------------------------------------------------------------
+			oProtoc := WCComponent():New("C","Field_STATUS","Situação:")
+			oFSPar:setAddCFS(oProtoc)
+			
+			//-------------------------------------------------------------------
+			//		Botão exibir
+			//-------------------------------------------------------------------
+			oBInc := WCComponent():New("B","BExibe","Exibir")
+			oBInc:setJsFunc("fGetBen();")   
+			oBInc:setOpenGrp(.T.)
+			oBInc:setCloseGrp(.T.)
+			oBInc:setInlineB(.T.)
+			oBInc:setXS("12")
+			oBInc:setSM("12")
+			oBInc:setMD("12")
+			oBInc:setLG("1")
+			oFSPar:setAddCFS(oBInc)
+ 
+ 	//-------------------------------------------------------------------
+	//	 Adicionando o fieldset na linha
+	//-------------------------------------------------------------------
+	oLiMat:setAddComp(oFSPar)
+
+	//-------------------------------------------------------------------
+	//	Adicionando a linha na tabela principal
+	//-------------------------------------------------------------------
+	oTabela:setAddLine(oLiMat)
+
+	//-------------------------------------------------------------------
+	//	Legendas
+	//-------------------------------------------------------------------
+		
+	oLiLeg := WCLine():New()
+
+		oFSLiLeg := WCFieldSet():new("Legenda")
+
+			oLegAm := WCComponent():New("LEG","bLegAm","Pendente de documentação")
+			oLegAm:setCss("icon-yellow")
+
+		oFSLiLeg:setAddCFS(oLegAm)
+
+			oLegLa := WCComponent():New("LEG","bLegLa","Em análise")
+			oLegLa:setCss("icon-orange")
+
+		oFSLiLeg:setAddCFS(oLegLa)
+		
+			oLegVe := WCComponent():New("LEG","bLegVe","Processado")
+			oLegVe:setCss("icon-green")
+
+		oFSLiLeg:setAddCFS(oLegVe)
+
+			oLegAz := WCComponent():New("LEG","bLegAz","Aprovado")
+			oLegAz:setCss("icon-blue")
+
+		oFSLiLeg:setAddCFS(oLegAz)
+
+			oLegVer := WCComponent():New("LEG","bLegVer","Rejeitado")
+			oLegVer:setCss("icon-red")
+
+		oFSLiLeg:setAddCFS(oLegVer)
+		
+			oLegMa := WCComponent():New("LEG","bLegMa","Aprovado Parcialmente")
+			oLegMa:setCss("icon-brown")
+
+		oFSLiLeg:setAddCFS(oLegMa)
+
+			oLegPi := WCComponent():New("LEG","bLegPi","Aprovado Automaticamente")
+			oLegPi:setCss("icon-pink")
+
+		oFSLiLeg:setAddCFS(oLegPi)		
+		
+	oLiLeg:setAddComp(oFSLiLeg)
+
+	//-------------------------------------------------------------------
+	//	Adicionando a linha na tabela principal
+	//-------------------------------------------------------------------
+	oTabela:setAddLine(oLiLeg)
+
+	//-------------------------------------------------------------------
+	//	Criando outra linha
+	//-------------------------------------------------------------------
+	oLiSol := WCLine():New()
+		
+		//-------------------------------------------------------------------
+		//	 Fieldset
+		//-------------------------------------------------------------------
+		oFSGriSol := WCFieldSet():New("Solicitações")
+			
+			//-------------------------------------------------------------------
+			//		Browse (Grid) de Solicitações
+			//-------------------------------------------------------------------
+			oBrwSol := WCComponent():New("BW",cBrwDefSO)
+			oFSGriSol:setAddCFS(oBrwSol) 
+
+		//-------------------------------------------------------------------
+		//	 Adicionando o fieldset na linha
+		//-------------------------------------------------------------------
+		oLiSol:setAddComp(oFSGriSol)
+ 
+		//-------------------------------------------------------------------
+		//	 Adicionando a linha na tabela principal
+		//-------------------------------------------------------------------
+		oTabela:setAddLine(oLiSol)
+
+		//-------------------------------------------------------------------
+		//	Criando nova linha
+	   //-------------------------------------------------------------------
+		oLiGriBO := WCLine():New()
+
+			//-------------------------------------------------------------------
+			//	Adicionando um fieldset
+	       //-------------------------------------------------------------------
+			oFSGriBO := WCFieldSet():New("Beneficiários")
+
+				//-------------------------------------------------------------------
+				//	Browse (grid) de beneficiários e opcionais
+	  			//-------------------------------------------------------------------
+				oBrwBO := WCComponent():New("BW",cBrwDefBO)
+				//oBrwBO:setJsFunc("loadOpc();")
+				oFSGriBO:setAddCFS(oBrwBO) 
+
+				oCHTM := WCComponent():new("CHTM")		
+				oCHTM:setValue("<div id='CHTM' style='display:none'>  </div> <div style='display:none' class='alert alert-warning alert-dismissible' id='alert_doc' role='alert' > </div>")
+
+				oCHTM1 := WCComponent():new("CHTM")		
+				oCHTM1:setValue("<div id='CHTM1' style='display:none'>  <select name='Field_MOTIVO_HIdden' id='Field_MOTIVO_HIdden' class='form-control  TextoInputOB  ' onclick='buscaDocObrigatorio(this.value);'><option value='0' selected=''>--------Selecione um Motivo--------</option></select> </div>")
+
+				
+		oLiGriBO:setAddComp(oFSGriBO)
+		oLiGriBO:setAddComp(oCHTM)
+		oLiGriBO:setAddComp(oCHTM1)
+		//-------------------------------------------------------------------
+		//	Adicionando o fieldset na linha
+	  	//-------------------------------------------------------------------
+		
+
+		 //-------------------------------------------------------------------
+		 //	 Adicionando a linha na tabela principal
+	    //-------------------------------------------------------------------
+		oTabela:setAddLine(oLiGriBO)
+		
+//-------------------------------------------------------------------
+//	Adicionando a tabela principal no form
+//-------------------------------------------------------------------
+oForm:setAddTables(oTabela)
+
+//-------------------------------------------------------------------
+//	Adicionando o form no HTML
+//-------------------------------------------------------------------
+oHtml:setObj(oForm)
+
+%>
+
+<%=oHtml:loadWC()%> 
+
+<script language="JavaScript">
+<!--                 
+	CarregaCombo();
+	updFrameSchemeColor();
+	locadMotivo();
+//-->
+</script>

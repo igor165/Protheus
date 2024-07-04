@@ -1,0 +1,588 @@
+#INCLUDE "MATA540.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MATA540 Excecoes Fiscais
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function MATA540()
+Local oBrowse	:= Nil
+Local cCadastro	:= ""
+Local oSay := Nil
+
+Private aRotina	:= MenuDef()
+
+STATIC lHistFiscal := IIf(FindFunction("HistFiscal"),HistFiscal(), .F.)
+
+If cPaisLoc <> "BRA"
+	cCadastro := OemToAnsi(STR0008) //"Excecoes Fiscais"
+Else
+	cCadastro := OemToAnsi(STR0006) //"Exce‡”es Fiscais de ICMS"
+EndIf
+
+dbSelectArea("SF7")
+dbSetOrder(1) //F7_FILIAL+F7_GRTRIB+F7_GRPCLI+F7_SEQUEN
+
+//Checar o tamanho do F7_SEQUEN e adequar os dados dependendo do tamanho.
+FwMsgRun(,{|oSay|A540OrgExc(oSay)},"Processando...","") 
+
+
+oBrowse:=FWMBrowse():New()
+oBrowse:SetAlias("SF7")
+oBrowse:SetMenuDef("MATA540")
+oBrowse:SetDescription(cCadastro)
+oBrowse:Activate()
+
+Return .T.
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+Funcao generica MVC com as opcoes de menu
+
+@return aRotina - Array com as opcoes de menu
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+Private aRotina := {}
+ADD OPTION aRotina TITLE STR0001 ACTION "PesqBrw"         OPERATION 1 ACCESS 0 //"Pesquisar"
+ADD OPTION aRotina TITLE STR0002 ACTION "VIEWDEF.MATA540" OPERATION 2 ACCESS 0 //"Visualizar"
+ADD OPTION aRotina TITLE STR0003 ACTION "VIEWDEF.MATA540" OPERATION 3 ACCESS 0 //"Incluir"
+ADD OPTION aRotina TITLE STR0004 ACTION "VIEWDEF.MATA540" OPERATION 4 ACCESS 0 //"Alterar"
+ADD OPTION aRotina TITLE STR0005 ACTION "VIEWDEF.MATA540" OPERATION 5 ACCESS 0 //"Excluir"
+//Somente adiciona a tela de histório se estiver habilitado este tratamento
+If lHistFiscal
+	ADD OPTION aRotina TITLE "Histórico" ACTION "A540HIST" OPERATION 3 ACCESS 0
+EndIf
+
+If ExistBlock("MA540MNU")
+	ExecBlock("MA540MNU",.F.,.F.)
+EndIf
+
+Return (aRotina)
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ModelDef
+Funcao generica MVC do model
+
+@return oModel - Objeto do Modelo MVC
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function ModelDef()
+Local oModel := Nil
+Local oStruSF71 := FWFormStruct( 1, "SF7", {|cCampo| AllTrim(cCampo)+"|" $ "F7_GRTRIB|"} )
+Local oStruSF72 := FWFormStruct( 1, "SF7", {|cCampo|!AllTrim(cCampo)+"|" $ "F7_GRTRIB|"} )
+Local bPosValid	:= {|| A540TudOk(oModel)}
+Local bCommit   := {|oModel| A540Grava(oModel)}
+
+oStruSF71:AddField( ;                     // Ord. Tipo Desc.
+"Descricao"                      , ;      // [01]  C   Titulo do campo
+"Descricao"                      , ;      // [02]  C   ToolTip do campo
+"F7_DESCGR"                      , ;      // [03]  C   Id do Field
+"C"                              , ;      // [04]  C   Tipo do campo
+TamSX3("X5_DESCRI")[1]           , ;      // [05]  N   Tamanho do campo
+0                                , ;      // [06]  N   Decimal do campo
+NIL                              , ;      // [07]  B   Code-block de validação do campo
+NIL                              , ;      // [08]  B   Code-block de validação When do campo
+NIL                              , ;      // [09]  A   Lista de valores permitido do campo
+NIL                              , ;      // [10]  L   Indica se o campo tem preenchimento obrigatório
+FwBuildFeature( STRUCT_FEATURE_INIPAD,'IIF(!Inclui,Posicione("SX5",1,xFilial("SX5")+"21"+SF7->F7_GRTRIB,"X5_DESCRI"),"")' ), ;      // [11]  B   Code-block de inicializacao do campo
+NIL                              , ;      // [12]  L   Indica se trata-se de um campo chave
+NIL                              , ;      // [13]  L   Indica se o campo pode receber valor em uma operação de update.
+.T.                              )        // [14]  L   Indica se o campo é virtual
+
+oStruSF71:AddTrigger(;
+"F7_GRTRIB", ;			// [01] Id do campo de origem
+"F7_DESCGR", ;			// [02] Id do campo de destino
+{|| .T. } ,  ;			// [03] Bloco de codigo de validação da execução do gatilho
+&( ' { | oModel | Posicione("SX5",1,xFilial("SX5")+"21"+M->F7_GRTRIB,"X5_DESCRI") } ' ) )   // [04] Bloco de codigo de execução do gatilho
+
+oStruSF72:AddField(" ","CIMA" ,"BT_UP","BT",1,0,/*bValid*/{||GridChange(-1)},,,.F.,{||A540Seta(1)}/*bInit*/,/*lKey*/,/*lNoUpd*/,.T./*lVirtual*/,/*cValid*/)
+oStruSF72:AddField(" ","BAIXO","BT_DN","BT",1,0,/*bValid*/{||GridChange( 1)},,,.F.,{||A540Seta(2)}/*bInit*/,/*lKey*/,/*lNoUpd*/,.T./*lVirtual*/,/*cValid*/)
+
+oModel:=MpFormModel():New("MATA540",/*bPreValid*/,bPosValid,bCommit,/*Cancel*/)
+oModel:AddFields("SF7MASTER",/*cOwner*/,oStruSF71, /*bPreValidacao*/, /*bPosValidacao*/, /*bCarga*/ )
+
+oModel:SetPrimaryKey({"F7_FILIAL","F7_GRTRIB","F7_SEQUEN"})
+
+oModel:AddGrid("SF7DETAIL","SF7MASTER"/*cOwner*/,oStruSF72,/*bPreValidacao*/,{|oModelGrid|a540LinOk(oModelGrid)}/*bPosValidacao*/,/*bCarga*/)
+oModel:SetRelation("SF7DETAIL",{{"F7_FILIAL", "xFilial('SF7')"},{"F7_GRTRIB","F7_GRTRIB"}},SF7->(IndexKey(1)))
+oModel:GetModel("SF7DETAIL"):SetUniqueLine({"F7_SEQUEN"})
+oModel:GetModel("SF7DETAIL"):SetUseOldGrid(.T.)
+
+Return(oModel)
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef
+Funcao generica MVC do View
+
+@return oView - Objeto da View MVC
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function ViewDef()
+Local oView     := Nil
+Local oModel    := FwLoadModel("MATA540")
+Local oStruSF71 := FWFormStruct( 2, "SF7", {|cCampo| AllTrim(cCampo)+"|" $ "F7_GRTRIB|"} )
+Local oStruSF72 := FWFormStruct( 2, "SF7", {|cCampo|!AllTrim(cCampo)+"|" $ "F7_GRTRIB|"} )
+
+oStruSF71:AddField( ;
+"F7_DESCGR"	, ; // [01] Campo
+"99"		, ; // [02] Ordem
+"Descricao"	, ; // [03] Titulo
+"Descricao"	, ; // [04] Descricao
+NIL			, ; // [05] Help
+"C"			, ; // [06] Tipo do campo   COMBO, Get ou CHECK
+"@!"		, ; // [07] Picture
+Nil			, ; // [08] PictVar
+Nil			, ; // [09] F3
+.F.			, ; // [10] Editavel
+Nil			, ; // [11] Folder
+Nil			, ; // [12] Group
+Nil			, ; // [13] Lista Combo
+Nil        	, ; // [14] Tam Max Combo
+Nil			, ; // [15] Inic. Browse
+.T. )			// [16] Virtual
+
+oStruSF72:AddField("BT_UP","01","","",/*aHelp*/,"BT",/*cPicture*/,/*PictVar*/,/*cLookUp*/,.T./*lCanChange*/,/*cFolder*/,/*cGroup*/,/*aComboValues*/,/*nMaxLenCombo*/,/*cIniBrow*/,.T./*lVirtual*/,/*cPictVar*/,/*lInsertLine*/)
+oStruSF72:AddField("BT_DN","02","","",/*aHelp*/,"BT",/*cPicture*/,/*PictVar*/,/*cLookUp*/,.T./*lCanChange*/,/*cFolder*/,/*cGroup*/,/*aComboValues*/,/*nMaxLenCombo*/,/*cIniBrow*/,.T./*lVirtual*/,/*cPictVar*/,/*lInsertLine*/)
+
+oStruSF72:SetProperty("F7_SEQUEN", MVC_VIEW_CANCHANGE,.F.)
+If X3USO(GetSx3Cache("F7_DTINCLU","X3_USADO"))
+	oStruSF72:SetProperty("F7_DTINCLU",MVC_VIEW_CANCHANGE,.F.)
+EndIf
+
+If cPaisLoc == "BRA"
+	oStruSF72:RemoveField("F7_IMPOSTO")
+EndIf
+
+oView:= FWFormView():New()
+oView:SetModel(oModel)
+
+oView:AddField( "VIEW_SF71", oStruSF71, "SF7MASTER")
+oView:AddGrid ( "VIEW_SF72", oStruSF72, "SF7DETAIL")
+
+oView:CreateHorizontalBox("CABECALHO", 10)
+oView:CreateHorizontalBox("GRID"	 , 90)
+
+oView:SetOwnerView("VIEW_SF71", "CABECALHO")
+oView:SetOwnerView("VIEW_SF72", "GRID"     )
+
+oView:AddIncrementField("VIEW_SF72", "F7_SEQUEN")
+
+oView:SetViewProperty( "*", "GRIDNOORDER")
+
+oView:AddUserButton( "Mover", "MOVER", {|oView| A540MoveTo()} )
+
+Return(oView)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GridChange
+Troca linha do Grid
+
+@author Flavio Luiz Vicco
+@since 09/01/2017
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function GridChange(nDirection,nTo)
+Local oModel:= FwModelActive()
+Local oView := FwViewActive()
+Local oGrid := oModel:GetModel("SF7DETAIL")
+Local nLine := oGrid:GetLine()
+Local nTam  := oGrid:Length()
+Local aRows := Nil
+Local cOrd1 := ""
+Local cOrd2 := ""
+
+Default nDirection := 0
+Default nTo        := 0
+
+//Se for para cima e a linha for maior que 1
+If nDirection < 0 .And. nLine > 1
+	nTo := nLine-1
+//Se for para baixo e nao for a ultima linha
+ElseIf nDirection > 0 .And. nLine < nTam
+	nTo := nLine+1
+EndIf
+
+If nTo <> 0
+	aRows := FwSaveRows()
+
+	cOrd1 := oGrid:GetValue("F7_SEQUEN", nTo)
+	cOrd2 := oGrid:GetValue("F7_SEQUEN", nLine)
+
+	oGrid:LineShift(nLine, nTo)
+
+	oGrid:GoLine(nTo)
+	oGrid:LoadValue("F7_SEQUEN", cOrd1)
+	oGrid:GoLine(nLine)
+	oGrid:LoadValue("F7_SEQUEN", cOrd2)
+
+	FwRestRows(aRows)
+
+	oView:Refresh("SF7DETAIL")
+EndIf
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540MoveTo
+Troca linha do Grid
+
+@author Flavio Luiz Vicco
+@since 10/10/2017
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function A540MoveTo()
+Local oModel := FwModelActive()
+Local oGrid  := oModel:GetModel("SF7DETAIL")
+Local nLine  := oGrid:GetLine()
+Local nTamSq := TamSx3("F7_SEQUEN")[1]
+Local nX     := 0
+Local nTo    := 0
+Local nStep  := 0
+
+Local oError := ErrorBlock({|e|ChecErro(e)}) //Para exibir um erro mais amigável
+
+Begin Sequence
+	nTo := Val(FWInputBox("Mover sequência "+StrZero(nLine,nTamSq)+" para nova sequência:",""))
+	If nTo > 0
+		nStep := Iif(nTo < nLine,-1,1)
+		CursorWait()
+		For nX := nLine To nTo Step nStep
+			GridChange(,nX)
+			oGrid:GoLine(nX)
+		Next nX
+		CursorArrow()
+	EndIf
+End Sequence
+ 
+ErrorBlock(oError)
+ 
+Return Nil
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540Seta
+exibe bitmap das setas
+
+@author Flavio Luiz Vicco
+@since 09/01/2017
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function A540Seta(nOpc)
+Local cRet := ""
+
+If nOpc == 1
+	cRet := "TriUp"
+ElseIf nOpc == 2
+	cRet := "TriDown"
+EndIf
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} X540Vld
+Função para fazer validações do campo F7_GRTRIB
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function X540Vld()
+Local lRet     :=.T.
+Local aAreaSF7 :=SF7->(GetArea())
+
+If SF7->(dbSeek(xFilial("SF7")+M->F7_GRTRIB))
+	Help(" ",1,"A540Grupo1")
+	lRet := .F.
+Endif
+
+If lRet .And. !SX5->(dbSeek(cFilial+"21"+M->F7_GRTRIB))
+	Help(" ",1,"A540Grupo2")
+	lRet := .F.
+Endif
+
+RestArea(aAreaSF7)
+Return(lRet)
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540LinOk
+Função para fazer validações do grid
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function A540LinOk(oModel)
+Return .T.
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540TudOk
+Função para fazer validações do formulário
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function A540TudOk(oModel) 	
+Local nOperation:= oModel:GetOperation()
+Local aSaveRows := FWSaveRows() // Salvando as linhas
+Local oMdField  := oModel:GetModel("SF7MASTER")
+Local oMdGrid   := oModel:GetModel("SF7DETAIL")
+Local lGrava    := .T.
+Local nI        := 0
+
+If nOperation == MODEL_OPERATION_INSERT .Or. nOperation == MODEL_OPERATION_UPDATE
+	For nI := 1 To oMdGrid:Length()
+		oMdGrid:GoLine( nI )
+		If !oMdGrid:IsDeleted()
+			If X3USO(GetSx3Cache("F7_DTINCLU","X3_USADO")) .AND. Empty(oMdGrid:GetValue("F7_DTINCLU"))
+				oMdGrid:SetValue("F7_DTINCLU",dDataBase)
+			EndIf
+		EndIf
+	Next nI
+EndIf
+
+FWRestRows(aSaveRows) // Restaurando as linhas
+
+If ExistBlock("MT540VLD")
+	lGrava := ExecBlock("MT540VLD",.F.,.F.,{nOperation,oMdGrid:aCols})
+Endif
+
+Return lGrava
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Grava
+Função será chamada para realizar a gravação do histórico na tabela SS1
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function A540Grava(oModel)
+Local nOpc      := oModel:GetOperation()
+Local oForm     := oModel:GetModel("SF7MASTER")
+Local oGrid     := oModel:GetModel("SF7DETAIL")
+Local aCposForm := oForm:GetStruct():GetFields()
+Local aCposGrid := oGrid:GetStruct():GetFields()
+Local bCampoSF7 := { |x| SF7->(Field(x)) }
+Local aCmps     := {}
+Local cIdHistFis:= ""
+Local aAnterior := {}
+Local cFilSF7   := xFilial("SF7")
+Local cGrupo    := oForm:GetValue("F7_GRTRIB")
+Local nRecno    := 0
+Local nX, nY    := 0
+Local aRetSX3   := TamSX3('F7_SEQUEN')
+Local cCntItem  := "001"
+Local cIdAux    := "AAA"
+Local cSequen   := "XX0"
+Local lMsexp	:= SF7->(FieldPos("F7_MSEXP")) > 0
+
+// DSERFIS1-6496 - Caso o campo F7_SEQUEN não seja atualizado para tamanho 3
+If aRetSX3[01] == 2
+		cCntItem  := "01"
+        cIdAux    := "AA"
+		cSequen   := "X0"
+EndIf
+
+dbSelectArea("SF7")
+dbSetOrder(1) //F7_FILIAL+F7_GRTRIB+F7_GRPCLI+F7_SEQUEN
+If nOpc == MODEL_OPERATION_DELETE
+	//-- Realiza commit do MVC
+	lRet := FWFormCommit(oModel)
+	//-- Verificar se irá gravar Histórico para operações de edição e exclusão
+	If ExistBlock("MT540EXC")
+		ExecBlock("MT540EXC",.F.,.F.,{SF7->F7_GRTRIB,oGrid:aHeader,oGrid:aCols})
+	EndIf
+Else
+	dbSeek(cFilSF7+cGrupo)
+	If Found()
+		While !EOF() .And. F7_FILIAL+F7_GRTRIB == cFilSF7+cGrupo
+			AADD(aAnterior,{RecNo(),F7_SEQUEN})
+			dbSkip()
+		EndDo
+	Endif
+	aAnterior := ASort(aAnterior,,,{ |x, y| x[2] < y[2] })
+
+	Begin Transaction
+	For nX := 1 To oGrid:GetQtdLine()
+		oGrid:GoLine(nX)
+		//-- Grava inclusao/alteracao
+		//SF7->(dbGoTo(oGrid:GetDataID()))
+		//RecLock("SF7",SF7->(EOF()))
+		If Len(aAnterior) >= nX
+			If nOpc <> MODEL_OPERATION_INSERT
+				nRecno := A540PesqIt(cGrupo,cCntItem)
+				dbSelectArea("SF7")
+				If nRecno > 0 .And. nRecno <> aAnterior[nx,1]
+					Go nRecno
+					cSequen := Soma1(cSequen)
+					RecLock("SF7",.F.)
+					SF7->F7_SEQUEN := cSequen
+					SF7->(MsUnLock())
+				EndIf
+				Go aAnterior[nx,1]
+			EndIf
+			RecLock("SF7",.F.)
+		Else
+			RecLock("SF7",.T.)
+		Endif
+		If oGrid:IsDeleted()
+			SF7->(dbDelete())
+		Else
+			SF7->F7_FILIAL := cFilSF7
+			SF7->F7_GRTRIB := cGrupo
+			SF7->F7_SEQUEN := cCntItem
+			
+			If lMsexp //De acordo com a Issue DSERFIS1-16194, este campo deve ser limpo na alteraçã/inclusão. De acordo com a Issue DSERFIS1-22076, usar as funções do MVC apresenta error log.
+				SF7->F7_MSEXP:=""
+			EndIf 
+
+			If nOpc == MODEL_OPERATION_UPDATE .And. lHistFiscal
+				cIdAux     := Soma1(cIdAux)
+				cIdHistFis := IdHistFis()+cIdAux
+				SF7->F7_IDHIST := cIdHistFis
+				//-- Busca estrutura dos campos da tabela SF7
+				aCmps := RetCmps("SF7",bCampoSF7)
+		 		//-- Grava o histórico da tabela SF7 na tabela SS1
+			 	GrvHistFis("SF7", "SS1", aCmps)
+			EndIf
+
+			//-- Grava campos do cabecalho
+			For nY := 1 To Len(aCposForm)
+				If SF7->(FieldPos(aCposForm[nY,3])) > 0 
+					SF7->&(aCposForm[nY,3]) := oForm:GetValue(aCposForm[nY,3])
+				EndIf
+			Next nY
+
+			//-- Grava campos do grid
+			For nY := 1 To Len(aCposGrid)
+				If SF7->(FieldPos(aCposGrid[nY,3])) > 0 .And. !aCposGrid[nY,3] $ "F7_FILIAL|F7_SEQUEN"
+					SF7->&(aCposGrid[nY,3]) := oGrid:GetValue(aCposGrid[nY,3])
+				EndIf
+			Next nY
+			cCntItem := Soma1(cCntItem)
+		EndIf
+		SF7->(MsUnLock())
+	Next nX
+	If ExistBlock("MT540GRV")
+		ExecBlock("MT540GRV",.F.,.F.)
+	EndIf
+	End Transaction
+EndIf
+
+Return .T.
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540HIST
+Função que irá buscar o histórico de alterações e inclusões da tabela SS1
+
+@author Flavio Luiz Vicco
+@since 15/03/2016
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Function A540HIST()
+Local aCampos	:= {}
+Local lRet		:= .T.
+
+AADD(aCampos,{SF7->F7_GRTRIB,"S1_GRTRIB"})
+AADD(aCampos,{SF7->F7_SEQUEN,"S1_SEQUEN"})
+AADD(aCampos,{SF7->F7_GRPCLI,"S1_GRPCLI"})
+
+//Chama função para buscar o histórico gravado na tabela SS1
+lRet:= HistOperFis("SS1",,"Histórico de alterações:","",,aCampos)
+
+Return lRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540OrgExc
+Função para validar se F7_SEQUEN tem tamanha 3 e se o contéudo tem 3 algarismos.
+Caso possua tamanho 3 mas não tenha 3 algarismos no conteúdo, adequa o dado incluindo zeros à esquerda.
+
+DSERFIS1-6496
+
+@author pereira.weslley
+@since 05/04/2019
+@version 01.00
+/*/
+//-------------------------------------------------------------------
+Static Function A540OrgExc(oSay)
+
+	
+	If (TamSX3("F7_SEQUEN")[1] == 3) .AND. (Len(AllTrim(SF7->F7_SEQUEN)) == 2)
+		Begin Transaction
+			oSay:cCaption := ("Atualizando sequências...")
+			ProcessMessages()
+
+			While !SF7->(EOF())
+				If !Len(AllTrim(SF7->F7_SEQUEN)) == 3
+					RecLock("SF7", .F.)
+					SF7->F7_SEQUEN := PadL(Alltrim(SF7->F7_SEQUEN), 3, "0")	
+					MsUnLock()
+				EndIf
+				dbSkip()
+			EndDo
+
+			dbSelectArea("SS1")		
+			While !SS1->(EOF())
+				If !Len(AllTrim(SS1->S1_SEQUEN)) == 3
+					RecLock("SS1", .F.)
+					SS1->S1_SEQUEN := PadL(Alltrim(SS1->S1_SEQUEN), 3, "0")	
+					MsUnLock()
+				EndIf
+				dbSkip()
+			EndDo
+
+			SF7->(dbGoTop())
+		End Transaction
+	EndIf
+
+Return Nil
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A540PesqIt
+Funcao para validar itens duplicados no cadastro.
+
+@author Flavio Luiz Vicco
+@since 05/10/2017
+@version 11.90
+/*/
+//-------------------------------------------------------------------
+Static Function A540PesqIt(cGrupo,cCntItem)
+Local cTemp := GetNextAlias()
+Local nRecno:= 0
+
+BeginSql alias cTemp
+	SELECT R_E_C_N_O_ AS F7RECNO
+	FROM %table:SF7% SF7
+	WHERE
+		SF7.F7_FILIAL = %xfilial:SF7% AND
+		SF7.F7_GRTRIB = %exp:cGrupo% AND
+		SF7.F7_SEQUEN = %exp:cCntItem% AND
+		SF7.%notDel%
+EndSql
+If !(cTemp)->(Eof())
+	nRecno := (cTemp)->F7RECNO
+EndIf
+DbSelectArea(cTemp)
+(cTemp)->(DbCloseArea())
+Return nRecno

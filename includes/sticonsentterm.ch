@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Término de consentimiento"
+	#define STR0002 "Informe al cliente que los datos personales registrados se utilizarán con la finalidad de identificarlo en la realización de:"
+	#define STR0003 "- Ventas"
+	#define STR0004 "- Devoluciones"
+	#define STR0005 "- Entrega a domicilio"
+	#define STR0006 "- Análisis de crédito"
+	#define STR0007 "- Títulos financiero"
+	#define STR0008 "- Campañas de propaganda"
+	#define STR0009 "Aceptar"
+	#define STR0010 "Declinar"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Term of consent"
+		#define STR0002 "Notify the customer that the personal data registered will be used to identify him/her to execute the following:"
+		#define STR0003 "- Sales"
+		#define STR0004 "- Returns"
+		#define STR0005 "- Home delivery"
+		#define STR0006 "- Credit analysis"
+		#define STR0007 "- Financial bonds"
+		#define STR0008 "- Advertising campaigns"
+		#define STR0009 "Accept"
+		#define STR0010 "Decline"
+	#else
+		#define STR0001 "Termo de consentimento"
+		#define STR0002 "Informar ao cliente que os dados pessoais cadastrados serão utilizados com as finalidades de sua identificação na realização de: "
+		#define STR0003 " - Vendas"
+		#define STR0004 " - Devoluções"
+		#define STR0005 " - Entrega a domicílio"
+		#define STR0006 " - Análise de crédito"
+		#define STR0007 " - Títulos financeiro"
+		#define STR0008 " - Campanhas de propaganda"
+		#define STR0009 "Aceitar"
+		#define STR0010 "Declinar"
+	#endif
+#endif

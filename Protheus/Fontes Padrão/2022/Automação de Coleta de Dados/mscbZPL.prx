@@ -1,0 +1,653 @@
+#INCLUDE "mscbzpl.ch"
+#INCLUDE 'TBICONN.CH'
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE 'MSOBJECT.CH'
+
+
+
+Function MSCBZPL()
+Return
+
+CLASS MSCBZPL
+   data cPadrao
+   data nLenEti
+   data cResult
+   data nMemory
+   data IsPrinted
+   data lDrvWin
+   data lString
+   data lServer
+   data cServer
+	data lIP
+	data oIP
+   data cPortImp
+   data lOutroServer
+   data oServer
+   data cEnv
+   data nPorta
+   data lSpool
+   data PathIni
+   data Modelo
+   data cFila
+   data cFileSpool
+   data nSeqSpool
+   data lCHKStatus
+   data nPontoMM
+   data nHandle
+   data LenChkStatus
+   data ChkStatus
+   data C128GS
+   data C128A
+	data C128B
+	data C128C
+	data C128S
+   data aImagem
+	data nTCheck
+	Method New(ModelPrt,cPorta,nDensidade,nTamanho,lSrv,nPorta,cServer,cEnv,nMemoria,cFila,lDrvWin,cPathIni)
+	Method Setup()
+   Method Close()
+	Method CBBegin(nxQtde,nVeloc,nTamanho,lSalva)
+	Method CBEnd()
+   Method Envia()
+   Method VerStatus()
+   Method Say(nXmm,nYmm,cTexto,cRotacao,cFonte,cTam,lReverso,lSerial,cIncr,lZerosL,lNoAlltrim)
+	Method Var(cVar,cDados)
+   Method Memo(nXmm,nYmm,nLMemomm,nQLinhas,cTexto,cRotacao,cFonte,cTam,lReverso,cAlign)
+	Method Bar(nXmm,nYmm,cConteudo,cRotacao,cTypePrt,nAltura,lDigVer,lLinha,lLinBaixo,cSubSetIni,nLargura,nRelacao,lCompacta,lSerial,cIncr,lZerosL)
+  	Method Box(nX1mm,nY1mm,nX2mm,nY2mm,nExpessura,cCor)
+	Method LineH(nX1mm,nY1mm,nX2mm,nExpessura,cCor)
+	Method LineV(nX1mm,nY1mm,nY2mm,nExpessura,cCor)
+	Method Grafic(nXmm,nYmm,cArquivo,lReverso)
+	Method LoadGrf(cImagem)
+
+ENDCLASS
+
+Method New(ModelPrt,cPorta,nDensidade,nTamanho,lSrv,nPorta,cServer,cEnv,nMemoria,cFila,lDrvWin,cPathIni) CLASS MSCBZPL
+DEFAULT cPorta := "COM2:9600,e,7,2"
+DEFAULT cEnv   :=''
+DEFAULT cFila  :=''
+DEFAULT lDrvWin:= .F.
+DEFAULT cPathIni:= "\IMPTER"
+DEFAULT nMemoria:=0
+DEFAULT lSrv    :=.f.
+DEFAULT cServer:=''
+DEFAULT nPorta :=0
+::cResult :=''
+::cPadrao := "ZPL"
+::Modelo  := AllTrim(Upper(ModelPrt))
+::cFila   := AllTrim(cFila)
+::lDrvWin := lDrvWin
+::PathIni := If(Empty(cPathIni),"\IMPTER",cPathIni)
+::nMemory := nMemoria
+::cPortImp:= Upper(cPorta)
+::lString := (::cPortImp == 'STR')
+::lServer := lSrv
+::cServer := cServer
+::nPorta  := nPorta
+::cEnv    := cEnv
+::lOutroServer := (! Empty(cServer) .and. ! Empty(nPorta) .and. ! Empty(cEnv) .and. lSrv )
+::lIP     := "IP" $ cPorta .and. ! Empty(cServer)
+::LenChkStatus := 82
+::ChkStatus    :='~HS'
+::lCHKStatus   := .t.
+::C128GS  := '>8'
+::C128A   :='>7'
+::C128B   :='>6'
+::C128C   :='>5'
+::C128S   :='>4'
+::aImagem :={}
+IF nDensidade == NIL
+	MSCbModelo('ZPL',::Modelo,@::nPontoMM)
+Else
+   ::nPontoMM:= nDensidade
+Endif
+If nTamanho#NIL
+   ::nLenEti := nTamanho*::nPontoMM
+Else
+   ::nLenEti :=NIL
+EndIf
+
+If ::lServer
+   ::cPortImp  :='SERVER'+::cPortImp
+EndIf
+If ::lOutroServer
+   ::lServer   := .f.
+EndIf
+::lSpool:=.f.
+If ! Empty(::cFila)
+	::lSpool			:= .t.
+	::lServer		:= .f.
+	::lOutroServer	:= .f.
+	::cPortImp		:="SPOOL"
+	::lDrvWin		:= .f.
+	::lIP				:= .f.
+EndIf
+If ::lIP
+	::lSpool			:= .f.
+	::lServer		:= .f.
+	::lOutroServer	:= .f.
+	::cPortImp		:="IP"
+	::lDrvWin		:= .f.
+EndIf
+If Select("SX6") > 0
+   ::nTCheck := Int((SuperGetMV("MV_ACDTCHK",.F.,3) * 60) / 2)
+Else
+   ::nTcheck := 90
+EndIf
+Return ''
+
+
+Method Setup() Class MSCBZPL
+Local cProgOpen
+
+//DEFINICAO DE VARIAVEIS NECESSARIAS PARA O SETPRINT
+Private aRegistros	:= {}
+Private aReturn	:=  {STR0008 , 1,STR0009, 2, 3, 1, "",1 } //"Zebrado","Administracao"
+Private rptfolha := ""
+// FIM DA DEFINICAO
+
+If ::lDrvWin
+	::lOutroServer := .f.
+	::lCHKStatus   := .f.
+	If ::lServer
+   	::cPortImp  :=Subs(::cPortImp,7)
+	EndIf
+	SetPrint("","MSCBIMP.PRN",nil ,STR0001,"MSCBIMP.PRN",'','',.F.,"",.F.,"P",nil,.f.,nil,'EPSON.DRV',.T.,::lServer,::cPortImp) //'Impressao de Etiqueta'
+   SetDefault(aReturn,"")
+Else
+	cProgOpen := ProcName(5)+'-->'+ProcName(4)+'-->'+ProcName(3)+'-->'+ProcName(2)+'-->'+ProcName(1)
+	If ::lOutroServer
+	   ::oServer := RpcConnect( ::cServer, ::nPorta, ::cEnv, "", "",,,.t. )
+	   CALLPROC IN ::oServer FUNCTION "MSCBFSem" PARAMETERS Left(::cPortImp,4),cProgOpen
+	EndIf
+	If ::lServer
+	   MSCBFSem(Left(::cPortImp,4),cProgOpen)
+	EndIF
+	If ::lSpool
+		MsCbGrvSpool(1,,Self)
+	EndIf
+	If ::lIP
+		::oIP := tSocketClient():New()
+		If ::nPorta == 0
+			::nPorta := 9100
+		EndIf
+		If ::oIP:Connect(::nPorta,::cServer, 1000 )  <> 0
+			conout('erro')
+		EndIf
+	EndIf
+EndIf
+::IsPrinted:=.t.
+Return ''
+
+
+Method CBBegin(nxQtde,nVeloc,nTamanho,lSalva)	CLASS MSCBZPL
+Local cResult := ::cResult
+If Len(::cResult) > ::nMemory
+   ::cResult := ""
+EndIF
+cResult +="^XA"+chr(13)+chr(10)
+If lSalva==NIL .or. lSalva
+   If lSalva
+      cResult +="^DFFORMAT^FS"+chr(13)+chr(10)
+   EndIf
+	If nVeloc # NIL
+	   cResult+="^PR"+AllTrim(Str(nVeloc,3))+chr(13)+chr(10)
+	EndIf
+	If nxQtde # NIL
+	   cResult+="^PQ"+AllTrim(Str(nxQtde,6))+chr(13)+chr(10)
+	EndIf
+	If nTamanho#NIL
+      ::nLenEti:= nTamanho*::nPontoMM
+   EndIf
+   If ::nLenEti#NIL
+      cResult+="^LL"+AllTrim(str(::nLenEti))+chr(13)+chr(10)
+	endif
+ElseIf !LSalva
+   cResult +="^XFFORMAT^FS"+chr(13)+chr(10)
+EndIf
+::cResult := cResult
+Return
+
+Method CBEnd() CLASS MSCBZPL
+Local cConteudo:=''
+::cResult += "^XZ"+chr(13)+chr(10)
+If Len(::cResult) > ::nMemory
+   cConteudo := ::cResult
+   Self:Envia()
+EndIF
+Return cConteudo
+
+Method Close() CLASS MSCBZPL
+Local cConteudo := ::cResult
+If Len(::cResult) > 0
+   Self:Envia()
+EndIF
+If ::lDrvWin
+   Set device to Screen
+	MS_FLUSH()
+Else
+	If ::lServer
+	   MSCBASem(Left(::cPortImp,4))
+	EndIF
+	If ::lOutroServer
+	   CALLPROC IN ::oServer FUNCTION "MSCBASem" PARAMETERS Left(::cPortImp,4)
+	   CLOSE RPCCONN ::oServer
+	EndIf
+	If ::lSpool
+		MSCBGrvSpool(3,,Self)
+	EndIf
+	If ::lIP
+		::oIP:CloseConnection()
+	EndIf
+EndIf
+::IsPrinted:=.f.
+Return cConteudo
+
+Method Envia() CLASS MSCBZPL
+Local lIPSend  := !::lCHKStatus
+Local cIPRet   := ""
+Local nIPRet   := 0
+Local nTry     := 0
+::nHandle:= 0
+If ::lOutroServer
+	 ::nHandle := -1
+	 While  ::nHandle < 0
+       CALLPROC IN ::oServer FUNCTION "CBOpenPort" PARAMETERS ::cPortImp RESULT ::nHandle
+       If ::nHandle < 0
+          sleep(500)
+	       conout(STR0002) //"falha na abertura da porta"
+       EndIf
+    End
+    nResult := -1
+	 While  nResult < 0
+       CALLPROC IN ::oServer FUNCTION "CBWritePort" PARAMETERS ::nHandle,::cResult,::lCHKStatus,Self RESULT nResult
+       If nResult < 0
+          sleep(500)
+       EndIf
+    End
+    CALLPROC IN ::oServer FUNCTION "CBClosePort" PARAMETERS ::nHandle
+ElseIf ::lSpool
+    MSCBGrvSpool(2,,Self)
+ElseIf ::lDrvWin
+   If FindFunction("RAWPRINTOUT")
+      RawPrintOut(::cResult)
+   ELSE
+      PrintOut(0,0,::cResult)
+   EndIf
+ElseIf ::lIP
+   If ::lCHKStatus
+      While !lIPSend
+         If ::oIP:Send(::ChkStatus) == Len(::ChkStatus) .And. (nIPRet := ::oIP:Receive(@cIPRet,500)) >= 8 .And. ::VerStatus(cIPRet) == 'OK'
+            lIPSend := .T. //-- Impressora comunicou e pronta para impressao
+            Exit
+         ElseIf ::nTCheck > 0 .And. nTry > ::nTCheck
+            If IsBlind()
+               conout("Impressora de etiquetas indisponivel.")//"falha na abertura da porta"
+            ElseIf IsTelNet()
+               VTAlert("Impressora de etiquetas indisponivel. Realize a reimpressao","Atencao ",.t.,3000)
+            Else
+               Aviso("Atenção","Impressora de etiquetas indisponível. Realize a reimpressão quando disponível.",{"OK"})
+            EndIf
+            Exit
+         EndIf
+         sleep(2000)
+         nTry++
+      End
+   EndIf
+   If lIPSend
+	   ::oIP:Send(::cResult)
+   End
+ElseIf ! ::lString
+   If ! ::lServer .and. IsTelNet()
+      If "LPT" $ ::cPortImp
+   		VTImpDef("P")
+      Else
+	      VTImpDef("S")
+      EndIf
+
+      VTImp(::cResult)
+   Else
+      ::nHandle := -1
+	   While  ::nHandle < 0
+  	      ::nHandle:=CBOpenPort(::cPortImp)
+    	    If ::nHandle < 0
+        	    sleep(500)
+  		       conout(STR0002) //"falha na abertura da porta"
+  	       EndIf
+       End
+       nResult := -1
+ 	    While  nResult < 0
+          nResult:= CBWritePort(::nHandle,::cResult,::lCHKStatus,Self)
+          If nResult < 0
+             sleep(500)
+          EndIf
+       End
+       While ! CBClosePort(::nHandle)
+          sleep(500)
+       EndDo
+   EndIf
+EndIf
+::cResult:=''
+
+Return ''
+
+Method VerStatus(cTexto) CLASS MSCBZPL
+Local cRet:= 'OK'
+cTexto := StrTran(cTexto,chr(172),'')
+cTexto := StrTran(cTexto,',','')
+cTexto := StrTran(cTexto,chr(13),'')
+cTexto := StrTran(cTexto,chr(10),'')
+If Subst(cTexto,14,1) # '0'   // buffer cheio
+	conout(STR0003) //"Aguardando... Buffer cheio"
+   cRet:= 'RETRY'
+ElseIf Subst(cTexto,5,1) # '0'  // falta papel
+	conout(STR0004) //"Aguardando... Falta Papel "
+   cRet:= 'RETRY'
+ElseIf Subst(cTexto,6,1) # '0'   // impressora em pausa
+	conout(STR0005) //"Aguardando... Impressora em Pausa "
+   cRet:= 'RETRY'
+ElseIf Subst(cTexto,30,1)# '0'   // falta ribon
+	conout(STR0006) //"Aguardando... Falta ribbon "
+   cRet:= 'RETRY'
+EndIf
+Return cRet
+
+Method Say(nXmm,nYmm,cTexto,cRotacao,cFonte,cTam,lReverso,lSerial,cIncr,lZerosL,lNoAlltrim) Class MSCBZPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT lNoAlltrim := .F.
+DEFAULT cFonte     := "D"
+DEFAULT lReverso   := .f.
+DEFAULT lSerial    := .f.
+DEFAULT cIncr      := "1"
+DEFAULT lZerosL    := .f.
+DEFAULT cRotacao   := "N"
+cTexto := If(lNoAlltrim,cTexto,AllTrim(cTexto))
+cTexto := TrocaCE(cTexto)
+::cResult += "^FO"+AllTrim(str(nXPixel,5))+","+AllTrim(Str(nYPixel,5)) // posiciona na etiqueta
+::cResult += "^A"+Left(cFonte,1)+cRotacao+","+cTam    // Fonte+Rotacao+Tamanho Fonte
+If lReverso
+   ::cResult +="^FR"
+Endif
+If ! lSerial
+   If Left(cTexto,1)=="@"
+      ::cResult += "^FH_^FN"+Alltrim(Subst(cTexto,2))  // Texto
+   Else
+      ::cResult += "^FH_^FD"+cTexto            // Texto
+   EndIf
+Else
+   ::cResult += "^SN"+cTexto+","+cIncr+","+if(lZerosL,"Y","N")    // serializa
+EndIf
+::cResult += "^FS"+chr(13)+chr(10)                            // Separador
+Return ''
+
+Method Var(cVar,cDados) Class MSCBZPL
+::cResult+='^FN'+Subs(cVar,2)+'^FD'+cDados+"^FS"+CHR(13)+CHR(10)
+Return ''
+
+Method Memo(nXmm,nYmm,nLMemomm,nQLinhas,cTexto,cRotacao,cFonte,cTam,lReverso,cAlign) Class MSCBZPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+Local nLMemoPixel:= ::nPontoMM *if(nLMemomm==NIL,1,nLMemomm)
+DEFAULT cRotacao := 'N'
+DEFAULT cFonte   := 'D'
+DEFAULT lReverso := .f.
+DEFAULT cAlign   := 'L'
+
+cTexto   := StrTran(cTexto,CHR(10)+CHR(13),"\&")
+cTexto	:= TrocaCE(cTexto)
+::cResult += "^FO"+AllTrim(str(nXPixel))+","+AllTrim(Str(nYPixel)) // posiciona na etiqueta
+::cResult += "^FB"+AllTrim(Str(nLMemoPixel))+","+AllTrim(Str(nQLinhas))+",1,"+cAlign+",0"
+::cResult += "^A"+Left(cFonte,1)+cRotacao+","+cTam    //Fonte+Rotacao+Tamanho Fonte
+If lReverso
+   ::cResult +="^FR"
+EndIf
+::cResult += "^FH_^FD"+AllTrim(cTexto)               // Texto
+::cResult += "^FS"                            // Separador
+RETURN  ''
+
+Method Bar(nXmm,nYmm,cConteudo,cRotacao,cTypePrt,nAltura,lDigVer,lLinha,lLinBaixo,cSubSetIni,nLargura,nRelacao,lCompacta,lSerial,cIncr,lZerosL) Class MSCBZPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT cRotacao  := "N"
+DEFAULT nAltura   := 10
+DEFAULT lDigVer   := .f.
+DEFAULT lLinha    := .f.
+DEFAULT lLinBaixo := .f.
+DEFAULT cSubSetIni:= ""
+DEFAULT nLargura  := 3
+DEFAULT nRelacao  := 2
+DEFAULT lCompacta := .f.
+DEFAULT lSerial   := .f.
+DEFAULT cIncr     := "1"
+DEFAULT lZerosL   := .f.
+nAltura :=nAltura*::nPontoMM
+
+If ValType(cConteudo)=="A"
+   cConteudo := MSTrataEan(cConteudo)
+   // lCompacta
+   // este parametro foi criado de forma inrregular, portanto sera' necessario desabilita-lo
+   // quando esta true ele muda automaticamente para o tipo Start C
+   lCompacta:= .f.
+EndIf
+
+If cSubSetIni=="A"
+   cSubSetIni := ">9"+::C128GS
+ElseIf cSubSetIni=="B"
+ 	cSubSetIni := ">:"+::C128GS
+ElseIf cSubSetIni=="C"
+   cSubSetIni := ">;"+::C128GS
+EndIf
+If lCompacta
+   cSubSetIni := ">;"
+EndIf
+::cResult += "^FO"+AllTrim(str(nXPixel,5))+","+AllTrim(Str(nYPixel,5)) // posiciona na etiqueta
+::cResult += "^BY"+AllTrim(str(nLargura,3))+","+AllTrim(Str(nRelacao,3))+","+AllTrim(str(nAltura,3))
+
+cTypePrt := MSTabCodBar(cTypePrt,Self)
+If cTypePrt $ "2|U|9"
+	::cResult +="^B"+cTypePrt+cRotacao+","+str(nAltura,3)+","+If(lLinha ,"Y","N")+","+If(lLinBaixo,"Y","N")+","+If(lDigVer,"Y","N")
+ElseIf  cTypePrt == "3"
+   ::cResult +="^B"+cTypePrt+cRotacao+","+If(lDigVer,"Y","N")+","+str(nAltura,3)+","+If(lLinha ,"Y","N")+","+If(lLinBaixo,"Y","N")
+ElseIf  cTypePrt $ "8|E"
+   ::cResult +="^B"+cTypePrt+cRotacao+","+str(nAltura,3)+","+If(lLinha ,"Y","N")+","+If(lLinBaixo,"Y","N")
+ElseIf  cTypePrt == "C"
+	//ATENCAO: 	No final desta expressao, eh checado se analisa o digito verificador pois o mesmo so eh
+	//			valido para U = "UCC Case mode", ou seja, se for definido subconjutos e geracao de digito verificador
+	//			o digito verificador sera cancelado para que os subsetings funcionem corretamente, sendo assim deve
+	//			ser escolhido um ou outro.
+	If lDigVer .And. !Empty(cSubSetIni)
+		lDigVer := .F.
+		conout(STR0007) //"ATENCAO: A geracao do digito verificador foi cancelada pois existe subconjunto configurado para este codigo"
+	EndIf
+	::cResult +="^B"+cTypePrt+cRotacao+","+str(nAltura,3)+","+If(lLinha ,"Y","N")+","+If(lLinBaixo,"Y","N")+","+If(lDigVer,"Y","N")+","+If(lDigVer,"U","N")
+Endif
+If ( ! lSerial )
+   If Left(cConteudo,1)=="@"
+      ::cResult += "^FN"+Alltrim(Subst(cConteudo,2))  // Texto
+   Else
+      ::cResult += "^FD"+cSubSetIni+cConteudo            // Texto
+   EndIf
+Else
+   ::cResult += "^SN"+cSubSetIni+AllTrim(cConteudo)+","+cIncr+","+if(lZerosL,"Y","N")    // serializa
+Endif
+::cResult += "^FS"+chr(13)+chr(10)                            // Separador
+Return ''
+
+Method Box(nX1mm,nY1mm,nX2mm,nY2mm,nExpessura,cCor) Class MSCBZPL
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nX2Pixel := ::nPontoMM * if(nX2mm==NIL,20,nX2mm)
+Local nY2Pixel := ::nPontoMM * if(nY2mm==NIL,20,nY2mm)
+nX2Pixel := nX2Pixel - nX1pixel
+nY2Pixel := nY2Pixel - nY1pixel
+DEFAULT nExpessura :=3
+DEFAULT cCor := 'B'
+::cResult += "^FO"+AllTrim(str(nX1Pixel,5))+","+AllTrim(Str(nY1Pixel,5)) // posiciona na etiqueta
+::cResult += "^GB"+AllTrim(str(nX2Pixel,5))+","+AllTrim(Str(nY2Pixel,5))+","+AllTrim(Str(nExpessura))+","+cCor
+::cResult += "^FS"+chr(13)+chr(10)
+Return ''
+
+METHOD LineH(nX1mm,nY1mm,nX2mm,nExpessura,cCor) Class MSCBZPL
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nX2Pixel := ::nPontoMM * if(nX2mm==NIL,20,nX2mm)
+nX2Pixel := nX2Pixel - nX1pixel
+DEFAULT nExpessura :=3
+DEFAULT cCor := 'B'
+::cResult += "^FO"+AllTrim(str(nX1Pixel,5))+","+AllTrim(Str(nY1Pixel,5)) // posiciona na etiqueta
+::cResult += "^GB"+AllTrim(str(nX2Pixel,5))+","+"0"+","+AllTrim(Str(nExpessura))+","+cCor
+::cResult += "^FS"+chr(13)+chr(10)
+Return ''
+
+Method LineV(nX1mm,nY1mm,nY2mm,nExpessura,cCor) Class MSCBZPL
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nY2Pixel := ::nPontoMM * if(nY2mm==NIL,20,nY2mm)
+nY2Pixel := nY2Pixel - nY1pixel
+DEFAULT nExpessura :=3
+DEFAULT cCor := 'B'
+::cResult += "^FO"+AllTrim(str(nX1Pixel,5))+","+AllTrim(Str(nY1Pixel,5)) // posiciona na etiqueta
+::cResult += "^GB"+"0,"+AllTrim(Str(nY2Pixel,5))+","+AllTrim(Str(nExpessura))+","+cCor
+::cResult += "^FS"+chr(13)+chr(10)
+Return ''
+
+Method Grafic(nXmm,nYmm,cArquivo,lReverso) Class MSCBZPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT lReverso :=.f.
+cArquivo := Upper(cArquivo)
+
+::cResult += "^FO"+AllTrim(str(nXPixel,5))+","+AllTrim(Str(nYPixel,5)) // posiciona na etiqueta
+If lReverso
+   ::cResult +="^FR"
+EndIf
+::cResult += "^XG"+AllTrim(cArquivo)               // Texto
+::cResult += "^FS"+chr(13)+chr(10)              // Separador
+RETURN ''
+
+Method LoadGrf(cImagem) Class MSCBZPL
+Local nX,cTipo,cNome
+Local cConteudo
+If ! File(cImagem)
+   Return ''
+Endif
+cImagem := AllTrim(Upper(cImagem))
+If aScan(::aImagem,cImagem+::cPortImp+::cServer) > 0
+   Return ''
+EndIf
+aadd(::aImagem,cImagem+::cPortImp+::cServer)
+If (nX    := Rat(".",cImagem)) > 0
+   cTipo  := Subs(cImagem,nX+1)
+   cNome  := Left(cImagem,nX-1)
+Endif
+If (nX    := Rat("\",cNome)) > 0
+    cNome  := Subs(cNome,nX+1)
+Endif
+::cResult :=''
+::cResult += MemoRead(cImagem)
+cConteudo:= ::cResult
+Self:Envia()
+Return cConteudo
+
+
+// funcoes auxiliares
+Static Function TrocaCE(uPar) // troca caracter especial para *************zebra************
+// a minusculo
+uPar   := StrTran(uPar,chr(224),chr(97))
+uPar   := StrTran(uPar,chr(225),chr(97))
+uPar   := StrTran(uPar,chr(226),chr(97))
+uPar   := StrTran(uPar,chr(227),chr(97))
+uPar   := StrTran(uPar,chr(228),chr(97))
+uPar   := StrTran(uPar,chr(229),chr(97))
+
+// A maiusculo
+uPar   := StrTran(uPar,chr(192),chr(65))
+uPar   := StrTran(uPar,chr(193),chr(65))
+uPar   := StrTran(uPar,chr(194),chr(65))
+uPar   := StrTran(uPar,chr(195),chr(65))
+uPar   := StrTran(uPar,chr(196),chr(65))
+uPar   := StrTran(uPar,chr(197),chr(65))
+
+// e minunsculo
+uPar   := StrTran(uPar,chr(232),chr(101))
+uPar   := StrTran(uPar,chr(233),chr(101))
+uPar   := StrTran(uPar,chr(234),chr(101))
+uPar   := StrTran(uPar,chr(235),chr(101))
+
+// E maiusculo
+uPar   := StrTran(uPar,chr(200),chr(69))
+uPar   := StrTran(uPar,chr(201),chr(69))
+uPar   := StrTran(uPar,chr(202),chr(69))
+uPar   := StrTran(uPar,chr(203),chr(69))
+
+// I maiusculo
+uPar   := StrTran(uPar,chr(204),chr(73))
+uPar   := StrTran(uPar,chr(205),chr(73))
+uPar   := StrTran(uPar,chr(206),chr(73))
+uPar   := StrTran(uPar,chr(207),chr(73))
+
+// i minusculo
+uPar   := StrTran(uPar,chr(236),chr(105))
+uPar   := StrTran(uPar,chr(237),chr(105))
+uPar   := StrTran(uPar,chr(238),chr(105))
+uPar   := StrTran(uPar,chr(239),chr(105))
+
+// o minusculo
+uPar   := StrTran(uPar,chr(242),chr(111))
+uPar   := StrTran(uPar,chr(243),chr(111))
+uPar   := StrTran(uPar,chr(244),chr(111))
+uPar   := StrTran(uPar,chr(245),chr(111))
+uPar   := StrTran(uPar,chr(246),chr(111))
+
+// O maiusculo
+uPar   := StrTran(uPar,chr(210),chr(79))
+uPar   := StrTran(uPar,chr(211),chr(79))
+uPar   := StrTran(uPar,chr(212),chr(79))
+uPar   := StrTran(uPar,chr(213),chr(79))
+uPar   := StrTran(uPar,chr(214),chr(79))
+
+// u minusculo
+uPar   := StrTran(uPar,chr(249),chr(117))
+uPar   := StrTran(uPar,chr(250),chr(117))
+uPar   := StrTran(uPar,chr(251),chr(117))
+uPar   := StrTran(uPar,chr(252),chr(117))
+
+// U maiusculo
+uPar   := StrTran(uPar,chr(217),chr(85))
+uPar   := StrTran(uPar,chr(218),chr(85))
+uPar   := StrTran(uPar,chr(219),chr(85))
+uPar   := StrTran(uPar,chr(220),chr(85))
+
+// n ou N com til
+uPar   := StrTran(uPar,chr(241),chr(110))
+uPar   := StrTran(uPar,chr(209),chr(78))
+
+// c e C (cedilha minusculo e maiusculo)
+uPar   := StrTran(uPar,chr(231),chr(99))
+uPar   := StrTran(uPar,chr(199),chr(67))
+
+uPar   := StrTran(uPar,chr(135),"_87")  // c cedillha minisculo
+uPar   := StrTran(uPar,chr(128),"_80")  // C cedillha maiusculo
+uPar   := StrTran(uPar,chr(198),"_c6")  // a com til minisculo
+uPar   := StrTran(uPar,chr(160),"_a0")  // a com acento agudo minisculo
+uPar   := StrTran(uPar,chr(181),"_b5")  // A com acento agudo maiusculo
+uPar   := StrTran(uPar,chr(133),"_85")  // a com acento tonico minisculo
+uPar   := StrTran(uPar,chr(183),"_b7")  // A com acento tonico maiusculo
+uPar   := StrTran(uPar,chr(131),"_83")  // a com acento circunflexo minisculo
+uPar   := StrTran(uPar,chr(143),"_8f")  // A com acento circunflexo maiusculo
+uPar   := StrTran(uPar,chr(144),"_90")  // e com acento agudo maiusculo
+uPar   := StrTran(uPar,chr(138),"_8a")  // e com acento tonico minisculo
+uPar   := StrTran(uPar,chr(136),"_88")  // e com acento circunflexo minisculo
+uPar   := StrTran(uPar,chr(161),"_a1")  // i com acento agudo minisculo
+uPar   := StrTran(uPar,chr(141),"_8d")  // i com acento tonico minisculo
+uPar   := StrTran(uPar,chr(222),"_de")  // i com acento tonico maiusculo
+uPar   := StrTran(uPar,chr(140),"_8c")  // i com acento circunflexo minisculo Œ
+uPar   := StrTran(uPar,chr(215),"_d7")  // i com acento circunflexo maiusculo
+uPar   := StrTran(uPar,chr(162),"_a2")  // o com acento agudo minisculo
+uPar   := StrTran(uPar,chr(149),"_95")  // o com acento tonico minisculo •
+uPar   := StrTran(uPar,chr(147),"_93")  // o com acento circunflexo minisculo “
+uPar   := StrTran(uPar,chr(163),"_a3")  // i com acento agudo minisculo
+uPar   := StrTran(uPar,chr(151),"_97")  // i com acento tonico minisculo
+uPar   := StrTran(uPar,chr(150),"_96")  // i com acento circunflexo minisculo Œ
+Return uPar

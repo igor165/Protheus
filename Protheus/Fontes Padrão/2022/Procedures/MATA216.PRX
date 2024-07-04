@@ -1,0 +1,1200 @@
+#INCLUDE "MATA216.CH" 
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "fwlibversion.ch"
+
+#DEFINE MAXPASSO 7
+Static lTPBD		:= If(Upper(TcGetDb()) $ "ORACLE*DB2*POSTGRES", .T.,.F.) // Verifica se o banco e oracle 
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Mata216   ³ Rev   ³ Eduardo Riera         ³ Data ³12.03.2002 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³Rotina de atualizacao dos acumulados do Poder de/em Terceiros³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpL1: Indica se o processo sera Batch                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Esta rotina tem como objetivo atualizar os dados do poder de ³±±
+±±³          ³terceiros, das seguintes tabelas                             ³±±
+±±³          ³A) SB6 -> Saldo do Poder de Terceiro                         ³±±
+±±³          ³B) SB2 -> Saldos fisico e financeiro - Dados do MRP          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Materiais                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function MATA216(lBat)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define Variaveis                                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local nOpcA      := 0
+Local cCadastro  := OemtoAnsi(STR0001) //"Refaz Poder de/em terceiros"
+Local aSays      := {}
+Local aButtons   := {}
+Local lExec      := .F.
+Local lRet       := .T.
+Local lProcessa  := .T.
+Local bBlNewProc := {|oCenterPanel| ProcLogIni({},"MATA216"),lExec:=a216Proced(lBat,oCenterPanel),If(!lExec,a216Exec(lBat,oCenterPanel),)}
+Local lUsaNewPrc := UsaNewPrc()
+Local cSPMAT041  := GetSPName("MAT041","15")
+Local cSubRoutine:= ""
+
+Private aResult   := {}
+Private aFilsCalc := {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de Entrada MT216PRO                                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( 'MT216PRO')
+	lRet:= ExecBlock('MT216PRO',.F.,.F.)
+	If Valtype(lRet) <> 'L'
+		lRet := .T. 
+	EndIf
+EndIf
+
+If lRet 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Carrega as perguntas selecionadas                        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ mv_par01 - Do Produto ?                                  ³
+	//³ mv_par02 - Ate o Produto ?                               ³
+	//³ mv_par03 - Seleciona Filiais ?                           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Pergunte("MTA216",.F.)
+	
+	lBat := If(lBat == NIL, .F., lBat)
+	
+	TCInternal(5,"*OFF")   // Desliga Refresh no Lock do Top
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Nova forma de criar dialogos para processos Batch            ³
+	//³ COMPATIVEL COM PROTHEUS (BOF)                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !lBat
+		If IsBlind()
+			BatchProcess(OemtoAnsi(STR0001),OemToAnsi(STR0002)+OemToAnsi(STR0003),,{ || Processa({|lEnd| 	Ma216Proc(Nil,lBat)	},STR0001,STR0007,.F.)})
+		Else
+			If lUsaNewPrc
+				tNewProcess():New("MATA216",cCadastro,bBlNewProc,OemtoAnsi(STR0002)+OemtoAnsi(STR0003)+OemtoAnsi(STR0004),"MTA216")
+			Else
+				AADD(aSays,OemToAnsi(STR0002)) //"   Este programa tem como objetivo refazer o poder de/em "
+				AADD(aSays,OemToAnsi(STR0003)) //"terceiros, conforme os movimentos dos documentos de "
+				AADD(aSays,OemToAnsi(STR0004)) //"entrada/saida e os itens de pedido de venda liberados."
+	
+				AADD(aButtons, { 5,.T.,{|o| nOpcA:= 0 ,Pergunte("MTA216",.T.)} } )
+				AADD(aButtons, { 1,.T.,{|o| nOpcA:= 1,If(MsgYesNo(OemToAnsi(STR0005),OemToAnsi(STR0006)),o:oWnd:End(),nOpcA:=0) } } ) //"Confirma Refaz Poder de/em terceiro ?"###"Aten‡„o"
+				AADD(aButtons, { 2,.T.,{|o| o:oWnd:End() }} )
+				
+				ProcLogIni(aButtons)
+		
+				FormBatch( cCadastro, aSays, aButtons,,200,405 )
+			EndIf
+		EndIf
+	Else
+		ProcLogIni({})
+		nOpcA := 1	
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ?
+	// Telemetria - Uso da classe FwCustomMetrics                   //
+	// Metrica - setAverageMetric                                   //
+	// Grava se utiliza ou nao utilizam procedure Refaz poder de    //
+	// terceiros (MATA216)											//
+	//?ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ?
+	If FWLibVersion() >= "20210628"
+		If ExistProc( cSPMAT041, VerIDProc() )
+			cSubRoutine := "PROCEDURE"
+		else
+			cSubRoutine := "ADVPL"
+		Endif
+
+		FWCustomMetrics():setAverageMetric(	cSubRoutine/*cSubRoutine*/,;
+											"estoque/custos-protheus_refaz-poder-de-terceiros-stored-procedures_count" /*cIdMetric*/,;
+											1 /*nValue*/,;
+											/*dDateSend*/,;
+											/*nLapTime*/,;
+											"MATA216"/*cRotina*/)
+	EndIf
+
+	If nOpcA == 1 .And. !lUsaNewPrc
+		If ExistProc( cSPMAT041, VerIDProc() )	
+			If IsBlind()
+				BatchProcess(,,,{ || Processa({|lEnd| a216Proced(lBat)},,,.F.) } )
+			Else
+				Processa({|lEnd| a216Proced(lBat)},,,.F.)
+			EndIf	
+			lProcessa := .F.
+		EndIf
+		If lProcessa		
+			a216Exec(lBat)
+		EndIf	
+	EndIf   
+EndIf
+
+Return
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Ma216Proc ³ Rev   ³ Eduardo Riera         ³ Data ³12.03.2001 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³Rotina de Processamento do MATA216                           ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Esta rotina tem como objetivo processar o poder de terceiro  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Materiais                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Ma216Proc(oObj,lBat)
+Local aStruSD1  := {}
+Local aStruSD2  := {}
+Local cAliasSB2 := "SB2"
+Local cAliasSB6 := "SB6"
+Local cQuery    := ""
+Local cChave    := ""
+Local nMin      := 0
+Local nMax      := 0
+Local nX        := 0
+Local cAliasSD1 := "SD1"
+Local cAliasSD2 := "SD2"
+Local cAliasSC9 := "SC9"
+Local lQuery    := .F.
+Local lContinua := .T.
+Local lProcExcl := GetMv("MV_CUSTEXC") == "S"
+Local lDelFisico:= GetMv("MV_DL216B6",,1)==1
+Local lMT216Fil := ExistBlock("MT216FIL")
+Local aFiltro   := {}
+Local cMensagem := ""
+Local cFilSB2   := ""
+Local cFilSB6   := ""
+Local cFilSD1   := ""
+Local cFilSD2   := ""
+Local cFilSC6   := ""
+
+DEFAULT lBat    := .F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("MENSAGEM",STR0022+cFilAnt,STR0012+cFilAnt) // "Inicio Filial: "
+
+If !lBat .And. !IsBlind()
+	oObj:SetRegua2(MAXPASSO)
+	If !lProcExcl
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Avisa o usuario sobre o risco de processar compartilhado     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cMensagem := OemToAnsi(STR0011)+chr(13)		//"Esta rotina ser  executada em modo"
+		cMensagem += OemToAnsi(STR0012)+chr(13)		//"compartilhado , conforme indicado"
+		cMensagem += OemToAnsi(STR0013)+chr(13)		//"pelo parƒmetro MV_CUSTEXC."
+		cMensagem += OemToAnsi(STR0014)+chr(13)		//"As movimenta‡”es que ocorrerem durante"
+		cMensagem += OemToAnsi(STR0015)+chr(13)		//"o processo podem influir no c lculo."
+		IF !MsgYesNo(cMensagem,OemToAnsi(STR0006))	
+			Return
+		Endif
+	Endif
+EndIf
+If lProcExcl
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Abre todos os arquivos de forma exclusiva                    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !(	MA280FLock("SB2") .And.	MA280FLock("SB6") .And.	MA280FLock("SD1") .And.	MA280FLock("SD2") .And.	MA280FLock("SC9") )
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Fecha todos os arquivos e reabre-os de forma compartilhada   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbCloseAll()
+		OpenFile(SubStr(cNumEmp,1,2))
+	Else
+		OpenIndx("SB2")
+		OpenIndx("SB6")
+		OpenIndx("SD1")
+		OpenIndx("SD2")
+		OpenIndx("SC9")
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ MT216FIL - Ponto de Entrada para Filtrar processamento.      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lMT216FIL
+	aFiltro := ExecBlock("MT216FIL",.F.,.F.)
+	If ValType(aFiltro) == "A" .And. Len(aFiltro) == 5
+		cFilSB2 := aFiltro[1]
+		cFilSB6 := aFiltro[2]
+		cFilSD1 := aFiltro[3]
+		cFilSD2 := aFiltro[4]
+		cFilSC6 := aFiltro[5]
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza os acumulados do poder de/em teceiro                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SB2")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+cAliasSB2 := "MA215PROC"
+cQuery := "SELECT MIN(R_E_C_N_O_) MINRECNO,"
+cQuery += "MAX(R_E_C_N_O_) MAXRECNO "
+cQuery += "FROM "+RetSqlName("SB2")+" "
+cQuery += "WHERE B2_FILIAL='"+xFilial("SB2")+"' AND "
+cQuery += "B2_COD >= '"+mv_par01+"' AND B2_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSB2),"","AND " + cFilSB2 + " ")
+cQuery += "AND D_E_L_E_T_=' '"
+cQuery := ChangeQuery(cQuery)
+	
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSB2)
+nMax := (cAliasSB2)->MAXRECNO
+nMin := (cAliasSB2)->MINRECNO
+dbCloseArea()
+dbSelectArea("SB2")
+cQuery := "UPDATE "
+cQuery += RetSqlName("SB2")+" "
+cQuery += "SET B2_QTNP = 0,"
+cQuery += "B2_QNPT = 0,"
+cQuery += "B2_QTER = 0 "
+cQuery += "WHERE B2_FILIAL='"+xFilial("SB2")+"' AND "
+cQuery += "B2_COD >= '"+mv_par01+"' AND B2_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSB2),"","AND " + cFilSB2 + " ")
+cQuery += "AND D_E_L_E_T_=' ' AND "
+
+If !lBat .And. !IsBlind()
+	oObj:SetRegua1(Int(nMax/1024)+1)
+EndIf	
+For nX := nMin To nMax STEP 1024
+	cChave := "R_E_C_N_O_>="+Str(nX,10,0)+" AND R_E_C_N_O_<="+Str(nX+1023,10,0)+""
+	TcSqlExec(cQuery+cChave)
+	If !lBat .And. !IsBlind()
+		oObj:IncRegua1(cMensagem)
+	Endif	
+Next nX
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³A tabela eh fechada para restaurar o buffer da aplicacao³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SB2")
+dbCloseArea()
+ChkFile("SB2",.F.)
+	
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Elimina os registros do saldo de poder de terceiro           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SB6")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+
+If lDelFisico
+	cAliasSB6 := "MA216PROC"
+		
+	cQuery := "SELECT MIN(R_E_C_N_O_) MINRECNO,"
+	cQuery += "MAX(R_E_C_N_O_) MAXRECNO "
+	cQuery += "FROM "+RetSqlName("SB6")+" "
+	cQuery += "WHERE B6_FILIAL='"+xFilial("SB6")+"' AND "
+	cQuery += "B6_PRODUTO >= '"+mv_par01+"' AND B6_PRODUTO <= '"+mv_par02+"' "
+	cQuery += IIf(Empty(cFilSB6),"","AND " + cFilSB6 + " ")
+	cQuery += "AND D_E_L_E_T_=' '"
+	cQuery := ChangeQuery(cQuery)
+	
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSB6)
+	nMax := (cAliasSB6)->MAXRECNO
+	nMin := (cAliasSB6)->MINRECNO
+	dbCloseArea()
+	dbSelectArea("SB6")
+	cQuery := "DELETE FROM "
+	cQuery += RetSqlName("SB6")+" "	
+	cQuery += "WHERE B6_FILIAL='"+xFilial("SB6")+"' AND "
+	cQuery += "B6_PRODUTO >= '"+mv_par01+"' AND B6_PRODUTO <= '"+mv_par02+"' "
+	cQuery += IIf(Empty(cFilSB6),"","AND " + cFilSB6 + " ")
+	If !lBat .And. !IsBlind()
+		oObj:SetRegua1(Int(nMax/1024)+1)
+	EndIf
+	For nX := nMin To nMax STEP 1024
+		cChave := "AND R_E_C_N_O_>="+Str(nX,10,0)+" AND R_E_C_N_O_<="+Str(nX+1023,10,0)+""
+		TcSqlExec(cQuery+cChave)
+		If !lBat .And. !IsBlind()
+			oObj:IncRegua1(cMensagem)
+		EndIf
+	Next nX
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³A tabela eh fechada para restaurar o buffer da aplicacao³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SB6")
+	dbCloseArea()
+	ChkFile("SB6",.F.)
+Else
+	If !lBat .And. !IsBlind()
+		oObj:SetRegua1(SB6->(LastRec()))	
+	EndIf
+	dbSelectArea("SB6")
+	dbSetOrder(1)
+	MsSeek(xFilial("SB6"))
+	While !Eof() .And. SB6->B6_FILIAL == xFIlial("SB6")
+		If SB6->B6_PRODUTO < mv_par01 .Or. SB6->B6_PRODUTO > mv_par02 .Or.;
+		   (!Empty(cFilSB6) .And. !(&cFilSB6))
+			dbSkip()
+			Loop			
+		EndIf
+
+		RecLock("SB6",.F.)
+		dbDelete()
+		MsUnlock()
+		dbSelectArea("SB6")
+		dbSkip()                     
+		If !lBat  .And. !IsBlind()
+			oObj:IncRegua1(cMensagem)
+		EndIf
+	EndDo
+EndIf        
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica as remessas do Poder em terceiro                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SD2")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+
+If !lBat .And. !IsBlind()
+	oObj:SetRegua1(SD2->(LastRec()))	
+EndIf
+cAliasSD2 := "MA216PROC"
+aStruSD2  := SD2->(dbStruct())
+lQuery := .T.
+
+cQuery := "SELECT SD2.*,SF4.F4_PODER3 "
+cQuery += "FROM "+RetSqlName("SD2")+" SD2,"
+cQuery += RetSqlName("SF4")+" SF4 "
+cQuery += "WHERE "
+cQuery += "SD2.D2_FILIAL='"+xFilial("SD2")+"' AND "
+cQuery += "SD2.D2_COD >= '"+mv_par01+"' AND SD2.D2_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSD2),""," AND " + cFilSD2 + " ")
+cQuery += "AND SD2.D_E_L_E_T_=' ' AND "
+If cPaisLoc = 'MEX'
+   cQuery += "SD2.D2_SERIE <> 'R' AND " // remito
+EndIf
+cQuery += "SF4.F4_FILIAL='"+xFilial("SF4")+"' AND "
+cQuery += "SF4.F4_CODIGO=SD2.D2_TES AND "
+cQuery += "SF4.F4_PODER3='R' AND "
+cQuery += "SF4.D_E_L_E_T_=' ' "
+cQuery += "ORDER BY D2_FILIAL,D2_COD,D2_LOCAL "
+
+cQuery := ChangeQuery(cQuery)
+
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD2,.T.,.T.)
+
+For nX := 1 To Len(aStruSD2)
+	If aStruSD2[nX][2]<>"C"
+		TcSetField(cAliasSD2,aStruSD2[nX][1],aStruSD2[nX][2],aStruSD2[nX][3],aStruSD2[nX][4])
+	EndIf
+Next nX
+
+While !Eof() .And. (cAliasSD2)->D2_FILIAL == xFilial("SD2")
+
+	If !lQuery
+		If (cAliasSD2)->D2_COD < mv_par01 .Or. (cAliasSD2)->D2_COD > mv_par02 .Or.;
+		   (!Empty(cFilSD2) .And. !(&cFilSD2))
+			dbSkip()
+			Loop
+		EndIf
+
+		dbSelectArea("SF4")
+		dbSetOrder(1)
+		MsSeek(xFilial("SF4")+(cAliasSD2)->D2_TES)
+		
+		If SF4->F4_PODER3=="R"
+			lContinua := .T.
+		Else
+			lContinua := .F.
+		EndIf
+	Else
+		lContinua := .T.
+	EndIf	
+	If lContinua
+		Begin Transaction
+			MaAtuSB6(cAliasSD2,3,.T.)
+		End Transaction
+	EndIf
+	
+	dbSelectArea(cAliasSD2)
+	dbSkip()
+	If !lBat .And. !IsBlind()	
+		oObj:IncRegua1(cMensagem)
+	EndIf
+EndDo
+
+If lQuery
+	dbSelectArea(cAliasSD2)
+	dbCloseArea()
+	dbSelectArea("SD2")
+EndIf
+    
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica as remessas do Poder de terceiro                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SD1")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+If !lBat .And. !IsBlind()
+	oObj:SetRegua1(SD1->(LastRec()))	
+EndIf
+cAliasSD1 := "MA216PROC"
+aStruSD1  := SD1->(dbStruct())
+lQuery := .T.
+
+cQuery := "SELECT SD1.*,SF4.F4_PODER3 "
+cQuery += "FROM "+RetSqlName("SD1")+" SD1,"
+cQuery += RetSqlName("SF4")+" SF4 "
+cQuery += "WHERE "
+cQuery += "SD1.D1_FILIAL='"+xFilial("SD1")+"' AND "
+cQuery += "SD1.D1_COD >= '"+mv_par01+"' AND SD1.D1_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSD1),""," AND " + cFilSD1 + " ")
+cQuery += "AND SD1.D_E_L_E_T_=' ' AND "
+cQuery += "SF4.F4_FILIAL='"+xFilial("SF4")+"' AND "
+cQuery += "SF4.F4_CODIGO=SD1.D1_TES AND "
+cQuery += "SF4.F4_PODER3='R' AND "
+cQuery += "SF4.D_E_L_E_T_=' ' "
+cQuery += "ORDER BY D1_FILIAL,D1_COD,D1_LOCAL "
+
+cQuery := ChangeQuery(cQuery)
+
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD1,.T.,.T.)
+
+For nX := 1 To Len(aStruSD1)
+	If aStruSD1[nX][2]<>"C"
+		TcSetField(cAliasSD1,aStruSD1[nX][1],aStruSD1[nX][2],aStruSD1[nX][3],aStruSD1[nX][4])
+	EndIf
+Next nX
+While !Eof() .And. (cAliasSD1)->D1_FILIAL == xFilial("SD1")
+	If !lQuery	
+		If (cAliasSD1)->D1_COD < mv_par01 .Or. (cAliasSD1)->D1_COD > mv_par02 .Or.;
+		   (!Empty(cFilSD1) .And. !(&cFilSD1))
+			dbSkip()
+			Loop
+		EndIf
+
+		dbSelectArea("SF4")
+		dbSetOrder(1)
+		MsSeek(xFilial()+(cAliasSD1)->D1_TES)
+		If SF4->F4_PODER3 == "R"
+			lContinua := .T.
+		Else
+			lContinua := .F.		
+		EndIf
+	Else
+		lContinua := .T.
+	EndIf
+	If lContinua
+		dbSelectArea('SF1')
+		dbsetorder(1)		//Posiciona SF1 para uso no F1_CLIPROP
+		DbSeek(xFilial('SF1')+(cAliasSD1)->D1_DOC+(cAliasSD1)->D1_SERIE+(cAliasSD1)->D1_FORNECE+(cAliasSD1)->D1_LOJA)
+		Begin Transaction
+			MaAtuSB6(cAliasSD1,1,.T.)
+		End Transaction
+	EndIf
+	dbSelectArea(cAliasSD1)
+	dbSkip()
+	If !lBat .And. !IsBlind()	
+		oObj:IncRegua1(cMensagem)
+	EndIf
+EndDo
+If lQuery
+	dbSelectArea(cAliasSD1)
+	dbCloseArea()
+	dbSelectArea("SD1")
+EndIf
+    
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica os retornos do Poder de terceiro                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SD2")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+If !lBat .And. !IsBlind()
+	oObj:SetRegua1(SD2->(LastRec()))	
+EndIf
+cAliasSD2 := "MA216PROC"
+aStruSD2  := SD2->(dbStruct())
+lQuery := .T.
+
+cQuery := "SELECT SD2.*,SF4.F4_PODER3 "
+cQuery += "FROM "+RetSqlName("SD2")+" SD2,"
+cQuery += RetSqlName("SF4")+" SF4 "
+cQuery += "WHERE "
+cQuery += "SD2.D2_FILIAL='"+xFilial("SD2")+"' AND "
+cQuery += "SD2.D2_COD >= '"+mv_par01+"' AND SD2.D2_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSD2),""," AND " + cFilSD2 + " ")
+cQuery += "AND SD2.D_E_L_E_T_=' ' AND "
+If cPaisloc = 'MEX'
+	cQuery += "SD2.D2_SERIE <> 'R' AND "    //remito
+EndIf
+cQuery += "SF4.F4_FILIAL='"+xFilial("SF4")+"' AND "
+cQuery += "SF4.F4_CODIGO=SD2.D2_TES AND "
+cQuery += "SF4.F4_PODER3='D' AND "
+cQuery += "SF4.D_E_L_E_T_=' ' "
+cQuery += "ORDER BY D2_FILIAL,D2_COD,D2_LOCAL "
+
+cQuery := ChangeQuery(cQuery)
+
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD2,.T.,.T.)
+
+For nX := 1 To Len(aStruSD2)
+	If aStruSD2[nX][2]<>"C"
+		TcSetField(cAliasSD2,aStruSD2[nX][1],aStruSD2[nX][2],aStruSD2[nX][3],aStruSD2[nX][4])
+	EndIf
+Next nX
+While !Eof() .And. (cAliasSD2)->D2_FILIAL == xFilial("SD2")
+	If !lQuery
+		If (cAliasSD2)->D2_COD < mv_par01 .Or. (cAliasSD2)->D2_COD > mv_par02 .Or.;
+		   (!Empty(cFilSD2) .And. !(&cFilSD2))
+			dbSkip()
+			Loop			
+		EndIf
+		dbSelectArea("SF4")
+		dbSetOrder(1)
+		MsSeek(xFilial("SF4")+(cAliasSD2)->D2_TES)
+		
+		If SF4->F4_PODER3=="D"
+			lContinua := .T.
+		Else
+			lContinua := .F.
+		EndIf
+	Else
+		lContinua := .T.
+	EndIf	
+	If lContinua
+		Begin Transaction
+			MaAtuSB6(cAliasSD2,3,.T.)
+		End Transaction
+	EndIf
+	
+	dbSelectArea(cAliasSD2)
+	dbSkip()
+	If !lBat .And. !IsBlind()	
+		oObj:IncRegua1(cMensagem)	
+	EndIf
+EndDo
+If lQuery
+	dbSelectArea(cAliasSD2)
+	dbCloseArea()
+	dbSelectArea("SD2")
+EndIf    
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica os retornos do Poder em terceiro                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SD1")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+If !lBat .And. !IsBlind()
+	oObj:SetRegua1(SD1->(LastRec()))
+EndIf
+cAliasSD1 := "MA216PROC"
+aStruSD1  := SD1->(dbStruct())
+lQuery := .T.
+
+cQuery := "SELECT SD1.*,SF4.F4_PODER3 "
+cQuery += "FROM "+RetSqlName("SD1")+" SD1,"
+cQuery += RetSqlName("SF4")+" SF4 "
+cQuery += "WHERE "
+cQuery += "SD1.D1_FILIAL='"+xFilial("SD1")+"' AND "
+cQuery += "SD1.D1_COD >= '"+mv_par01+"' AND SD1.D1_COD <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSD1),""," AND " + cFilSD1 + " ")
+cQuery += "AND SD1.D_E_L_E_T_=' ' AND "
+cQuery += "SF4.F4_FILIAL='"+xFilial("SF4")+"' AND "
+cQuery += "SF4.F4_CODIGO=SD1.D1_TES AND "
+cQuery += "SF4.F4_PODER3='D' AND "
+cQuery += "SF4.D_E_L_E_T_=' ' "
+cQuery += "ORDER BY D1_FILIAL,D1_COD,D1_LOCAL "
+
+cQuery := ChangeQuery(cQuery)
+
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD1,.T.,.T.)
+
+For nX := 1 To Len(aStruSD1)
+	If aStruSD1[nX][2]<>"C"
+		TcSetField(cAliasSD1,aStruSD1[nX][1],aStruSD1[nX][2],aStruSD1[nX][3],aStruSD1[nX][4])
+	EndIf
+Next nX
+While !Eof() .And. (cAliasSD1)->D1_FILIAL == xFilial("SD1")
+	If !lQuery	
+		If (cAliasSD1)->D1_COD < mv_par01 .Or. (cAliasSD1)->D1_COD > mv_par02 .Or.;
+		   (!Empty(cFilSD1) .And. !(&cFilSD1))
+			dbSkip()
+			Loop			
+		EndIf
+		dbSelectArea("SF4")
+		dbSetOrder(1)
+		MsSeek(xFilial()+(cAliasSD1)->D1_TES)
+		If SF4->F4_PODER3 == "D"
+			lContinua := .T.
+		Else
+			lContinua := .F.		
+		EndIf
+	Else
+		lContinua := .T.
+	EndIf
+	If lContinua
+		Begin Transaction
+			MaAtuSB6(cAliasSD1,1,.T.)
+		End Transaction
+	EndIf
+	dbSelectArea(cAliasSD1)
+	dbSkip()
+	If !lBat .And. !IsBlind()	
+		oObj:IncRegua1(cMensagem)	
+	EndIf
+EndDo
+If lQuery
+	dbSelectArea(cAliasSD1)
+	dbCloseArea()
+	dbSelectArea("SD1")
+EndIf    
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica os retornos do Poder em terceiro                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX2")
+dbSetOrder(1)
+MsSeek("SC9")
+cMensagem := AllTrim(X2Nome())
+cMensagem := Lower(cMensagem)
+cMensagem := Upper(SubStr(cMensagem,1,1))+SubStr(cMensagem,2)
+cAliasSB6 := "MA215PROC"
+cQuery := "SELECT MIN(R_E_C_N_O_) MINRECNO,"
+cQuery += "MAX(R_E_C_N_O_) MAXRECNO "
+cQuery += "FROM "+RetSqlName("SB6")+" "
+cQuery += "WHERE B6_FILIAL='"+xFilial("SB6")+"' AND "
+cQuery += "B6_PRODUTO >= '"+mv_par01+"' AND B6_PRODUTO <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSB6),""," AND " + cFilSB6 + " ")
+cQuery += "AND B6_PODER3 = 'R' "
+cQuery += "AND D_E_L_E_T_=' '"
+cQuery := ChangeQuery(cQuery)
+	
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSB6)
+nMax := (cAliasSB6)->MAXRECNO
+nMin := (cAliasSB6)->MINRECNO
+dbCloseArea()
+dbSelectArea("SB6")
+cQuery := "UPDATE "
+cQuery += RetSqlName("SB6")+" "
+cQuery += "SET B6_QULIB = "
+cQuery += "(SELECT " + IIf(lTPBD,"COALESCE( ","ISNULL (")
+cQuery += "SUM(C9_QTDLIB),0) "
+cQuery += "FROM "
+cQuery += RetSqlName("SC9")+" SC9,"
+cQuery += RetSqlName("SC6")+" SC6,"
+cQuery += RetSqlName("SF4")+" SF4 "
+cQuery += "WHERE "
+    	cQuery += "SC9.C9_FILIAL='"+xFilial("SC9")+"' AND "
+cQuery += "SC9.C9_BLCRED <> '10' AND "
+cQuery += "SC9.C9_BLEST <> '10' AND "
+cQuery += "SC9.C9_PRODUTO=B6_PRODUTO AND "
+cQuery += "SC9.C9_IDENTB6=B6_IDENT AND "
+cQuery += "SC9.D_E_L_E_T_=' ' AND "
+cQuery += "SC6.C6_FILIAL='"+xFilial("SC6")+"' AND "
+cQuery += "SC6.C6_NUM=SC9.C9_PEDIDO AND "
+cQuery += "SC6.C6_ITEM=SC9.C9_ITEM AND "
+cQuery += "SC6.C6_PRODUTO=SC9.C9_PRODUTO AND "
+cQuery += "SC6.C6_PRODUTO >= '"+mv_par01+"' AND SC6.C6_PRODUTO <= '"+mv_par02+"' "
+cQuery += IIf(Empty(cFilSC6),""," AND " + cFilSC6 + " ")
+cQuery += "AND SC6.D_E_L_E_T_=' ' AND "
+cQuery += "SF4.F4_FILIAL='"+xFilial("SF4")+"' AND "
+cQuery += "SF4.F4_CODIGO=SC6.C6_TES AND "
+cQuery += "SF4.F4_PODER3='D' AND "
+cQuery += "SF4.D_E_L_E_T_=' ' ) "
+cQuery += "WHERE B6_FILIAL='"+xFilial("SB6")+"' AND "
+cQuery += "B6_PRODUTO >= '"+mv_par01+"' AND B6_PRODUTO <= '"+mv_par02+"' "
+cQuery += "AND B6_PODER3 = 'R' "
+cQuery += IIf(Empty(cFilSB6),""," AND " + cFilSB6 + " ")
+If !lBat .And. !IsBlind()		
+	oObj:SetRegua1(Int(nMax/1024)+1)
+EndIf
+For nX := nMin To nMax STEP 1024
+	cChave := "AND R_E_C_N_O_>="+Str(nX,10,0)+" AND R_E_C_N_O_<="+Str(nX+1023,10,0)+""
+	TcSqlExec(cQuery+cChave)
+	If !lBat .And. !IsBlind()			
+		oObj:IncRegua1(cMensagem)
+	EndIf	
+Next nX
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Refresh executado no TopConnect             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SX2")
+Set Filter to
+DbSetOrder(1)
+DbSeek("SB6")
+TcRefresh(RetSqlName("SB6"))
+dbSelectArea("SB6")
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³A tabela eh fechada para restaurar o buffer da aplicacao³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SB6")
+dbCloseArea()
+ChkFile("SB6",.F.)                  
+If !lBat .And. !IsBlind()
+	oObj:IncRegua2(STR0007) //"Atualizando poder de/em terceiro"
+Endif	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Fecha todos os arquivos e reabre-os de forma compartilhada   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !lBat .And. !IsBlind()
+	If lProcExcl
+		dbCloseAll()
+		OpenFile(SubStr(cNumEmp,1,2))
+	EndIf
+EndIf	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Executa o acerto do Custo em Partes                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+A216CstPartes(lBat,oObj)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("MENSAGEM",STR0023+cFilAnt,STR0013+cFilAnt) //"Final Filial: "
+
+Return
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A216CstPartes ³ Rev   ³ Microsiga S/A     ³ Data ³27/05/2008 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³Funcao utilizada para reprocessar o custo em partes          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ MATA216                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function A216CstPartes(lBat,oObj)
+Local lCstPart  := .F.
+Local lContinua := .F.
+Local aRegraCP  := {}
+Local aLogsPart := {}
+Local aRetPartes:= {}
+Local cQuery    := ''
+Local cSeek     := ''
+Local _cCampo   := ''
+Local _nLoop0   := 0
+Local _nLoop1   := 0
+Local nCustoAtu := 0
+Local cAliasSB6 := GetNextAlias()
+Local cMoeda330C:= SuperGetMv('MV_MOEDACM',.F.,"2345") // Moedas para calculo do custo medio - Sempre processa moeda 1
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Preenche array com as regras do custo em partes.             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MA330CP")
+	aRegraCP:=ExecBlock("MA330CP",.F.,.F.)
+	If ValType(aRegraCP) # "A"
+		aRegraCP:={}
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se os campos do custo em partes estao Ok            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If Len(aRegraCP) > 0
+		lCstPart:=MA330AvlCp(aRegraCP,aLogsPart)
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Processamento do Custo Em Partes                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lCstPart
+	cQuery := "SELECT R_E_C_N_O_ SB6RECNO "
+	cQuery += "FROM "+RetSqlName("SB6")+" "
+	cQuery += "WHERE B6_FILIAL='"+xFilial("SB6")+"' AND "
+	cQuery += "B6_PRODUTO >= '"+mv_par01+"' AND B6_PRODUTO <= '"+mv_par02+"' "
+	cQuery += "AND D_E_L_E_T_=' '"
+	cQuery := ChangeQuery(cQuery)
+		
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSB6)
+    
+	dbSelectArea(cAliasSB6)
+	If !lBat .And. !IsBlind() .And. oObj <> Nil
+		oObj:SetRegua2(SB6->(LastRec()))
+	EndIf	
+	Do While !Eof()
+
+		If !lBat .And. !IsBlind() .And. oObj <> Nil
+			oObj:IncRegua2(STR0020) //"Atualizando o Custo em Partes"
+		EndIf
+
+		dbSelectArea("SB6")
+		dbSetOrder(1)
+		dbGoto((cAliasSB6)->SB6RECNO)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Localiza o documento de Origem para Gravar o Custo em partes³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lContinua := .F.
+		If SB6->B6_TES <= '500'
+			_cCampo   := "D1_CP"
+			dbSelectArea("SD1")
+			dbSetOrder(1)
+			dbSeek(cSeek:=xFilial("SD1")+SB6->B6_DOC+SB6->B6_SERIE+SB6->B6_CLIFOR+SB6->B6_LOJA+SB6->B6_PRODUTO)
+			Do While !Eof() .And. cSeek == SD1->D1_FILIAL+SD1->D1_DOC+SD1->D1_SERIE+SD1->D1_FORNECE+SD1->D1_LOJA+SD1->D1_COD	
+				If SD1->D1_TES     == SB6->B6_TES     .And.;
+				   SD1->D1_LOCAL   == SB6->B6_LOCAL   .And.;
+				   IIF(SD1->D1_NFORI<>' ',SD1->D1_IDENTB6,SD1->D1_NUMSEQ) == SB6->B6_IDENT   .And.;
+				   SD1->D1_EMISSAO == SB6->B6_EMISSAO .And.;	
+				   QtdComp(SD1->D1_QUANT)==QtdComp(SB6->B6_QUANT) .And.;
+				   QtdComp(SD1->D1_VUNIT)==QtdComp(SB6->B6_PRUNIT)
+				   lContinua := .T.	
+				   Exit				   
+				EndIf   
+				dbSkip()
+			EndDo
+		Else 
+			_cCampo   := "D2_CP"
+			dbSelectArea("SD2")
+			dbSetOrder(3)
+			dbSeek(cSeek:=xFilial("SD2")+SB6->B6_DOC+SB6->B6_SERIE+SB6->B6_CLIFOR+SB6->B6_LOJA+SB6->B6_PRODUTO)
+			Do While !Eof() .And. cSeek == SD2->D2_FILIAL+SD2->D2_DOC+SD2->D2_SERIE+SD2->D2_CLIENTE+SD2->D2_LOJA+SD2->D2_COD	
+				If SD2->D2_TES     == SB6->B6_TES     .And.;
+				   SD2->D2_LOCAL   == SB6->B6_LOCAL   .And.;
+				   IIF(SD2->D2_NFORI<>' ',SD2->D2_IDENTB6,SD2->D2_NUMSEQ) == SB6->B6_IDENT  .And.;
+				   SD2->D2_EMISSAO == SB6->B6_EMISSAO .And.;	
+				   QtdComp(SD2->D2_QUANT )==QtdComp(SB6->B6_QUANT) .And.;
+				   QtdComp(SD2->D2_PRCVEN)==QtdComp(SB6->B6_PRUNIT)
+				   lContinua := .T.					   
+				   Exit
+				EndIf   
+				dbSkip()
+			EndDo
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o Custo em Partes na tabela SB6             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lContinua
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Inicializa o array aRetPartes com valor zerado       ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			aRetPartes:=ARRAY((Len(aRegraCP)+1)*5)
+			AFILL(aRetPartes,0)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Carrega aRetPartes com os custos ja informados nos campos ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			For _nLoop0:=1 to Len(aRegraCP)+1
+				For _nLoop1:=1 to 5
+					// Verifica se moeda devera ser considerada 	
+					If _nLoop1 # 1 .And. !(Str(_nLoop1,1,0) $ cMoeda330C)
+						aRetPartes[_nLoop1+((_nLoop0-1)*5)]:=0
+	                	Loop
+					EndIf
+					_cCampo1  :=_cCampo+Strzero(_nLoop0,2,0)+Strzero(_nLoop1,2,0)
+					nCustoAtu := FIELDGET(FieldPos(_cCampo1))
+					aRetPartes[_nLoop1+((_nLoop0-1)*5)]:=nCustoAtu
+				Next _nLoop1
+			Next _nLoop0
+
+			//-- Array com o custos nas 5 moedas (Conferencia realizada na funcao GravaCusCP)
+			aCusto := {	SB6->B6_CUSTO1,;
+						SB6->B6_CUSTO2,;
+						SB6->B6_CUSTO3,;
+						SB6->B6_CUSTO4,;
+						SB6->B6_CUSTO5,;
+					   }
+
+			//-- Realiza a Gravacao do custo em partes na tabela SB6	
+			GravaCusCP(lCstPart,aRegraCP,aCusto,"SB6",SB6->B6_PRODUTO,aClone(aRetPartes),NIL,NIL,aClone(aCusto),.F.)
+		EndIf
+		dbSelectArea(cAliasSB6)
+		dbSkip()
+	EndDo
+
+EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³VerIDProc ³ Autor ³ Marcelo Pimentel      ³ Data ³24.07.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Identifica a sequencia de controle do fonte ADVPL com a     ³±±
+±±³          ³stored procedure, qualquer alteracao que envolva diretamente³±±
+±±³          ³a stored procedure a variavel sera incrementada.            ³±±
+±±³          ³Procedure MAT041                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao Efetuada                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/         
+Static Function VerIDProc()
+Return '001'
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    	³a216Proced³ Autor ³ Andre Anjos           ³ Data ³15.12.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o 	³Funcao para chamada de procedure caso exista                |±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/         
+Function a216Proced(lBat,oCenterPanel)
+Local aAreaAnt   := GetArea()
+Local aAreaSM0   := SM0->(GetArea())
+Local aAreaSix   := SIX->( GetArea() )  
+Local nForFilial := 0
+Local cFilBack   := cFilAnt
+Local lProcessou := .F.
+Local cSPMAT041  := GetSPName("MAT041","15")
+Local aProcess   := {}
+Local lExistPer4 := .F. //--Verifica a existencia da pergunta 04 que foi implementada na versão 12.1.14
+
+If SX1->(dbSeek("MTA216"+"04"))
+	lExistPer4:= .T.
+EndIf
+
+RestArea( aAreaSIX ) 
+
+If ExistProc( cSPMAT041, VerIDProc() )
+//Incluido tratamento para execucao por filiais.
+If !lBat .And. !IsBlind()
+	aFilsCalc := MatFilCalc(mv_par03 == 1)
+Else
+	aFilsCalc := MatFilCalc(.F.) // Processa somente a filial corrente
+EndIf	
+		
+If !lBat .And. !IsBlind()
+	ProcRegua(len(aFilsCalc),16,4)
+EndIf
+	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿	
+//³ Inicializa o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("INICIO")
+
+For nForFilial := 1 to Len(aFilsCalc)
+	
+	If aFilsCalc[nForFilial,1]
+		// Altera filial corrente
+		cFilAnt:=aFilsCalc[nForFilial,2]
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o log de processamento             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		ProcLogAtu("MENSAGEM",STR0022+cFilAnt,STR0012+cFilAnt) // "Inicio Filial: "
+
+		dbSelectArea("SM0")
+		dbSetOrder(1)
+		MsSeek(cEmpAnt+cFilAnt)
+		If !lBat .And. !IsBlind()
+			IncProc(STR0021+AllTrim(SM0->M0_NOME)+"/"+AllTrim(SM0->M0_FILIAL)) //"Processando: "
+		EndIf	
+
+		If oCenterPanel <> NIL
+			oCenterPanel:SaveLog(OemToAnsi(STR0016))
+		EndIf
+
+		// Executa procedure MAT041
+		aResult:=TCSPEXEC( xProcedures( cSPMAT041 ), cFilAnt, mv_par01, mv_par02 )
+		
+		If !lBat .Or. IsBlind()
+			If Empty(aResult)
+				ApMsgStop(STR0008) // 'Erro na chamada do processo: Refaz saldo em poder de terceiros.'
+				If oCenterPanel <> NIL
+					oCenterPanel:SaveLog(OemToAnsi(STR0018))
+				EndIf
+			ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+				A216CstPartes(lBat) //'Processa acerto do custo em partes'
+				If lExistPer4 .And. MV_PAR04 == 1
+					ApMsgInfo(STR0009)  //'Processamento OK'
+				Else
+					Aadd(aProcess, {.T.,cFilAnt, STR0009})
+				EndIf
+				If oCenterPanel <> NIL
+					oCenterPanel:SaveLog(OemToAnsi(STR0017))
+				EndIf
+			Else
+				If lExistPer4 .And. MV_PAR04 == 1
+						ApMsgStop(STR0010) //'Refaz saldo em poder de terceiros com Erro'
+					Else
+						Aadd(aProcess, {.F.,cFilAnt, STR0010})
+				EndIf
+				If oCenterPanel <> NIL
+					oCenterPanel:SaveLog(OemToAnsi(STR0019))
+				EndIf
+			EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o log de processamento             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		ProcLogAtu("MENSAGEM",STR0023+cFilAnt,STR0013+cFilAnt) //"Final Filial: "
+			
+		EndIf
+	EndIf
+	
+Next nForFilial
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("FIM")
+
+If lExistPer4 .And. MV_PAR04 = 2
+	MostraLog(aProcess)
+EndIf
+
+//Restaura a Filial Original
+cFilAnt := cFilBack
+lProcessou := .T.
+EndIf
+
+RestArea(aAreaSM0)
+RestArea(aAreaAnt)
+Return lProcessou
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    	³a216Exec  ³ Autor ³ Andre Anjos           ³ Data ³15.12.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o 	³Funcao para chamada da MA216Proc para as filiais marcadas   |±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/         
+Function a216Exec(lBat,oCenterPanel)
+Local nForFilial := 0
+Local cFilBack   := cFilAnt
+Local oProcess
+
+ProcLogAtu("INICIO")
+
+Do Case
+	Case !lBat .And. !IsBlind()
+		aFilsCalc := MatFilCalc(mv_par03 == 1)
+		For nForFilial := 1 to Len(aFilsCalc)
+			
+			If aFilsCalc[nForFilial,1]
+				// Altera filial corrente
+				cFilAnt:=aFilsCalc[nForFilial,2]
+				If oCenterPanel <> NIL
+					oCenterPanel:SaveLog(OemToAnsi(STR0016))
+					Ma216Proc(oCenterPanel,lBat)	
+					oCenterPanel:SaveLog(OemToAnsi(STR0017))
+				Else
+					oProcess := MsNewProcess():New({|lEnd| Ma216Proc(oProcess,lBat)},"","",.F.)
+					oProcess:Activate()
+				EndIf
+			EndIf
+			
+		Next nForFilial
+		
+	Case lBat .Or. IsBlind()
+		Ma216Proc(Nil,lBat)
+EndCase
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("FIM")
+
+cFilAnt := cFilBack
+
+Return
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun??o    ³MostraLog ³ Autor ³ Talita Teixeira       ³ Data ³26.10.2016 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ MATA216                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+
+Static Function MostraLog(aProcess)
+
+Local oOK := LoadBitmap(GetResources(),'br_verde')
+Local oNO := LoadBitmap(GetResources(),'br_vermelho')  
+
+DEFINE DIALOG oDlg TITLE "Log de Processamento" FROM 180,180 TO 500,700 PIXEL	    
+
+oBrowse := TCBrowse():New( 01 , 01, 260,140,,{'','Filial','Log'},{20,30,30},oDlg,,,,,{||},,,,,,,.F.,,.T.,,.F.,,, )    
+oBrowse:SetArray(aProcess)    
+oBrowse:bLine := {||{If(aProcess[oBrowse:nAt,01],oOK,oNO),aProcess[oBrowse:nAt,02],;                      
+aProcess[oBrowse:nAt,03] } }    
+
+DEFINE SBUTTON FROM 145,230 TYPE 1  ENABLE OF oDlg Action(oDlg:End()) 
+
+ACTIVATE DIALOG oDlg CENTERED
+
+Return
+
+/*/{Protheus.doc} EngSPS15Signature
+Funcao executada durante a exibicao de informacoes detalhadas do processo na
+interface de gestao de procedures.
+Faz a execucao da funcao static VerIdProc
+@type function
+@version 1.0
+@author Squad Entradas
+@since 13/12/2021
+@param cProcesso, character, Codigo do processo
+@return character, Retorna a assinatura do processo
+/*/
+Function EngSPS15Signature(cProcesso as character)
+
+	Local cAssinatura as character
+
+	cAssinatura := VerIDProc()
+
+Return cAssinatura

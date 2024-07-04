@@ -1,0 +1,1044 @@
+#include "FINC050.CH"
+#Include "PROTHEUS.Ch"
+#Include "sigawin.ch"
+
+Static __oFinc0501  := NIL
+Static lFWCodFil 	:= .T.
+Static lF050BOT  	:= ExistBlock("F050BOT")
+Static __oMovTit	:= NIL
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} Finc050
+Consulta Titulos Baixados (Fornecedores)
+
+@author Alessandro Freire
+@version P12
+@since   12/11/1996
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function Finc050(nPosArotina)
+
+Private cCadastro := STR0001  // "Contas a Pagar"
+Private aRotina := MenuDef()
+DEFAULT nPosArotina := 0
+
+aRotina := MenuDef()
+
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+   dbSelectArea("SE2")
+   bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+   Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+Else
+	mBrowse(06, 01, 22, 75, "SE2",,,,,, Fa040Legenda("SE2"))
+Endif
+
+FRTDelObj()
+
+If __oMovTit != NIL
+    __oMovTit:Destroy()
+    FwFreeObj(__oMovTit)
+	__oMovTit := Nil
+Endif
+
+Return NIL
+
+/*/
+//-------------------------------------------------------------------
+/*{Protheus.doc} Fc050Con
+Envia para funcao que monta o arquivo de trabalho com os
+titulos baixados (Fornecedores)
+
+@author Pilar S. Albaladejo
+@version P12
+@since   12/11/1996
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function Fc050Con()
+
+LOCAL nAlias	:= 0
+LOCAL nValor	:= 0
+LOCAL nSaldo	:= 0
+LOCAL nAcres	:= 0
+LOCAL nDecres	:= 0
+LOCAL nValorOri := 0
+LOCAL nMoeda	:= 0
+LOCAL nTaxa	    := 0
+LOCAL nOpca		:= 0
+LOCAL oDlg
+LOCAL oBrw
+LOCAL oCol
+Local oNomFor
+Local oBmp1, oBmp2, oBmp3
+LOCAL aBrowse	:={}
+LOCAL ni		:= 0
+LOCAL aCpos		:= {}
+Local aAreaSe2	:= SE2->(GetArea())
+Local aAreaSe5	:= SE5->(GetArea())
+Local aArea		:= GetArea()
+Local nAbatim	:= 0
+Local cBcoPa	:= CRIAVAR("EF_BANCO",.F.)
+Local cAgePa	:= CRIAVAR("EF_AGENCIA",.F.)
+Local cCtaPa	:= CRIAVAR("EF_CONTA",.F.)
+Local cChqPa	:= CRIAVAR("EF_NUM",.F.)
+Local aCores	:= {}
+Local aBut050	:= {}
+Local lFC050BROWSE := ExistBlock("FC050BROWSE")
+Local nLin		:= 0
+Local nTamBrw	:= 0
+Local nVlrPagar := 0
+Local nValAcess	:= 0
+Local cSimb     := ""
+Local cSimbPar  := ""
+
+Private cNomearq := ""
+Private cSe2	  := ""
+Private nJuros 	:= 0
+Private dBaixa 	:= dDataBase
+Private nCasas := SuperGetMv("MV_CENT",.T.,"2")
+
+// Executa ponto de entrada para montar array com botoes a serem apresentados na tela da Consulta
+If lF050BOT
+	aBut050 := ExecBlock("F050BOT",.F.,.F.)
+	If ValType(aBut050) != "A"
+		aBut050 := {}
+	EndIf
+Endif
+
+If cPaisLoc == "BRA"
+	AADD(aBut050, {"HISTORIC", {|| FINCRET('SE2') }, STR0063}) //'Consulta de Retenções'
+EndIf
+
+// Verifica se é um registro Principal
+IF SE2->E2_TIPO $ MVABATIM
+	Help(" ",1,"TITNAOPR")
+	Return
+EndIF
+
+// Consulta valores acessórios.
+Aadd(aBut050, {"VALACESB", {|| FC050DTVA(1)}, STR0065})  // "Vlrs. Acessórios Baixas - Baixa"
+If cPaisLoc == "RUS"
+	Aadd(aBut050, {"HISTORIC", {|| RU06XFUN53("AP")}, STR0070})
+EndIf
+Aadd(aCores,"BR_VERDE")
+Aadd(aCores,"DISABLE" )
+Aadd(aCores,"BR_BRANCO")
+If cPaisLoc == "RUS"
+	Aadd(aCores,"BR_PRETO")
+Endif 
+
+SaveInter()
+
+MsgMeter({| oMeter, oText, oDlg, lFim | ;
+			 Fn050Cria(oMeter, oText, oDlg, @lFim,@aCpos)},;
+			 STR0005,;  //"Criando Arquivo Tempor rio..."
+			 STR0024)	//"Consulta de T¡tulos a Pagar"
+
+If SE2->E2_SALDO = 0
+   dBaixa := SE2->E2_BAIXA
+   nSaldo := SE2->E2_VALOR
+Else
+   nSaldo := SaldoTit(SE2->E2_PREFIXO, SE2->E2_NUM, SE2->E2_PARCELA,;
+                      SE2->E2_TIPO, SE2->E2_NATUREZ, "P", SE2->E2_FORNECE, 1,,,;
+                      SE2->E2_LOJA,,If(cPaisLoc=="BRA",SE2->E2_TXMOEDA,0))
+
+	If ExistFunc('FValAcess')
+		nValAcess := FValAcess( SE2->E2_PREFIXO, SE2->E2_NUM, SE2->E2_PARCELA, SE2->E2_TIPO, SE2->E2_FORNECE,SE2->E2_LOJA, SE2->E2_NATUREZ,!Empty(SE2->E2_BAIXA),,"P",SE2->E2_BAIXA,,SE2->E2_MOEDA)
+		nSaldo += nValAcess
+	EndIf
+Endif
+
+//Desconto Financeiro e Abatimento
+IF !(SE2->E2_TIPO $ MVPAGANT+"|"+MV_CPNEG)
+	//Abatimento
+	nAbatim	 := SomaAbat(SE2->E2_PREFIXO, SE2->E2_NUM, SE2->E2_PARCELA,"P", 1 ,,SE2->E2_FORNECE,SE2->E2_LOJA)
+	fa080Juros(1, nSaldo)
+Else
+	aArea := GetArea()
+	dbSelectArea("SEF")
+	dbSetOrder(3)
+	//PA com cheque
+	If MsSeek(xFilial("SEF")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO))
+		While !Eof() .AND. SEF->(EF_FILIAL+EF_PREFIXO+EF_TITULO+EF_PARCELA+EF_TIPO) == ;
+								xFilial("SEF")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO)
+			If SEF->(EF_FORNECE+EF_LOJA) == SE2->(E2_FORNECE+E2_LOJA)
+				cBcoPa := SEF->EF_BANCO
+				cAgePa := SEF->EF_AGENCIA
+				cCtaPa := SEF->EF_CONTA
+				cChqPa := SEF->EF_NUM
+				Exit
+			Endif
+			dbSkip()
+		Enddo
+	Else	//PA sem cheque
+		dbSelectArea("SE5")
+		dbSetOrder(7)
+		If MsSeek(xFilial("SE5")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA))
+			While !Eof() .AND. SE5->(E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA) == ;
+									xFilial("SE5")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
+				If SE5->E5_TIPODOC == "PA"  //Registro inicial do PA
+					cBcoPa := E5_BANCO
+					cAgePa := E5_AGENCIA
+					cCtaPa := E5_CONTA
+					cChqPa := E5_NUMCHEQ
+					Exit
+				Endif
+				dbSkip()
+			Enddo
+		Endif
+	Endif
+	RestArea(aArea)
+Endif
+
+nValorOri:= SE2->E2_VALOR
+nValor	 := SE2->E2_VLCRUZ
+nMoeda	 := SE2->E2_MOEDA
+nTaxa	 := SE2->E2_TXMOEDA
+nAcres	 := SE2->E2_ACRESC
+nDecres	 := SE2->E2_DECRESC
+cSimb    := SubStr(SuperGetMV("MV_SIMB" + AllTrim( Str( nMoeda ) ) ),1,4)
+cSimbPar := " ("+cSimb+")"
+
+// Grava as movimentacoes no arquivo de trabalho
+dbSelectArea("cNomeArq")
+If __oFinc0501 <> Nil
+	nAlias := Select("cNomeArq")
+
+	If cPaisLoc == 'BRA' .or. cPaisLoc == 'RUS'
+		aBrowse := {{"  ","OK"},;                   // Led de ativo, cancelado ou estornado
+						{STR0010,"DATAX"},;         // "Data"
+						{STR0011,"JUROS"},;	        // "Juros"
+						{STR0012,"MULTA"},;         // "Multa"
+						{STR0013,"CORRECAO"},;      // "Correção"
+						{STR0014,"DESCONTOS"},;     // "Descontos"
+						{STR0067,"VALACESS"},; 	    // "Valores Acessórios"
+						{STR0062,"RETENCOES"},;     // "Retenções"
+						{STR0015,"VALORPAGO"},;     // "Valor Pago"
+						{STR0071+cSimb,"VLMOED2"},; // "Valor em $"
+						{STR0016,"MOTIVO"},;        // "Motivo"
+						{STR0017,"HISTORICO"},;     // "Hist¢rico"
+						{STR0018,"DATACONT"},;      // "Data Contabilização"
+						{STR0044,"DATADISP"},;      // "Data Disponibilidade"
+						{STR0019,"LOTE"},;          // "Lote"
+						{STR0020,"BANCO"},;         // "Banco"
+						{STR0021,"AGENCIA"},;       // "Agˆncia"
+						{STR0022,"CONTA"},;         // "Conta"
+						{STR0043,"NROCHEQUE"},;     // "N.Cheque"
+						{STR0023,"DOCUMENTO"},;     // "Documento"
+						{STR0047,"FILIAL"},;        // "Filial Movto."
+						{STR0045,"RECONC"},;	    // "Reconciliado"
+						{"ID","IDORIG"}}            // ID Origem // VA
+	Else
+		aBrowse := {{"  ","OK"},;                // Led de ativo, cancelado ou estornado
+						{STR0010,"DATAX"},;      // "Data"
+						{STR0011,"JUROS"},;      // "Juros"
+						{STR0012,"MULTA"},;      // "Multa"
+						{STR0013,"CORRECAO"},;   // "Correção"
+						{STR0014,"DESCONTOS"},;  // "Descontos"
+						{STR0067,"VALACESS"},; 	 // "Valores Acessórios"
+						{STR0015,"VALORPAGO"},;  // "Valor Pago"
+						{STR0016,"MOTIVO"},;     // "Motivo"
+						{STR0017,"HISTORICO"},;  // "Hist¢rico"
+						{STR0018,"DATACONT"},;   // "Data Contabilização"
+						{STR0044,"DATADISP"},;   // "Data Disponibilidade"
+						{STR0019,"LOTE"},;       // "Lote"
+						{STR0020,"BANCO"},;      // "Banco"
+						{STR0021,"AGENCIA"},;    // "Agˆncia"
+						{STR0022,"CONTA"},;      // "Conta"
+						{STR0043,"NROCHEQUE"},;  // "N.Cheque"
+						{STR0023,"DOCUMENTO"},;  // "Documento"
+						{STR0047,"FILIAL"},;     // "Filial Movto."
+						{STR0045,"RECONC"},;     // "Reconciliado"
+						{"ID","IDORIG"}}         // ID Origem // VA
+	Endif
+
+	If lFC050BROWSE
+		aBrowse := ExecBlock("FC050BROWSE",.F.,.F.,aBrowse)
+	EndIf
+
+	//Faz o calculo automatico de dimensoes de objetos
+	oSize := FwDefSize():New(.T.)
+
+	oSize:lLateral	:= .F.
+	oSize:lProp		:= .T. // Proporcional
+
+	oSize:AddObject( "1STROW" ,  100, 30, .T., .T. ) // Totalmente dimensionavel
+	oSize:AddObject( "2NDROW" ,  100, 55, .T., .T. ) // Totalmente dimensionavel
+	oSize:AddObject( "3RDROW" ,  100, 15, .T., .T. ) // Totalmente dimensionavel
+
+	oSize:aMargins	:= { 3, 3, 3, 3 } // Espaco ao lado dos objetos 0, entre eles 3
+
+	oSize:Process() // Dispara os calculos
+
+	a1stRow := {	oSize:GetDimension("1STROW","LININI"),;
+					oSize:GetDimension("1STROW","COLINI"),;
+					oSize:GetDimension("1STROW","LINEND"),;
+					oSize:GetDimension("1STROW","COLEND")}
+
+	a2ndRow := {	oSize:GetDimension("2NDROW","LININI"),;
+					oSize:GetDimension("2NDROW","COLINI"),;
+					oSize:GetDimension("2NDROW","LINEND"),;
+					oSize:GetDimension("2NDROW","COLEND")}
+
+	a3rdRow := {	oSize:GetDimension("3RDROW","LININI"),;
+					oSize:GetDimension("3RDROW","COLINI"),;
+					oSize:GetDimension("3RDROW","LINEND"),;
+					oSize:GetDimension("3RDROW","COLEND")}
+
+	DEFINE MSDIALOG oDlg TITLE STR0001 From oSize:aWindSize[1],oSize:aWindSize[2] to oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL
+	oDlg:lMaximized := .T.
+
+	//COLUNA 1 LINHA 1 oPanel1
+	nLin:=0
+	If cPaisLoc=="RUS"
+		@ a1stRow[1] + 005, a1stRow[2] + 003 SAY  STR0069	SIZE 16, 7 OF oDlg PIXEL  //"Prf"
+	Else
+		@ a1stRow[1] + 005, a1stRow[2] + 003 SAY  "Prf"	SIZE 16, 7 OF oDlg PIXEL  //"Prf"
+	EndIf
+	@ a1stRow[1] + 005, a1stRow[2] + 027 SAY  STR0026	SIZE 21, 7 OF oDlg PIXEL  //"T¡tulo"
+	@ a1stRow[1] + 005, a1stRow[2] + 092 SAY  STR0027 	SIZE 18, 7 OF oDlg PIXEL  //"Parc"
+	If cPaisLoc=="RUS"
+		@ a1stRow[1] + 005, a1stRow[2] + 115 SAY  STR0028 	SIZE 18, 7 OF oDlg PIXEL  //"Tipo", the same X coord. like for "Nome"
+	Else
+		@ a1stRow[1] + 005, a1stRow[2] + 112 SAY  STR0028 	SIZE 18, 7 OF oDlg PIXEL  //"Tipo"
+	EndIf
+	@ a1stRow[1] + 005, a1stRow[2] + 140 SAY  STR0029 	SIZE 50, 7 OF oDlg PIXEL  //"Natureza"
+	@ a1stRow[1] + 005, a1stRow[2] + 250 SAY  STR0058 	SIZE 45, 7 OF oDlg PIXEL  // "Moeda"
+
+	@ a1stRow[1] + 013, a1stRow[2] + 003 MSGET SE2->E2_PREFIXO	When .F. SIZE 16, 9 OF oDlg PIXEL
+	@ a1stRow[1] + 013, a1stRow[2] + 027 MSGET SE2->E2_NUM		When .F. SIZE 65, 9 OF oDlg PIXEL
+	@ a1stRow[1] + 013, a1stRow[2] + 092 MSGET SE2->E2_PARCELA	When .F. SIZE 20, 9 OF oDlg PIXEL
+	@ a1stRow[1] + 013, a1stRow[2] + 115 MSGET SE2->E2_TIPO		When .F. SIZE 14, 9 OF oDlg PIXEL
+	@ a1stRow[1] + 013, a1stRow[2] + 140 MSGET oGet VAR SE2->E2_NATUREZ		F3 "SED" SIZE 110, 9 OF oDlg PIXEL HASBUTTON
+	oGet:lReadOnly := .T.
+	@ a1stRow[1] + 013, a1stRow[2] + 250 MSGET nMoeda	PICTURE "99" When .F. SIZE 14, 9 OF oDlg PIXEL
+
+	//COLUNA 1 LINHA 2
+	@ a1stRow[1] + 028, a1stRow[2] + 003 SAY  STR0031 	SIZE 21, 7 OF oDlg PIXEL  //"Cliente"
+	@ a1stRow[1] + 028, a1stRow[2] + 092 SAY  STR0032 	SIZE 18, 7 OF oDlg PIXEL  //"Loja"
+	@ a1stRow[1] + 028, a1stRow[2] + 115 SAY  STR0033 	SIZE 32, 7 OF oDlg PIXEL  //"Nome"
+
+	@ a1stRow[1] + 036, a1stRow[2] + 003 MSGET oFornec VAR SE2->E2_FORNECE	F3 "FOR" SIZE 70, 9 OF oDlg PIXEL HASBUTTON
+
+	oFornec:lReadOnly := .T.
+	@ a1stRow[1] + 036, a1stRow[2] + 092 MSGET SE2->E2_LOJA		When .F. SIZE 20, 9 OF oDlg PIXEL
+
+	@ a1stRow[1] + 036, a1stRow[2] + 115 MSGET oNomFor VAR SE2->E2_NOMFOR SIZE 135, 9 OF oDlg PIXEL OBFUSCATED RetGlbLGPD("E2_NOMFOR")
+
+	//COLUNA 1 LINHA 3
+	@ a1stRow[1] + 051, a1stRow[2] + 003 SAY  STR0030	SIZE 25, 7 OF oDlg PIXEL  //"Hist¢rico"
+	@ a1stRow[1] + 059, a1stRow[2] + 003 MSGET SE2->E2_HIST	When .F. SIZE 235, 9 OF oDlg PIXEL
+	nTamBrw := a1stRow[1] + 090
+
+	//COLUNA 1 LINHA 4
+	If SE2->E2_TIPO $ MVPAGANT
+
+		@ a1stRow[1] + 075, a1stRow[2] + 003 SAY	STR0020	SIZE 30, 07	OF oDlg PIXEL	//"Banco"
+		@ a1stRow[1] + 075, a1stRow[2] + 053 SAY	STR0021	SIZE 30, 07	OF oDlg PIXEL	//"Agência"
+		@ a1stRow[1] + 075, a1stRow[2] + 103 SAY	STR0022	SIZE 30, 07	OF oDlg PIXEL	//"Conta"
+		@ a1stRow[1] + 075, a1stRow[2] + 170 SAY	STR0023	SIZE 30, 07	OF oDlg PIXEL	//"Documento"
+
+		@ a1stRow[1] + 083, a1stRow[2] + 003 MSGET oBcoPA VAR cBcoPa SIZE 48, 09 F3 "SA6" OF oDlg PIXEL hasbutton
+		oBcoPA:lReadOnly := .T.
+		@ a1stRow[1] + 083, a1stRow[2] + 053 MSGET cAgePa SIZE 48, 09 When .F.		OF oDlg PIXEL
+		@ a1stRow[1] + 083, a1stRow[2] + 103 MSGET cCtaPa SIZE 65, 09 When .F.  		OF oDlg PIXEL
+		@ a1stRow[1] + 083, a1stRow[2] + 170 MSGET cChqPa SIZE 68, 09 When .F.	 	OF oDlg PIXEL
+
+		nTamBrw := a1stRow[1] + 095
+
+	Endif
+
+	//COLUNA 2
+	If cPaisLoc == "BRA"
+		@ a1stRow[1] + 005, a1stRow[2] + 280 SAY STR0072+cSimbPar SIZE 45, 7 OF oDlg PIXEL   // "Valor Orig. (R$)"
+	Else
+		@ a1stRow[1] + 005, a1stRow[2] + 280 SAY STR0034 		SIZE 45, 7 OF oDlg PIXEL     // "Valor Original"	
+	Endif	
+	@ a1stRow[1] + 015, a1stRow[2] + 280 SAY STR0059	 	SIZE 45, 7 OF oDlg PIXEL     // "TX.Contrat"
+	@ a1stRow[1] + 025, a1stRow[2] + 280 SAY STR0060        SIZE 60, 7 OF oDlg PIXEL     // "Vlr Conv. Moeda 1"
+	@ a1stRow[1] + 035, a1stRow[2] + 280 SAY STR0049 		SIZE 45, 7 OF oDlg PIXEL     // "Abatimentos"
+	@ a1stRow[1] + 045, a1stRow[2] + 280 SAY STR0055		SIZE 45, 7 OF oDlg PIXEL     // "Decrescimos"
+	@ a1stRow[1] + 055, a1stRow[2] + 280 SAY STR0035 		SIZE 45, 7 OF oDlg PIXEL     // "Juros Devidos"
+	@ a1stRow[1] + 065, a1stRow[2] + 280 SAY STR0054		SIZE 45, 7 OF oDlg PIXEL     // "Acrescimos"
+	@ a1stRow[1] + 075, a1stRow[2] + 280 SAY STR0067 		SIZE 60, 7 OF oDlg PIXEL     // "Valores Acessórios"
+
+	@ a1stRow[1] + 005, a1stRow[2] + 330 MSGET nValorOri	PICTURE Tm(nValorOri,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 015, a1stRow[2] + 330 MSGET nTaxa		PICTURE PesqPict("SE2",'E2_TXMOEDA', 20) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 025, a1stRow[2] + 330 MSGET nValor		PICTURE Tm(nValor,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 035, a1stRow[2] + 330 MSGET nAbatim		PICTURE Tm(nAbatim,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 045, a1stRow[2] + 330 MSGET nDecres		PICTURE Tm(nDecres,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 055, a1stRow[2] + 330 MSGET nJuros		PICTURE Tm(nJuros,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 065, a1stRow[2] + 330 MSGET nAcres		PICTURE Tm(nAcres,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 075, a1stRow[2] + 330 MSGET nValAcess	PICTURE Tm(nValAcess,15,nCasas) When .F. SIZE 58, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 075, 400 BUTTON oButPrev PROMPT STR0068  SIZE 030,10 FONT oDlg:oFont ACTION FC050DTVA(2) OF oDlg PIXEL     // "Detalhe"
+
+	//COLUNA 3
+	@ a1stRow[1] + 005, a1stRow[2] + 390 SAY  STR0036  	SIZE 30, 7 OF oDlg PIXEL  //"Emiss„o"
+	@ a1stRow[1] + 015, a1stRow[2] + 390 SAY  STR0037 	SIZE 30, 7 OF oDlg PIXEL  //"Vencto"
+	@ a1stRow[1] + 025, a1stRow[2] + 390 SAY  STR0038 	SIZE 45, 7 OF oDlg PIXEL  //"Vencto Real"
+	@ a1stRow[1] + 035, a1stRow[2] + 390 SAY  STR0039 	SIZE 47, 7 OF oDlg PIXEL  //"Contabilização"
+	@ a1stRow[1] + 050, a1stRow[2] + 390 SAY  STR0040  	SIZE 30, 7 OF oDlg PIXEL  //"Border“"
+	If cPaisLoc == "BRA"
+		@ a1stRow[1] + 060, a1stRow[2] + 390 SAY  STR0010+" "+STR0040	SIZE 45, 7 OF oDlg PIXEL  //Data Bordero
+	EndIf
+
+	@ a1stRow[1] + 005, a1stRow[2] + 430 MSGET SE2->E2_EMISSAO		When .F. SIZE 45, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 015, a1stRow[2] + 430 MSGET SE2->E2_VENCTO		When .F. SIZE 45, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 025, a1stRow[2] + 430 MSGET SE2->E2_VENCREA		When .F. SIZE 45, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 035, a1stRow[2] + 430 MSGET SE2->E2_EMIS1 		When .F. SIZE 45, 7 OF oDlg PIXEL hasbutton
+	@ a1stRow[1] + 050, a1stRow[2] + 430 MSGET SE2->E2_NUMBOR		When .F. SIZE 45, 7 OF oDlg PIXEL
+	If cPaisLoc == "BRA"
+		@ a1stRow[1] + 060, a1stRow[2] + 430 MSGET SE2->E2_DTBORDE	When .F. SIZE 45, 7 OF oDlg PIXEL hasbutton
+	EndIf
+
+	// BROWSE
+	oBrw := TCBrowse():New(nTamBrw,a2ndRow[2],a2ndRow[4],(a2ndRow[3]/1.75),,,,oDlg,,,,,,,,,,,,.F.,,.T.,,.F.,,.T.,.T.)//oPanel2
+
+	For ni := 1 to Len(aBrowse)
+		If ni == 1  //Identificador de cancelamento
+			oCol := TCColumn():New(aBrowse[ni][1],{|| aCores[cNomeArq->OK]},"@BMP",,,,1,.T.,.F.)
+		ElseIf aCpos[ni][2] != "N"
+			oCol := TCColumn():New( If(.F.,  ( (aBrowse[ni][1])),  (aBrowse[ni][1])), If( ValType(FieldWBlock(aCpos[ni][1],nalias))=="B", FieldWBlock(aCpos[ni][1],nalias), {|| FieldWBlock(aCpos[ni][1],nalias)} ),,,, "LEFT", CalcFieldSize(aCpos[ni][2],aCpos[ni][3],aCpos[ni][4],"", (aBrowse[ni][1])), .F., .F.,,,, .F., )
+		Else
+			oCol := TCColumn():New( If(.F.,  ( (aBrowse[ni][1])),  (aBrowse[ni][1])), If( ValType(FieldWBlock(aCpos[ni][1],nalias))=="B", FieldWBlock(aCpos[ni][1],nalias), {|| FieldWBlock(aCpos[ni][1],nalias)} ),Tm(aCpos[ni][1],15,nCasas),,, "RIGHT", CalcFieldSize(aCpos[ni][2],aCpos[ni][3],aCpos[ni][4],Tm(aCpos[ni][4],15,nCasas), (aBrowse[ni][1])), .F., .F.,,,, .F., )
+		Endif
+		oBrw:ADDCOLUMN(oCol)
+	Next ni
+
+	//LEGENDA INFERIOR - oPanel3
+	If cPaisLoc <> "RUS"
+		@ a3rdRow[1] + 012, a3rdRow[2] + 300 BITMAP oBmp1 RESNAME "BR_VERDE"  SIZE 16,16 NOBORDER OF oDlg PIXEL
+		@ a3rdRow[1] + 022, a3rdRow[2] + 300 BITMAP oBmp2 RESNAME "DISABLE"   SIZE 16,16 NOBORDER OF oDlg PIXEL
+		@ a3rdRow[1] + 032, a3rdRow[2] + 300 BITMAP oBmp3 RESNAME "BR_BRANCO" SIZE 16,16 NOBORDER OF oDlg PIXEL
+
+		@ a3rdRow[1] + 012, a3rdRow[2] + 310 SAY STR0050 SIZE 100,16 OF oDlg PIXEL //"Movimento de Baixa"
+		@ a3rdRow[1] + 022, a3rdRow[2] + 310 SAY STR0051 SIZE 100,16 OF oDlg PIXEL //"Movimento Cancelado ou de Estorno"
+		@ a3rdRow[1] + 032, a3rdRow[2] + 310 SAY STR0064 SIZE 100,16 OF oDlg PIXEL //"Movimento Pagamento Antecipado"
+	EndIf
+	//VALORES E SALDOS INFERIORES
+	If cPaisLoc == "BRA"
+		@ a3rdRow[1] + 015, a3rdRow[2] + 003 Say STR0073+cSimbPar+":" SIZE 60,16 OF oDlg PIXEL //"Saldo do Titulo (R$):"
+	    @ a3rdRow[1] + 015, a3rdRow[2] + 065 SAY Trans(IIF((SE2->E2_SALDO+SE2->E2_SDACRES) > 0 , SE2->E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE , SE2->E2_SALDO+SE2->E2_SDACRES ),Tm(SE2->E2_SALDO,15,nCasas)) SIZE 50,16 OF oDlg PIXEL  //"Saldo T¡tulo"
+	Else
+		@ a3rdRow[1] + 015, a3rdRow[2] + 003 Say STR0048 SIZE 50,16 OF oDlg PIXEL
+		@ a3rdRow[1] + 015, a3rdRow[2] + 055 SAY Trans(IIF((SE2->E2_SALDO+SE2->E2_SDACRES) > 0 , SE2->E2_SALDO+SE2->E2_SDACRES-SE2->E2_SDDECRE , SE2->E2_SALDO+SE2->E2_SDACRES ),Tm(SE2->E2_SALDO,15,nCasas)) SIZE 50,16 OF oDlg PIXEL  //"Saldo T¡tulo"
+	Endif
+	
+	nVlrPagar := If(SE2->E2_SALDO + nValAcess > 0 .And. (nSaldo - nAbatim) == SE2->E2_SALDO, nSaldo, SE2->E2_SALDO) + nValAcess
+
+	If cPaisLoc == "BRA"
+		@ a3rdRow[1] + 025, a3rdRow[2] + 003 Say STR0074+cSimbPar+":" SIZE 60,16 OF oDlg PIXEL //"Saldo a Pagar  :"
+		@ a3rdRow[1] + 025, a3rdRow[2] + 065 SAY Trans(If(nVlrPagar > 0,nVlrPagar+SE2->E2_SDACRES-SE2->E2_SDDECRE+nJuros - IIf(nVlrPagar > 0,nAbatim,0),nVlrPagar),tm(nVlrPagar,15,nCasas)) SIZE 50,16 OF oDlg PIXEL //"Saldo T¡tulo "
+	Else
+		@ a3rdRow[1] + 025, a3rdRow[2] + 003 Say STR0052 SIZE 50,16 OF oDlg PIXEL
+		@ a3rdRow[1] + 025, a3rdRow[2] + 055 SAY Trans(If(nVlrPagar > 0,nVlrPagar+SE2->E2_SDACRES-SE2->E2_SDDECRE+nJuros - IIf(nVlrPagar > 0,nAbatim,0),nVlrPagar),tm(nVlrPagar,15,nCasas)) SIZE 50,16 OF oDlg PIXEL //"Saldo T¡tulo "
+	Endif
+
+	ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar(oDlg,{||nOpca:=1,oDlg:End()},{||oDlg:End()},,aBut050) CENTERED
+
+	// Apaga tabela temporaria no banco de dados
+	If __oFinc0501 <> Nil
+		__oFinc0501:Delete()
+		__oFinc0501 := Nil
+	Endif
+Else
+	 Help("",1,"Fc050NOARQ")
+Endif
+RestInter()
+SE2->(RestArea(aAreaSe2))
+RestArea(aAreaSe5)
+RestArea(aArea)
+
+Return .T.
+
+/*/
+//-------------------------------------------------------------------
+/*{Protheus.doc} Fn050Cria
+Cria o arquivo de trabalho para consulta titulos baixados
+
+@author Pilar S. Albaladejo
+@version P12
+@since   12/11/1996
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Static Function Fn050Cria(oMeter,oText,oDlg,lFim,aCampos)
+
+Local cNomeArq := ""
+Local aTamSX3  := {}
+Local aTamSX3a := {}
+Local aTamSX3b := {}
+Local lFC050Campos:= ExistBlock("FC050CAMPOS")
+
+Private nCont := 1
+
+oMeter:nTotal := SE2->(RecCount())
+
+aTamSX3  := TamSX3("E5_DOCUMEN")
+aTamSX3a := TamSX3("E5_HISTOR")
+aTamSX3b := TamSX3("E5_LOTE")
+aTamSX3c := TamSX3("E5_IDORIG")
+
+If cPaisLoc == 'BRA'
+	aCampos	:= {{"OK","N",1,0},;
+					 {"DATAX", "D", 08, 0 }, ;
+					 { "JUROS     ", "N", 16, 2 }, ;
+					 { "MULTA     ", "N", 16, 2 }, ;
+					 { "CORRECAO  ", "N", 16, 2 }, ;
+					 { "DESCONTOS ", "N", 16, 2 }, ;
+					 { "VALACESS"  , "N", 16, 2 }, ;
+					 { "RETENCOES ", "N", 16, 2 }, ;
+					 { "VALORPAGO ", "N", 16, 2 }, ;
+					 { "VLMOED2   ", "N", 16, 2 }, ;
+					 { "MOTIVO    ", "C", 03, 0 }, ;
+					 { "HISTORICO ", "C", aTamSX3a[1]+1,aTamSX3a[2]}, ;
+					 { "DATACONT  ", "D", 08, 0 }, ;
+					 { "DATADISP  ", "D", 08, 0 }, ;
+					 { "LOTE      ", "C", aTamSX3b[1], aTamSX3b[2]}, ;
+					 { "BANCO     ", "C", 03, 0 }, ;
+					 { "AGENCIA   ", "C", 05, 0 }, ;
+					 { "CONTA     ", "C", 10, 0 }, ;
+					 { "NROCHEQUE ", "C", 15, 0 }, ;
+					 { "DOCUMENTO ", "C", aTamSX3[1],aTamSX3[2]},;
+					 { "FILIAL    ", "C", IIf( lFWCodFil, FWGETTAMFILIAL, 2 ), 0 }, ;
+					 { "RECONC    ", "C", 01, 0 },;
+					 { "IDORIG    ", "C", aTamSX3c[1],aTamSX3c[2] } }
+Elseif cPaisLoc =='RUS'
+	aCampos	:= {{"OK","N",1,0},;
+					 {"DATAX", "D", 08, 0 }, ;
+					 { "JUROS     ", "N", 16, 2 }, ;
+					 { "MULTA     ", "N", 16, 2 }, ;
+					 { "CORRECAO  ", "N", 16, 2 }, ;
+					 { "DESCONTOS ", "N", 16, 2 }, ;
+					 { "VALACESS"  , "N", 16, 2 }, ;
+					 { "RETENCOES ", "N", 16, 2 }, ;
+					 { "VALORPAGO ", "N", 16, 2 }, ;
+					 { "MOTIVO    ", "C", 03, 0 }, ;
+					 { "HISTORICO ", "C", aTamSX3a[1]+1,aTamSX3a[2]}, ;
+					 { "DATACONT  ", "D", 08, 0 }, ;
+					 { "DATADISP  ", "D", 08, 0 }, ;
+					 { "LOTE      ", "C", aTamSX3b[1], aTamSX3b[2]}, ;
+					 { "BANCO     ", "C", 03, 0 }, ;
+					 { "AGENCIA   ", "C", 05, 0 }, ;
+					 { "CONTA     ", "C", 10, 0 }, ;
+					 { "NROCHEQUE ", "C", 15, 0 }, ;
+					 { "DOCUMENTO ", "C", aTamSX3[1],aTamSX3[2]},;
+					 { "FILIAL    ", "C", IIf( lFWCodFil, FWGETTAMFILIAL, 2 ), 0 }, ;
+					 { "RECONC    ", "C", 01, 0 },;
+					 { "IDORIG    ", "C", aTamSX3c[1],aTamSX3c[2] },;
+					 { "NORD",       "N",  16, 2 } }
+Else
+	aCampos	:= {{"OK","N",1,0},;
+					 {"DATAX", "D", 08, 0 }, ;
+					 { "JUROS     ", "N", 16, 2 }, ;
+					 { "MULTA     ", "N", 16, 2 }, ;
+					 { "CORRECAO  ", "N", 16, 2 }, ;
+					 { "DESCONTOS ", "N", 16, 2 }, ;
+					 { "VALACESS"  , "N", 16, 2 }, ;
+					 { "VALORPAGO ", "N", 16, 2 }, ;
+					 { "MOTIVO    ", "C", 03, 0 }, ;
+					 { "HISTORICO ", "C", aTamSX3a[1]+1,aTamSX3a[2]}, ;
+					 { "DATACONT  ", "D", 08, 0 }, ;
+					 { "DATADISP  ", "D", 08, 0 }, ;
+					 { "LOTE      ", "C", aTamSX3b[1], aTamSX3b[2]}, ;
+					 { "BANCO     ", "C", 03, 0 }, ;
+					 { "AGENCIA   ", "C", 05, 0 }, ;
+					 { "CONTA     ", "C", 10, 0 }, ;
+					 { "NROCHEQUE ", "C", 15, 0 }, ;
+					 { "DOCUMENTO ", "C", aTamSX3[1],aTamSX3[2]},;
+					 { "FILIAL    ", "C", IIf( lFWCodFil, FWGETTAMFILIAL, 2 ), 0 }, ;
+					 { "RECONC    ", "C", 01, 0 }, ;
+					 { "IDORIG    ", "C", aTamSX3c[1],aTamSX3c[2] } }
+Endif
+
+If lFC050Campos
+	aCampos := ExecBlock("FC050CAMPOS",.F.,.F.,aCampos)
+EndIf
+
+
+If (Select("cNomeArq")<>0)
+	dbSelectArea ("cNomeArq")
+	dbCloseArea()
+Endif
+
+If __oFinc0501 <> Nil
+	__oFinc0501:Delete()
+	__oFinc0501 := Nil
+Endif
+
+__oFinc0501 := FWTemporaryTable():New( "cNomeArq" )
+__oFinc0501:SetFields(aCampos)
+If cPaisLoc == "RUS"
+	__oFinc0501:AddIndex("1", {"FILIAL","NORD"})
+Else
+	__oFinc0501:AddIndex("1", {"FILIAL","DATAX"})
+EndIF
+
+//------------------
+//Criação da tabela temporaria
+//------------------
+__oFinc0501:Create()
+
+Fr050Temp(oMeter,oText,oDlg,lFim, aCampos)
+
+dbSelectArea("cNomeArq")
+cNomeArq->(dbGotop())
+
+Return
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} Fr050Temp
+Cria registro para arquivo temporario para consulta titulos baixados
+
+@author Pilar S. Albaladejo
+@version P12
+@since   12/11/1996
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function Fr050Temp(oMeter,oText,oDlg,lFim, aCampos)
+    Local nCorrec		:= 0
+    Local nMulta		:= 0
+    Local nDescont		:= 0
+    Local nValPag		:= 0
+    Local nJuros		:= 0
+    Local cMotivo		:= ""
+    Local aTamSX3S		:= TamSX3("E5_PREFIXO")
+    Local aTamSX3N		:= TamSX3("E5_NUMERO")
+    Local aTamSX3P		:= TamSX3("E5_PARCELA")
+    Local aTamSX3C		:= TamSX3("E5_DOCUMEN")
+    Local cPrefix		:= Space(aTamSX3S[1])
+    Local cNumero		:= Space(aTamSX3N[1])
+    Local cParc			:= Space(aTamSX3P[1])
+    Local cCompl		:= Space(aTamSX3C[1])
+    Local nSituaca		:= 1
+    Local nRetencao		:= 0
+    Local nX			:= 0
+    Local lFC050Campos  := ExistBlock("FC050CAMPOS")
+    Local lFC050BROWSE  := ExistBlock("FC050BROWSE")
+    Local lFC050CPOVT   := ExistBlock("FC050CPOVT" )
+    Local nRecno		:= 0
+    Local ordRec		:= ""
+    Local cBco			:= ""
+    Local cAge			:= ""
+    Local cCta			:= ""
+    Local cChq			:= ""
+    Local nValAcess		:= 0
+    Local lPccBaixa 	:= SuperGetMv("MV_BX10925",.T.,"2") == "1"	 
+	Local lReceber		:= .F.		
+	Local cAliasSe5		:= ""
+	Local aArea			:= {}
+	Local cChaveSe2		:= SE2->(E2_FILORIG+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
+	Local lRet			:= .T.
+	Local lMovMdEs 		:= .F.
+	Local nVlMdTit		:= 0
+	Local nCasDec       := TamSx3("E5_TXMOEDA")[2]	
+	Local nMoeMov		:= 0
+
+    dbSelectArea("SE2")
+    SE2->(dbSetOrder(1))
+
+	aArea	:= GetArea()
+
+	cAliasSe5	:= F50TmpTab( SE2->E2_PREFIXO, SE2->E2_NUM, SE2->E2_PARCELA , SE2->E2_TIPO , SE2->E2_FORNECE , SE2->E2_LOJA , SE2->E2_FILORIG )
+
+	If Empty(cAliasSe5)
+		lRet	:= .F.
+	Endif	 
+
+	If lRet
+		While !(cAliasSe5)->(Eof()) 
+
+			SE5->(dbGoto((cAliasSe5)->R_E_C_N_O))
+
+			lReceber	:= (SE5->E5_RECPAG == "P" .AND. SE5->E5_TIPODOC == "ES") .OR. ;
+						(SE5->E5_RECPAG 	== "R" .and. SE5->E5_TIPODOC != "ES" .AND. ;
+						!(SE5->E5_TIPO $ MVPAGANT+"|"+MV_CPNEG))
+
+			If Empty(SE5->E5_FORNECE) .and. !lReceber
+				Reclock("SE5", .F.)
+				Replace SE5->E5_FORNECE With SE5->E5_CLIFOR
+				SE5->(MsUnlock())
+			Endif	
+
+			If SE5->(E5_FILORIG+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_FORNECE+E5_LOJA) == cChaveSe2
+				IF SE5->E5_SITUACA == "C" .Or. SE5->E5_TIPODOC == "ES"
+					nSituaca := 2 // Cancelado ou Estorno
+				ElseIf SE5->E5_TIPO $ MVPAGANT .And. SE5->E5_TIPODOC == "PA"
+					nSituaca := 3 // Pagamento Antecipado
+				Else
+					nSituaca := 1 // Baixado
+				Endif
+
+				nCorrec   := 0
+				nJuros    := 0
+				nMulta    := 0
+				nDescont  := 0
+				nValPag   := 0
+				cMotivo   := ""
+				nRetencao := 0
+				nValAcess := 0
+				nVlMdTit  := 0
+				nMoeMov   := 0
+
+				If ( SE5->E5_TIPODOC $ "VL|BA|V2|ES|CP" )
+
+					If cPaisLoc $ 'MEX|COL|PER' .AND. FindFunction("fn086MoeEx")
+						nValPag := Iif(fn086MoeEx(SE2->E2_MOEDA,SE5->E5_MOEDA, SE5->E5_TIPODOC, SE5->E5_MOTBX, DTOS(SE5->E5_DATA), SE5->E5_RECPAG), SE5->E5_VLMOED2, SE5->E5_VALOR)
+					Else
+						lMovMdEs := MovMoedEs(SE5->E5_MOEDA, SE5->E5_TIPODOC, SE5->E5_MOTBX, DTOS(SE5->E5_DATA), SE5->E5_RECPAG)
+						nValPag  := Iif(lMovMdEs, SE5->E5_VLMOED2, SE5->E5_VALOR)
+						If cPaisLoc $ "BRA"
+							//Define o valor para ser exibido na coluna 'Valor Orig. $' (sempre na moeda do titulo)
+							nMoeMov := Val(cValToChar(SE5->E5_MOEDA))
+							If nMoeMov <> SE2->E2_MOEDA
+								If nMoeMov > 1 .and. SE2->E2_MOEDA > 1
+									nVlMdTit := Round(NoRound(xMoeda(SE5->E5_VALOR,nMoeMov,SE2->E2_MOEDA,SE5->E5_DATA,nCasDec,SE5->E5_TXMOEDA,SE2->E2_TXMOEDA),3),2)
+								Else
+									nVlMdTit := Round(NoRound(xMoeda(SE5->E5_VALOR,nMoeMov,SE2->E2_MOEDA,SE5->E5_DATA,nCasDec,,SE5->E5_TXMOEDA),3),2)
+								Endif	
+							Else
+								nVlMdTit := SE5->E5_VALOR
+							Endif
+						Endif
+					EndIF
+					cMotivo := SE5->E5_MOTBX
+
+					If SE5->E5_MOTBX == "CMP"
+						nJuros := SE5->E5_VLJUROS
+						nDescont := SE5->E5_VLDESCO
+						nCorrec := SE5->E5_VLCORRE
+					Endif
+				
+					cCart := If(nSituaca == 1, "P", "R")
+					nRetencao := FINXVRET(cCart, SE5->E5_IDORIG)
+
+				ElseIf SE5->E5_TIPODOC == "PA"
+					nValPag	 := SE5->E5_VALOR
+					cMotivo	 := SE5->E5_MOTBX
+					nVlMdTit := If(cPaisLoc $ "BRA",SE5->E5_VLMOED2,0) 
+				Endif
+
+				IF SE5->E5_TIPODOC$"CM|C2|CX|VM"
+					nCorrec := SE5->E5_VALOR
+				ElseIf cPaisLoc == "MEX" .And. SE5->E5_VLCORRE <> 0
+					nCorrec := SE5->E5_VLCORRE	
+				Endif
+				If SE5->E5_TIPODOC$"DC|C2"
+					nDescont := SE5->E5_VALOR
+				Endif
+
+				IF SE5->E5_TIPODOC$"MT|M2"
+					nMulta  := SE5->E5_VALOR
+				Endif
+
+				If SE5->E5_TIPODOC$"JR|J2"
+					nJuros  := SE5->E5_VALOR
+				Endif
+
+				If SE5->E5_TIPODOC == "VA"
+					nValAcess := SE5->E5_VALOR
+				Endif
+
+				If cPaisLoc = "ANG"
+					nRecno := SE5->(Recno())
+					ordRec := SE5->E5_ORDREC
+					DbSelectArea("SEK")
+					SEK->(dbSetOrder(2))
+					If SEK->(MsSeek(xFilial("SEK")+SE5->E5_CLIFOR+SE5->E5_LOJA+(DTOS(SE5->E5_DTDIGIT))))
+						While SEK->(!Eof()) .AND. SEK->EK_FILIAL+SEK->EK_FORNECE+SEK->EK_LOJA+DTOS(SEK->EK_DTDIGIT)== ;
+											xFilial("SEK")+SE5->E5_CLIFOR+SE5->E5_LOJA+(DTOS(SE5->E5_DTDIGIT))
+							If  SEK->EK_TIPO == SE5->E5_TIPO .AND. SEK->EK_NUM == SE5->E5_NUMERO
+								SE5->(dbSetOrder(7))
+								If SE5->(MsSeek(xFilial("SE5")+SEK->(EK_PREFIXO+EK_ORDPAGO)))
+									While SE5->(!Eof()) .AND. AllTrim(SE5->(E5_FILIAL+E5_PREFIXO+E5_NUMERO)) == ;
+										AllTrim(xFilial("SE5")+SEK->(EK_PREFIXO+EK_ORDPAGO))
+										If SE5->E5_ORDREC == ordRec
+											cBco := SE5->E5_BANCO
+											cAge := SE5->E5_AGENCIA
+											cCta := SE5->E5_CONTA
+											cChq := SE5->E5_NUMCHEQ
+											SE5->(dbSkip())
+											Exit
+										Endif
+										SE5->(dbSkip())
+									Enddo
+									SE5->(dbGoto(nRecno))
+								Endif
+							Endif
+							SEK->(dbSkip())
+						Enddo
+					Endif
+					SE5->(dbGoto(nRecno))
+				Endif
+
+				Reclock("cNomeArq",.T.)
+				If cPaisLoc = "RUS"
+					nSum:= nSum +1 											
+					cNomeArq->NORD  	:=nSum
+				EndIF
+				cNomeArq->OK		:= nSituaca
+				cNomeArq->DATAX		:= SE5->E5_DATA
+				cNomeArq->JUROS		:= nJuros
+				cNomeArq->MULTA		:= nMulta
+				cNomeArq->CORRECAO	:= nCorrec
+				cNomeArq->DESCONTOS	:= nDescont
+				cNomeArq->VALACESS  := nValAcess
+
+				//Campos exclusivos do BRASIL
+				//Deve ser mantida a ordem
+				If cPaisLoc == 'BRA'
+					cNomeArq->RETENCOES := nRetencao
+				Endif
+
+				cNomeArq->VALORPAGO	:= nValPag
+				If cPaisLoc $ "BRA"
+					cNomeArq->VLMOED2	:= nVlMdTit
+				Endif
+				cNomeArq->MOTIVO	:= cMotivo
+				cNomeArq->DATACONT	:= SE5->E5_DTDIGIT
+				cNomeArq->DATADISP	:= SE5->E5_DTDISPO
+				cNomeArq->LOTE		:= SE5->E5_LOTE
+				cNomeArq->HISTORICO	:= SE5->E5_HISTOR
+				If cPaisLoc = "ANG"
+					cNomeArq->BANCO		:= cBco
+					cNomeArq->AGENCIA	:= cAge
+					cNomeArq->CONTA		:= cCta
+					cNomeArq->NROCHEQUE	:= cChq
+				Else
+					cNomeArq->BANCO		:= SE5->E5_BANCO
+					cNomeArq->AGENCIA	:= SE5->E5_AGENCIA
+					cNomeArq->CONTA		:= SE5->E5_CONTA
+					cNomeArq->NROCHEQUE	:= SE5->E5_NUMCHEQ
+				Endif
+				If Empty(SE5->E5_IDENTEE)
+					If !Empty(SE5->E5_DOCUMEN)
+						cPrefix := Substr(SE5->E5_DOCUMEN,                                    1,aTamSX3S[1])
+						cNumero := Substr(SE5->E5_DOCUMEN,                        aTamSX3S[1]+1,aTamSX3N[1])
+						cParc   := Substr(SE5->E5_DOCUMEN,            aTamSX3S[1]+aTamSX3N[1]+1,aTamSX3P[1])
+						cCompl  := Substr(SE5->E5_DOCUMEN,aTamSX3S[1]+aTamSX3N[1]+aTamSX3P[1]+1,aTamSX3C[1])
+
+						cNomeArq->DOCUMENTO  :=	cPrefix +"-" + cNumero +"-"+ cParc +"-"+ cCompl
+
+					Endif
+				Else
+					cNomeArq->DOCUMENTO := SE5->E5_IDENTEE
+				EndIf
+				cNomeArq->FILIAL	:= SE5->E5_FILORIG
+				cNomeArq->RECONC	:= SE5->E5_RECONC
+				cNomeArq->IDORIG	:= SE5->E5_IDORIG
+
+				If lFC050CAMPOS .And. lFC050BROWSE
+					For nx:= 1 to Len(aCampos)
+						If SE5->(FieldPos(aCampos[nx,1]))>0
+							cNomeArq->&( aCampos[nx,1] ) := SE5->&( aCampos[nx,1] )
+						Else
+							If lFC050CPOVT
+								uRet := ExecBlock("FC050CPOVT", .F., .F., {aCampos[nx,1]})
+								If uRet <> Nil
+									cNomeArq->&( aCampos[nX,1] ) := uRet
+								EndIf
+							EndIf
+						EndIf
+					Next
+				EndIf
+				cNomeArq->(MsUnlock())
+			Endif
+			If  cPaisLoc == "RUS" .AND. alltrim(SE5->E5_ORIGEM) =="RU06D07" .AND. nSituaca==2 
+				FK2->(dbGoto(RU06XFUN54(SE5->E5_IDORIG)))
+
+				Reclock("cNomeArq",.T.)
+				nSum:= nSum +1 
+				cNomeArq->NORD  	:=nSum
+				cNomeArq->OK		:= 4
+				cNomeArq->DATAX		:= FK2->FK2_DATA
+				cNomeArq->JUROS		:= 0
+				cNomeArq->MULTA		:= 0
+				cNomeArq->CORRECAO	:= 0
+				cNomeArq->DESCONTOS	:= 0
+				cNomeArq->VALACESS  := 0
+
+				cNomeArq->VALORPAGO	:=  FK2->FK2_VALOR
+				cNomeArq->MOTIVO	:= FK2->FK2_MOTBX
+				cNomeArq->DATACONT	:= SE5->E5_DTDIGIT
+				cNomeArq->DATADISP	:= SE5->E5_DTDISPO
+				cNomeArq->LOTE		:= FK2->FK2_LOTE
+				cNomeArq->HISTORICO	:= FK2->FK2_HISTOR
+				cNomeArq->BANCO		:= ""
+				cNomeArq->AGENCIA	:= ""
+				cNomeArq->CONTA		:= ""
+				cNomeArq->NROCHEQUE	:= ""
+
+				cNomeArq->FILIAL	:= FK2->FK2_FILORI
+				cNomeArq->RECONC	:= ""
+				cNomeArq->IDORIG	:= FK2->FK2_IDFK2
+				MsUnlock()
+
+
+			EndIF
+			(cAliasSe5)->(dbSkip())	
+		Enddo
+		(cAliasSe5)->(DbCloseArea())
+	Endif	
+
+	RestArea(aArea)
+Return
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} MenuDef
+Utilizacao de menu Funcional
+
+Parametros do array aRotina
+1. Nome a aparecer no cabecalho
+2. Nome da Rotina associada
+3. Reservado
+4. Tipo de Transação a ser efetuada:
+	1 - Pesquisa e Posiciona em um Banco de Dados
+	2 - Simplesmente Mostra os Campos
+	3 - Inclui registros no Bancos de Dados
+	4 - Altera o registro corrente
+	5 - Remove o registro corrente do Banco de Dados
+5. Nivel de acesso
+6. Habilita Menu Funcional
+
+@author Ana Paula N. Silva
+@version P12
+@since   29/11/2006
+@return  Array com opcoes da rotina.
+*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+
+Local aRotina	:= {{STR0002, "AxPesqui"   		, 0, 1},; //"Pesquisar"
+					{STR0003, "Fc050Con"   		, 0, 2}	,; //"Consulta "
+					{STR0061, "CTBC662"    		, 0, 7},; //"Tracker Contábil"
+					{STR0046, "Fa040Legenda"	, 0, 6, ,.F.}} //"Legenda"
+
+If cPaisLoc == "BRA"			
+	aAdd(aRotina,{STR0063, "FINCRET('SE2')"	, 0, 9}) //'Consulta de Retenções'
+Endif
+
+Return(aRotina)
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} FinC050T
+Chamada semi-automatica utilizado pelo gestor financeiro
+
+@author Marcelo Celi Marques
+@version P12
+@since   31/03/2008
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function FinC050T(aParam)
+	cRotinaExec := "FINC050"
+	ReCreateBrow("SE2",FinWindow)
+	FinC050(aParam[1])
+	ReCreateBrow("SE2",FinWindow)
+	dbSelectArea("SE2")
+
+	INCLUI := .F.
+	ALTERA := .F.
+
+Return .T.
+
+//--------------------------------------------------------------------
+/*/{Protheus.doc}FC050DTVA
+Chamada da consulta a valores acessórios de baixas - CONTAS A PAGAR -
+
+@author Marcos Gomes
+@since  04/05/2018
+@version 12
+/*/
+//---------------------------------------------------------------------
+FUNCTION FC050DTVA(nOpcao)
+	Local cChaveTit	:= ""
+	Local cChaveFK7	:= ""
+
+	If nOpcao == 1 //Baixas
+		If !Empty(cNomeArq->IDORIG)
+
+			//Verifico se existe VA cadastrado para o titulo em questão
+			cChaveTit := xFilial("SE2", SE2->E2_FILORIG) +"|"+ SE2->E2_PREFIXO +"|"+ SE2->E2_NUM +"|"+ SE2->E2_PARCELA +"|"+ SE2->E2_TIPO +"|"+ SE2->E2_FORNECE +"|"+ SE2->E2_LOJA
+			cChaveFK7 := FINGRVFK7("SE2",cChaveTit)
+
+			FKD->(dbSetOrder(2))	//FKD_FILIAL+FKD_IDDOC+FKD_CODIGO
+			If FKD->(DbSeek(xFilial("FKD")+cChaveFK7))
+				FINC050VA(cNomeArq->IDORIG, cNomeArq->DATAX)
+			Else
+				Help(" ", 1, "NOVLRACES1",, STR0066, 1, 0)	// "Não foram encontrados valores acessórios para este título. Por favor, verifique."
+			Endif
+		Else
+			Help(" ", 1, "NOVLRACES2",, STR0066, 1, 0)	// "Não foram encontrados valores acessórios para este título. Por favor, verifique."
+		Endif
+	ElseIf nOpcao == 2		//Detalhe do VA da tela principal
+		If	ExistFunc('FINA050VA')
+			FINA050VA()
+		EndIf
+	Endif
+
+Return
+
+//-------------------------------------------------------------------------------------
+/*{Protheus.doc} F50TmpTab
+Criação da tabela temporaria dos registros da SE5, com base na
+chave do titulo
+
+@param cPrefixo 	Prefixo do titulo posicionado no momento da consulta
+@param cNumero  	Numero  do titulo posicionado no momento da consulta
+@param cParcela 	Parcela do titulo posicionado no momento da consulta
+@param cTipo		Tipo do titulo posicionado no momento da consulta
+@param cCliFor		Fornecedor do titulo posicionado no momento da consulta
+@param cLoja		Loja do fornecedor do titulo posicionado no momento da consulta
+@param cFilOrig		Filial de origem do titulo posicionado no momento da consulta
+
+@author Vitor Duca 
+@version P12
+@since   01/08/2019
+@return  Alias da tabela temporaria
+*/
+//-----------------------------------------------------------------------------------------
+Static Function F50TmpTab(cPrefixo as Character , cNumero as Character , cParcela as Character , cTipo as Character , cCliFor as Character, cLoja as Character, cFilOrig as Character)
+	Local cQuery    as Character
+	Local cAliasSe5 as Character
+
+	//inicialização das variaveis
+	cQuery  	:= ""
+	cAliasSe5	:= ""
+
+	If __oMovTit == NIL
+		cQuery += "SELECT R_E_C_N_O_ R_E_C_N_O FROM " + RetSqlName("SE5") + " WHERE "
+		cQuery += "E5_NUMERO = ? AND "
+		cQuery += "E5_PREFIXO = ? AND "
+		cQuery += "E5_PARCELA = ? AND "
+		cQuery += "E5_TIPO = ? AND "
+		cQuery += "E5_CLIFOR = ? AND "
+		cQuery += "E5_LOJA = ? AND "
+		cQuery += "E5_FILORIG = ? AND "
+		cQuery += "D_E_L_E_T_ = ' ' "
+		cQuery += "ORDER BY R_E_C_N_O_" 
+		cQuery := ChangeQuery(cQuery)
+		__oMovTit := FWPreparedStatement():New(cQuery)
+	EndIf	
+
+	__oMovTit:SetString(1, cNumero)
+	__oMovTit:SetString(2, cPrefixo)
+	__oMovTit:SetString(3, cParcela)
+	__oMovTit:SetString(4, cTipo)
+	__oMovTit:SetString(5, cCliFor)
+	__oMovTit:SetString(6, cLoja)
+	__oMovTit:SetString(7, cFilOrig)
+
+	cQuery := __oMovTit:GetFixQuery()
+	cAliasSe5 := MpSysOpenQuery(cQuery)
+
+	If (cAliasSe5)->(Eof())
+		(cAliasSe5)->(DbCloseArea())
+		cAliasSe5	:= ""
+	EndIf
+
+Return cAliasSe5

@@ -1,0 +1,1325 @@
+#include "protheus.ch"
+#include "Fileio.ch"
+
+#define JOBDRIVER "DBFCDX"
+#DEFINE  LOGMODE
+Static __cLastEmp := "@@"
+Static __cUser1Dir
+Static __cRootPath
+Static __nRecLock
+Static __cAlias
+Static __nInterval
+
+Function HHTrgJob( )
+
+Local cTAtual
+Local cDate
+Local nC, lEnd
+Local cNextHH := ""
+Local nHDL, nWork, aTimes,nT
+Local cHandHeldDir := GetHHDir()
+Local cFileLock := Subs(cHandHeldDir,2,Len(cHandHeldDir)-2)
+Local aServGrp := {}
+Local aHHGrp := {}
+Local nSys := 1
+Local nI := 1
+Local nJ := 1
+Local cSerie := ""
+
+Set Deleted On
+Set Date British
+
+nWork := Val(GetSrvProfString("HandHeldWorks","1"))
+DEFAULT __nInterval := VAL(GetSrvProfString("HHThreadTimer","5000"))
+
+ErrorBlock({|e| HHErr(e)})
+
+ConOut("Iniciando PALMJOB... ("+Time()+") em " + GetEnvServer())
+PTInternal(1,"Lancador de Palm Jobs por vendedor...")
+
+Private PSYSALIAS := POpenSys()    // Arquivo de Sistemas
+Private PUALIAS   := POpenHH()     // Arquivo de Usuários
+Private PSALIAS   := POpenSrv()    // Arquivo de Servicos
+Private PTALIAS   := HHOpenTime()  // Arquivo de Controle de Tempo
+Private PGALIAS   := POpenGrp()    // Arquivo de Grupos
+Private PTBLALIAS := POpenTbl()    // Arquivo de Tabelas
+Private PLALIAS   := HHOpenLog()   // Arquivo de Log
+Private PTRGALIAS := HHOpenTrg()   // Arquivo de Gatilhos
+Private cJobAlias := PUALIAS+"#"+PSALIAS+"#"+PTALIAS+"#PALMUSER#HGS#HGU#HCADGRP#"+PLALIAS
+Private aServ     := {}
+Private cTime     := ""
+
+// Reabre a Tabela HHTIME
+(PTALIAS)->(dbCloseArea())
+PTALIAS   := HHOpenTime()
+
+//controle de aviso de execucao em job
+HHInJob(.T.)
+
+CriaPublica()
+
+//carrega arquivo com lista de servicos
+aServ := PGetServ()
+
+//atualiza arquivo de controle de tempo, a partir do Proximo Handheld
+DbSelectArea(PGALIAS)
+DbSetOrder(1)
+While ( !Eof() )
+	
+	//aServGrp := PGetServGrp((PGALIAS)->HHG_COD,@aServGrp)
+	aHHGrp   := PGetHHGrp((PGALIAS)->HHG_COD,@aHHGrp)
+
+	For nI := 1 To Len(aHHGrp)
+		dbSelectArea(PTALIAS)
+		dbSetOrder(1)
+		If DbSeek((PGALIAS)->HHG_COD + aHHGrp[nI])
+			RecLock(PTALIAS,.F.)
+		Else
+			RecLock(PTALIAS,.T.)
+		EndIf
+	
+		//campo P_TIME sera usado no controle por min ou hr e nele
+		//e gravado a proxima data + o proximo horario de atualizacao
+
+		(PTALIAS)->HH_GRUPO := (PGALIAS)->HHG_COD
+		(PTALIAS)->HH_SERIE := aHHGrp[nI]
+//		(PTALIAS)->P_SRV   := aServGrp[nJ,1]
+		(PTALIAS)->HH_TIME  := ""
+		(PTALIAS)->HH_RANGE := HHRetRange((PGALIAS)->HHG_FREQ,(PGALIAS)->HHG_TFREQ)
+		
+		MsUnlock()
+   Next
+	aServGrp := {}
+	aHHGrp   := {}
+	DbSelectArea(PGALIAS)
+	DbSkip()
+End
+
+//a cada minuto verifica-se todos as linhas da tabela de controle de tempo
+//e executa os servicos dos usuarios com horario ultrapassado
+
+While !KillApp()
+
+	If File(HHGetDir()+"PSTOP.JOB")
+		ConOut("Parando PALMJOB...")
+		Exit
+	EndIf
+	
+	cDate := Dtos(Date())
+	cTAtual := cDate+Time()
+	
+	If ( Subs(cTAtual,1,13) <> Subs(cTime,1,13) )
+		cTime := cTAtual
+		DbSelectArea(PTALIAS)
+		DbGoTop()
+		aTimes := {}
+		While !Eof() .and. !KillAPP()
+		  AADD(aTimes,{HH_TIME,Recno()})
+		  dbSkip()
+		End
+		aSORT(aTimes,,,{|x,y| x[1]<y[1]})
+		For nT := 1 TO Len(aTimes)
+			(PTALIAS)->(dbGoto(aTimes[nT,2]))
+			DbSelectArea(PUALIAS)
+			DbSetOrder(1)
+			If ( DbSeek((PTALIAS)->HH_SERIE) )
+				If cTime >= (PTALIAS)->HH_TIME
+					HGU->(dbSetOrder(1))
+					If HGU->(dbSeek((PTALIAS)->HH_GRUPO+(PTALIAS)->HH_SERIE))
+						If (Empty((PUALIAS)->HHU_LOCK))// .Or. (PUALIAS)->HHU_LOCK = "J") //.And. (HCADHH->HHU_LOCK <> "B")
+							If !(PUALIAS)->(MsRLock())
+								Sleep(2000)
+								Loop
+							EndIf
+							/*
+							If (PUALIAS)->HHU_LOCK == "J"
+								(PUALIAS)->(MSRUnlock())
+								Sleep(60000)
+								If !MsRLock() 
+									Loop
+								Endif
+							Endif
+							*/
+							lEnd := .F.
+							While !KillAPP() .And. !lEnd
+								For ni:= 1 to nWork
+									nHdl := MSFCREATE("\SEMAFORO\" + cFileLock + "WK" + StrZero(ni,3,0) + ".LCK")
+									
+									If nHdl >= 0
+										(PUALIAS)->HHU_LOCK := "J"               				 // Utiliza Lock Fisico, pq o Lock do registro 
+										(PUALIAS)->(MSRUnlock())// se perde qdo o HTTP:JOB cai por TimeOut
+										ConOut("PALMJOB: "+Trim(HHU_NOMUSR)+" - "+Subs(cTime,9))
+										FClose(nHdl)
+										// Inicia Thread Com o Job
+										// Parametros: Grupo, Numero de Serie, Thread
+										StartJob("HHExecServ",GetEnvServer(),.F.,HGU->HGU_GRUPO, (PUALIAS)->HHU_SERIE, ni)
+										Sleep(__nInterval)
+										nERR := 0                                       
+										lEnd := .T.
+										Exit
+									Endif                                
+        				 		Next
+        				 		If !lEnd
+	        				 		Sleep(20000)   //Todas as WORKs estao ocupadas, tentar mais tarde
+								EndIf
+							End
+						EndIf
+					Endif
+				EndIf
+			EndIf
+		Next nT
+	EndIf
+	nC := 0
+	While !KillApp() .and. nC < 60
+	   Sleep(1000)
+	   nC++
+	End
+End
+
+//(PLALIAS)->(MsUnlockAll())
+DbCommitAll()
+DbCloseAll()
+
+HHInJob(.F.)
+Return .T.
+       
+//////
+/// PGetServ - Retorna servicos Cadastrados
+/////
+Function PGetServ()
+/*
+*************************************************
+* aServ  										*
+* [1] -> Codigo do Servico 						*
+* [2] -> Descricao do Servico					*
+* [3] -> Funcao que cria o servico				*
+* [4] -> Funcao que retorna alias usados		*
+* [5] -> funcao que retorna o nome fisico das	*
+*	     tabelas								*
+* [6] -> funcao que retorna indices usados		*
+* [7] -> Tipo - 1)AP6-Handheld; 2)Handheld-AP6	*
+* [8] -> Execucao - 1)Individual; 2)Generico	*
+* [9] -> utiliza codigo da empresa no nome do arquivo	*
+*************************************************
+*/
+Local nRecno  := HHR->(Recno())
+Local cTable := ""
+dbSelectArea("HHR")
+dbSetOrder(1)
+dbGoTop()
+While HHR->(!Eof())
+	dbSelectArea("HST")
+	dbSetOrder(1)
+	If dbSeek(HHR->HHR_COD)
+		While !HST->(Eof()) .And. HHR->HHR_COD = HST->HST_CODSRV
+			dbSelectArea("HHT")
+			dbSetOrder(1)
+			If dbSeek(HST->HST_CODTBL)
+				cTable += AllTrim(HHT->HHT_ALIAS) + ","
+			EndIf
+			HST->(dbSkip())
+		End	
+	EndIf
+	//aAdd(aServ, {HHR->HHR_COD, HHR->HHR_DESCR, HHR->HHR_FUNCAO, HHR->HHR_ALIAS, HHR->HHR_ARQ, HHR->HHR_TIPO, HHR->HHR_EXEC})
+	cTable := Subs(cTable,1, Len(cTable)-1)
+	aAdd(aServ, {HHR->HHR_COD, HHR->HHR_DESCR, HHR->HHR_FUNCAO, HHR->HHR_ALIAS, cTable, HHR->HHR_TIPO, HHR->HHR_EXEC})
+	cTable := ""
+	HHR->(dbSkip())
+EndDo
+GoTo(nRecno)
+Return aServ
+
+//////
+/// PGetServGrp - Retorna servicos do grupo
+//////
+Function PGetServGrp(cGrupo, aServGrp)
+Local nRecno := HGS->(Recno())
+
+dbSelectArea("HGS")
+dbSetOrder(1)
+dbSeek(cGrupo)
+While cGrupo == HGS->HGS_GRUPO
+	aAdd(aServGrp, {HGS->HGS_SRV, HGS->HGS_FREQ, HGS->HGS_TFREQ})
+	dbSkip()
+EndDo
+GoTo(nRecno)
+
+Return aServGrp
+
+//////
+/// PGetHHGrp - Retorna handhelds do grupo
+//////
+Function PGetHHGrp(cGrupo, aHHGrp)
+Local nRecno := HGU->(Recno())
+
+dbSelectArea("HGU")
+dbSetOrder(1)
+dbSeek(cGrupo)
+While cGrupo == HGU->HGU_GRUPO
+	aAdd(aHHGrp, HGU->HGU_SERIE)
+	dbSkip()
+EndDo
+GoTo(nRecno)
+
+Return aHHGrp
+
+//////
+/// PSec2Text - Converte segundos em hora
+//////
+Function HHSec2Text(nTime,nStr)
+Local nHour
+Local nMinute
+Local nSecond
+Local cTime
+Local nTemp
+
+DEFAULT nTime := 0
+DEFAULT nStr := 2
+
+nTemp := Int(nTime/60)
+
+nHour := Int(nTemp/60)
+
+nMinute := nTemp - (nHour*60)
+
+nSecond := nTime - ((nHour*3600)+(nMinute*60))
+
+cTime := StrZero(nHour,nStr,0)+":"+StrZero(nMinute,2,0)+":"+StrZero(nSecond,2,0)
+
+Return cTime
+
+//////
+/// HHSec2Text - Converte horas em segundos
+//////
+Function HHText2Sec(cTime)
+Local nHour
+Local nMinute
+Local nSecond
+Local nTime
+
+DEFAULT cTime := "00:00:00"
+
+nHour := Val(Subs(cTime,1,2))
+
+nMinute := Val(Subs(cTime,4,2))
+
+nSecond := Val(Subs(cTime,7,2))
+
+nTime := (nHour*3600)+(nMinute*60)+nSecond
+
+Return nTime
+
+//////
+/// HHRetRange - retorna frequencia de execucao do JOB
+//////
+Function HHRetRange(nFreq,cFTipo)
+
+If ( cFTipo == "1" )
+	cRet := HHSec2Text(nFreq*60)
+ElseIf ( cFTipo == "2" )
+	cRet := HHSec2Text(nFreq*3600)
+ElseIf ( cFTipo == "3" )
+	cRet := HHSec2Text(nFreq*86400)
+EndIf
+Return cRet
+
+//////
+/// HHSumTime - calcula horario da proxima execucao
+//////
+Function HHSumTime(cTime,cRange)
+Local cRet
+Local nHour
+Local nMinute
+Local nSecond
+Local dDate
+//                1
+//		 1234567890123456
+//cTime: aaaammddhh:mm:ss
+//cRange: hh:mm:ss
+
+dDate := Stod(Subs(cTime,1,8))
+
+nHour := Val(Subs(cTime,9,2))+Val(Subs(cRange,1,2))
+
+nMinute := Val(Subs(cTime,12,2))+Val(Subs(cRange,4,2))
+
+nSecond := Val(Subs(cTime,15,2))+Val(Subs(cRange,7,2))
+
+nTemp := Int(nSecond/60)
+
+nMinute += nTemp
+
+nSecond -= nTemp*60
+
+nTemp := Int(nMinute/60)
+
+nHour += nTemp
+
+nMinute -= nTemp*60
+
+//verifica se hora passou das 24 para reiniciar
+
+If ( nHour >= 24 )
+	nHour := (Int(nHour/24)-1) + (nHour - 24)
+	dDate += 1
+EndIf
+
+cRet := Dtos(dDate)+StrZero(nHour,2,0)+":"+StrZero(nMinute,2,0)+":"+StrZero(nSecond,2,0)
+
+Return cRet
+
+//////
+/// HHExecserv - Executa thread de usuario
+//////
+Function HHExecServ(cGrupo, cSerie, ni)
+Local i
+Local nServ
+Local aAlias
+Local cEnv := GetEnvServer()
+Local cHandHeldDir := GetHHDir()
+Local cFileLock := Subs(cHandHeldDir,2,Len(cHandHeldDir)-2)
+Local nHdl := MSFCREATE("\SEMAFORO\" + cFileLock + "WK" + StrZero(ni,3,0)+".LCK") //MSFCREATE("\SEMAFORO\"+StrZero(ni,3,0)+".LCK")
+Local cTime 
+Local lRecreate  := .T.
+Local lRPCOpened := .F.
+Local nLogRecno  := 0
+Local lLockHHU   := .F.
+Local nTimes     := 1
+
+Set Deleted On
+Set Date British
+
+PTInternal(1,"Job do dispositivo " + cSerie + " iniciado")
+ErrorBlock({|e| HHErr(e, cGrupo, cSerie)})
+
+GravaHHLog(cSerie + Space(20 - Len(cSerie)) + " - Inicio =" + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+
+IF nHdl < 0
+	ConOut(FError())
+	GravaHHLog((cSerie + Space(20 - Len(cSerie)) + " - Erro do Semaforo = " + Str(FError(),3,0) + " - " + Time() + Chr(13) + Chr(10)))
+	dbCloseAll()
+	UserException("Erro de Criacao de Semaforo")
+Endif
+
+DEFAULT cSerie := ""
+
+// EXECUCAO EM THREAD
+// ABRIR AS TABELAS AGORA PORQUE CADA SERVICO ESTA EM UMA THREAD
+Private PSYSALIAS := POpenSys() 
+Private PUALIAS   := POpenHH()
+Private PSALIAS   := POpenSrv()
+Private PTALIAS   := HHOpenTime()
+Private PTBLALIAS := POpenTbl()
+//Private PLALIAS := POpenLog()
+Private PGALIAS   := POpenGrp()
+Private PTRGALIAS := HHOpenTrg()   // Arquivo de Gatilhos
+Private cJobAlias := PUALIAS+"#"+PSALIAS+"#"+PTALIAS+"#HGS#HGU#HHG" //+"#"+PLALIAS
+Private aServ := {}
+
+cSerie := Trim(cSerie)
+
+// Servicos Cadastrados
+aServ := PGetServ()
+
+//retorna diretorio de trabalho do usuario
+DbSelectArea(PUALIAS)
+DbSetOrder(1)
+DbSeek(cSerie)
+GravaHHLog(cSerie + HGU->HGU_CODBAS + " - " + Space(20 - Len(cSerie)) + " - Inicio =" + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+
+// Posiciona Grupo
+(PGALIAS)->(dbseek(cGrupo))
+
+// Posiciona usuario do Grupo
+HGU->(dbseek(cGrupo+cSerie))
+
+// Monta diretorio do Usuario
+__cUserDir := HHGetDir()+"P"+Trim(HGU->HGU_DIR)+"\"
+
+// Verifica se usuario esta locado
+If (PUALIAS)->HHU_LOCK != "J"
+   dbCloseAll()
+   UserException("Erro na Flag HHU_LOCK")
+Endif
+
+DbSelectArea(PTALIAS)
+dbSetOrder(1)
+If dbSeek(cGrupo+cSerie)
+	(PTALIAS)->(MSRLOCK())
+	If Empty((PTALIAS)->HH_TIME)
+		cTime := DtoS(Date())+Time()
+	Else
+		cTime := (PTALIAS)->HH_TIME
+	EndIf
+
+	(PTALIAS)->HH_TIME := HHSumTime(cTime, (PTALIAS)->HH_RANGE)
+	(PTALIAS)->(MsrUnlock())
+EndIf
+
+ConOut("PALMJOB: Executando serviços para Grupo: " + Trim(cGrupo) + " - Handheld: " + Trim(HHU->HHU_NOMUSR) + " - " + Time())
+
+HHSaveLog(cGrupo, cSerie, 2070, .T.,)
+
+DbSelectArea("HGS")
+DbSetOrder(3)
+DbSeek(cGrupo)
+While !HGS->(Eof()) .And. AllTrim(HGS->HGS_GRUPO) == AllTrim(cGrupo)
+	HHSetError(.F.)
+
+	//	PAddLog(cSerie,(PSALIAS)->P_ID)
+	//verifica se servico existe
+	cServ := Trim(HGS->HGS_SRV)
+	nServ := HHExistServ(cServ)
+
+	// Posiciona Servico
+	(PSALIAS)->(dbSetorder(1))
+	(PSALIAS)->(dbseek(cServ))
+
+	If (nServ <> 0)
+		// Se o Servico e' Generico troca o caminho de gravacao
+		If aServ[nServ,5] = "2" // Servico Generico
+			__cUserDir := HHGetDir()+"GENERIC\"
+		EndIf
+
+		//retorna alias e nome fisico usado pelo servico
+		aAlias := HHExeTable(nServ)
+		aPalm  := HHExeArq(nServ)
+
+		If ( !HHSetError() )
+			//Verifica se Empresa foi utilizada no servico anterior
+			__RPCCALLED := .F.
+			If __cLastEmp != Subs((PGALIAS)->HHG_EMPFIL,1,2)
+				If __cLastEmp != "@@"
+					For i := 1 to 512
+						DbSelectArea(i)  
+						If (!Empty(Alias()) .And. !(Alias()$cJobAlias))
+							DbCloseArea()
+						Endif
+					Next
+			    	RpcClearEnv(.f.)
+				EndIf
+				// Cria ambiente
+				lRPCOpened := .T.
+				RpcSetType ( 3 )
+				RpcSetEnv(Subs((PGALIAS)->HHG_EMPFIL,1,2),Subs((PGALIAS)->HHG_EMPFIL,3,2),,,cEnv,,aAlias)
+				__cLastEmp := Subs((PGALIAS)->HHG_EMPFIL,1,2)
+				If lRecreate
+					HHRecreateUser(cGrupo, cSerie, .F.)
+					lRecreate := .F.
+				EndIf
+    		Else
+	        	For ni:= 1 to Len(aAlias)
+					If Select(aAlias[ni]) == 0
+						ChkFile(aAlias[ni]) 
+					Endif
+				Next  
+				cFilAnt :=  Subs((PGALIAS)->HHG_EMPFIL,3,2)
+    		Endif			         
+
+			//executa servico
+			ConOut("PALMJOB: " + Space(2) + Trim(aServ[nServ,1]) + "-" + Trim(aServ[nServ,2]) + " - " + Time())
+
+			HHExeServ(nServ)
+	    		
+			If !HHSetError()
+				ConOut("PALMJOB: " + Space(2) + Trim(aServ[nServ,1]) + "-" + Trim(aServ[nServ,2]) + " executado com sucesso. - " + Time())
+			EndIf
+			If aServ[nServ,6] == "2"
+  				//HHGenericUpd(HGU->HGU_CODBAS,, .T., nServ)
+				PUpdHHCtr(HGU->HGU_CODBAS, AllTrim(aServ[nServ,5]), 0, .T.)
+			EndIf
+			HHAdvTbl( aPalm )
+			HHUpdTriggerOn((PGALIAS)->HHG_EMPFIL, aAlias)
+		EndIf
+	EndIf
+	HGS->(DbSkip())
+End
+
+
+ConOut("PALMJOB: Serviços executados com sucesso para " + Trim(cGrupo) + " - Handheld: " + Trim(HHU->HHU_NOMUSR) + " - " + Time())
+HHSaveLog(cGrupo, cSerie, 120, .F.,)
+
+// Gera o Script
+HHScript(cGrupo, cSerie)
+
+// Fecha todas as tabelas
+For i := 1 to 512
+	DbSelectArea(i)
+	If !Empty(Alias()) .And. !(Alias()$cJobAlias)
+		DbCloseArea()
+	Endif
+Next
+
+DbSelectArea(PTALIAS)
+dbSetOrder(1)
+If dbSeek(cGrupo+cSerie)
+	(PTALIAS)->(MSRLOCK())
+	If Empty((PTALIAS)->HH_TIME)
+		cTime := DtoS(Date())+Time()
+	Else
+		cTime := (PTALIAS)->HH_TIME
+	EndIf
+
+	(PTALIAS)->HH_TIME := HHSumTime(cTime, (PTALIAS)->HH_RANGE)
+	(PTALIAS)->(MsrUnlock())
+EndIf
+
+lLockHHU := (PUALIAS)->(MSRLock())
+While !lLockHHU .And. nTimes <= 3
+	Sleep(500)
+	lLockHHU := (PUALIAS)->(MSRLock())
+	nTimes++	
+EndDo
+
+If lLockHHU
+	(PUALIAS)->HHU_LOCK := Space(1)   // Utiliza Lock Fisico, pq o Lock do registro 
+	(PUALIAS)->(MsRUnlock())  			      	//	se perde qdo o HTTP:JOB cai por TimeOut
+Else
+	ConOut("PALMJOB: Falha na liberacao do usuario " + Trim(cGrupo) + " - Handheld: " + Trim(HHU->HHU_NOMUSR))
+EndIf
+
+DbCommitAll()
+
+FClose(nHdl)
+__cUserDir := NIL
+Return Nil
+
+////////////////
+// Retorna caminho do usuario
+////////////////
+Function HHDir(cSerie)
+Local cRet  := ""
+Local nRet  := 0
+Local nRecno:= 0
+If cSerie == NIL
+	cRet := __cUserDir
+Else
+	POpenGrp()
+	DbSelectArea("HGU")
+	DbSetOrder(2)
+	If DbSeek(cSerie)
+		nRecno := HGU->(Recno())
+		While !HGU->(Eof()) .And. HGU->HGU_SERIE = cSerie
+			HHG->(dbSeek(HGU->HGU_GRUPO))
+			cRet += Subs(HHG->HHG_EMPFIL,1,2) + "|" + AllTrim(HGU->HGU_CODBAS) + "|" 
+			HGU->(dbSkip())
+			nRet++
+		EndDo
+		GoTo(nRecno)
+	Else
+		cRet := "-1"
+	EndIf
+EndIf
+cRet := Str(nRet, 3, 0) + "|" + cRet
+Return cRet
+
+////////////////
+// Altera Status do Usuario
+////////////////
+Function HHLock(cSerie)
+Local cRet := "-1",i                              
+
+If __cAlias == Nil
+	__cAlias := POpenHH()
+Endif
+If (__cAlias)->(dbSeek(cSerie))
+	__nRecLock := (__cAlias)->(Recno())
+	If Empty((__cAlias)->HHU_LOCK) .Or. (__cAlias)->HHU_LOCK == "H" 
+		For i := 1 to 10
+	    	If (__cAlias)->(MsRLock())
+	       		If (__cAlias)->HHU_LOCK != "J" .And. (__cAlias)->HHU_LOCK != "P"  // Inclusao do Flag de Process
+					(__cAlias)->HHU_LOCK := "H" 
+					cRet := "0"
+			 	Endif
+				// Utiliza Lock Fisico, pq o Lock do registro e perdido no fim da thread
+				(__cAlias)->(MsRUnlock())
+				Return cRet
+			EndIf
+			Sleep(i * 100)
+	    Next
+	Else
+		cRet := "-2"
+	EndIf
+Else
+	cRet := "-1"
+Endif
+Return cRet
+
+Function HHUnlock(cSerie)
+Local cRet := "-1",i
+If __cAlias == Nil
+	__cAlias := POpenHH()
+Endif
+If cSerie != Nil
+	If (__cAlias)->(dbSeek(cSerie))	
+	    for i := 1 to 10
+			if (__cAlias)->(MsRLock())
+				(__cAlias)->HHU_LOCK := Space(1)  // Utiliza Lock Fisico, pq o Lock do registro e perido no fim da Thread
+				(__cAlias)->(MsRUnlock())
+				(__cAlias)->(dbCloseArea())
+				__nRecLock := Nil
+				__cAlias := Nil
+				cRet := "0"
+				return cRet
+			endif
+			sleep(i * 100)
+		next
+	EndIf
+Else
+	If __nRecLock != Nil
+		(__cAlias)->(dbgoto(__nRecLock))
+		for i := 1 to 10
+			if (__cAlias)->(MsRLock())
+				(__cAlias)->HHU_LOCK := Space(1)  // Utiliza Lock Fisico, pq o Lock do registro 
+				MsUnlock()  					 //	se perde qdo o HTTP:JOB cai por TimeOut				
+				(__cAlias)->(dbCloseArea())
+				__nRecLock := Nil
+				__cAlias := Nil
+				cRet := "0"
+				return cRet
+			endif
+			sleep(i * 100)
+		next
+	Endif
+Endif
+Return cRet
+
+
+Function HHSaveLog(cGrupo, cSerie, nOper, lOper, cObs)
+/*
+### Operacoes
+0001 - HHOPEN
+0002 - HHCLOSE
+0003 - Erro na Autenticacao do Usuario
+0010 - Sucesso na Importação do Pedido
+0011 - Erro na Importação do Pedido
+0020 - Sucesso na Importação de Cliente
+0021 - Erro na Importação de Cliente
+0030 - Sucesso na Importação de Contatos
+0031 - Erro na Importação de Contatos
+0040 - Sucesso na Importação de Mensagem
+0041 - Erro na Importação de Mensagem
+0050 - Sucesso na Importação de Ocorrencias
+0051 - Erro na Importação de Ocorrencia
+0060 - Manutencao de Sistemas
+0070 - Manutencao de Servicos
+0080 - Manutencao de Usuarios
+0081 - Exclusao de Usuario
+0090 - Manutencao de Tabelas
+0100 - Manutencao de Grupos
+0110 - Apaga base de usuario
+0120 - Criacao da base do usuario
+0500 - RPC
+*/
+Local nSeq := 1
+Local __cAliasLog := HHOpenLog()
+
+If Empty(cGrupo)
+	cGrupo := Space(6)
+EndIf
+// Verifica sequencia
+dbSelectArea(__cAliasLog)
+dbSetOrder(1)
+// Verifica sequencia do Grupo
+If dbSeek(cGrupo+cSerie)
+	While !(__cAliasLog)->(Eof()) .And. (__cAliasLog)->HHL_GRUPO = cGrupo .And. (__cAliasLog)->HHL_SERIE = cSerie
+		nSeq := Val((__cAliasLog)->HHL_SEQ)
+		(__cAliasLog)->(dbSkip())
+	EndDo
+Else
+	// Verifica sequencia do Numero de Serie
+	dbSetOrder(2)
+	dbSeek(cSerie)
+	While !(__cAliasLog)->(Eof()) .And. (__cAliasLog)->HHL_SERIE = cSerie
+		nSeq := Val((__cAliasLog)->HHL_SEQ)
+		(__cAliasLog)->(dbSkip())
+	EndDo
+EndIf
+
+If !lOper
+	(__cAliasLog)->(dbSeek(cGrupo+cSerie+Space(20-Len(cSerie))+StrZero(nSeq, 4)))
+EndIf
+
+If lOper
+	dbAppend()
+Else
+	MSRlock(Recno())
+EndIf
+(__cAliasLog)->HHL_GRUPO := cGrupo
+(__cAliasLog)->HHL_SERIE := cSerie
+(__cAliasLog)->HHL_SEQ := If(lOper, StrZero(nSeq+1, 4), StrZero(nSeq, 4))
+(__cAliasLog)->HHL_DATA := Date() 
+If lOper
+	(__cAliasLog)->HHL_HORA1 := Time() 
+	(__cAliasLog)->HHL_OPER1 := StrZero(nOper, 4)
+Else
+	(__cAliasLog)->HHL_HORA2 := Time() 
+	(__cAliasLog)->HHL_OPER2 := StrZero(nOper, 4)
+EndIf
+(__cAliasLog)->HHL_OBS := cObs
+(__cAliasLog)->(MSRUnlock())
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³ HHOpen   ³ Autor ³ Fabio Garbin          ³ Data ³ 12/02/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Retorna o Status do Usuario Palm.                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cSerie: Numero de serie do Handheld                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Integracao Palm                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function HHOpen(cSerie)
+Local cRet        := "-1"
+Local cRetHHOpen   := "-1"
+Local cRetPICheck := "-1"
+Local nReg        := 0
+Local cGrupo := ""
+Local nPos := 0
+Local cParam := cSerie
+Local cScript := ""
+Set Deleted On
+
+nPos := At("|", cParam)
+If nPos != 0
+	cSerie := Subs(cParam, 1, nPos-1)
+	cGrupo := AllTrim(Subs(cParam, nPos+1))
+EndIf
+
+dbSelectArea("HHG")
+dbSetOrder(1)
+If !dbSeek(cGrupo)
+	HHSaveLog(cGrupo, cSerie, 3, .T., "Grupo " + cGrupo + " inválido.")
+	Return cRet
+EndIf
+
+dbSelectArea("HHU")
+dbSetOrder(1)
+If !dbSeek(cSerie)
+	HHSaveLog(cGrupo, cSerie, 3, .T., "Numero de serie " + cSerie + " inválido.")
+	Return cRet
+EndIf
+
+
+GravaHHLog(cSerie + Space(20 - Len(cSerie)) + " - Iniciando   HHOPEN[1] = " + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+
+dbSelectArea("HGU")
+dbSetOrder(1)
+If dbSeek(cGrupo + Space(6- Len(cGrupo)) + cSerie )
+	cScript := HGU->HGU_SCRIPT
+EndIf
+//Grava Log
+HHSaveLog(cGrupo, cSerie, 1, .T.)
+
+PTInternal(1,"Iniciando HHOPEN " + cSerie)
+
+// Checa a quantidade Usuarios cadastrados
+__cAlias := POpenHH()
+dbSelectarea( __cAlias )
+If (__cAlias)->(dbSeek(cSerie))
+	Count To nReg For (__cAlias)->(!Deleted() )
+	cRetPICheck := Str(nReg,10,0)
+Else
+    cRetPICheck := "-3"
+EndIf
+
+// Checa o Lock do Usuario e Retorna ID do Diretorio
+cRetHHOpen := HHLock(cSerie)
+If cRetHHOpen = "0"
+    PTInternal(1,"Autenticacao do handheld "+cSerie+" OK")
+	cRetHHOpen  := HHDir(cSerie)
+Else
+    PTInternal(1,"Autenticacao do handheld "+cSerie+" Recusada")
+EndIf
+cRet := cRetHHOpen + cRetPICheck + "|" + cScript
+//ConOut(cRet)
+PTInternal(1,"Finalizando HHOPEN "+cSerie)
+GravaHHLog(cSerie + Space(20 - Len(cSerie)) + " - Finalizando HHOPEN[2] = " + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+Return cRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³ HHClose  ³ Autor ³ Fabio Garbin          ³ Data ³ 12/02/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Executa a atualizacao dos Arquivos do diretorio ATUAL.     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cSerie: Numero de serie do Handheld                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Integracao Palm                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function HHClose(cSerie)
+Local cRet
+Local __cGrp       := ""
+Local __cServAlias := ""
+Local __cServUser  := ""
+Local nPos := 0
+
+nPos := At("|", cSerie)
+If nPos != 0
+	cSerie := Subs(cSerie, 1, nPos-1)
+EndIf
+
+__cGrp       := POpenGrp()
+__cServAlias := POpenSrv()
+__cServUser  := POpenHH()
+
+Set Deleted On
+
+DEFAULT __nInterval := VAL(GetSrvProfString("HHThreadTimer","3000"))
+
+HGU->(dbSetOrder(2))
+HGU->(dbSeek(cSerie))
+cGrupo := HGU->HGU_GRUPO
+
+///cPath    := GetSrvProfString("HandHeldDir", "\HANDHELD\") + "P" + AllTrim(HGU->HGU_DIR) + "\DIFS\"
+//cConFile := "P" + AllTrim(HGU->HGU_DIR) + ".LCK"  // Arquivo que indica transacao Bloqueada
+
+// Verifica conexcao bloqueada: 
+// - Existencia do Handheld no Cadastro (HCADHH)
+// - Nao existencia do arquivo de LOCK
+// - Lock fisico de conexao (HHU_LOCK)
+If (__cServUser)->(dbSeek(cSerie)) .And. (__cServUser)->HHU_LOCK = "H"
+	// Cria Semaforo da Thread 
+	nHdl := MSFCREATE("\SEMAFORO\"+ cSerie +".LCK")
+	If (__cServUser)->(MsRLock())
+		(__cServUser)->HHU_LOCK := "P"
+		(__cServUser)->(MSRUnlock() )
+	EndIf
+	If nHdl >= 0
+		FClose(nHdl)
+		StartJob("HHUpdData", GetEnvServer(), .F., cGrupo, cSerie)
+		Sleep(__nInterval)
+		cRet := "0"
+	Else
+		cRet := "-1"
+	EndIf
+Else
+	cRet := "-1"
+	ConOut("PALMJOB: Atualizacao ignorada, conexao nao finalizada para " + cSerie + " - " + Time()) 
+	Conout("Verifique: Se ha servicos cadastrados para "+cSerie)
+	//Conout(If( File(cPath+cConFile), "Nao deve existir o arquivo "+cPath+cConFile+",que indica transacao bloqueada" , "" ) )
+	ConOut(If( (__cServUser)->HHU_LOCK = "H" , "Usuario do dispositivo esta bloqueado","" ) )
+EndIf
+GravaHHLog(cSerie + Space(20 - Len(cSerie)) + " - Finalizando HHCLOSE[2] = " + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+//Grava Log
+HHSaveLog(cGrupo, cSerie, 2, .F.)
+Return cRet
+
+Function HHUpdData(cGrupo, cSerie)
+Local nHdl           := MSFCREATE("\SEMAFORO\"+ cSerie +".LCK")
+Private __cServAlias := POpenSrv()
+Private __cServUser  := POpenHH()
+Private __cServGrp   := POpenGrp()
+Private __cSysAlias  := ""
+Private __cTblAlias  := "" 
+Private aServ        := {}
+
+Set Deleted On
+
+__cSysAlias := POpenSys()
+__cTblAlias := POpenTbl()                            
+
+aServ := PGetServ()
+
+// Posiciona Grupo
+(__cServGrp)->(dbSetOrder(1))
+(__cServGrp)->(dbSeek(cGrupo))
+
+// Posiciona Usuario
+(__cServUser)->(dbSetOrder(1))
+(__cServUser)->(dbSeek(cSerie))
+
+// Posiciona Servicos x Grupo
+(__cServAlias)->(dbSetOrder(1))
+(__cServAlias)->(dbSeek(cGrupo))
+
+// Posiciona Usuario x Grupo
+dbSelectArea("HGU")
+dbSetOrder(2)
+dbSeek(cSerie)
+While !HGU->(Eof()) .And.  AllTrim(cSerie) = AllTrim(HGU->HGU_SERIE)
+
+	// Posiciona Grupo
+	(__cServGrp)->(dbSetOrder(1))
+	(__cServGrp)->(dbSeek(HGU->HGU_GRUPO))
+
+	If nHdl < 0
+		ConOut(FError())
+		GravaHHLog((cSerie + " - " + HGU->HGU_CODBAS + " - " + Space(20 - Len(cSerie)) + " - Erro do Semaforo (HHCLOSE)=" + Str(FError(),3,0) + " - " + Time() + Chr(13) + Chr(10)))
+		dbCloseAll()
+		UserException("Erro de Criacao de Semaforo")
+	Endif
+
+	GravaHHLog(cSerie + " - " + HGU->HGU_CODBAS + " - " + Space(20 - Len(cSerie)) + " - Iniciando Atualizacao = " + DtoC(Date()) + " - " + Time() + Chr(13) + Chr(10))
+	PTInternal(1,"Iniciando importações do dispositivo " + HGU->HGU_GRUPO + "/" + cSerie)
+	//ConOut(HGU->(Recno()))
+	HHImport(HGU->HGU_GRUPO, cSerie)
+	//ConOut(HGU->(Recno()))
+	HGU->(dbSkip())
+EndDo
+cRet := HHUnlock(cSerie)
+DbCloseAll()
+Return cRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³ HHImport ³ Autor ³ Fabio Garbin          ³ Data ³ 15/10/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Executa os servicos de Importacao.                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cSerie: Numero de serie do Handheld                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Integracao Palm                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function HHImport(cGrupo, cSerie)
+Local aAlias       := {}
+Local nServ        := 0
+Local cEnv         := GetEnvServer()
+Local __cLastEmp   := "@@"
+Local aServ        := {}
+Local cGrpEmp      := ""
+Local cGrpFil      := ""
+Local ni           := 1
+Local i            := 1
+Local cRet         := ""
+Local lRPCOpened   := .F.
+Local cJobAlias    := __cServAlias + "#" + __cServUser + "#PALMUSER#" + __cServGrp + "#HGU#" + "#HGS#HHR#HST#HHT"
+
+dbSelectArea("HGS")
+dbSetOrder(1)
+If dbSeek(cGrupo)
+	// Posiciona Grupo
+	(__cServGrp)->(dbSetOrder(1))
+	(__cServGrp)->(dbSeek(cGrupo))
+	
+	cGrpEmp := Subs((__cServGrp)->HHG_EMPFIL,1,2)
+	cGrpFil := Subs((__cServGrp)->HHG_EMPFIL,3,2)
+	
+	PTInternal(1,"Importacao iniciada para o Dispositivo " + cGrupo + "/" + cSerie + " - " + cGrpEmp + "/" + cGrpFil )
+	ConOut("PALMJOB: Importacao iniciada para " + cSerie + " - " + cGrpEmp + "/" + cGrpFil + " - " + Time())
+
+	aServ := PGetServ()
+
+	(__cServUser)->(dbSetorder(1))
+	(__cServUser)->(dbSeek(cSerie))
+
+	// Posiciona Grupo
+	HHG->(dbSetorder(1))
+	HHG->(dbSeek(cGrupo))
+	While !HGS->(Eof()) .And. AllTrim(HGS->HGS_GRUPO) == AllTrim(cGrupo)
+		dbSelectArea(__cServAlias)
+		dbSetOrder(1)
+		If dbSeek(HGS->HGS_SRV)
+			If (__cServAlias)->(HHR_TIPO) = "2"
+ 				HGS->(dbSkip())
+ 				Loop
+	 		EndIf
+	 	EndIf
+		HHSetError(.F.)
+	
+  		nServ := Ascan(aServ,{|x| x[1] == HGS->HGS_SRV}) // Verifica se o Servico existe
+		If ( nServ <> 0 )
+			aAlias := HHExeTable(nServ)
+			aPalm  := HHExeArq(nServ)
+			aInd   := HHExeInd(nServ)
+
+			//executar prepare env
+			__RPCCALLED := .F.
+			If __cLastEmp != Subs((__cServGrp)->HHG_EMPFIL,1,2) 
+			    If __cLastEmp != "@@"
+					For ni := 1 to 512
+						DbSelectArea(i)  
+						If (!Empty(Alias()) .And. !(Alias()$cJobAlias))
+							DbCloseArea()
+						Endif
+					Next
+			    	RpcClearEnv(.F.)
+				Endif
+				lRPCOpened := .T.
+				RpcSetType ( 3 )
+				RpcSetEnv(cGrpEmp,cGrpFil,,,cEnv,,aAlias)
+				__cLastEmp := Subs((__cServGrp)->HHG_EMPFIL,1,2)
+				__cUserId := (__cServUser)->HHU_CODUSR				
+            Else
+            	For ni:= 1 to Len(aAlias)
+             		If Select(aAlias[ni]) == 0
+		                ChkFile(aAlias[ni])
+            		EndIf
+                Next  
+				cFilAnt :=  Subs((__cServGrp)->HHG_EMPFIL,3,2)
+            Endif
+  		EndIf
+		HHExeServ(nServ)
+		HGS->(dbSkip())
+	EndDo
+EndIf
+IF lRPCOpened
+	For i := 1 to 512
+		DbSelectArea(i)  
+		If (!Empty(Alias()) .And. !(Alias()$cJobAlias))
+			DbCloseArea()
+		Endif
+	Next
+   	RpcClearEnv(.f.)
+Else
+    ConOut("Grupo nao encontrado: " + cGrupo)
+Endif
+ConOut("PALMJOB: Importacao finalizada para "  + cSerie + " - " + cGrpEmp + "/" + cGrpFil )
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡ao    ³ HHErr  ³ Autor ³ Fabio Garbin          ³ Data ³ 05/12/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Funcao de tratamento de Erros do PALMJOB                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ HHTrgJob                                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function HHErr(e, cGrupo, cSerie)
+Local __cServUser := POpenHH()
+//Local __cGrp      := POpenGrp()
+//Local __cServGrp  := POpenGrp()
+Local cHDir      := GetSrvProfString("HHTrgDir","\HHTRG\")
+Local cFile       := ""
+Local cTo         := ""
+Local nHandle     := 0
+Local ni          := 2
+Local cMail := ""
+Local lClose := .F.
+Local cSubject := ""
+
+DEFAULT cSerie := ""
+
+MakeDir(cHDir + "\LOGS\")
+If !Empty(cSerie)
+	cSubject := "Erro no Usuário " + cSerie + " - Vendedor: " + HGU->HGU_CODBAS + ". Usuário Bloqueado em " + DtoC(Date())
+	cFile    := cHDir + "\LOGS\" + AllTrim(cSerie) + ".LOG"
+Else
+	cFile    := cHDir + "\LOGS\" + "ADMIN.LOG"
+EndIf
+
+nHandle  := If(!File(cFile),FCreate(cFile),FOpen(cFile))
+
+If Type("cEmpAnt") != "U" .And. !Empty(cEmpAnt)
+	If Select("SX6") = 0
+		dbUseArea(.T.,, "SX6" + cEmpAnt + "0", "SX6")
+		dbSetIndex("SX6" + cEmpAnt + "0")
+		cTo := GetMv("MV_HHADMIN",, "")
+		lClose := .T.
+	EndIf
+EndIf
+
+dbSelectArea(__cServUser)
+dbSetOrder(1)
+If !Empty(cSerie) .And. (__cServUser)->(dbSeek(cSerie))
+//	ConOut(nHandle)
+	If nHandle > 0
+		FWrite(nHandle, DtoC(MsDate()) + " - " + Time() + Chr(13) + Chr(10))
+		FWrite(nHandle, "Handheld           = " + AllTrim(cSerie) + " - " + HHU->HHU_NOMUSR + Chr(13) + Chr(10))
+		FWrite(nHandle, "Grupo              = " + cGrupo + Chr(13) + Chr(10))
+		FWrite(nHandle, "Vendedor          = " + HGU->HGU_CODBAS + Chr(13) + Chr(10))
+		FWrite(nHandle, "Erro Numero       = " + Str(e:genCode,5,0) + Chr(13) + Chr(10))
+		FWrite(nHandle, "Descricao do Erro = " + e:description + Chr(13) + Chr(10))
+		FWrite(nHandle, "" + Chr(13) + Chr(10))
+		FWrite(nHandle, "Procedimentos Chamados:" + Chr(13) + Chr(10))
+	Else		
+		ConOut("Handheld = " + AllTrim(cSerie) + " - " + HHU->HHU_NOMUSR)
+		ConOut("Grupo = " + cGrupo + Chr(13) + Chr(10))
+		ConOut("Vendedor = " + HGU->HGU_CODBAS)
+		ConOut("Erro Numero = " + Str(e:genCode,5,0))
+		ConOut("Descricao do Erro = " + e:description)
+		ConOut("Procedimentos Chamados:")
+		ConOut("Arquivo de Log = " + cFile)	
+	EndIf
+	cMail += "Handheld = " + AllTrim(cSerie) + " - " + HHU->HHU_NOMUSR + Chr(13) + Chr(10)
+	cMail += "Grupo = " + cGrupo + Chr(13) + Chr(10)
+	cMail += "Vendedor = " + HGU->HGU_CODBAS + Chr(13) + Chr(10)
+	cMail += "Erro Numero = " + Str(e:genCode,5,0) + Chr(13) + Chr(10)
+	cMail += "Descricao do Erro = " + e:description + Chr(13) + Chr(10)
+	cMail += "Arquivo de Log = " + cFile + Chr(13) + Chr(10)+ Chr(13) + Chr(10)
+	cMail += "Procedimentos Chamados:" + Chr(13) + Chr(10)
+EndIf	
+
+// Grava chamadas de funcoes
+While ( !Empty(ProcName(ni)) )
+	If nHandle <> 0
+		FWrite(nHandle, "Called from: " + Trim(ProcName(ni)) + "(" + Alltrim(Str(ProcLine(ni)))+")" + Chr(13) + Chr(10))
+	Else
+		ConOut("Called from: " + Trim(ProcName(ni)) + "(" + Alltrim(Str(ProcLine(ni)))+")")
+	EndIf
+	cMail += "Called from: " + Trim(ProcName(ni)) + "(" + Alltrim(Str(ProcLine(ni)))+")" + Chr(13) + Chr(10)
+	ni++
+End
+FWrite(nHandle, "" + Chr(13) + Chr(10))
+FWrite(nHandle, Replicate("-", 80) + Chr(13) + Chr(10))
+
+If !Empty(cTo)
+	HHSendMail({cTo},,, cSubject, cMail)
+EndIf
+	
+(__cServUser)->(MSRLock())
+(__cServUser)->HHU_LOCK := "B"
+(__cServUser)->(MSRUnlock())
+
+FClose(nHandle)
+If lClose
+	SX6->(dbCloseArea())
+EndIf
+Return "DEFAULTERRORPROC"
+
+Function GetHHDir()                
+Local cDir
+cDir := GetGlbvalue("__HHTRGDIR")
+IF Empty(cDir)
+   cDir := GetSrvProfString("HHTrgDir","\HHTRG\")
+   PutGlbValue("__HHTRGDIR", cDir)
+Endif                               
+Return cDir
+
+Function GravaHHLog(cMsg)
+
+#IFDEF LOGMODE
+Local nHdl := -1 , nERR := 0, cDir := GetHHDir()
+
+While nHDL < 0
+  nHdl := FOpen(cDir+"LOGPALM.TXT",FO_EXCLUSIVE+FO_READWRITE)
+  IF nHdl < 0               
+  	 IF !File(cDir+"LOGPALM.TXT")
+  	     nHdl := FCREATE(cDir+"LOGPALM.TXT")
+  	 Endif
+  	 IF nHdl < 0
+     	nERR++
+     	IF nERR > 500
+        	USEREXCEPTION("NAO CONSEGUI O LOG")
+     	Endif
+     	Sleep(100)
+     	Loop
+  	  Endif
+  Endif
+  Exit
+End     
+IF nERR > 10
+   cMsg += "- Perdi "+StrZero(nERR/10,6,0)+ " Segundos para a abertura"
+Endif
+FSEEK(nHdl,0,2)
+FWRITE(nHdl,cMsg)
+FClose(nHdl)
+#ENDIF
+Return
+
+
+Function HHInit()
+Local aPalm  := {}
+Local aAlias := {}
+Local nServ  := 0
+Local cEnv   := GetEnvServer()
+Private aServ := {}
+
+// Abre tabelas Handheld
+POpenSys() 
+POpenHH()
+POpenSrv()
+HHOpenTime()
+POpenTbl()
+POpenGrp()
+Set Deleted On
+
+dbSelectArea("HHG")
+dbSetOrder(1)
+dbGoTop()
+cGrupo := HHG->HHG_COD
+cEmp := Subs(HHG->HHG_EMPFIL,1,2)
+cFil := Subs(HHG->HHG_EMPFIL,3,2)
+DbSelectArea("HGS")
+DbSetOrder(3)
+DbSeek(cGrupo)
+While !HGS->(Eof()) .And. AllTrim(HGS->HGS_GRUPO) == AllTrim(cGrupo)
+	cServ := Trim(HGS->HGS_SRV)	
+	nServ := HHExistServ(cServ)
+	If ( nServ <> 0 )
+		//retorna nome fisico  e indices usado pelo servico
+		aAlias := HHExeTable(nServ)
+		aPalm  := HHExeArq(nServ)
+        /*
+		For i := 1 To Len(aTmpAlias)
+			cAlias += aTmpAlias[i] + ","
+		Next
+		aTmpAlias := {}
+		*/
+	EndIf
+	HGS->(dbSkip())
+End
+
+PTInternal(1,"Iniciando Ambiente...")
+RpcSetType ( 3 )
+RpcSetEnv(cEmp,cFil,,,cEnv,,aAlias)
+
+// Cria Tabela HHGEN
+//POpenHHGen()        
+
+PTInternal(1,"Aguardando Conexão...")
+Return .T.
+
+Function HHConnect(cIP,cParam)
+Local cRet := "-1"
+
+ConOut("HHConnect -> " + cParam)
+PTInternal(1,"Executando " + cParam)
+//HHSaveLog(cGrupo, cSerie, 500, .T.,)
+cRet := &(cParam)
+ConOut("HHConnect -> " + cRet)
+//HHSaveLog(cGrupo, cSerie, 500, .F., cParam)
+PTInternal(1,"Aguardando Conexão...")
+Return cRet + Chr(0)
+
+Function HHUpdTriggerOn(cEmpFil, aAlias, lActive)
+Local cEmp  := Subs(cEmpFil,1,2)
+Local cFil  := Subs(cEmpFil,3,2)
+Local lLock := .F.
+Local ni  := 0
+
+DEFAULT lActive := .T.
+
+If Empty(cEmpFil)
+	Return Nil
+EndIf
+
+For ni := 1 To Len(aAlias)
+	dbSelectArea("HHTRG")
+	dbSetOrder(1)  /// Chave = Empresa + Filial + Alias
+	If !dbSeek(cEmpFil + aAlias[ni])
+		lLock := .T.
+	Else
+		lLock := .F.
+	EndIf
+	RecLock("HHTRG", lLock)
+	HHTRG->HTR_EMP := cEmp
+	HHTRG->HTR_FIL := cFil
+	HHTRG->HTR_ALIAS := aAlias[ni]
+	HHTRG->HTR_TABLE := RetSqlName(aAlias[ni])
+	HHTRG->HTR_TRG := If(lActive, "X", Space(1))
+	MsUnlock()
+Next
+Return Nil

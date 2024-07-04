@@ -1,0 +1,2438 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "GPEA250.CH"
+#INCLUDE "FONT.CH"
+#INCLUDE "COLORS.CH"
+#INCLUDE 'FWMVCDEF.CH'	
+
+Static lIncluir	:= .F.
+Static lSigaMdtPS	:= .F.
+/*
+ÚÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡…o ³Gpea250    ³Autor³Mauro Sergio Testoni 1a.Versao             ³Data ³23/04/1996³
+³Fun‡…cao ³           ³Autor³Marinaldo de Jesus   2a.Versao             ³Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÁÄÄÂÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³ Cadastramento de Historicos Salariais                                       ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³ Cadastramento de Historicos Salariais                                       ³
+ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.                              ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄ¿
+³Programador ³ Data   ³ Chd./Requisito ³  Motivo da Alteracao                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³MOHANAD ODEH³21/06/13|Requisito:      ³-Unificacao da Folha de Pagamento. Conversao do  ³
+³            ³        ³RHU210_03_11    ³fonte para padronizacao da rotina em MVC.        ³
+³Flavio Corr ³28/08/14|TQLDI5      	 ³Ajustes no Grid, pois não existe mais a variavel 	 ³
+³            ³        ³				    ³N para MVC   								     ³
+³Flavio Corr ³19/03/15³PCREQ-4163      ³Integração Mensagem Unica                        ³
+³Nivia Ferrei³28/10/15³PCREQ-5350      ³Produtização Gestão publica V12                  ³
+³            ³        ³				    ³Ajuste nas legendas 						     ³
+³Gabriel A.  ³16/06/16³TVHDD5          ³Ajuste para permitir inclusão via MILE.          ³
+³Raquel Hager³27/06/16³TVBSTO          ³Ajuste para importação via MILE.                 ³
+³P. Pompeu...³22/09/16³TVUDW9..........³Correção Inicializador Padrão R7_MAT.............³
+³Matheus M...³18/10/16³TWHIZ7..........³Ajuste no posicionamento da Filial no SetRelation³
+³Isabel N.   ³25/10/17³DRHPAG-4648     ³Inclusão do campo R3_PD (verba) na chave da SR3. ³
+³WinstonCosta³02/01/19³DRHPAG-22991    ³Retirada do trecho que trata o AS/400            ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250(nOpcAuto)
+
+Local aArea			:= GetArea()
+Local aAreaSRA		:= SRA->(GetArea())	//-CADASTRO DE FUNCIONARIOS
+Local aAreaSR3		:= SR3->(GetArea())	//-HISTORICO VALORES SALARIAIS
+Local aAreaSR7		:= SR7->(GetArea())	//-HISTORICO ALTERACOES SALARIAIS
+Local aIndexSRA		:= {}
+Local cFiltraSRA	:= ""
+
+Local bBlock
+Local nPos
+Local nAuto			:= 0
+
+Local cFiltraRh
+Local oBrwMaster
+
+//Identifica se o SIGAMDT (Medicina e Segurança do Trabalho) eh utilizado para prestação de serviços a terceiros
+If cModulo == "MDT"
+	lSigaMdtPS := Iif(SuperGetMv("MV_MDTPS",.F.,"N") == "S", .T. , .F.)
+Else
+	lSigaMdtPS := .F.
+EndIf
+
+Private bFiltraBrw	:= {|| NIL}
+Private aRotina		:= {}
+
+If lSigaMdtps
+
+	oBrwMaster := FWmBrowse():New()		
+	oBrwMaster:SetAlias('SA1')
+	oBrwMaster:SetDescription(STR0034)   //"Clientes"
+	oBrwMaster:Activate()
+
+Else
+
+	Begin Sequence
+
+		IF (nOpcAuto <> NIL)
+			//SE INCLUSAO OU EXCLUSAO MUDA PARA ALTERACAO; SENAO, SE VISUALIZACAO == "2" MUDA PARA VISUALIZACAO == "1" 
+			nAuto := If ((nOpcAuto == 3 .OR. nOpcAuto == 5), 4, (If(nOpcAuto == 2, 1, nOpcAuto)))
+
+			FWExecView(OemToAnsi(STR0009),'GPEA250', nAuto, , { || .T. } ) //"Alteracoes Salariais"
+		Else
+			oBrwMaster := FWmBrowse():New()		
+			oBrwMaster:SetAlias('SRA')
+			oBrwMaster:SetDescription( STR0009 )   //"Alteracoes Salariais"
+
+			GpLegend(@oBrwMaster,.T.)
+
+			//VERIFICA SE O ARQUIVO ESTA VAZIO
+			IF !( ChkVazio("SRA") )
+				Break
+			EndIF
+
+			//INICIALIZA O FILTRO UTILIZANDO A FUNCAO FILBROWSE
+			cFiltraRh   := Chkrh( "GPEA250","SRA","1" )
+			//FILTRO PADRAO DO BROWSE CONFORME TABELA RFO (DEFINICAO DE BENEFICIOS)
+			oBrwMaster:SetFilterDefault(cFiltraRh)
+			oBrwMaster:Activate()
+		EndIF
+	End Sequence
+Endif
+
+RestArea(aAreaSRA)
+RestArea(aAreaSR7)
+RestArea(aAreaSR3)
+RestArea(aArea)
+
+Return(NIL)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„cao    ³ MenuDef		³Autor³MOHANAD ODEH       ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡„o ³Menu Funcional                                              ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³< Vide Parametros Formais >									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³GPEA250                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³aRotina														³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >									³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/   
+Static Function MenuDef()
+
+Local aRotina := {}
+
+If lSigaMdtps
+	ADD OPTION aRotina Title STR0004  Action 'PesqBrw'			OPERATION 1 ACCESS 0 //"Pesquisar"
+	ADD OPTION aRotina Title STR0005  Action 'NGCAD01'			OPERATION 2 ACCESS 0 //"Visualizar"
+	ADD OPTION aRotina Title STR0035  Action 'Gpea250Fun'		OPERATION 4 ACCESS 0 //"Funcionários"
+Else
+	ADD OPTION aRotina Title STR0004  Action 'PesqBrw'			OPERATION 1 ACCESS 0 //"Pesquisar"
+	ADD OPTION aRotina Title STR0005  Action 'VIEWDEF.Gpea250'	OPERATION 2 ACCESS 0 //"Visualizar"
+	If (cModulo <> "ORG") .AND. (cModulo <> "MDT") 
+		ADD OPTION aRotina Title STR0007  Action 'VIEWDEF.Gpea250'	OPERATION 3 ACCESS 0 //"Atualizar"
+	EndIf
+	ADD OPTION aRotina Title STR0033  Action 'GpLegend'	OPERATION 2 ACCESS 0 //"Legenda"
+Endif
+
+Return aRotina
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ModelDef    ³ Autor ³MOHANAD ODEH           ³ Data ³ 21/06/13   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Modelo de dados e Regras de Preenchimento para o Cadastro       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function ModelDef()
+
+Local bAvalCampo := {|cCampo| AllTrim(cCampo)+"|" $ "RA_MAT|RA_NOME|RA_ADMISSA|"}
+Local bPosValid	 := {|oMdl| Gp250PosVal(oMdl)}
+// CRIA A ESTRUTURA A SER USADA NO MODELO DE DADOS
+Local oStruSRA := FWFormStruct( 1, 'SRA', bAvalCampo, /*lViewUsado*/ )
+Local oStruSR3 := FWFormStruct( 1, 'SR3', /*bAvalCampo*/, /*lViewUsado*/ )
+Local oStruSR7 := FWFormStruct( 1, 'SR7', /*bAvalCampo*/, /*lViewUsado*/ )
+Local oModel
+Local bCommiM250	:= { | oModel | fCommit250(oModel) }                         
+
+	// CRIA O OBJETO DO MODELO DE DADOS
+	oModel := MPFormModel():New('MODELGPEA250', /*bPreValid*/ , bPosValid, bCommiM250/*bCommit*/, /*bCancel*/)
+
+	// ADICIONA AO MODELO UMA ESTRUTURA DE FORMULÁRIO DE EDIÇÃO POR CAMPO
+	oModel:AddFields( 'MODELGPEA250', /*cOwner*/, oStruSRA, /*bLOkVld*/, /*bTOkVld*/, /*bCarga*/ )
+
+	// ADICIONA GRID NO MODELO
+	oModel:AddGrid( 'MDL250DEF1', 'MODELGPEA250', oStruSR7, /*bLOkVld*/, /*bTOkVld*/, /*bCarga*/ )
+	oModel:AddGrid( 'MDL250DEF2', 'MDL250DEF1'  , oStruSR3, /*bLOkVld*/, /*bTOkVld*/, /*bCarga*/ )
+
+	// FAZ O RELACIONAMENTO DOS ARQUIVOS //-R3_FILIAL+R3_MAT+DTOS(R3_DATA)+R3_TIPO+R3_PD ### R7_FILIAL+R7_MAT+DTOS(R7_DATA)+R7_TIPO
+	oModel:SetRelation( 'MDL250DEF1', {{"R7_FILIAL", 'xFilial("SR7", SRA->RA_FILIAL)'}, {"R7_MAT", "RA_MAT"}}, SR7->(IndexKey(2)) ) 
+	oModel:SetRelation( 'MDL250DEF2', {{"R3_FILIAL", 'xFilial("SR3", SRA->RA_FILIAL)'}, {"R3_MAT", "RA_MAT"}, {"R3_DATA", 'R7_DATA'}, {"R3_SEQ", 'R7_SEQ'}, {"R3_TIPO", 'R7_TIPO'}}, SR3->(IndexKey(1)) )
+
+	// LIGA O CONTROLE DE NAO REPETICAO DE LINHA - LinOk
+	//-CHAVE UNICA SR3 - R3_FILIAL+R3_MAT+DTOS(R3_DATA)+R3_SEQ+R3_TIPO+R3_PD
+	//-CHAVE UNICA SR7 - R7_FILIAL+R7_MAT+DTOS(R7_DATA)+R7_SEQ+R7_TIPO
+	oModel:GetModel( 'MDL250DEF1' ):SetUniqueLine({'R7_DATA', 'R7_TIPO','R7_SEQ'})
+	oModel:GetModel( 'MDL250DEF2' ):SetUniqueLine({'R3_DATA', 'R3_SEQ', 'R3_TIPO', 'R3_PD'}) 
+
+	// ADICIONA A DESCRICAO DO COMPONENTE DO MODELO DE DADOS
+	oModel:GetModel('MODELGPEA250'):SetDescription(STR0009)   //"Alteracoes Salariais" 
+
+	//ALTERA AS PROPRIEDADES DOS CAMPOS
+	//PERMITE GRID SEM DADOS
+	oModel:GetModel('MDL250DEF1'):SetOptional(.T.)
+	oModel:GetModel('MDL250DEF2'):SetOptional(.T.)
+	//NAO PERMITE APAGAR LINHAS DO GRID	
+	oModel:GetModel('MDL250DEF2'):SetNoDeleteLine(.T.)
+
+	oModel:GetModel('MODELGPEA250'):SetOnlyView(.T.)
+	If !IsInCallStack("FWMILEIMPORT")
+      oStruSR7:SetProperty("R7_MAT",	MODEL_FIELD_WHEN,{|| .F. })
+      oStruSR3:SetProperty("R3_MAT",	MODEL_FIELD_WHEN,{|| .F. })
+      oStruSR3:SetProperty("R3_DATA",	MODEL_FIELD_WHEN,{|| .F. })
+      oStruSR3:SetProperty("R3_SEQ" ,	MODEL_FIELD_WHEN,{|| .F. })
+      oStruSR3:SetProperty('R3_TIPO',	MODEL_FIELD_WHEN,{|| .F. })
+	EndIf	
+	oModel:SetVldActivate( { |oModel| Gp250IniMod( oModel,oModel:GetOperation() ) } )
+
+Return oModel
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ViewDef      ³Autor ³MOHANAD ODEH           ³ Data ³ 21/06/13   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Visualizador de dados do Cadastro de Historico Salarial        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function ViewDef()
+
+// CRIA UM OBJETO DE MODELO DE DADOS BASEADO NO MODELDEF DO FONTE INFORMADO
+Local oModel   := FWLoadModel( 'GPEA250' )
+Local bAvalCampo := {|cCampo| AllTrim(cCampo)+"|" $ "RA_MAT|RA_NOME|RA_ADMISSA|"}
+// CRIA A ESTRUTURA A SER USADA NA VIEW
+Local oStruSRA := FWFormStruct( 2, 'SRA', bAvalCampo )
+Local oStruSR3 := FWFormStruct( 2, 'SR3' )
+Local oStruSR7 := FWFormStruct( 2, 'SR7' )
+Local oView
+
+If !fVldFil()
+	Return .F.
+EndIf
+
+// CRIA O OBJETO DE VIEW
+oView := FWFormView():New()
+
+// DEFINE QUAL O MODELO DE DADOS SERÁ UTILIZADO
+oView:SetModel(oModel)
+
+//ADICIONA NO NOSSO VIEW UM CONTROLE DO TIPO FORMFIELDS(ANTIGA ENCHOICE)
+oView:AddField('VIEW_GPEA250', oStruSRA, 'MODELGPEA250')
+
+//ADICIONA GRID NA INTERFACE
+oView:AddGrid( 'VIEW2GPEA250', oStruSR7, 'MDL250DEF1' )
+oView:AddGrid( 'VIEW3GPEA250', oStruSR3, 'MDL250DEF2' )
+
+// CRIAR UM "BOX" HORIZONTAL PARA RECEBER ALGUM ELEMENTO DA VIEW
+oView:CreateHorizontalBox( 'FORMFIELD',  20 )
+oView:CreateHorizontalBox( 'FORMFIELD2', 50 )
+oView:CreateHorizontalBox( 'FORMFIELD3', 30 )
+
+// RELACIONA O ID DA VIEW COM O "BOX" PARA EXIBICAO
+oView:SetOwnerView( 'VIEW_GPEA250',	'FORMFIELD' )
+oView:SetOwnerView( 'VIEW2GPEA250',	'FORMFIELD2' )
+oView:SetOwnerView( 'VIEW3GPEA250',	'FORMFIELD3' )
+
+oStruSRA:SetNoFolder()
+
+oView:SetCloseOnOk({ || .T. })		//Desabilita botão "Salvar e Criar Novo"
+
+Return oView
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³A250VLDCPOºAutor  ³MOHANAD ODEH        º Data ³ 21/06/13    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Carrega e replica conteudo de campos                        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ MODEL_FIELD_VALID                                          º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³ A250VLDCPO(nTipo, c1Campo, c2Campo, c1Extru, c2Extru)      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±ºParametros³nTipo: 1-Atribui direto um valor de uma estrutura para outraº±±
+±±º          ³nTipo: 2-Atualiza campo na mesma estrutura (Ex: descricao)  º±±
+±±º          ³c1Campo: Campo da estrutura "De"                            º±±
+±±º          ³c2Campo: Campo da estrutura "Para"                          º±±
+±±º          ³c1Extru: Estrutura "De"                                     º±±
+±±º          ³c2Extru: Estrutura "Para"                                   º±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function A250VLDCPO(nTipo, c1Campo, c2Campo, c1Extru, c2Extru)
+Local lRet := .T.
+Local oMdl     := FWModelActive()
+Local cResult  := ""
+Local cResult2 := ""
+
+Default nTipo := 1
+If !IsInCallStack("FWMILEIMPORT")
+	
+	cResult := oMdl:GetValue(c1Extru, c1Campo)
+	
+	If !Empty(cResult)
+		If nTipo = 1	//-REPLICA CONTEUDO DE UMA ESTRUTURA PARA OUTRA
+			oMdl:LoadValue(c2Extru, c2Campo, cResult)
+		Else			//-ATUALIZA CAMPOS NA PROPRIA ESTRUTURA (EX: DESCRICAO)
+			If c2Campo == "R7_DESCTIP"
+				cResult2 :=  fDesc("SX5", "41" + cResult, "X5Descri()", TamSX3("R7_DESCTIP")[1], SRA->RA_FILIAL, 01)
+			ElseIf c2Campo == "R7_DESCFUN"
+				cResult2 := fDesc("SRJ", cResult, "RJ_DESC", TamSX3("R7_DESCFUN")[1], SRA->RA_FILIAL, 01)
+			ElseIf c2Campo == "R7_DESCCAR"
+				cResult2 := fDesc("SQ3", cResult, "Q3_DESCSUM", TamSX3("R7_DESCCAR")[1], SRA->RA_FILIAL, 01)
+			EndIf
+	
+			If !Empty(cResult2)
+				oMdl:LoadValue(c1Extru, c2Campo, cResult2)
+			EndIf
+		Endif
+	Endif
+EndIf
+Return lRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡…o    ³R3PdVld	    ³Autor  ³Marinaldo de Jesus   ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡…o ³Validar o Codigo da Verba Digitado no R3_PD e Carregar a Des³
+³          ³criacao no R3_DESCPDo no Campo correspondente               ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R3PdVld()
+Local cPd		:= &(ReadVar())
+Local lR3PdOk	:= .T.
+Local oModel	:= FWModelActive()
+Local oGrid		:= oModel:GetModel('MDL250DEF2')
+
+Begin Sequence
+ 
+  //NAO PERMITE ALTERACAO SE A LINHA DA GETDADOS ESTIVER DELETADA
+  IF !(lR3PdOk := !(oGrid:IsDeleted()))
+    MsgInfo(OemToAnsi(STR0018)) //"N„AO ‚ PERMITIDA A ALTERACA‡„O DA VERBA EM LINHAS DELETADAS"
+    Break
+  EndIF
+
+  //VERIFICA SE A VERBA E VALIDA
+  IF !(lR3PdOk := ((cPd == "000") .or. Existcpo("SRV")))
+    Break
+  EndIF
+
+  //CARREGA A DESCRICAO DA VERBA
+  Gpea250PdDes(cPd)
+
+End Sequence
+
+Return(lR3PdOk)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R3SeqInit   ³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡…o ³Inicializador padrao para o campo R3_SEQ 					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO para o campo R3_SEQ                              ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R3SeqInit()
+
+Local uRet := ""
+Local oMdl := FWModelActive()
+
+uRet := oMdl:GetValue("MDL250DEF1", "R7_SEQ")
+
+If Empty(uRet)
+	uRet := 1
+EndIf
+
+Return uRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡…o    ³R3TipoInit  ³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…cao ³Inicializador padrao para o campo R3_TIPO 					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO para o campo R3_TIPO                             ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R3TipoInit()
+Local uRet := ""
+Local oMdl := FWModelActive()
+
+uRet := oMdl:GetValue("MDL250DEF1", "R7_TIPO")
+
+Return uRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡o  ³R3DataInit  ³Autor  ³MOHANAD ODEH           ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡…o³Inicializador padrao para o campo R3_DATA 					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO para o campo R3_DATA                             ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R3DataInit()
+Local uRet := ""
+Local oMdl := FWModelActive()
+
+uRet := oMdl:GetValue("MDL250DEF1", "R7_DATA")
+
+Return uRet
+
+// ******************************************************************
+// Inicializador padrao para o campo R7_MAT
+// ******************************************************************
+Function R7MatInit()
+Local uRet := ""
+
+uRet := SRA->RA_MAT
+
+Return uRet
+
+// ******************************************************************
+// Inicializador padrao para o campo R3_MAT
+// ******************************************************************
+Function R3MatInit()
+Local uRet := ""
+
+uRet := SRA->RA_MAT
+
+Return uRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³R7FuncaoInit   ³Autor³MOHANAD ODEH          ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Inicializador padrao para o campo R7_FUNCAO                 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO do campo R7_FUNCAO                               ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7FuncaoInit()
+Return(IF((Left(cModulo, 3) <> "TRM"), SRA->RA_CODFUNC, Space(TamSX3("R7_FUNCAO")[1])))
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡…o    ³R7DescFunInit  ³Autor³MOHANAD ODEH        ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Inicializador padrao para o campo R7_DESCFUN                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO do campo R7_DESCFUN                              ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7DescFunInit()
+Local cDescFun	:= Space(TamSX3("R7_DESCFUN")[1])
+
+IF (Left(cModulo, 3) <> "TRM")
+  cDescFun := fDesc("SRJ", SRA->RA_CODFUNC, "RJ_DESC", TamSX3("R7_DESCFUN")[1], SRA->RA_FILIAL, 01)
+EndIF
+
+Return(cDescFun)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funca‡o   ³ R7CargoInit   ³Autor³MOHANAD ODEH        ³ Data ³21/06/13   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…cao³Inicializador padrao para o campo R7_CARGO                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso      ³X3_RELACAO do campo R7_CARGO                                 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7CargoInit()
+Return(IF((Left(cModulo, 3) <> "TRM"),SRA->RA_CARGO, Space(TamSX3("R7_CARGO")[1])))
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R7DescCargInit ³Autor³Raquel Hager        ³ Data ³18/05/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…cao ³Inicializador padrao para o campo R7_DESCCAR                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO do campo R7_DESCCAR                              ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7DescCargInit()
+Local cDescCarg	:= Space(TamSX3("R7_DESCCAR")[1])
+
+IF (Left(cModulo, 3) <> "TRM")
+  cDescCarg := fDesc("SQ3", SRA->RA_CARGO, "Q3_DESCSUM", TamSX3("R7_DESCCAR")[1])
+EndIF
+
+Return(cDescCarg)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R7TipoVld	³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡…o ³Atribuicao de R7_Tipo para R3_tipo e Descricao de Tipo      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7TipoVld()
+
+//REPLICA R7_TIPO PARA R3_TIPO
+A250VLDCPO(1, 'R7_TIPO'	 , 'R3_TIPO'	, 'MDL250DEF1', 'MDL250DEF2')
+//CARREGA DESCRIÇÃO
+A250VLDCPO(2, 'R7_TIPO'	 , 'R7_DESCTIP'	, 'MDL250DEF1', 'MDL250DEF1')
+
+Return .T.
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R7TipoVld	³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…cao ³Validar a Data Digitada para o Campo R7_DATA e Acertar o R3_³
+³          ³DATA quando houver modificacao da no R7_DATA                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7DataVld()
+
+If !NAOVAZIO() //A DATA NAO PODE ESTAR EM BRANCO
+	Return .F.
+EndIf
+
+If (&(ReadVar()) < SRA->RA_ADMISSA) // COMPARA SE DATA MENOR QUE DATA DE ADMISSAO
+	Help(" ",1,".GPEA25001.")
+	Return .F.
+EndIf
+
+If R7SeqInit(&(ReadVar()))
+	A250VLDCPO(1, 'R7_DATA', 'R3_DATA', 'MDL250DEF1', 'MDL250DEF2')
+EndIf
+
+Return(.T.)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R7TipoVld	³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…cao ³Validar o Codigo da Funcao Digitado no R7_FUNCAO e  Carregar³
+³          ³a Descricao da Funcao no Campo correspondente               ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7FuncaoVld()
+
+// CARREGA A DESCRICAO DA FUNCAO
+A250VLDCPO(2, "R7_FUNCAO", 'R7_DESCFUN', 'MDL250DEF1', 'MDL250DEF1')
+
+Return(.T.)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³R7DescTipInit  ³Autor³Marinaldo de Jesus  ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Inicializador padrao para o campo R7_DESCTIP                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³X3_RELACAO do campo R7_DESCTIP                              ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function R7DescTipInit()
+Local cDescTip	:= space(25)  
+Local cTipoR7 	:= ""
+
+If (Type( "oGetSR7") <> "U") 
+  cTipoR7 := ""
+Else // #
+  If SELECT("QRYSR7") > 0
+    cTipoR7 := QRYSR7->R7_TIPO
+  Else
+    cTipoR7 := SR7->R7_TIPO
+  Endif
+EndIf
+
+If !Empty(cTipoR7)
+	If cPaisLoc == "RUS"
+    	cDescTip := fReasDesc(cTipoR7)
+  	Else
+  		cDescTip    :=  fDesc("SX5", "41" + cTipoR7, "X5Descri()", TamSX3("R7_DESCTIP")[1], SR7->R7_FILIAL, 01)
+	EndIf	
+EndIf	
+
+Return cDescTip     
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…cao    ³R7SeqInit   ³Autor  ³MOHANAD ODEH         ³ Data ³21/06/13  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descrica‡…o ³Inicializador padrao para o campo R7_SEQ 					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250								                        ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function R7SeqInit(dR7Data)
+Local oMdl     		:= FWModelActive()
+Local oModel     	:= oMdl:GetModel('MDL250DEF1')
+Local lR7SeqInitOk	:= .T.
+Local cReplicate	:= Replicate("0", GetSx3Cache("R7_SEQ", "X3_TAMANHO"))
+Local cR7SeqInit	:= cReplicate
+Local nR7Data
+Local nTotLin		:= 0
+Local nLinha		:= 0
+Local nQtdData		:= 0
+Local aR7aCols 		:= AClone(oModel:aCols) // SALVA MODELO ORIGINAL
+
+ASORT(oModel:aCols,,, {|x,y| x[3] < y[3]}) // ORDENA PARA MANIPULAÇÃO
+
+	nTotLin := oModel:GetQtdLine()
+	oModel:LoadValue('R7_SEQ', "0")
+	For nLinha:=1 to nTotLin
+	
+		If ((!oModel:IsUpdated(nLinha)) .And. (oModel:GetValue('R7_DATA', nLinha) != dR7Data) .And. (nLinha > nTotLin))
+			Exit
+		EndIf
+	
+		If oModel:GetValue('R7_DATA', nLinha) == dR7Data
+			nQtdData++ // CONTROLA QUANTIDADE DA DATA ESCOLHIDA
+			If !Empty(oModel:GetValue('R7_SEQ', nLinha)) .AND. oModel:GetValue('R7_SEQ', nLinha) <> "0"
+				If (Val(oModel:GetValue('R7_SEQ', nLinha)) > Val(cR7SeqInit)) .AND. nQtdData >= 1
+					cR7SeqInit := oModel:GetValue('R7_SEQ', nLinha)
+				EndIf
+			EndIf	
+		EndIf
+	Next
+
+    IF Empty(cR7SeqInit)
+		cR7SeqInit  := cReplicate
+    EndIF
+
+    cR7SeqInit  := Soma1(cR7SeqInit)
+
+	oModel:aCols := aClone(aR7aCols) // RESTAURA MODELO ORIGINAL
+
+	IF !(lR7SeqInitOk := (cR7SeqInit <> cReplicate))
+		MsgInfo(OemToAnsi(STR0027)) //"ULTRAPASSOU O NÚMERO DE SEQUÊNCIAS PERMITIDAS PARA A DATA."
+	Else
+		oModel:LoadValue("R7_SEQ", cR7SeqInit) // ATRIBUI VALOR DA SEQUENCIA
+		A250VLDCPO(1, 'R7_SEQ', 'R3_SEQ', 'MDL250DEF1', 'MDL250DEF2') // REPLICA MESMA SEQUENCIA PARA SR3
+	EndIF
+
+Return(lR7SeqInitOk)
+
+// ESSA FUNCAO FOI MANTIDA SOMENTE POR SER CHAMADA PELA ROTINA DE "CONTROLE DE PROGRAMAS DO FUNCIONARIO" (TRMA100)
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250Atu³ Autor ³Marinaldo de Jesus     ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Manutencao dos Historicos Salariais			                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³Gpea250Atu( cAlias , nReg , nOpcX )			                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ExpC1 = Alias do arquivo                                    ³
+³          ³ExpN1 = Numero do registro                                  ³
+³          ³ExpN2 = Numero da opcao selecionada                         ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³ GPEA250                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250Atu(cAlias , nReg , nOpcX , aObjSize , oDlg)
+Local aArea				:= GetArea()
+Local aSvKeys			:= GetKeys()
+Local aAdvSize			:= {}
+Local aInfoAdvSize		:= {}
+Local aObjCoords		:= {}
+Local aButtons			:= {}
+Local bSet15			:= { || NIL }
+Local bSet24			:= { || NIL }
+Local bR7DelLinOk		:= { || Gpea250R7DOk() }
+Local bR3DelLinOk		:= { || Gpea250R3DOk( oGetSR7 ) }
+Local bGdSR7SR3Seek		:= { || NIL }
+Local nOpcA				:= 0
+Local nCnt				:= 0
+Local oFont				:= NIL
+Local oGroup			:= NIL	
+Local lGpAltSal	     	:= ExistBlock( "GPALTSAL" )//variavel para PE GPALTSAL
+
+
+_SetOwnerPrvt( "aLstR7aColsAll"	, {} )
+_SetOwnerPrvt( "aLstR3aColsAll"	, {} )
+_SetOwnerPrvt( "aColsR7"	 	, {} ) 
+_SetOwnerPrvt( "aHeaderR7"	 	, {} ) 
+_SetOwnerPrvt( "aColsR7All"	 	, {} ) 
+_SetOwnerPrvt( "aHeaderR7All"	, {} ) 
+_SetOwnerPrvt( "aNotFldR7"	 	, { "R7_FILIAL" , "R7_MAT" , "R7_USERLGI" , "R7_USERLGA" } )
+_SetOwnerPrvt( "aNaoAltR7"	 	, { "R7_FILIAL" , "R7_MAT" , "R7_USUARIO" , "R7_SEQ" } )
+_SetOwnerPrvt( "aRecnosR7"	 	, {} ) 
+_SetOwnerPrvt( "aVirtualR7"	 	, {} ) 
+_SetOwnerPrvt( "aVisualR7"	 	, {} ) 
+_SetOwnerPrvt( "aAlteraR7"	 	, {} ) 
+_SetOwnerPrvt( "aHeaderR3"	 	, {} ) 
+_SetOwnerPrvt( "aColsR3All"	 	, {} ) 
+_SetOwnerPrvt( "aHeaderR3All"	, {} ) 
+_SetOwnerPrvt( "aNotFldR3"	 	, { "R3_FILIAL" , "R3_MAT" , "R3_USERLGI" , "R3_USERLGA" } )
+_SetOwnerPrvt( "aNaoAltR3"	 	, { "R3_FILIAL" , "R3_MAT" , "R3_TIPO"  , "R3_DATA" , "R3_SEQ" } )
+_SetOwnerPrvt( "aRecnosR3"	 	, {} ) 
+_SetOwnerPrvt( "aVirtualR3"	 	, {} ) 
+_SetOwnerPrvt( "aVisualR3"	 	, {} ) 
+_SetOwnerPrvt( "aAlteraR3"	 	, {} ) 
+_SetOwnerPrvt( "cFilSRA"	 	, SRA->RA_FILIAL)
+_SetOwnerPrvt( "cMatSRA"	 	, SRA->RA_MAT)
+_SetOwnerPrvt( "nOpcNewGd"		, IF( ( nOpcX == 2 ) .or. ( nOpcX == 5 ) , 0 , ( GD_INSERT + GD_UPDATE + GD_DELETE ) ) )
+_SetOwnerPrvt( "oGetSR7"		, NIL )
+_SetOwnerPrvt( "oGetSR3" 		, NIL )
+_SetOwnerPrvt( "aColsAntR3"		, {} )
+_SetOwnerPrvt( "aColsAntR7"		, {} )
+
+If lIncluir
+	nOpcx := 3
+	lIncluir :=.F.
+Endif
+
+fSeqHistSal() //FUNCAO PARA PREENCHIMENTO DOS CAMPOS R7_SEQ E R3_SEQ
+
+Begin Sequence
+
+  //NA INCLUSAO COLOCA O PONTEIRO DOS ARQUIVOS SR7 E SR3 EM EOF
+  IF (nOpcx == 3)
+    PutFileInEof("SR7")
+    PutFileInEof("SR3")
+  EndIf
+
+  //PREPARANDO AMBIENTE DE TRABALHO
+  //"AGUARDE!"###"PREPARANDO O AMBIENTE..."
+  MsAguarde({|| nCnt := Gpea250AmbPrep(nOpcx)}, OemToAnsi(STR0020), OemToAnsi(STR0023))
+
+  //VERIFICA SE EXISTE ALGUM DADO NO ARQUIVO
+  If !( funname() == "TRMA100" .OR. cModulo == "ORG" )
+    IF ( ( nCnt > 0 ) .and. ( nOpcX == 3 ) )            //--Quando Inclusao e existir Registro
+      Help(" ",1,"A250ESAL")
+      Break
+    ElseIF ( ( nCnt == 0 ) .and. ( nOpcX # 3 ) )        //--Quando Nao for Inclusao e nao existir Registro
+      Help(" ",1,"A250NSAL")
+      Break
+    EndIf
+  EndIf
+
+  //MONTA AS DIMENSOES DOS OBJETOS
+  If !(funname() == "TRMA100")
+    aAdvSize        := MsAdvSize()
+    aInfoAdvSize    := { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 5 , 5 }
+    aAdd( aObjCoords , { 000 , 020 , .T. , .F. } )
+    aAdd( aObjCoords , { 000 , 000 , .T. , .T. } )
+    aAdd( aObjCoords , { 000 , 000 , .T. , .T. } )
+    aObjSize        := MsObjSize( aInfoAdvSize , aObjCoords )
+
+    //DEFINE O BOTAO DE PESQUISA NA GETDADOS
+    bGdSR7SR3Seek := {|| GdSR7SR3Seek(), SetKey(VK_F4, bGdSR7SR3Seek)}
+    aAdd(;
+            aButtons ,;
+                        {;
+                            "pesquisa"                          ,;
+                            bGdSR7SR3Seek                       ,;
+                            OemToAnsi( STR0004 + "...<F4>"  )   ,;  //"Pesquisar"
+                            OemToAnsi( STR0004 )                 ;  //"Pesquisar"
+                        };
+         )
+
+    //MONTA DIALOGO PARA MANUTENCAO/CONSULTA DO SR7
+    DEFINE FONT oFont NAME "Arial" SIZE 0,-11 BOLD
+    DEFINE MSDIALOG oDlg TITLE OemToAnsi(STR0012) FROM aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] OF oMainWnd PIXEL  //"Altera‡”es Salariais
+
+    @ aObjSize[1,1], aObjSize[1,2]      GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]*0.18   LABEL OemToAnsi(STR0013) OF oDlg PIXEL              // "Matricula:"
+    oGroup:oFont:= oFont
+    @ aObjSize[1,1], aObjSize[1,4]*0.185    GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]*0.87   LABEL OemToAnsi(STR0014) OF oDlg PIXEL  // "Nome:"
+    oGroup:oFont:= oFont
+    @ aObjSize[1,1], aObjSize[1,4]*0.875    GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]        LABEL OemToAnsi(STR0017) OF oDlg PIXEL                      // "Admiss„ao:"
+    oGroup:oFont:= oFont
+
+    @ aObjSize[1,1]+10, aObjSize[1,2]*2.5   SAY OemToAnsi(SRA->RA_MAT)      SIZE 050,10 OF oDlg PIXEL FONT oFont
+    @ aObjSize[1,1]+10, aObjSize[1,4]*0.20  SAY OemToAnsi(SRA->RA_NOME)     SIZE 146,10 OF oDlg PIXEL FONT oFont
+    @ aObjSize[1,1]+10, aObjSize[1,4]*0.89  SAY Dtoc(SRA->RA_ADMISSA)       SIZE 050,10 OF oDlg PIXEL FONT oFont
+
+  EndIF
+
+  oGetSR7 := MsNewGetDados():New(aObjSize[2,1],aObjSize[2,2],aObjSize[2,3],aObjSize[2,4],nOpcNewGd,"Gpea250R7LOk","Gpea250R7TOk","",aAlteraR7,0,99999,NIL,NIL,bR7DelLInOk,oDlg,aHeaderR7,aColsR7)
+  oGetSR7:bChange := { |lChange|;
+                              Gpea250AllTrf(  "SR3"           ,;  //01 -> Alias do Arquivo
+                                              oGetSR7         ,;  //02 -> Objeto GetDados para o SR7
+                                              @oGetSR3:aCols  ,;  //03 -> aCols utilizado na GetDados
+                                              aHeaderR3       ,;  //04 -> aHeader utilizado na GetDados
+                                              @aColsR3All     ,;  //05 -> aCols com todas as informacoes
+                                              aHeaderR3All    ,;  //06 -> aHeader com todos os campos
+                                              lChange         ,;  //07 -> Se carrega elemento de Deletado na remontagem do aCols
+                                              .F.             ,;  //08 -> Se transfere do aCols para o aColsAll
+                                              .T.              ;  //09 -> Se transfere do aColsAll para o aCols
+                                               ),;
+                              oGetSR3:Goto( 1 ),;
+                              oGetSR3:Refresh();
+                      }
+  oGetSR3 := MsNewGetDados():New(aObjSize[3,1],aObjSize[3,2],aObjSize[3,3],aObjSize[2,4],nOpcNewGd,"Gpea250R3LOk","Gpea250R3TOk","",aAlteraR3,0,99999,NIL,NIL,bR3DelLinOk,oDlg,aHeaderR3,GdRmkaCols(aHeaderR3,.F.))
+  oGetSR3:oBrowse:bLostFocus := { |nAtR7,lLinOk|;
+                                      nAtR7   := oGetSR7:oBrowse:nAt,;
+                                      lLinOk  := .F.,;
+                                      IF( lLinOk := oGetSR3:LinhaOk(),;
+                                          Gpea250AllTrf(  "SR3"           ,;  //01 -> Alias do Arquivo
+                                                          oGetSR7         ,;  //02 -> Objeto GetDados para o SR7
+                                                          @oGetSR3:aCols  ,;  //03 -> aCols utilizado na GetDados
+                                                          aHeaderR3       ,;  //04 -> aHeader utilizado na GetDados
+                                                          @aColsR3All     ,;  //05 -> aCols com todas as informacoes
+                                                          aHeaderR3All    ,;  //06 -> aHeader com todos os campos
+                                                          .T.             ,;  //07 -> Se carrega elemento de Deletado na remontagem do aCols
+                                                          .T.             ,;  //08 -> Se transfere do aCols para o aColsAll
+                                                          .T.              ;  //09 -> Se transfere do aColsAll para o aCols
+                                                       ),;
+                                          (;
+                                              oGetSR7:Goto( nAtR7 ),;
+                                              oGetSR3:oBrowse:SetFocus(),;
+                                              oGetSR3:Goto( oGetSR3:oBrowse:nAt ),;
+                                              oGetSR3:Refresh();
+                                          );
+                                        ),;
+                                  lLinOk;
+                                 }
+
+  bSet15  := { |__oSvBrwbValid__,lTudoOk,loDlgEnd| loDlgEnd := IF( ( ValType( loDlgEnd ) == "L" ) , loDlgEnd , .T. ),; //loDlgEnd DEFAULT .T., .F. quando no TRMA100.PRW
+                                                      IF(;
+                                                              (;
+                                                                  __oSvBrwBValid__:= oGetSR7:oBrowse:bValid ,;                                    //Salva o Conteudo de oGetSR7:oBrowse:bValid
+                                                                  oGetSR7:oBrowse:bValid := { |cFinal| cFinal := "FinalTudoOk" , .T. },;          //Redefine
+                                                                  ( lTudoOk := ( Eval( oGetSR3:oBrowse:bLostFocus ) .and. oGetSR7:TudoOk() ) ),;  //oGetSR7:TudoOk() com a Nova definicao
+                                                                  oGetSR7:oBrowse:bValid := __oSvBrwbValid__ ,;                                   //Restaura oGetSR7:oBrowse:bValid
+                                                                  IF( lTudoOk , oGetSR7:TudoOk() , lTudoOk );                                     //Aqui oGetSR7:TudoOk com oGetSR7:oBrowse:bValid DEFAULT
+                                                              ),;
+                                                              IF( loDlgEnd , ( nOpcA := 1 , oDlg:End() ) , NIL ),;    //Nao Mexer ( utilizado no TRMA100.PRW )
+                                                              IF( loDlgEnd , ( nOpcA := 0 ) , NIL );                  //Nao Mexer ( utilizado no TRMA100.PRW )
+                                                          ),;
+                                                   lTudoOk; //Retorno no bSet15 ( Nao Mexer, retorno utilizado no TRMA100.PRW )
+              }
+  bSet24  := { || oDlg:End() }
+
+  //INTERROMPE SE A CHAMADA FOR PELO CARGOS E SALARIOS
+  IF (funname() == "TRMA100")
+    Break
+  EndIF
+  //COPIA DO ACOLS SR7
+  aColsAntR7 := aClone(oGetSR7:aCols)
+
+  ACTIVATE MSDIALOG oDlg ON INIT (EnchoiceBar(oDlg, bSet15, bSet24, NIL, aButtons), SetKey( VK_F4 , bGdSR7SR3Seek ))
+
+  //RESTAURA O ESTADO DAS TECLAS DE ATALHO
+  RestKeys(aSvKeys, .T.)
+
+  IF ((nOpcA == 1.00) .AND. (nOpcX # 2))
+    /*
+    ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+    ³Compara os Arrays Atuais com os Iniciais e, caso hajam diferen³
+    ³cas, Prepara os Arrays para Gravacao e Efetiva a Gravacao     ³
+    ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+    MsAguarde( { || Gpea250Grava( nOpcX , oGetSR7 ) },; //Efetuando a Gravacao ou Delecao
+                    OemToAnsi( STR0020 ),;              //"Aguarde!"
+                    OemToAnsi( IF( nOpcX == 5 , STR0022 , STR0021 ) );//###Deletando..."###"Gravando..."
+                 )
+	/*ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+    ³Ponto de Entrada GPALTSAL para atualizar tabela personalizada,³
+    ³reutilizado do fonte GPEA010 - Cadastramento de Funcionarios. ³
+    ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+    If lGpAltSal
+      Execblock("GPALTSAL",.F.,.F.,{nOpcX})
+    Endif
+  EndIF
+
+End Sequence
+
+RestArea(aArea)
+
+If nOpcx == 3    //--Quando Inclusao
+  MBrChgLoop(.F.)
+Else
+  Return( { oGetSR7 , bSet15 , oGetSR3 } )
+EndIF   
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³GdSR7SR3Seek ³Autor³Marinaldo de Jesus    ³ Data ³11/07/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Efetuar Pesquisa na GetDados                               	³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³APDA010                                                		³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function GdSR7SR3Seek()
+Local aSvKeys 		:= GetKeys()
+Local cTitle
+Local nOpcSeek
+
+Begin Sequence
+
+  IF ( ( nOpcSeek := Gpea250ObjGdSeek( @cTitle ) ) == 0 )
+    Break
+  EndIf
+
+  IF ( nOpcSeek == 1 )
+    GdSeek( oGetSR7 , OemToAnsi( cTitle ) )
+  ElseIF ( nOpcSeek == 2 )
+    GdSeek( oGetSR3 , OemToAnsi( cTitle ) )
+  EndIF
+
+End Sequence
+
+RestKeys( aSvKeys , .T. )
+
+Return( NIL )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³Gpea250ObjGdSeek³Autor³Marinaldo de Jesus ³ Data ³11/07/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Retorna as Opcoes para Pesquisa na GetDados                 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<vide parametros formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ 															³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³Numero do Objeto para Pesquisa na GetDados                  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso	     ³GPEA250													    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function Gpea250ObjGdSeek(cTitle)
+Local aSvKeys		:= GetKeys()
+Local aItens		:= {}
+Local bSet15		:= { || lOpcOk	:= .T.	, RestKeys( aSvKeys , .T. ) , oDlg:End() }
+Local bSet24		:= { || nOpcRel	:= 0	, RestKeys( aSvKeys , .T. ) , oDlg:End() }
+Local lOpcOk		:= .F.
+Local nOpjGdSeek	:= 1
+Local oRadio
+Local oDlg
+Local oGroup
+Local oFont
+Local aAdvSize		:= {}
+Local aInfoAdvSize	:= {}
+Local aObjSize		:= {}
+Local aObjCoords	:= {}
+
+Begin Sequence
+
+  aAdd( aItens , STR0030 )    //"Cabecalho"
+  aAdd( aItens , STR0031 )    //"Itens"
+
+  aAdvSize    := MsAdvSize( , .T., 20)
+  aInfoAdvSize    := { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 5 , 5 }
+  aAdd( aObjCoords , { 000 , 000 , .T. , .T. }  )
+  aObjSize    := MsObjSize( aInfoAdvSize , aObjCoords )
+
+  DEFINE FONT oFont NAME "Arial" SIZE 0,-11 BOLD
+  DEFINE MSDIALOG oDlg FROM  aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] TITLE OemToAnsi( STR0004 ) PIXEL        //"Pesquisar"
+
+  @ aObjSize[1,1],aObjSize[1,2]   GROUP oGroup TO aObjSize[1,3],aObjSize[1,4] LABEL OemToAnsi( STR0029 ) OF oDlg PIXEL    //"Selecione o Objeto da Pesquisa"
+  oGroup:oFont:=oFont
+
+  oRadio          := TRadMenu():New( aObjSize[1,1]+10 , aObjSize[1,2]+10 , aItens , NIL , oDlg , NIL , NIL , NIL , NIL , NIL , NIL , NIL , 115 , 010 , NIL , NIL , NIL , .T. )
+  oRadio:bSetGet  := { |nItem| IF( nItem <> NIL , nOpjGdSeek := nItem , nOpjGdSeek ) }
+
+  oDlg:lEscClose := .F. //Nao permite sair ao se pressionar a tecla ESC.
+
+  ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar( oDlg , bSet15 , bSet24 )
+  RestKeys( aSvKeys , .T. )
+
+  IF !( lOpcOk )
+    nOpjGdSeek := 0
+  Else
+    DEFAULT cTitle := ( STR0004 + " - " )   //Pesquisar
+    cTitle += aItens[ nOpjGdSeek ]
+  EndIF
+
+End Sequence
+
+Return( nOpjGdSeek )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250AmbPrep³Autor³Marinaldo de Jesus   ³ Data ³29/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Preparando o Ambiente de Trabalho                           ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Gpea250AmbPrep(nOpcx)
+
+Local aAreaSR3      := SR3->( GetArea() )
+Local aAreaSR7      := SR7->( GetArea() )
+Local aQueryR7Cond	:= {}
+Local aQueryR3Cond	:= {}
+Local cKeySeek		  := ""
+Local nCpo			    := 0
+Local nUsadoR7		  := 0
+Local nUsadoR3		  := 0
+
+//MONTA A CHAVE PARA PESQUISA NO SR7 E SR3
+cKeySeek := ( cFilSRA + cMatSRA )
+
+//MONTA QUERY PARA A SELECAO DAS INFORMACOES EM GDMONTACOLS
+#IFDEF TOP
+  aQueryR7Cond    := Array( 05 )
+  aQueryR7Cond[01] := "R7_FILIAL='"+cFilSRA+"'"
+  aQueryR7Cond[02] := " AND "
+  aQueryR7Cond[03] := "R7_MAT='"+cMatSRA+"'"
+  aQueryR7Cond[04] := " AND "
+  aQueryR7Cond[05] := "D_E_L_E_T_=' ' "
+#ENDIF
+
+//SELECIONA A ORDEM PARA A OBTENCAO DOS DADOS
+dbSelectArea("SR7")
+SR7->( dbSetOrder( RetOrdem( "SR7" , "R7_FILIAL+R7_MAT+DTOS(R7_DATA)+R7_SEQ+R7_TIPO" ) ) )
+bSeekWhile	:= {|| SR7->R7_FILIAL + SR7->R7_MAT }
+
+//CARREGA TODAS AS INFORMACOES DO R7 PARA O FUNCAIONARIO
+aColsR7All := GdMontaCols(	@aHeaderR7All	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+		  				    @nUsadoR7  		,;	//02 -> Numero de Campos em Uso
+		  					@aVirtualR7		,;	//03 -> [@]Array com os Campos Virtuais
+		  					@aVisualR7		,;	//04 -> [@]Array com os Campos Visuais
+		  					"SR7"			,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+		  					NIL				,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+		  					@aRecnosR7		,;	//07 -> [@]Array unidimensional contendo os Recnos
+		  					"SR7"			,;	//08 -> Alias do Arquivo Pai
+		  					cKeySeek		,;	//09 -> Chave para o Posicionamento no Alias Filho
+		  					bSeekWhile		,;	//  NIL	  10 -> Bloco para condicao de Loop While
+		  					NIL				,;	//11 -> Bloco para Skip no Loop While
+		  					.T.				,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+		  					NIL				,;	//13 -> Se cria variaveis Publicas
+		  					NIL				,;	//14 -> Se Sera considerado o Inicializador Padrao
+		  					NIL				,;	//15 -> Lado para o inicializador padrao
+		  					.T.				,;	//16 -> Opcional, Carregar Todos os Campos
+		  					NIL 			,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+							aQueryR7Cond	,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+							.F.				,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+							.F.				,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+							.T.		 		 ;	//21 -> Carregar Coluna Fantasma
+				)
+
+//MONTAR O AHEADER PARA USO E DEFINIR OS CAMPOS EDITAVEIS
+For nCpo := 1 To nUsadoR7
+  IF (;
+        ( aScan( aVirtualR7     , aHeaderR7All[ nCpo , 02 ] ) == 0 ) .and. ;
+        ( aScan( aVisualR7      , aHeaderR7All[ nCpo , 02 ] ) == 0 ) .and. ;
+        ( aScan( aNaoAltR7      , aHeaderR7All[ nCpo , 02 ] ) == 0 )       ;
+    )
+    aAdd( aAlteraR7 , aHeaderR7All[ nCpo , 02 ] )
+  EndIF
+  IF ( aScan( aNotFldR7 , aHeaderR7All[ nCpo , 02 ] ) == 0 )
+    aAdd( aHeaderR7 , aClone( aHeaderR7All[ nCpo ] ) )
+  EndIF
+Next nCpo
+
+//MONTA QUERY PARA A SELECAO DAS INFORMACOES EM GDMONTACOLS
+#IFDEF TOP
+  aQueryR3Cond    := Array( 05 )
+  aQueryR3Cond[01] := "R3_FILIAL='"+cFilSRA+"'"
+  aQueryR3Cond[02] := " AND "
+  aQueryR3Cond[03] := "R3_MAT='"+cMatSRA+"'"
+  aQueryR3Cond[04] := " AND "
+  aQueryR3Cond[05] := "D_E_L_E_T_=' ' "
+#ENDIF
+
+//SELECIONA A ORDEM PARA A OBTENCAO DOS DADOS
+dbSelectArea("SR3")
+SR3->( dbSetOrder( RetOrdem( "SR3" , "R3_FILIAL+R3_MAT+DTOS(R3_DATA)+R3_SEQ+R3_TIPO+R3_PD" ) ) )
+bSeekWhile	:= {|| SR3->R3_FILIAL + SR3->R3_MAT }
+
+//CARREGA TODAS AS INFORMACOES DO R3 PARA O FUNCIONARIO
+aColsR3All := GdMontaCols(	@aHeaderR3All	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+		  				    @nUsadoR3  		,;	//02 -> Numero de Campos em Uso
+		  					@aVirtualR3		,;	//03 -> [@]Array com os Campos Virtuais
+		  					@aVisualR3		,;	//04 -> [@]Array com os Campos Visuais
+		  					"SR3"			,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+		  					NIL				,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+		  					@aRecnosR3		,;	//07 -> [@]Array unidimensional contendo os Recnos
+		  					"SR3"			,;	//08 -> Alias do Arquivo Pai
+		  					cKeySeek		,;	//09 -> Chave para o Posicionamento no Alias Filho
+		  					bSeekWhile 		,;	// NIL 10 -> Bloco para condicao de Loop While
+		  					NIL				,;	//11 -> Bloco para Skip no Loop While
+		  					.T.				,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+		  					NIL				,;	//13 -> Se cria variaveis Publicas
+		  					NIL				,;	//14 -> Se Sera considerado o Inicializador Padrao
+		  					NIL				,;	//15 -> Lado para o inicializador padrao
+		  					.T.				,;	//16 -> Opcional, Carregar Todos os Campos
+		  					NIL 			,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+							aQueryR3Cond	,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+							.F.				,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+							.F.				,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+							.T.		 		 ;	//21 -> Carregar Coluna Fantasma
+						)
+
+//Efetua o tratamento para os campos do Tipo Memo que foram criados pelo usuario.
+//Na query,o conteudo destes campos no acols estavam sendo mostrados como cod.binarios
+#IFDEF TOP 
+  If  nOpcx <> 3
+    fChkMemo()
+  Endif
+#ENDIF
+
+//MONTAR O AHEADER PARA USO E DEFINIR OS CAMPOS EDITAVEIS
+aArea	 := GetArea()	
+aAreaSX3 := SX3->( GetArea() )
+For nCpo := 1 To nUsadoR3
+  IF (;
+        ( aScan( aVirtualR3     , aHeaderR3All[ nCpo , 02 ] ) == 0 ) .and. ;
+        ( aScan( aVisualR3      , aHeaderR3All[ nCpo , 02 ] ) == 0 ) .and. ;
+        ( aScan( aNaoAltR3      , aHeaderR3All[ nCpo , 02 ] ) == 0 )       ;
+    )
+    aAdd( aAlteraR3 , aHeaderR3All[ nCpo , 02 ] )
+  EndIf
+
+  IF ( aScan( aNotFldR3 , aHeaderR3All[ nCpo, 02 ] ) == 0 )
+    //?-Verifica o Nivel do Campo/Usuario
+    If cModulo == "GPE"
+      aAdd( aHeaderR3 , aClone( aHeaderR3All[ nCpo ] ) )
+    Else
+      SX3->( dbSetOrder( 02 ) )
+      IF SX3->( dbSeek( aHeaderR3All[ nCpo, 02 ] ) )
+        If cNivel >= SX3->X3_NIVEL
+          aAdd( aHeaderR3 , aClone( aHeaderR3All[ nCpo ] ) )
+        EndIf
+      EndIf
+    EndIf
+  EndIF
+Next nCpo
+RestArea(aAreaSX3)
+RestArea(aArea)
+
+//SALVA CONTEUDO INICIAL DOS ACOLSALL PARA COMPARACAO ANTES  DA GRAVACAO
+aLstR7aColsAll := aClone( aColsR7All )
+aLstR3aColsAll := aClone( aColsR3All )
+
+//Transfere os Dados do aColsAll para o aCols
+Gpea250AllTrf(	"SR7" 			,;	//01 -> Alias do Arquivo
+				NIL				,;	//02 -> Objeto GetDados para o SR7
+				@aColsR7		,;	//03 -> aCols utilizado na GetDados
+				aHeaderR7		,;	//04 -> aHeader utilizado na GetDados
+				@aColsR7All		,;	//05 -> aCols com todas as informacoes
+				aHeaderR7All	,;	//06 -> aHeader com todos os campos
+				.T.				,;	//07 -> Se carrega elemento de Deletado na remontagem do aCols
+				.F.				,;	//08 -> Se transfere do aCols para o aColsAll	
+				.T.				 ;	//09 -> Se transfere do aColsAll para o aCols
+			  )
+
+RestArea(aAreaSR3)
+RestArea(aAreaSR7)
+
+Return(Len(aRecnosR7))
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250PreGrv ³Autor³Marinaldo de Jesus   ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Prepara os Arrays SR7 e SR3 para Gravacao                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Gpea250PreGrv()
+Local aAux			:= {}
+Local bAscan		:= {|| NIL}
+Local nPosFil 		:= 0
+Local nPosMat 		:= 0
+Local nPosTipo		:= 0
+Local nPosData		:= 0
+Local nPosIni		:= 0
+Local nPosPd		:= 0
+Local nLenArray		:= 0
+
+//DEFINE O BLOCO PARA PROCURA DE INFORMACOES INVALIDAS
+bAscan := {|x| (x[nPosFil] <> cFilSRA) .and. (x[nPosMat] <> cMatSRA)}
+
+//REMONTA ARRAY DO SR7 ELIMINANDO INFORMACOES INVALIDAS
+nPosFil 	:= GdFieldPos( "R7_FILIAL"	, aHeaderR7All )
+nPosMat 	:= GdFieldPos( "R7_MAT"		, aHeaderR7All )
+nPosTipo	:= GdFieldPos( "R7_TIPO"	, aHeaderR7All )
+nPosData	:= GdFieldPos( "R7_DATA"	, aHeaderR7All )
+IF ( aScan( aColsR7All , bAscan ) > 0 )
+  nLenArray := Len( aColsR7All )
+  For nPosIni := 1 To nLenArray
+    IF (;
+          ( aColsR7All[nPosIni,nPosFil] == cFilSRA );
+          .and.;
+          ( aColsR7All[nPosIni,nPosMat] == cMatSRA );
+          .and.;
+          !Empty( aColsR7All[nPosIni,nPosTipo] );
+          .and.;
+          !Empty( aColsR7All[nPosIni,nPosData] );
+       )
+      aAdd( aAux , aClone( aColsR7All[ nPosIni ] ) )
+    EndIf
+  Next nPosIni
+  aColsR7All  := aClone( aAux )
+  aAux        := {}
+EndIf
+
+//REMONTA ARRAY DO SR3 ELIMINANDO INFORMACOES INVALIDAS
+nPosFil 	:= GdFieldPos( "R3_FILIAL"	, aHeaderR3All )
+nPosMat 	:= GdFieldPos( "R3_MAT"		, aHeaderR3All )
+nPosTipo	:= GdFieldPos( "R3_TIPO"	, aHeaderR3All )
+nPosData	:= GdFieldPos( "R3_DATA"	, aHeaderR3All )
+nPosPd		:= GdFieldPos( "R3_PD"		, aHeaderR3All )
+
+IF ( aScan( aColsR3All , bAscan ) > 0 )
+  nLenArray := Len( aColsR3All )
+  For nPosIni := 1 To nLenArray
+    IF (;
+           ( aColsR3All[nPosIni,nPosFil] == cFilSRA );
+           .and.;
+           ( aColsR3All[nPosIni,nPosMat] == cMatSRA );
+           .and.;
+           !Empty( aColsR3All[nPosIni,nPosTipo] );
+           .and.;
+           !Empty( aColsR3All[nPosIni,nPosData] );
+           .and.;
+           !Empty( aColsR3All[nPosIni,nPosPd] );
+        )
+      aAdd( aAux , aClone( aColsR3All[ nPosIni ] ) )
+    EndIf
+  Next nPosIni
+  aColsR3All  := aClone( aAux )
+  aAux        := {}
+EndIf
+
+Return(NIL)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250Grava³Autor³Marinaldo de Jesus     ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Grava o Historico de Salarios                               ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250Grava( nOpc , oGetSR7 )
+//VARIAVEIS DE INICIALIZACAO OBRIGATORIA
+Local aMestre		:= GdPutIStrMestre( 01 )
+Local aItens		:= {}
+Local aSubItens		:= {}
+Local cOpcao		:= IF( ( nOpc == 5 ) , "DELETE" , IF( ( ( nOpc == 3 ) .or. ( nOpc == 4 ) ) , "PUT" , NIL ) )
+Local lModItens		:= .F.
+Local nPosR7Fil		:= GdFieldPos( "R7_FILIAL"	, aHeaderR7All )
+Local nPosR7Mat		:= GdFieldPos( "R7_MAT"		, aHeaderR7All )
+Local nPosR7Tip		:= GdFieldPos( "R7_TIPO"	, aHeaderR7All )
+Local nPosR7Dat		:= GdFieldPos( "R7_DATA"	, aHeaderR7All )
+Local nItens		:= 0
+Local nSubItens		:= 0
+
+#IFNDEF TOP
+  Local lTopDelItens  := .F.
+  Local lExecSort     := .T.
+#ELSE
+  Local lTopDelItens  := .T.
+  Local lExecSort     := .F.
+#ENDIF
+
+//TRANSFERE OS DADOS DO ACOLS PARA O ACOLSALL
+Gpea250AllTrf(	"SR7" 			,;	//01 -> Alias do Arquivo
+				NIL				,;	//02 -> Objeto GetDados para o SR7
+				@oGetSR7:aCols	,;	//03 -> aCols utilizado na GetDados
+				oGetSR7:aHeader	,;	//04 -> aHeader utilizado na GetDados
+				@aColsR7All		,;	//05 -> aCols com todas as informacoes
+				aHeaderR7All	,;	//06 -> aHeader com todos os campos
+				.T.				,;	//07 -> Se carrega elemento de Deletado na remontagem do aCols
+				.T.				,;	//08 -> Se transfere do aCols para o aColsAll	
+				.F.			 	)	//09 -> Se transfere do aColsAll para o aCols
+				
+//PREPARANDO GRAVACAO
+Gpea250PreGrv()
+
+//ALTERA O ESTADO DO CURSOR
+CursorWait()
+
+//VERIFICA SE HOUVE ALTERACOES NOS ITENS
+lModItens := ((nOpc == 5) .or. !fCompArray(aColsR7All, aLstR7aColsAll) .or. !fCompArray(aColsR3All, aLstR3aColsAll))
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carrega os Itens Apenas se Houveram Alteracoes ou na Exclusao³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+IF ( lModItens )
+
+  aAdd( aSubItens , GdPutIStrSItens() )
+  nSubItens := Len( aSubItens )
+  aSubItens[ nSubItens , 01 ] := "SR3"
+  aSubItens[ nSubItens , 02 ] := aClone( aRecnosR3 )
+  aSubItens[ nSubItens , 03 ] := NIL
+  aSubItens[ nSubItens , 04 ] := { |nElem|    ( R3_FILIAL == aColsR7All[ nElem , nPosR7Fil ]  ) .and. ;
+                                              ( R3_MAT    == aColsR7All[ nElem , nPosR7Mat ]  ) .and. ;
+                                              ( R3_TIPO   == aColsR7All[ nElem , nPosR7Tip ]  ) .and. ;
+                                              ( R3_DATA   == aColsR7All[ nElem , nPosR7Dat ]  )       ;
+                                  }
+
+  aAdd( aItens , GdPutIStrItens() )
+  nItens := Len( aItens )
+
+  aItens[ nItens , 01 ] := "SR7"
+  aItens[ nItens , 02 ] := NIL
+  aItens[ nItens , 03 ] := aClone( aHeaderR7All )
+  aItens[ nItens , 04 ] := aClone( aColsR7All   )
+  aItens[ nItens , 05 ] := aClone( aVirtualR7   )
+  aItens[ nItens , 06 ] := aClone( aRecnosR7    )
+  aItens[ nItens , 07 ] := NIL
+  aItens[ nItens , 08 ] := NIL
+  aItens[ nItens , 09 ] := aClone( aSubItens )
+
+  //CARREGA OS ITENS APENAS SE HOUVERAM ALTERACOES OU NA EXCLUSAO
+  aAdd( aItens , GdPutIStrItens() )
+  nItens := Len( aItens )
+
+  aItens[ nItens , 01 ] := "SR3"
+  aItens[ nItens , 02 ] := {}
+  aItens[ nItens , 03 ] := aClone( aHeaderR3All )
+  aItens[ nItens , 04 ] := aClone( aColsR3All   )
+  aItens[ nItens , 05 ] := aClone( aVirtualR3   )
+  aItens[ nItens , 06 ] := aClone( aRecnosR3    )
+
+EndIf
+
+//SETA A GRAVACAO OU EXCLUSAO APENAS SE HOUVERAM ALTERACOES  OU SE FOI SELECIONADA A EXCLUSAO
+aMestre[ 01 , 01 ]  := "SRA"
+aMestre[ 01 , 02 ]  := SRA->( Recno() )
+aMestre[ 01 , 03 ]  := .F.
+aMestre[ 01 , 04 ]  := NIL
+aMestre[ 01 , 05 ]  := NIL
+aMestre[ 01 , 06 ]  := NIL
+aMestre[ 01 , 07 ]  := aClone( aItens )
+
+//GRAVA AS INFORMACOES
+GdPutInfoData( aMestre , cOpcao , lTopDelItens , lExecSort )
+
+If ( cOpcao == "DELETE" )
+  PcoDetLan('000084','04','GPEA010',.T.)
+EndIf
+
+//RESTAURA O ESTADO DO CURSOR
+CursorArrow()
+
+Return(NIL)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R7LOk³ Autor ³Marinaldo de Jesus   ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Critica linha digitada                                      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250 para o SR7                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250R7LOk(oBrowse)
+Local aCposKey	:= {}
+Local lLinOk	:= .T. 
+Local nPosData		:= GdFieldPos( "R7_DATA"	, oGetSR7:aHeader )
+Local nPosSeq		:= GdFieldPos( "R7_SEQ"		, oGetSR7:aHeader )
+Local nPosTipo		:= GdFieldPos( "R7_TIPO"	, oGetSR7:aHeader )
+Local cKeyPes		:= cFilSRA+cMatSRA+Dtos(oGetSR7:aCols[ oGetSR7:nAt, nPosData ])+;
+						oGetSR7:aCols[ oGetSR7:nAt, nPosSeq  ]+	oGetSR7:aCols[ oGetSR7:nAt, nPosTipo ]
+Local oModel	:= FWModelActive()
+Local oGrid		:= oModel:GetModel('MDL250DEF1')
+
+
+    
+Begin Sequence          
+
+  //SO VALIDA A LINHA SE TIVER ALGUMA ALTERACAO
+  If fCompArray(oGetSR7:aCols , aColsAntR7)
+    Break
+  Endif
+
+  //SE NAO ESTIVER DELETADO
+  IF !(oGrid:IsDeleted())
+
+    //VERIFICA ITENS DUPLICADOS NA GETDADOS
+    aCposKey := {}
+    aAdd( aCposKey , "R7_DATA" )
+    IF ( GdFieldPos( "R7_SEQ" ) > 0 )
+      aAdd( aCposKey , "R7_SEQ" )
+    EndIF
+    aAdd( aCposKey , "R7_TIPO" )
+    IF !( lLinOk := GdCheckKey( aCposKey , 4 ) )
+      Break
+    EndIF
+
+    //VERIFICA SE O CAMPOS ESTAO DEVIDAMENTE PREENCHIDOS
+    IF !( lLinOk := GdNoEmpty( aCposKey ) )
+      Break
+    EndIF
+
+    nPos := ASCAN(aColsAntR7,{ |x| cFilSRA+cMatSRA+Dtos(X[ nPosData ])+;
+                    X[ nPosSeq  ] + X[ nPosTipo ] == cFilSRA+cMatSRA+Dtos(oGetSR7:aCols[ oGetSR7:nAt, nPosData ])+;
+                    oGetSR7:aCols[ oGetSR7:nAt, nPosSeq  ]+ oGetSR7:aCols[ oGetSR7:nAt, nPosTipo ]} )
+
+    If ( ( lLinOk ) .and. nPos <> oGetSR7:nAt )
+      If FindFunction("SPFilterOff")
+
+        SPFilterOff( { "SR7" } )
+
+        SR7->(dbSetOrder(RetOrder( "SR7", "R7_FILIAL+R7_MAT+DTOS(R7_DATA)+R7_SEQ+R7_TIPO" )))
+        If SR7->(dbSeek(cKeyPes))
+          MsgAlert( OemToAnsi(STR0037), OemToAnsi(STR0038) ) //Chave Duplicada! - Atenção
+          lLinOk := .F.
+        EndIf
+        SPFilterOff( { "SR7" }, .F. )
+
+      EndIf
+    EndIf
+
+  EndIf
+	
+End Sequence
+
+Return( lLinOk )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R7TOk³ Autor ³Marinaldo de Jesus   ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Critica o TudoOk 		                                    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250 para o SR7                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250R7TOk(oBrowse)
+Local cFinalTudoOk		:= ""
+Local lTudoOk			:= .T.
+Local lFinalTudoOk		:= .F.
+Local nSvn				:= n
+Local bAscSR3
+Local cMsg
+Local dDtCDiss
+Local nLoop
+Local nPosSR3
+Local nSr3Deleted
+Local nCountSR3
+Local nItem
+Local nItens
+Local nLenThisaCols
+Local nPosR7Tip
+Local nPosR7Dat
+Local nPosR7Seq
+Local nPosR3Tip
+Local nPosR3Dat
+Local nPosR3Seq
+Local nPosR3Val
+Local nPosR3DtCDiss
+Local nPosR3Deleted,nCont:= 1
+DEFAULT oBrowse			:= NIL
+
+IF ( ValType( oBrowse ) == "O" )
+  IF ( ValType( oBrowse:bValid ) == "B" )
+    lFinalTudoOk := Eval( oBrowse:bValid , @cFinalTudoOk )
+    DEFAULT lFinalTudoOk := .F.
+    lFinalTudoOk := ( ( lFinalTudoOk ) .and. ( !Empty( cFinalTudoOk  ) .and. ( cFinalTudoOk == "FinalTudoOk" ) ) )
+  EndIf
+EndIf
+
+Begin Sequence
+
+  For nCont:= 1 to Len(aCols)
+    If !(aCols[nCont] [Len ( aCols [ nCont ] ) ])
+      aColsR3All[nCont][Len(aColsR3All[nCont])]   := aCols[nCont][Len(aCols[nCont])]
+    Endif
+  Next
+
+  //DEFINE O BLOCO PARA PESQUISA NO SR3
+  IF (lFinalTudoOk)
+    nPosR7Tip       := GdFieldPos( "R7_TIPO"   )
+    nPosR7Dat       := GdFieldPos( "R7_DATA"   )
+    nPosR7Seq       := GdFieldPos( "R7_SEQ"    )
+    nPosR3Tip       := GdFieldPos( "R3_TIPO"   , aHeaderR3All )
+    nPosR3Dat       := GdFieldPos( "R3_DATA"   , aHeaderR3All )
+    nPosR3Seq       := GdFieldPos( "R3_SEQ"    , aHeaderR3All )
+    nPosR3Val       := GdFieldPos( "R3_VALOR"  , aHeaderR3All )
+    nPosR3DtCDiss   := GdFieldPos( "R3_DTCDISS", aHeaderR3All )
+    nPosR3Deleted   := GdFieldPos( "GDDELETED" , aHeaderR3All )
+    IF ( ( nPosR7Seq > 0 ) .and. ( nPosR3Seq > 0 ) )
+      bAscSR3 := { |x| aCols[n,nPosR7Tip] == x[ nPosR3Tip ] .and. ;
+                       aCols[n,nPosR7Dat] == x[ nPosR3Dat ] .and. ;
+                       aCols[n,nPosR7Seq] == x[ nPosR3Seq ]       ;
+                 }
+    Else
+      bAscSR3 := { |x| aCols[n,nPosR7Tip] == x[ nPosR3Tip ] .and. ;
+                       aCols[n,nPosR7Dat] == x[ nPosR3Dat ]       ;
+                 }
+    EndIf
+  EndIf
+
+  nLenThisaCols := Len( aCols )
+  For nLoop := 1 To nLenThisaCols
+    n := nLoop
+    //VERIFICA SE TODAS AS LINHAS ESTAO OK
+    IF !( lFinalTudoOk )
+      IF !( lTudoOk := Gpea250R7LOk( oBrowse ) )
+        Break
+      EndIF
+    EndIF
+    //CONSISTE OS VALORES APENAS NA VALIDACAO FINAL
+    IF( lFinalTudoOk )
+      //VERIFICA SE TODOS OS VALORES ESTAO DEVIDAMENTE PREENCHIDOS
+      IF !( GdDeleted() )
+        IF ( lTudoOk := ( ( nPosSR3 := aScan( aColsR3All , bAscSR3 ) ) > 0 ) )
+          nCountSR3   := 0
+          nSr3Deleted := 0
+          nItens      := Len( aColsR3All )
+          For nItem := nPosSR3 To nItens
+            //APENAS PARA O ITEM QUE ESTA SENDO VALIDADO
+            IF ( ( nPosR7Seq > 0 ) .and. ( nPosR3Seq > 0 ) )
+              IF !(;
+                    aCols[n,nPosR7Tip] == aColsR3All[ nItem , nPosR3Tip ] .and. ;
+                    aCols[n,nPosR7Dat] == aColsR3All[ nItem , nPosR3Dat ] .and. ;
+                    aCols[n,nPosR7Seq] == aColsR3All[ nItem , nPosR3Seq ]       ;
+                  )
+                Exit
+              EndIf
+            Else
+              IF !(;
+                    aCols[n,nPosR7Tip] == aColsR3All[ nItem , nPosR3Tip ] .and. ;
+                    aCols[n,nPosR7Dat] == aColsR3All[ nItem , nPosR3Dat ]       ;
+                )
+                Exit
+              EndIf
+            EndIf
+            //NUMERO DE ITENS DO SR3
+            ++nCountSR3
+            //CONTA O NUMERO DE ITENS DELETADOS NO SR3
+            IF (aColsR3All[nItem, nPosR3Deleted])
+              ++nSr3Deleted
+            Else
+              //NAO PERMITE VALORES MENORES OU IGUAIS A ZERO
+              IF !( SRA->RA_CATFUNC $ "A/C/T/I/J" )
+                IF !( lTudoOk := ( aColsR3All[ nItem , nPosR3Val ] > 0 ) )
+                  cMsg := STR0024 ////"Exitem valores zerados ou menores que zero na "
+                  Break
+                EndIf
+              EndIf
+              //TODAS AS VERBAS DEVEM POSSUIR DATA DE CALC. DE DISS. EM BRANCO OU PREENCHIDA.
+              IF !( nPosR3DtCDiss == 0 )
+                IF nItem == nPosSR3
+                  dDtCDiss := aColsR3All[ nItem , nPosR3DtCDiss ]
+                EndIf
+
+                IF !( lTudoOk := aColsR3All[ nItem , nPosR3DtCDiss ] == dDtCDiss )
+                  cMsg := STR0039 ////"As datas de cálculo do dissídio -campo Dt.Cal.Diss.- devem ser iguais para todas as verbas. "
+                  Break
+                EndIF
+
+                dDtCDiss := aColsR3All[ nItem , nPosR3DtCDiss ]
+              EndIf
+            EndIf
+          Next nItem
+          //SE O NUMERO DE ITENS DELETADOS FOR IGUAL AO NUMERO DE   ITENS DO SR3, INCONSISTE.
+          IF !( lTudoOk := !( nCountSR3 == nSr3Deleted ) )
+            cMsg := STR0025 //"N„o existem valores informados para a "
+            Break
+          EndIf
+        Else
+          cMsg := STR0025 //"N„o existem valores informados para a "
+          Break
+        EndIf
+      EndIf
+    EndIf
+  Next nLoop
+
+  n := nSvn
+
+End Sequence
+
+//MOSTRA A MENSAGEM DE INCONSISENCIA
+IF !Empty( cMsg )
+  IF ( ( n > 0 ) .and. ( n <= nLenThisaCols  ) )
+    cMsg += aHeader[ nPosR7Dat , 01 ]
+    cMsg += ": "
+    cMsg += Dtoc( aCols[ n , nPosR7Dat ] )
+    cMsg += " - "
+    cMsg += aHeader[ nPosR7Tip , 01 ]
+    cMsg += ": "
+    cMsg += aCols[ n , nPosR7Tip ]
+    cMsg += CRLF
+    cMsg += STR0026 //"Linha: "
+    cMsg += AllTrim( Str( n ) )
+  EndIf
+  MsgInfo( OemToAnsi( cMsg ) )
+  oGetSR7:Goto( n )
+  Eval( oGetSR7:bChange,.T. )
+EndIf
+	
+Return( lTudoOk )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R7DOk³ Autor ³Marinaldo de Jesus   ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Verificar Delecao na GetDados do SR7                        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250 para o SR7                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Gpea250R7DOk()
+Local aSr3Pos		:= {}
+Local aSr3PosAll	:= {}
+Local bAscanDel		:= { || NIL }
+Local dR7Data		:= Ctod("//")
+Local cR7Seq		:= ""
+Local nR3PosDt		:= 0
+Local nR3PosSeq		:= 0
+Local nR3PosDel		:= 0
+Local lDelOk 		:= .T.
+Local lStatusDel	:= .F.
+Static lFirstDelOk
+Static lLstDelOk
+DEFAULT lFirstDelOk	:= .T.
+DEFAULT lLstDelOk	:= .T.
+
+dR7Data     := GdFieldGet( "R7_DATA" )
+cR7Seq      := GdFieldGet( "R7_SEQ"  )
+cR7Tipo     := GdFieldGet( "R7_TIPO" )
+lStatusDel  := !( GdDeleted() ) //Inverte o Estado
+
+nR3PosDt    := GdFieldPos( "R3_DATA"    , aHeaderR3All )
+nR3PosSeq   := GdFieldPos( "R3_SEQ"     , aHeaderR3All )
+nR3PosDel   := GdFieldPos( "GDDELETED"  , aHeaderR3All )
+IF ( nR3PosSeq > 0 )
+  aSr3PosAll  := {;
+                      { nR3PosDt , nR3PosSeq },;
+                      { dR7Data  , cR7Seq    },;
+                      nR3PosDel;
+                  }
+Else
+  aSr3PosAll  := {;
+                      { nR3PosDt  },;
+                      { dR7Data   },;
+                      nR3PosDel;
+                  }
+EndIf
+nR3PosDt    := GdFieldPos( "R3_DATA"    , aHeaderR3 )
+nR3PosSeq   := GdFieldPos( "R3_SEQ"     , aHeaderR3 )
+nR3PosDel   := GdFieldPos( "GDDELETED"  , aHeaderR3 )
+IF ( ( nR3PosDt > 0 ) .and. ( nR3PosSeq > 0 ) )
+  aSr3Pos := {;
+                  { nR3PosDt  , nR3PosSeq },;
+                  { dR7Data   , cR7Seq    },;
+                  nR3PosDel;
+              }
+ElseIF ( nR3PosDt > 0 )
+  aSr3Pos := {;
+                  { nR3PosDt  },;
+                  { dR7Data   },;
+                  nR3PosDel;
+              }
+Else
+  aSr3Pos := {;
+                  {},;
+                  {},;
+                  nR3PosDel;
+              }
+EndIf
+
+IF ( lStatusDel )   //Deletar
+
+  GdDelItens( @aColsR3All     , aSr3PosAll )
+  GdDelItens( @oGetSR3:aCols  , aSr3Pos )
+
+Else                //Restaurar
+
+  GdRstItens( @aColsR3All     , aSr3PosAll )
+  GdRstItens( @oGetSR3:aCols  , aSr3Pos )
+
+EndIf
+oGetSR3:Refresh()
+
+//JA PASSOU PELA FUNCAO
+lFirstDelOk := .F.
+
+Return(DelOk)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R3LOk³ Autor ³Marinaldo de Jesus   ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Critica linha digitada                                      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³GPEA250 para o SR3                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250R3LOk(oBrowse)
+Local aCposKey	:= {}                                    
+Local lLinOk	:= .T.                                  
+Local nPosData	:= GdFieldPos( "R3_DATA"	, aHeaderR3 )
+Local nPosSeq	:= GdFieldPos( "R3_SEQ"		, aHeaderR3 )
+Local nPosTipo	:= GdFieldPos( "R3_TIPO"	, aHeaderR3 )
+Local nPosPd	:= GdFieldPos( "R3_PD"		, aHeaderR3 )
+Local cKeyPes	:= cFilSRA+cMatSRA+Dtos(oGetSR3:aCols[ oGetSR3:nAt, nPosData ])+;
+						oGetSR3:aCols[ oGetSR3:nAt, nPosSeq ]+oGetSR3:aCols[ oGetSR3:nAt, nPosTipo ]+;
+						oGetSR3:aCols[ oGetSR3:nAt, nPosPd ]
+Begin Sequence          
+
+  // So valida a linha se tiver alguma alteracao
+  If fCompArray( oGetSR3:aCols , aColsAntR3 )
+    Break
+  Endif
+
+  //SE NAO ESTIVER DELETADO
+  IF !(GdDeleted())
+
+    //VERIFICA ITENS DUPLICADOS NA GETDADOS
+    aCposKey := {}
+    IF ( GdFieldPos( "R3_SEQ" ) > 0 )
+      aAdd( aCposKey , "R3_SEQ" )
+    EndIF
+    aAdd( aCposKey , "R3_PD" )
+    IF !( lLinOk := GdCheckKey( aCposKey , 4 ) )
+      Break
+    EndIf
+
+    //VERIFICA SE O CAMPOS ESTAO DEVIDAMENTE PREENCHIDOS
+    aCposKey := {}
+    IF ( GdFieldPos( "R3_SEQ" ) > 0 )
+      aAdd( aCposKey , "R3_SEQ" )
+    EndIf
+    aAdd( aCposKey , "R3_PD" )
+    IF !( SRA->RA_CATFUNC $ "A/C/T/I/J" )
+      aAdd( aCposKey , "R3_VALOR" )
+    EndIf
+    IF !( lLinOk := GdNoEmpty( aCposKey ) )
+      Break
+    EndIf
+
+    nPos := ASCAN(aColsAntR3,{ |x| cFilSRA+cMatSRA+Dtos(X[ nPosData ])+;
+                    X[ nPosSeq ]+ X[ nPosTipo ]+ X[ nPosPd ] == cFilSRA+cMatSRA+Dtos(oGetSR3:aCols[ oGetSR3:nAt, nPosData ])+;
+                    oGetSR3:aCols[ oGetSR3:nAt, nPosSeq ]+oGetSR3:aCols[ oGetSR3:nAt, nPosTipo ]+;
+                    oGetSR3:aCols[ oGetSR3:nAt, nPosPd ] } )
+
+    If ( lLinOk .and. nPos <> oGetSr3:nAt )
+      If FindFunction("SPFilterOff")
+        //If ArrayCompare( oGetSR3:aCols[ oGetSR3:nAt ], aColsR3All[ oGetSR3:nAt ] )
+            SPFilterOff( { "SR3" } )
+
+            SR3->(dbSetOrder(RetOrder( "SR3", "R3_FILIAL+R3_MAT+DTOS(R3_DATA)+R3_SEQ+R3_TIPO+R3_PD" )))
+            If SR3->(dbSeek(cKeyPes))
+              MsgAlert( OemToAnsi(STR0037), OemToAnsi(STR0038) ) //Chave Duplicada! - Atenção
+              lLinOk := .F.
+            EndIf
+            SPFilterOff( { "SR3" }, .F. )
+        //EndIf
+      EndIf
+    EndIf
+
+  EndIf
+	
+End Sequence
+
+Return( lLinOk )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R3TOk³ Autor ³Marinaldo de Jesus   ³ Data ³27/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Critica o TudoOk 		                                    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250 para o SR3                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250R3TOk( oBrowse )
+Local lTudoOk	:= .T.
+Local nSvn		:= n
+Local nLoop
+Local nLoops
+
+nLoops := Len( aCols )
+For nLoop := 1 To nLoops
+  n := nLoop
+  IF !( lTudoOk := Gpea250R3LOk( oBrowse ) )
+    Break
+  EndIf
+Next nLoop
+
+n := nSvn
+
+Return( lTudoOk )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250R3DOk³ Autor ³Marinaldo de Jesus   ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Verificar Delecao na GetDados do SR3                        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250 para o SR3                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Gpea250R3DOk(oGetSR7)
+Local lDelOk		:= .T.
+Local lStatusDel	:= .F.
+Static lFirstDelOk
+Static lLstDelOk
+DEFAULT lFirstDelOk	:= .T.
+DEFAULT lLstDelOk	:= .T.
+
+Begin Sequence
+
+  //Apenas se for a primeira vez
+  IF !( lFirstDelOk )
+    lFirstDelOk := .T.
+    lDelOk      := lLstDelOk
+    lLstDelOk   := .T.
+    Break
+  EndIF
+
+  IF ( lStatusDel := !( GdDeleted() ) ) //Inverte o Estado
+    lFirstDelOk := .F.
+    Break
+  EndIF
+
+  IF !( lDelOk := !( GdDeleted( oGetSR7:nAt , oGetSR7:aHeader , oGetSR7:aCols ) ) )
+    lLstDelOk := lDelOk
+    //"Para efetuar esta opera‡„o, ser  necess rio cancelar a Dele‡„o efetuada no SR7"
+    MsgInfo( OemToAnsi( STR0019 ) )
+  EndIF
+
+  //Ja Passou pela funcao
+  lFirstDelOk := .F.
+
+End Sequence
+	
+Return(lDelOk)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Gpea250AllTrf	³Autor³Marinaldo de Jesus ³ Data ³06/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Transfere Informacoes do aCols para o aColsAll              ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>     								³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³NIL															³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >									³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea250AllTrf(	cAlias			,;	//01 -> Alias do Arquivo
+						oGetSR7 		,;	//02 -> Objeto GetDados para o SR7
+						aCols			,;	//03 -> aCols utilizado na GetDados
+						aHeader 		,;	//04 -> aHeader utilizado na GetDados
+						aColsAll		,;	//05 -> aCols com todas as informacoes
+						aHeaderAll		,;	//06 -> aHeader com todos os campos
+						lDeleted		,;	//07 -> Se carrega elemento de Deletado na remontagem do aCols
+						lTransf2All		,;	//08 -> Se transfere do aCols para o aColsAll	
+						lTransf2Cols     ;	//09 -> Se transfere do aColsAll para o aCols
+					  )
+Local aPosSortAll		:= {}
+Local aPosKeyAll		:= {}
+Local cChave			:= ""
+Local dDataR7			:= Ctod("//")
+Local cTipoR7			:= ""
+Local cSeqR7			:= ""
+Local nPosFilial		:= 0
+Local nPosMatric		:= 0
+Local nPosData			:= 0
+Local nPosSeq			:= 0
+Local nPosTipo			:= 0
+Local nPosPd			:= 0,nCont	:= 1
+DEFAULT lTransf2All		:= .T.
+DEFAULT lTransf2Cols	:= .T.
+
+IF ( cAlias == "SR7" )
+  nPosFilial  := GdFieldPos( "R7_FILIAL"  , aHeaderAll )
+  nPosMatric  := GdFieldPos( "R7_MAT"     , aHeaderAll )
+  nPosData    := GdFieldPos( "R7_DATA"    , aHeaderAll )
+  nPosSeq     := GdFieldPos( "R7_SEQ"     , aHeaderAll )
+  nPosTipo    := GdFieldPos( "R7_TIPO"    , aHeaderAll )
+Else
+  nPosFilial  := GdFieldPos( "R3_FILIAL"  , aHeaderAll )
+  nPosMatric  := GdFieldPos( "R3_MAT"     , aHeaderAll )
+  nPosData    := GdFieldPos( "R3_DATA"    , aHeaderAll )
+  nPosSeq     := GdFieldPos( "R3_SEQ"     , aHeaderAll )
+  nPosTipo    := GdFieldPos( "R3_TIPO"    , aHeaderAll )
+  nPosPd      := GdFieldPos( "R3_PD"      , aHeaderAll )
+EndIF
+
+//CARREGA ARRAY A POSICAO DOS CAMPOS PARA O "SORT"
+aAdd( aPosSortAll	, nPosFilial )
+aAdd( aPosSortAll	, nPosMatric )
+aAdd( aPosSortAll	, nPosData   )
+IF ( nPosSeq ) > 0
+  aAdd( aPosSortAll , nPosSeq  )
+EndIF
+aAdd( aPosSortAll	, nPosTipo   )
+IF ( cAlias == "SR3" )
+  aAdd( aPosSortAll   , nPosPd   )
+EndIF
+
+//Carrega Array com a Posicao dos Campos e as Chaves  Correspondentes	
+aAdd( aPosKeyAll  	, { nPosFilial	, cFilSRA 	} )
+aAdd( aPosKeyAll  	, { nPosMatric	, cMatSRA	} )
+IF ( cAlias == "SR3" )
+  dDataR7 := GdFieldGet( "R7_DATA" , oGetSR7:nAt , .F. , oGetSR7:aHeader , oGetSR7:aCols )
+  aAdd( aPosKeyAll , { nPosData , dDataR7 } )
+  IF ( nPosSeq > 0 )
+    cSeqR7  := GdFieldGet( "R7_SEQ" , oGetSR7:nAt , .F. , oGetSR7:aHeader , oGetSR7:aCols )
+    aAdd( aPosKeyAll , { nPosSeq , cSeqR7 } )
+  EndIF
+  cTipoR7 := GdFieldGet( "R7_TIPO" , oGetSR7:nAt , .F. , oGetSR7:aHeader , oGetSR7:aCols )
+  aAdd( aPosKeyAll , { nPosTipo , cTipoR7 } )
+EndIF
+
+//MONTA A CHAVE PARA BUSCA NO ACOLSALL E TRANSFERENCIA PARA   O RESPECTIVO ACOLS	
+IF (cAlias == "SR7")
+  cChave := (cFilSRA + cMatSRA)
+Else
+  IF (nPosSeq > 0)
+    cChave := ( cFilSRA + cMatSRA + Dtos( dDataR7 ) + cSeqR7 + cTipoR7 )
+  Else
+    cChave := ( cFilSRA + cMatSRA + Dtos( dDataR7 ) + cTipoR7 )
+  EndIf
+EndIF
+
+//TRANSFERE OS DADOS ENTRE ACOLS
+GdTransfaCols(	@aColsAll   	,;	//01 -> Array com a Estrutura do aCols Contendo todos os Dados
+				@aCols			,;	//02 -> Array com a Estrutura do aCols Contendo Dados Especificos
+				aHeader			,;	//03 -> Array com a Estrutura do aHeader Contendo Informacoes dos Campos
+				NIL				,;	//04 -> Array com as Posicoes dos Campos para Pesquisa
+				cChave			,;	//05 -> Chave para Busca
+				aPosSortAll		,;	//06 -> Array com as Posicoes dos Campos para Ordenacao
+				aPosKeyAll		,;	//07 -> Array com as Posicoes dos Campos e Chaves para Pesquisa
+				aHeaderAll		,;	//08 -> Array com a Estrutura do aHeaderAll Contendo Informacoes dos Campos
+				lDeleted		,;	//09 -> Se Carrega o Elemento como Deletado na Remontagem do aCols
+				lTransf2All		,;	//10 -> Se deve Transferir do aCols para o aColsAll
+				lTransf2Cols    ,;	//11 -> Se deve Transferir do aColsAll para o aCols
+				.T.				,;	//12 -> Se Existe o Elemento de Delecao no aCols
+				.T.				,;	//13 -> Se deve Carregar os Inicializadores padroes
+				NIL				,;	//14 -> Lado para o Inicializador padrao
+				.F.				 ;	//15 -> Se deve criar variais Publicas
+			   )
+
+//REPLICANDO O ELEMENTO DELETED, QUANDO FOR FLAGADO NO SR7 PARA O SR3 E DANDO REFRESH APÓS A GRAVACAO DO ACOLS
+If FunName() == "GPEA250"
+  If oGetSr7 <> Nil .And. oGetSr3 <> Nil
+    For nCont:= 1 to Len(aCols)
+      oGetSr3:Acols[nCont][Len(oGetSr3:Acols[nCont])] := oGetSR7:acols[oGetSR7:nat,LEN(oGetSR7:ACOLS[oGetSR7:nat])]
+    Next
+    oGetSR3:Refresh()
+    oGetSR7:Refresh()
+    If cAlias == "SR3"
+      aColsAntR3 := Aclone(oGetSR3:aCols)
+    Endif
+  Endif
+EndIf
+
+Return(NIL)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Gpea250PdDes³Autor  ³Marinaldo de Jesus   ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Carregar a Descricao da Verba  no aCols do Sr3              ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³GPEA250                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Gpea250PdDes(cPd)
+Local cDescPd	:= ""
+Local lPutDesc	:= .T.
+Local oMdl		:= FWModelActive()
+Local oGrid		:= oMdl:GetModel('MDL250DEF2')
+DEFAULT cPd		:= &(ReadVar())
+
+IF (cPd == "000")
+	cDescPd     := STR0016  //"SALARIO BASE"
+Else
+ 	cDescPd := fDesc( "SRV" , cPd , "RV_DESC" , TamSX3("R3_DESCPD")[1] , SRA->RA_FILIAL , 01 )
+EndIf
+
+oGrid:LoadValue(  "R3_DESCPD", cDescPd)
+
+Return(NIL)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEA250   ºAutor  ³Microsiga           º Data ³  11/30/06   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Ajusta o conteudo do campo tipo Memo (de usuario)          º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function  fChkMemo() 
+Local aAreaSR7	:= SR7->(GetArea())  
+Local aAreaSR3	:= SR3->(GetArea())
+Local aAreaSRA	:= SRA->(GetArea()) 
+Local nX		:= 0 
+Local nY		:= 0 
+Local nPos 		:= 0 
+
+//SE HOUVER CAMPO MEMO, FAZ O TRATAMENTO PARA TRAZER O CONTEUDO DO CAMPO
+If (nPos := Ascan(aHeaderR7all, {|x| x[8]="M"  }  )  ) > 0
+  For nX:= 1 to Len(aHeaderR7all)
+    If aHeaderR7all[nX,8] ="M"
+      For nY := 1 to Len(aColsR7All)
+        If SR7->(dbSeek( aColsR7All[nY,1] + aColsR7All[nY,2]+ dtos(aColsR7All[nY,3]) + aColsR7All[nY,5]) )
+          aColsR7All[nY,nX ]  := (SR7->&(aHeaderR7all[nX,2]))
+        Endif
+      Next nY
+    Endif
+  Next nX
+Endif 
+
+If (nPos := Ascan(aHeaderR3all, {|x| x[8]="M"  }  )  ) > 0
+  For nX:= 1 to Len(aHeaderR3all)
+    If aHeaderR3all[nX,8] ="M"
+      For nY := 1 to Len(aColsR3All)
+        If SR3->(dbseek(aColsR3All[nY,1]+aColsR3All[nY,2]+ dtos(aColsR3All[nY,3])+ aColsR3All[nY,5] + aColsR3All[nY,6] ) )
+          aColsR3All[nY,nX ]  := ( SR3->&(aHeaderR3all[nX,2]))
+        Endif
+      Next nY
+    Endif
+  Next nX
+Endif  
+
+RestArea( aAreaSR7 )
+RestArea( aAreaSR3 )
+RestArea( aAreaSRA )
+Return 
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³fSeqHistSalºAutor  ³Jonatas A. T. Alves º Data ³  29/08/07   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Alimentar os campos R3_SEQ e R7_SEQ para correta ordenacao   º±±
+±±º          ³das alteracoes salariais.                                    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA010;GPER200;GPEA250;GPEM690;GPEM120;CSAM080             º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function fSeqHistSal(aR7AllRecs, nR7SeqTam, dR7Dta)
+Local lCposSeq		:= .F.
+Local lEmptSeq		:= .F.
+Local lMovSR7		:= .F.
+Local lQuery		:= .F.
+Local cR7SeqInit
+Local cAliasSR7		:= "SR7"
+Local cQuery		:= ""
+Local nx
+Local ny
+Local nz
+Local nw
+Local nPos			:= 0
+Local dDataAlt		:= CTOD("//")
+Local aArea			:= GetArea()
+Local aR3Area		:= SR3->(GetArea())
+Local aR7Area		:= SR7->(GetArea())
+
+aR7AllRecs	:= {}
+dR7Dta	    := CTOD("//")
+
+If( Type("aStruSR7") == "U" .Or. Empty( aStruSR7 ) )
+  aStruSR7    := SR7->( dbStruct() )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Array aR7AllRecs contendo as alteracoes salariais(SR7):      ³
+³ ----------- Elementos contidos por dimensao ------------     ³
+³ 1. Data da alteracao salarial                                ³
+³ 2. Array contendo as alteracoes salariais da data            ³
+³    2.1 - Array contendo as informacoes das alt. salariais    ³
+³    	2.1.1 - RECNO                                          ³
+³    	2.1.2 - Tipo de aumento                                ³
+³    	2.1.3 - Sequencia                                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+//OBS.: A ROTINA VISA ORGANIZAR OS AUMENTOS SALARIAIS PRENCHENDO PARA ISSO OS CAMPOS R7_SEQ E R3_SEQ.
+//PRIMEIRAMENTE EFETUAMOS A LOCALIZACAO DE TODOS OS AUMENTOS SALARIAIS POR DATA, ORGANIZAMOS EM ORDEM CRESCENTE POR RECNO,
+//ATRIBUIMOS AS SEQUENCIAS E DEMONSTRAMOS NO HISTORICO SALARIAL CONFORME A CHAVE FILIAL+MATRICULA+DATA+SEQ+TIPO.
+
+dbSelectArea("SR3")
+dbSetOrder(1)
+
+lCposSeq := If( ( SR3->( Type("R3_SEQ") ) # "U" ), .T., .F. )
+
+dbSelectArea("SR7")
+dbSetOrder(1)
+
+If lCposSeq
+	lCposSeq := If( ( SR7->( Type("R7_SEQ") ) # "U" ), .T., .F. )
+EndIf
+
+If lCposSeq
+  If ( ( nR7SeqTam := GetSx3Cache( "R7_SEQ" , "X3_TAMANHO" ) ) == NIL ) //VERIFICA TAMANHO DO CAMPO R7_SEQ
+    RestArea( aR7Area )
+    RestArea( aR3Area )
+    RestArea( aArea )
+    Return .F.
+  EndIF
+
+  SR7->( dbGoTop() )
+
+  #IFDEF TOP
+
+    lQuery      := .T.
+    cAliasSR7   := GetNextAlias()
+
+    cQuery      := "SELECT "
+
+    aEval( aStruSR7, { |x| cQuery += x[1] + ", " } ) // INCLUI CAMPOS DO SRC NA QUERY
+
+    cQuery += "R_E_C_N_O_ AS RECNO_ " + CRLF
+    cQuery += " FROM " + RetSqlName("SR7") + " SR7 " + CRLF
+    cQuery += "WHERE R7_FILIAL = '"  + SRA->RA_FILIAL	+ "' " + CRLF
+    cQuery += "  AND R7_MAT =    '"  + SRA->RA_MAT		+ "' " + CRLF
+    cQuery += "  AND D_E_L_E_T_  = ' ' " + CRLF
+    cQuery += "ORDER BY " + SqlOrder( SR7->( IndexKey() ) ) + " " + CRLF
+
+    cQuery := ChangeQuery(cQuery)
+
+    //ABRE A EXECUCAO DA QUERY ATRIBUIDA AO SR7
+    dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), cAliasSR7, .F., .T.)
+
+    If ( nX := aScan( aStruSR7, { |x| x[1] == "R7_DATA" } ) ) > 0
+      TcSetField(cAliasSR7,aStruSR7[nX][1],aStruSR7[nX][2],aStruSR7[nX][3],aStruSR7[nX][4])
+    EndIf
+
+    lMovSR7 := !( (cAliasSR7)->( Bof() ) .And. (cAliasSR7)->( Eof() ) )
+  #ELSE
+    lMovSR7 := dbSeek( SRA->RA_FILIAL + SRA->RA_MAT )
+  #ENDIF
+
+  If lMovSR7
+    //VARRE SR7 PARA ALIMENTAR ARRAY COM ALTERACOES DA DATA INFORMADA
+    While !(cAliasSR7)->( Eof() ) .And. ( SRA->RA_FILIAL + SRA->RA_MAT ) == ( (cAliasSR7)->R7_FILIAL + (cAliasSR7)->R7_MAT )
+      If( dDataAlt <> (cAliasSR7)->R7_DATA, aAdd( aR7AllRecs , { (cAliasSR7)->R7_DATA, {} } ), ) //Array com todas as alteracoes salariais para a data informada )
+      dDataAlt := (cAliasSR7)->R7_DATA
+      dR7Dta   :=  dDataAlt
+      If( !lEmptSeq, lEmptSeq := If( Val( (cAliasSR7)->R7_SEQ ) == 0, .T., .F. ), ) //Verifica existencia de registros com sequencia em branco
+      nPos := aScan( aR7AllRecs, { |x| x[ 1 ] == (cAliasSR7)->R7_DATA } )
+      If nPos > 0
+		aAdd( aR7AllRecs[ nPos, 2 ] , { If( lQuery, (cAliasSR7)->RECNO_, (cAliasSR7)->( Recno() ) ), (cAliasSR7)->R7_TIPO, StrZero( Val( (cAliasSR7)->R7_SEQ ), nR7SeqTam ), dR7Dta } ) //Array com todas as alteracoes salariais do funcionario
+      EndIf
+      (cAliasSR7)->( dbSkip() )
+    EndDo
+
+    aSort( @aR7AllRecs, , , { | x, y | x[ 1 ] < y[ 1 ] } ) //Ordena alteracoes por DATA
+
+    For nx:= 1 to Len( aR7AllRecs )
+		aSort( @aR7AllRecs[nx, 2 ], , , { | x, y | x[ 1 ] < y[ 1 ] } ) //Ordena alteracoes por RECNO
+    Next nx
+  EndIf
+
+  If lQuery
+    (cAliasSR7)->(dbCloseArea())
+    dbSelectArea("SR7")
+  EndIf
+
+  If lEmptSeq .And. Len( aR7AllRecs ) > 0
+
+    For nz := 1 To Len( aR7AllRecs )
+
+      cR7SeqInit  := Replicate( "0" , nR7SeqTam ) //Alimenta variavel a ser incrementada com o proximo numero de sequencia
+
+      //Existem alteracoes salariais p/ a data informada com seq. em branco, logo reorganizamos as seq.
+      For ny := 1 To Len( aR7AllRecs[ nz, 2 ] ) //Varre array das alteracoes salariais para preenchimento das seq.
+
+        SR7->( dbGoTo( aR7AllRecs[ nz, 2 , ny, 1 ] ) ) //Posiciona no primeiro registro da alteracao salarial (ordem de RECNO)
+
+        If SR7->( RecLock( "SR7" , .F. ) )
+
+          SR7->R7_SEQ := aR7AllRecs[ nz, 2 , ny, 3 ] := Soma1( cR7SeqInit )//Atribui sequencia aa alteracao salarial
+
+          SR7->( MsUnLock() )
+
+          dbSelectArea("SR3")
+          SR3->( dbGoTop() )
+
+          //Posiciona no SR3 correspondente ao SR7(consideramos que deve existir uma unica alteracao salarial para mesmas data e tipo)
+          If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT + Dtos( aR7AllRecs[ nz, 1 ] ) + aR7AllRecs[ nz, 2, ny, 2 ] )
+
+            //Varre SR3 para preenchimento das seq.
+            While !SR3->( Eof() ) .And. ( SRA->RA_FILIAL + SRA->RA_MAT + Dtos( aR7AllRecs[ nz, 1 ] ) + aR7AllRecs[ nz, 2, ny, 2 ] ) == ;
+            ( SR3->R3_FILIAL + SR3->R3_MAT + Dtos(SR3->R3_DATA) + SR3->R3_TIPO )
+
+              If RecLock( "SR3" , .F. )
+
+                SR3->R3_SEQ := aR7AllRecs[ nz, 2 , ny, 3 ] //Atribui sequencia aa alteracao salarial
+
+                SR3->( MsUnLock() )
+              EndIf
+
+              SR3->( dbSkip() )
+            EndDo
+          EndIf
+        EndIf
+
+        cR7SeqInit := Soma1( cR7SeqInit ) //Incrementa seq. para processar proximo registro de alt. salarial
+      Next ny
+    Next nz
+  Else
+    RestArea( aR7Area )
+    RestArea( aR3Area )
+    RestArea( aArea )
+    Return .F.
+  EndIf
+EndIf
+
+RestArea(aR7Area)
+RestArea(aR3Area)
+RestArea(aArea)
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gpea250Fun ºAutor ³André E. Perez Álvarez º Data ³  29/08/07 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Monta um browse com os funcionários do cliente.              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ MENUDEF                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Gpea250Fun()
+Local aArea			:= GetArea()
+Local aAreaSRA		:= SRA->(GetArea())
+Local aIndexSRA		:= {}
+Local cFiltraSRA	:= ""
+Local oldROTINA := aCLONE(aROTINA)
+Local nSizeSA1  := Iif((TAMSX3("A1_COD")[1]) < 1, 6, (TAMSX3("A1_COD")[1]))
+Local nSizeLo1  := Iif((TAMSX3("A1_LOJA")[1])< 1, 2, (TAMSX3("A1_LOJA")[1]))
+Local nSizeTD   := nSizeSA1+nSizeLo1
+Private bFiltraBrw	:= { || NIL }
+Private cCadastro	:= OemToAnsi(STR0009 + STR0036 + Alltrim(SA1->A1_NOME) )	//"Alteraçöes Salariais - Cliente: Empresa XYZ"
+Private cCliMdtPs := SA1->A1_COD+SA1->A1_LOJA
+
+Begin Sequence
+	
+		ADD OPTION aRotina Title STR0004  Action 'PesqBrw'			OPERATION 1 ACCESS 0 //"Pesquisar"
+		ADD OPTION aRotina Title STR0005  Action 'VIEWDEF.Gpea250'	OPERATION 2 ACCESS 0 //"Visualizar"
+		ADD OPTION aRotina Title STR0033  Action 'GpLegend'			OPERATION 2 ACCESS 0 //"Legenda"
+
+	IF !(ChkVazio("SRA"))   //VERIFICA SE O ARQUIVO ESTA VAZIO
+		Break
+	EndIF
+
+	oBrwMaster := FWmBrowse():New()		
+	oBrwMaster:SetAlias('SRA')
+	oBrwMaster:SetDescription(cCadastro)   //"Alteracoes Salariais"
+
+	oBrwMaster:AddLegend( "RA_SITFOLH==' '",	"GREEN",	OemToAnsi(STR0040) ) // "Situacao Normal"
+	oBrwMaster:AddLegend( "RA_SITFOLH=='D'",	"RED",		OemToAnsi(STR0041) ) // "Demitido" 
+	oBrwMaster:AddLegend( "RA_SITFOLH=='A'",	"YELLOW",	OemToAnsi(STR0042) ) // "Afastado"
+	oBrwMaster:AddLegend( "RA_SITFOLH=='F'",	"BLUE",		OemToAnsi(STR0043) ) // "Ferias"
+
+	//INICIALIZA O FILTRO UTILIZANDO A FUNCAO FILBROWSE
+	cFiltraSRA := ChkRh("GPEA250","SRA","1")
+	cFiltraSRA += IF(!Empty(cFiltraSRA),'.AND. RA_CATFUNC # "A"','(RA_CATFUNC <> "A")')
+	cFiltraSRA += ' .AND. (SubStr(SRA->RA_CC,1,' +AllTrim(Str(nSizeTD))+ ') == "' +cCliMdtps+ '" )' 	
+	//FILTRO PADRAO DO BROWSE CONFORME TABELA RFO (DEFINICAO DE BENEFICIOS)
+	oBrwMaster:SetFilterDefault(cFiltraSRA)
+	oBrwMaster:Activate()
+
+End Sequence
+
+RestArea(aAreaSRA)
+RestArea(aArea)
+aROTINA := ACLONE(oldROTINA)
+
+Return(NIL)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…cao    ³Gp250PosVal  ³ Autor ³ MOHANAD ODEH         ³ Data ³ 21/06/13 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…cao ³ Reorganiza sequencia antes de gravar                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³Gp250PosVal(oMdl)                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ oMdl = objeto do modelo                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ModelDef()                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+STATIC FUNCTION Gp250PosVal(oModelGrid)
+Local aArea      	:= GetArea()
+Local oModel     	:= oModelGrid:GetModel('MDL250DEF1')
+Local cR7SeqInit	:= Replicate("0", GetSx3Cache("R7_SEQ", "X3_TAMANHO"))
+Local dR7Data
+Local nTotLin		:= 0
+Local nLinha		:= 0
+Local nx			:= 0
+Local ny			:= 0
+Local aDatas		:= {}
+
+	If !IsInCallStack("FWMILEIMPORT")
+		nTotLin := oModel:GetQtdLine()
+		
+		// ACUMULA DATAS DISTINTAS PARA COMPARACAO
+		For ny := 1 to nTotLin
+
+			// SO CONSIDERA AS LINHAS QUE FORAM ALTERADAS.
+			If !oModel:IsUpdated(ny)
+				Exit
+			EndIf
+		
+			dR7Data := oModel:GetValue('R7_DATA', ny)
+			If aScan(aDatas, dR7Data) == 0 .AND. !oModel:IsDeleted(ny)
+				aAdd(aDatas, dR7Data)
+			EndIf
+		Next ny
+		
+		If Len(aDatas) > 0
+			//REORGANIZA A SEQUENCIA DATA A DATA
+			For nx:=1 to Len(aDatas)
+				cR7SeqInit	:= Replicate("0", GetSx3Cache("R7_SEQ", "X3_TAMANHO"))	
+				For nLinha:=1 to nTotLin
+					dR7Data := oModel:GetValue('R7_DATA', nLinha)
+					If !oModel:IsDeleted(nLinha)
+						If aDatas[nx]== dR7Data
+							cR7SeqInit := Soma1(cR7SeqInit)
+							oModel:GoLine(nLinha) // VAI PARA A LINHA DO GRID DESEJADA
+							oModel:LoadValue("R7_SEQ", cR7SeqInit) // ATRIBUI VALOR DA SEQUENCIA
+							A250VLDCPO(1, 'R7_SEQ', 'R3_SEQ', 'MDL250DEF1', 'MDL250DEF2') // REPLICA MESMA SEQUENCIA PARA SR3
+						EndIf
+					EndIf
+				Next nLinha
+			Next nx
+		EndIf
+	EndIf
+RestArea(aArea)
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³INTEGDEF  ºAutor  ³                     º Data ³ 23/01/2012 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Função para a interação com EAI                             º±±
+±±º          ³envio e recebimento                                         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function IntegDef( cXml, nType, cTypeMsg, cVersaoMsg )
+
+Local aRet := {}
+
+aRet:= GPEI250( cXml, nType, cTypeMsg, cVersaoMsg )
+
+Return aRet  
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fCommit250 ³ Autor ³Flavio Correa         ³ Data ³ 19/03/15   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Gravação do Model, chamando mensagem unica especifica		    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function fCommit250(oModel)
+Local aArea      	:= GetArea()	 
+Local nOperacao  	:= oModel:GetOperation()  
+
+If FWHasEai('GPEA250',.T.,,.T.)
+	Begin Transaction
+		//ignora a chmada padrao da integdef do MVC e utiliza a integdef na mao para poder percorrer o grid
+		FWFormCommit( oModel,,,,,,{|| 0 } ) //Grava model
+		fInteg(oModel)
+	End Transaction
+Else
+	FWFormCommit( oModel ) //Grava model
+EndIf
+	
+RestArea(aArea)
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fInteg ³ Autor ³Flavio Correa         ³ Data ³ 19/03/15   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Tratamento para envio mensagem unica						    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function fInteg(oModel)
+Local nOperation	:= oModel:GetOperation()
+Local nLinha	 	:= 0
+Local nLenSr3		:= 0
+Local nLenSr7		:= 0
+Local nX            := 0
+Local oGridSR7 	 	:= oModel:GetModel("MDL250DEF1")
+Local lDelSr7		:= .F.
+Private oGridSR3	:= oModel:GetModel("MDL250DEF2")
+Private l250exc 	:= .F.
+
+nLenSR7	:= oGridSR7:Length()
+
+For nLinha := 1 to nLenSR7
+	oGridSR7:GoLine(nLinha)
+	lDelSr7 := .F.
+	If oGridSR7:IsDeleted() .And. !oGridSR7:IsInserted()
+		lDelSr7 := .T.
+	EndIf
+	nLenSR3	:= oGridSR3:Length()
+	For nX := 1 To nLenSR3
+		oGridSR3:GoLine(nX)
+		l250exc := .F.
+		If (oGridSR3:IsDeleted() .And. !oGridSR3:IsInserted()) .Or. lDelSr7
+			l250exc := .T.
+			FwIntegDef("GPEA250")
+		ElseIf oGridSR3:IsInserted()
+			FwIntegDef("GPEA250")
+		ElseIf oGridSR3:IsUpdated()
+			If 	oGridSR3:IsFieldUpdated("R3_MAT")  .Or. ;
+			 	oGridSR3:IsFieldUpdated("R3_TIPO") .Or. ;
+			 	oGridSR3:IsFieldUpdated("R3_DATA") .Or. ;
+			 	oGridSR3:IsFieldUpdated("R3_VALOR") 
+				FwIntegDef("GPEA250")
+			 EndIf
+		EndIf	
+	Next nX	
+Next nLinha
+
+Return .T.
+
+/*/{Protheus.doc}Gp250IniMod
+Valida inicialização do Model
+@author Gabriel de Souza Almeida
+@since 15/06/2016
+@version P12
+/*/
+Function Gp250IniMod(oModel,nOperacao)
+	If !(IsInCallStack("CFG600lmdl")) .And. nOperacao == 3
+		oModel:SetOperation( 4 )
+	EndIf
+Return .T.
+
+/*/{Protheus.doc} fVldFil
+Valida se o usuário tem acesso ao registro na SRA
+@type		Function
+@author		Fernando Luis Guilherme
+@since		04/02/2021
+@version	12.1.XX
+@param 
+@return		lRet, Logico, Retorna se o possui a acesso a filial do registro na SRA.
+/*/
+Static Function fVldFil()
+Local lRet := .T.
+Local lAccess  := .F.
+Local cFilVld  := SRA->RA_FILIAL
+Local aFilAcs  := FwLoadSM0()
+Local cEmpVld  := cEmpAnt
+Local nPosFAcs := SM0_USEROK    // Verifica se o usuario possui acesso a filial
+
+//Localiza o Usuário
+lAccess := aScan( aFilAcs , { | x | AllTrim( x[ 1 ] ) == cEmpVld .And. AllTrim( x[ 2 ] ) == AllTrim( cFilVld ) .And. x[ nPosFAcs ] } ) > 0
+
+If !lAccess
+    MsgInfo( STR0044 )//"Usuário sem permiss?o para visualizar registros desta filial."
+    lRet := .F.
+EndIf
+
+Return lRet

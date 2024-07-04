@@ -1,0 +1,1160 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "finxomd.ch"
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FINXOMD
+
+Funções genéricas utilizadas apenas por outros módulos mas que estavam em fontes financeiros genéricos.
+
+@Author Vários
+@version 12
+@since   11/12/2014
+
+/*/
+//-----------------------------------------------------------------------------------------------------
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±                                                                         ±±
+±±            Funcoes retiradas do arquivo FINXATU.PRX                     ±±
+±±                                                                         ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A050MANSE2
+
+Gera titulo de contas a pagar, a partir de parametros Usando Rotina 
+automatica (FINA050) - Utilizada pelo SIGATMS -  - Não recomendamos 
+o uso desta função e nem damos manutenção.
+
+Arquivo original: FINXATU.PRX 
+
+@param nOpcao  - Opcao que sera executada
+@param cNumero - Numero do titulo a ser gerado
+@param cPrefixo - Prefixo do titulo
+@param cTipoTit - Tipo do titulo
+@param cParcela - Parcela do titulo (usado em alteracao/exclusao)
+@param nValTitulo - valor do titulo a ser gerado
+@param nValIRRF - valor do IRRF do titulo
+@param cCodForn - codigo do fornecedor
+@param cLojaFor - loja do fornecedor
+@param cNatureza - Natureza do titulo
+@param nMoedTit - numero da moeda do titulo
+@param cCodPraz - condicao de pagamento
+@param cOrigem - nome do programa origem
+@param dEmissao - Data de emissao do titulo (base calculo dias)
+@param cHistorico
+@param dVenc - Data de vencimento, usada caso condicao de pagamento nao for passada (assumira um vencimento)
+@param aCompleG - Matriz com bloco de codigo p/ complentar gravacao { { Nome do Campo, Bloco de codigo p/gravacao } }
+@param cFilDeb - Filial de Debito (Uso SIGATMS)
+@param aDadosBco - Vetor contendo os dados bancarios utilizados para gerar titulos de Adiantamento (Uso SIGATMS)
+@param lExibelanc - Exibe os lancamentos contabeis ?
+@param lOnLine - Contabiliza On Line ?
+@param lBcoPag Banco
+@param nInssret - Valor do INSS Retido
+@param cDirf - Titulo deve ser considerado na DIRF? (1=SIM|2=NAO)
+@param cCodRet - Codigo de retencao p/ DIRF
+@param aImposto
+@param nBasimp
+@param lMsBlQl - Bloqueia o Titulo
+@param cCodOpe - Codigo da Operadora de Frete
+
+@author Wagner Mobile Costa
+@since 19/06/2001
+/*/
+//-------------------------------------------------------------------
+Function A050ManSe2(nOpcao, cNumero, cPrefixo, cTipoTit, cParcela, nValTitulo,;
+					nValIRRF, cCodForn, cLojaFor, cNatureza, nMoedTit, cCodPraz,;
+					cOrigem,dEmissao, cHistorico, dVenc, aCompleG, cFilDeb, aDadosBco,; 
+					lExibeLanc, lOnline , lBcoPag, nInssRet, cDirf, cCodRet, aImposto, nBasImp, lMsBlQL,cCodOpe, lPaMovBco)
+
+Local nParcela    := 0
+Local nIndice     := 0
+Local nParcelas   := 0
+Local aVenc       := {}
+Local aGrvSe2     := {}
+Local nCompleG    := 0
+Local aGravar     := {}
+Local nCntFor     := 0 
+Local cSeekSE5    := ''
+Local lCpoBlq     := SE2->( ColumnPos("E2_MSBLQL") ) > 0
+Local lCpoOPe     := .T.
+Local cIdCnab 	  := ''
+Local lFINALTVC   := ExistBlock("FINALTVC")
+Local aDtVenc     := {}
+
+Default nOpcao    := 3
+Default cFilDeb   := ""
+Default aDadosBco := ""
+Default lBcoPag   := .T.
+Default nInssRet  := 0
+Default cDirf     := ""
+Default cCodRet   := ""
+Default aImposto  := {}
+Default nBasImp	  := 0
+Default lMsBlQL	:= .F.
+Default cCodOpe	:= ""
+Default lPaMovBco	:= .T.
+
+Private lMsErroAuto := .F.
+Private lInclusao
+
+If (lInclusao := (nOpcao = 3))
+	cNumero    	:= If(cNumero = Nil, GetSxENum("SE2", "E2_NUM"), cNumero)
+	cPrefixo   	:= If(cPrefixo = Nil, Space(3), cPrefixo)
+	cTipoTit	:= If(cTipoTit = Nil, "DP", cTipoTit)
+Else
+	cNumero    	:= If(cNumero = Nil, SE2->E2_NUM, cNumero)
+	cPrefixo   	:= If(cPrefixo = Nil, SE2->E2_PREFIXO, cPrefixo)
+	cTipoTit	:= If(cTipoTit = Nil, SE2->E2_TIPO, cTipoTit)
+Endif
+
+cParcela	  := If(cParcela = Nil, SE2->E2_PARCELA, cParcela)
+cCodForn	  := If(cCodForn = Nil, SE2->E2_FORNECE, cCodForn)
+cLojaFor	  := If(cLojaFor = Nil, SE2->E2_LOJA, cLojaFor)
+cNatureza  := If(cNatureza = Nil, SE2->E2_NATUREZ, cNatureza)
+cOrigem	  := IF(cOrigem = Nil, Space(0), cOrigem)
+dEmissao	  := If(dEmissao = Nil, dDataBase, dEmissao)
+cHistorico := If(cHistorico = Nil, Space(0), cHistorico)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao com o Modulo de Transporte (TMS)                                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If IntTms() .And. nModulo == 43
+   //-- Assume o valor da parcela passada no parametro
+	nParcela	:= Val(cParcela)
+	cSeekSE5 := xFilial("SE5")+cPrefixo+cNumero+cParcela+cTipoTit+cCodForn+cLojaFor
+Else
+	nParcela := If(lInclusao,1,Val(cParcela))
+	cSeekSE5 := xFilial("SE5")+cPrefixo+cNumero+"1"+cTipoTit+cCodForn+cLojaFor
+EndIf
+
+If lInclusao .And. cTipoTit $ MVPAGANT		// Caso PA verifico se o numero ja existiu
+	DbSelectArea("SE5")						// e proponho o proximo
+	DbSetOrder(7)
+	If MsSeek(cSeekSE5)
+		While &(IndexKey()) = xFilial("SE5")+cPrefixo+cNumero+"1"+;
+			cTipoTit+cCodForn+cLojaFor .And. ! Eof()
+			cNumero := StrZero(Val(cNumero)+1,6)
+			DbSkip()
+			MsSeek( xFilial("SE5")+cPrefixo+cNumero+"1"+cTipoTit+cCodForn+cLojaFor)
+		EndDo
+	Endif
+Endif
+
+If lInclusao
+	If cCodPraz # Nil
+		aVenc := Condicao(nValTitulo,cCodPraz,,dEmissao)
+		//-- Quando existir operadora sempre considera um único vencimento. Caso existam parcelas, considera somente o vencimento da 1a parcela
+		If !Empty(cCodOpe)
+			dVenc := aVenc[1,1]
+			aVenc := { { dVenc, nValTitulo } }
+		EndIf
+	ElseIf dVenc != Nil
+		aVenc := { { dVenc, nValTitulo } }
+	Endif
+Endif
+
+SA2 -> ( MsSeek( xFilial("SA2") + cCodForn + cLojaFor ) )
+
+nIndice 	 := nParcela
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de entrada para alterar data de vencimento                           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFINALTVC
+	aDtVenc := ExecBlock( "FINALTVC", .F., .F., { aVenc,cCodForn,cLojaFor,cCodPraz } )
+	If ValType(aDtVenc) == "A" .And. !Empty(aDtVenc)
+		aVenc := aClone(aDtVenc)
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao com o Modulo de Transporte (TMS)                                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If IntTms() .And. nModulo == 43
+   //-- Existem casos em que a parcela do titulo passada como parametro e' maior que 1
+	nParcelas := If(lInclusao, nIndice+(Len(aVenc)-1), nIndice)
+Else
+	nParcelas := If(lInclusao, Len(aVenc), nIndice )
+EndIf
+
+For nParcela := nIndice To nParcelas
+
+	If ! lInclusao	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Integracao com o Modulo de Transporte (TMS)                                ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	    If nModulo == 43 .And. !Empty(cFilDeb)
+			SE2->(DbSetOrder(1))
+			SE2->(MsSeek(cFilDeb + cPrefixo + cNumero + Str(nParcela, 1)))
+		Else
+			SE2->(DbSetOrder(1))
+			SE2->(MsSeek(xFilial("SE2") + cPrefixo + cNumero + Str(nParcela, 1)))
+		EndIf
+	Endif
+	
+	aGravar := Array(0)
+	Aadd(aGravar, If(lInclusao, SA2->A2_BANCO        			, SE2->E2_PORTADO))
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Integracao com o Modulo de Transporte (TMS)                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If IntTMS() .And. nModulo == 43  
+	   //-- A variavel nCntFor foi criada para evitar erro de array, caso
+	   //-- a Parcela do Titulo passada passada como parametro for maior que 1
+		nCntFor ++
+		Aadd(aGravar, If(lInclusao, aVenc[nCntFor][1]			, SE2->E2_VENCTO))
+		Aadd(aGravar, If(lInclusao, DataValida(aVenc[nCntFor][1]), SE2->E2_VENCREA))
+		Aadd(aGravar, If(lInclusao, aVenc[nCntFor][2], SE2->E2_VALOR))
+		Aadd(aGravar, If(lInclusao, aVenc[nCntFor][2], SE2->E2_SALDO))		
+	Else
+		Aadd(aGravar, If(lInclusao, aVenc[nParcela][1]			, SE2->E2_VENCTO))
+		Aadd(aGravar, If(lInclusao, DataValida(aVenc[nParcela][1]), SE2->E2_VENCREA))
+		Aadd(aGravar, If(lInclusao, aVenc[nParcela][2], SE2->E2_VALOR))
+		Aadd(aGravar, If(lInclusao, aVenc[nParcela][2], SE2->E2_SALDO))		
+   EndIf
+	
+	If lBcoPag
+		Aadd(aGravar, If(lInclusao, SA2->A2_BANCO                	, SE2->E2_BCOPAG))
+	Else
+		Aadd(aGravar, If(lInclusao, ''                              , SE2->E2_BCOPAG))
+	EndIf
+	Aadd(aGravar, If(lInclusao, dDataBase                    	, SE2->E2_EMIS1))
+	Aadd(aGravar, If(lInclusao, Iif(ValType(nMoedTit)=="N",nMoedTit,Val(nMoedTit)),;
+	SE2->E2_MOEDA))
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Integracao com o Modulo de Transporte (TMS)                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	If IntTMS() .And. nModulo == 43  
+	   //-- A variavel nCntFor foi criada para evitar erro de array, caso
+	   //-- a Parcela do Titulo passada passada como parametro for maior que 1
+		Aadd(aGravar, If(lInclusao, xMoeda((aVenc[nCntFor][2]),nMoedTit,1,;
+								dEmissao), SE2->E2_VLCRUZ) )		
+	Else
+		Aadd(aGravar, If(lInclusao, xMoeda((aVenc[nParcela][2]),nMoedTit,1,;
+								dEmissao), SE2->E2_VLCRUZ) )			
+	EndIf
+
+	aGrvSe2 := {}                     
+	
+	Aadd(aGrvSe2, 	{ "E2_PREFIXO"	, cPrefixo			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_NUM"		, cNumero			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_TIPO"		, cTipoTit			, Nil })
+	Aadd(aGrvSe2,	{ "E2_NATUREZ"	, cNatureza 		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_PORTADO"	, aGravar[1]   		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_FORNECE"	, cCodForn 			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_LOJA"   	, cLojaFor			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_NOMFOR"	, SA2->A2_NREDUZ 	, Nil })
+	Aadd(aGrvSe2, 	{ "E2_EMISSAO"	, dEmissao			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_VENCTO"	, aGravar[2]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_VENCREA"	, aGravar[3]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_INSSRET"	, nInssRet			, Nil })
+	Aadd(aGrvSe2, 	{ "E2_VALOR"  	, aGravar[4]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_SALDO"  	, aGravar[5]		, Nil })
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Integracao com o Modulo de Transporte (TMS)                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	If IntTMS() .And. nModulo == 43  
+		//-- A pesquisa foi incluida para nao "barrar" caso o banco nao exista.
+		SA6->(dbSetOrder(1))
+		If SA6->(dbSeek(xFilial('SA6')+aGravar[6]))
+			Aadd(aGrvSe2,{ "E2_BCOPAG" , aGravar[6]   	, Nil })
+		EndIf		
+		//--Tratamento para os dados da DIRF:
+		Aadd(aGrvSe2,{ "E2_DIRF"	, If(Empty(cDirf), '2', cDirf) 	, Nil })
+		Aadd(aGrvSe2,{ "E2_CODRET"	, cCodRet	, Nil })
+		If !Empty(aImposto)
+			Aadd(aGrvSe2,{ "E2_BASECOF"	, nBasImp	, Nil })   
+			Aadd(aGrvSe2,{ "E2_BASEPIS"	, nBasImp	, Nil })  
+			Aadd(aGrvSe2,{ "E2_BASECSL"	, nBasImp	, Nil })    
+			Aadd(aGrvSe2,{ "E2_BASEIRF"	, nBasImp	, Nil })  
+			Aadd(aGrvSe2,{ "E2_BASEISS"	, nBasImp	, Nil })  
+			Aadd(aGrvSe2,{ "E2_BASEINS"	, nBasImp	, Nil })     
+		EndIf
+	Else
+		Aadd(aGrvSe2,{ "E2_BCOPAG" , aGravar[6]     	, Nil })		
+	EndIf
+	
+	Aadd(aGrvSe2, 	{ "E2_EMIS1"  	, aGravar[7]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_MOEDA"	, aGravar[8]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_VLCRUZ" 	, aGravar[9]		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_HIST"   	, cHistorico		, Nil })
+	Aadd(aGrvSe2, 	{ "E2_PARCELA"	, StrZero(nParcela, Len(SE2->E2_PARCELA)) , Nil })
+	Aadd(aGrvSe2, 	{ "E2_ORIGEM" 	, cOrigem   		, Nil })
+	
+	If cCodPraz # Nil
+		Aadd(aGrvSe2, { "E2_PORCJUR", SE4->E4_ACRSFIN, Nil  })
+	Endif
+	
+	If !Empty( cFilDeb )
+		Aadd(aGrvSe2, { "E2_FILIAL", If(!Empty(FwFilial("SE2")),cFilDeb,xFilial("SE2")), Nil  })
+		Aadd(aGrvSe2, { "E2_FILDEB", cFilDeb, Nil } )
+	Else
+		Aadd(aGrvSe2, { "E2_FILIAL", xFilial("SE2"), Nil })
+	EndIf			
+
+	If aCompleG # Nil
+		For nCompleG := 1 To Len(aCompleG)
+			Aadd(aGrvSe2, { aCompleG[nCompleG][1], Eval(aCompleG[nCompleG][2]),Nil })
+		Next
+	Endif    
+	
+	If !Empty(aImposto) .And. Len(aImposto) >= 3 .And. IntTms()
+		Aadd(aGrvSe2, { "E2_IRRF", aImposto[1], Nil })    
+		Aadd(aGrvSe2, { "E2_SEST", aImposto[2], Nil }) 
+		Aadd(aGrvSe2, { "E2_INSS", aImposto[3], Nil })
+	EndIf
+	If lCpoBlq
+		Aadd(aGrvSe2, { "E2_MSBLQL", Iif(lMsBlQl,"1","2"), Nil } )
+	EndIf
+	If !Empty(cCodOpe)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+     	//³ Ponto de entrada para tratamento da variavel cIdCnab     ³
+	   //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cIdCnab := GetSxENum("SE2", "E2_IDCNAB","E2_IDCNAB"+cEmpAnt,11)  	
+		dbSelectArea("SE2")
+		aOrdSE2 := SE2->(GetArea())
+		dbSetOrder(11)
+		While SE2->(MsSeek(xFilial("SE2")+cIdCnab))
+			If ( __lSx8 )
+				ConfirmSX8()
+			EndIf
+			cIdCnab := GetSxENum("SE2", "E2_IDCNAB","E2_IDCNAB"+cEmpAnt,11)
+		EndDo
+		SE2->(RestArea(aOrdSE2))
+		ConfirmSx8()
+		If ExistBlock ("F240ICNB")
+		  	cIdCnab := ExecBlock("F240ICNB",.F.,.F.,{cIdCnab})
+		EndIf
+		Aadd(aGrvSe2, { "E2_IDCNAB", cIdCnab, Nil } )
+		If lCpoOpe
+			Aadd(aGrvSe2, { "E2_CODOPE", cCodOPe, Nil } )
+		EndIf
+	EndIf		
+	MsExecAuto({ | a,b,c,d,e,f,g,h,i,j,k | Fina050(a,b,c,d,e,f,g,h,i,j,k) }, aGrvSe2,, nOpcao,, aDadosBco, lExibeLanc, lOnline, , , , lPaMovBco )
+	If lMsErroAuto
+		Help(" ", 1, "ERROGERACP")
+		Exit
+	Endif
+Next		
+
+cNumero := StrZero(Val(cNumero)+1,6)
+
+Return ! lMsErroAuto
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A050MANSE2
+
+Gera titulo de contas a pagar, a partir de parametros Usando Rotina 
+automatica (FINA050) - Utilizada pelo SIGATMS -  - Não recomendamos 
+o uso desta função e nem damos manutenção.
+
+Arquivo original: FINXATU.PRX 
+
+@param nOpcao  - Opcao que sera executada
+@param cNumero - Numero do titulo a ser gerado
+@param cPrefixo - Prefixo do titulo
+@param cTipoTit - Tipo do titulo
+@param cParcela - Parcela do titulo (usado em alteracao/exclusao)
+@param nValTitulo - valor do titulo a ser gerado
+@param nValIRRF - valor do IRRF do titulo
+@param cCodForn - codigo do fornecedor
+@param cLojaFor - loja do fornecedor
+@param cNatureza - Natureza do titulo
+@param nMoedTit - numero da moeda do titulo
+@param cCodPraz - condicao de pagamento
+@param cOrigem - nome do programa origem
+@param dEmissao - Data de emissao do titulo (base calculo dias)
+@param cHistorico
+@param dVenc - Data de vencimento, usada caso condicao de pagamento nao for passada (assumira um vencimento)
+@param aCompleG - Matriz com bloco de codigo p/ complentar gravacao { { Nome do Campo, Bloco de codigo p/gravacao } }
+@param cFilDeb - Filial de Debito (Uso SIGATMS)
+@param aDadosBco - Vetor contendo os dados bancarios utilizados para gerar titulos de Adiantamento (Uso SIGATMS)
+@param lExibelanc - Exibe os lancamentos contabeis ?
+@param lOnLine - Contabiliza On Line ?
+@param lBcoPag Banco
+@param nInssret - Valor do INSS Retido
+@param cDirf - Titulo deve ser considerado na DIRF? (1=SIM|2=NAO)
+@param cCodRet - Codigo de retencao p/ DIRF
+@param aImposto
+@param nBasimp
+@param lMsBlQl - Bloqueia o Titulo
+@param cCodOpe - Codigo da Operadora de Frete
+
+@author Wagner Mobile Costa
+@since 19/06/2001
+/*/
+//-------------------------------------------------------------------
+
+
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±                                                                         ±±
+±±            Funcoes retiradas do arquivo FINXFUN.PRX                     ±±
+±±                                                                         ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINBAIXAS
+
+Retorna Alias de TRB que contem os registros das baixas realizadas em 
+determinado periodo (não encontrada chamada em fontes ou SX3).
+Arquivo original: FINXFUN.PRX 
+
+@param nOper - Numero da Operacao: 1 - Criacao do arquivo e filtragem de dados; 2 - Fechar arquivo temporario
+@param cCart - Carteira do processo: R - Receber; P - Pagar
+@param dDataIni - Data inicial do periodo das baixasd
+@param dDataFin - Data final do periodo das baixas
+@param cAlias - Alias do resultado da filtragem dos dados (referencia)
+@param lMovBcoBx - Considerar apenas motivos de baixa que gerem movimento (Efetivo pagamento) ou todas as baixas
+@param cTipo - Tipo especifico de titulo para verificar as baixas
+@param aMotBxEsp - Array contendo os motivos de baixa especificos para selecao das baixas
+
+@author Mauricio Pequim Jr.
+@since 31/08/2009
+/*/
+//-------------------------------------------------------------------
+Function FinBaixas(nOper,cCart,dDataIni,dDataFin,cAlias,lMovBcoBx,cTipo,aMotBxEsp)
+
+LOCAL aArea		:= GetArea()
+LOCAL aQuery	:= {}
+LOCAL cQuery	:= ""
+LOCAL nCntFor	:= 0
+LOCAL xRetorno	:= ""
+LOCAL aMotBx	:= ReadMotBx()
+LOCAL aMotBxBco:= {}
+LOCAL cMotBx	:= ""
+LOCAL nX			:= 0
+
+DEFAULT dDataIni	:= dDatabase
+DEFAULT dDataFin	:= dDatabase
+DEFAULT nOper		:= 1
+DEFAULT cAlias		:= ""
+DEFAULT cCart		:= "R"
+DEFAULT cTipo		:= ""
+DEFAULT lMovBcoBx	:= .F.
+DEFAULT aMotBxEsp	:= {}
+
+//Seleciona os motivos de baixa especificos
+If Len(aMotBxEsp) > 0
+	cMotBx := "('"
+	For nX := 1 to Len(aMotBxEsp)
+		If MovBcobx(Substr(aMotBxEsp[nX],1,3))
+			cMotBx += Substr(aMotBxEsp[nX],1,3)+"','"
+		Endif
+	Next
+	cMotBx += "')"
+
+//Seleciona os motivos de baixa que gerem moavimento bancario
+ElseIf lMovBcoBx
+	cMotBx := "('"
+	For nX := 1 to Len(aMotBx)
+		If MovBcobx(Substr(aMotBx[nX],1,3))
+			cMotBx += Substr(aMotBx[nX],1,3)+"','"
+		Endif
+	Next
+	cMotBx += "')"
+Endif
+
+If nOper == 1 //Filtra Baixas
+	dbSelectArea("SX3")
+	dbSetOrder(2)
+	dbSeek("E5_PREFIXO")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_NUMERO")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_PARCELA")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_TIPO")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_CLIFOR")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_LOJA")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_DTDISPO")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_VALOR")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_MOTBX")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+	dbSeek("E5_TIPODOC")
+	aadd(aQuery,{AllTrim(SX3->X3_CAMPO),SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})
+
+	SX3->(DbSetOrder(1))
+
+	cAlias := If(Empty(cAlias),"TRBBXS",cAlias)
+
+	cQuery := ""
+	aEval(aQuery,{|x| cQuery += ","+AllTrim(x[1])})
+	cQuery := "SELECT "+SubStr(cQuery,2)+",R_E_C_N_O_ SE5RECNO "
+	cQuery += "FROM "+RetSqlName("SE5")+" SE5 "
+	cQuery += "WHERE SE5.E5_FILIAL='"+xFilial("SE5")+"' AND "
+	cQuery += 		"SE5.E5_DTDISPO >='"+Dtos(dDataIni)+"' AND "
+	cQuery += 		"SE5.E5_DTDISPO <='"+Dtos(dDataFin)+"' AND "
+	cQuery +=		"SE5.E5_RECPAG ='"+cCart+"' AND "
+	cQuery +=		"SE5.E5_TIPODOC IN ('VL','BA','V2','CP','LJ','R$')  AND "
+
+	If !Empty (cTipo)
+		cQuery +=		"SE5.E5_TIPO ='"+cTipo+"' AND "
+	Endif
+
+	If lMovBcoBx
+		cQuery +=		"SE5.E5_MOTBX IN "+cMotBx+" AND "
+	Endif
+
+	cQuery +=		"SE5.E5_SITUACA<>'C' AND "
+	cQuery +=		"SE5.D_E_L_E_T_ = ' ' AND NOT EXISTS ("
+	cQuery += "SELECT A.E5_NUMERO "
+	cQuery += "FROM "+RetSqlName("SE5")+" A "
+	cQuery += "WHERE A.E5_FILIAL='"+xFilial("SE5")+"' AND "
+	cQuery +=		"A.E5_NATUREZ=SE5.E5_NATUREZ AND "
+	cQuery +=		"A.E5_PREFIXO=SE5.E5_PREFIXO AND "
+	cQuery +=		"A.E5_NUMERO=SE5.E5_NUMERO AND "
+	cQuery +=		"A.E5_PARCELA=SE5.E5_PARCELA AND "
+	cQuery +=		"A.E5_TIPO=SE5.E5_TIPO AND "
+	cQuery +=		"A.E5_CLIFOR=SE5.E5_CLIFOR AND "
+	cQuery +=		"A.E5_LOJA=SE5.E5_LOJA AND "
+	cQuery +=		"A.E5_SEQ=SE5.E5_SEQ AND "
+	cQuery +=		"A.E5_TIPODOC='ES' AND "
+	cQuery +=		"A.E5_RECPAG<>'R' AND "
+	cQuery +=		"A.D_E_L_E_T_<>'*')"
+
+	cQuery := ChangeQuery(cQuery)
+
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAlias,.T.,.T.)
+
+	aEval(aQuery,{|x| If(x[2]!="C",TcSetField(cAlias,x[1],x[2],x[3],x[4]),Nil)})
+	xRetorno := cAlias  //Alias da query com o resultado
+
+Else
+	dbSelectArea(cAlias)
+	dbCloseArea()
+	xRetorno := ""
+Endif
+
+Return xRetorno
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} DETIGVFIN
+
+Detração de IGV (imposto do Peru) (Chamado apenas do FISR012.prw 
+(LIVRO FISCAL PERU).
+Arquivo original: FINXFUN.PRX 
+
+@author Pedro Pereira Lima
+@since 18/02/2013
+/*/
+//-------------------------------------------------------------------
+Function DetIGVFin(cCodFor,cLojaFor,dDataIni,dDataFim,cFil,dDtDigit)
+Local aArea	:= GetArea()
+Local cQry	:= GetNextAlias()
+Local aRet	:= {}
+If ExistBlock("F012DETIGV")
+   aRet:=ExecBlock("F012DETIGV",.F.,.F.,{cFil,cCodFor,cLojaFor,dDataIni,dDataFim,dDtDigit})
+ELSE
+
+#IFDEF TOP
+	BeginSql Alias cQry
+		SELECT
+			SE5.E5_PREFIXO PREFIXO,
+			SE5.E5_NUMERO NUMERO,
+			SE5.E5_DATA DTMOV,
+			SE5.E5_VALOR VALOR,
+			SE5.E5_PARCELA,
+			SEK.EK_PREFIXO PRFPAGO,
+			SEK.EK_NUM NUMPAGO,
+			SEK.EK_PARCELA PARCELA,
+			SEK.EK_TIPO TIPO,
+			SEK.EK_VALOR VALPAGO
+
+		FROM
+			%Table:SE5% SE5 LEFT JOIN %Table:SEK% SEK ON SE5.E5_ORDREC = SEK.EK_ORDPAGO
+
+		WHERE
+			SE5.E5_FILIAL = %Exp:cFil% AND
+			SE5.E5_TIPO = %Exp:'TX'% AND
+			SE5.E5_DATA BETWEEN %Exp:DtoS(dDataIni)% AND %Exp:DtoS(dDataFim)% AND
+			SE5.E5_CLIFOR = %Exp:cCodFor% AND
+			SE5.E5_LOJA = %Exp:cLojaFor% AND
+			SEK.EK_FILIAL = %Exp:xFilial('SEK')% AND
+			SEK.EK_TIPO = %Exp:'TX'% AND
+			SEK.%NotDel% AND
+			SE5.%NotDel%
+
+		ORDER BY
+			SE5.E5_PREFIXO,SE5.E5_NUMERO,SE5.E5_DATA
+	EndSql
+
+	(cQry)->(dbGoTop())
+
+	While !(cQry)->(Eof())
+		aAdd(aRet,{(cQry)->PREFIXO,(cQry)->NUMERO,(cQry)->DTMOV,(cQry)->VALOR, (cQry)->PARCELA ,{(cQry)->PRFPAGO,(cQry)->NUMPAGO,(cQry)->PARCELA,(cQry)->TIPO,(cQry)->VALPAGO}})
+		(cQry)->(dbSkip())
+	EndDo
+
+	(cQry)->(dbCloseArea())
+#ENDIF
+ENDIF
+RestArea(aArea)
+Return aRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} XNUMCAIXA
+
+Devolve o Numero do Caixa Ativo - SIGALOJA/FRONTLOJA.
+
+Arquivo original: FINXFUN.PRX 
+
+@author Antonio Maniero Jr.
+@since 28/07/1994
+/*/
+//-------------------------------------------------------------------
+Function xNumCaixa()
+
+LOCAL cNumCaixa
+LOCAL aArea := GetArea()   // Area atual
+
+SA6->(dbSetOrder(2))
+cNumCaixa:=Iif(SA6->(dbSeek(xFilial( "SA6" )+Upper(cUsername))),SA6->A6_COD,"   ")
+SA6->(dbSetOrder(1))
+RestArea(aArea)
+
+Return cNumCaixa
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SLDCLIENTE
+
+Retorna o Saldo a Receber do Cliente em uma determinada Data  (não 
+encontrada chamada em fontes ou SX3) 
+(WSCRD010.PRX/fatxfun.prx/mata030.prx/mata450.prx)
+
+@param cCliLoja: Cliente + Loja
+@param dData: Data do Movimento a Receber - Default dDataBase
+@param nMoeda: Moeda do Saldo Bancario - Defa 1
+@param lMovSE5: Se .T. considera o saldo do SE5 - Defa .T.
+
+Arquivo original: FINXFUN.PRX 
+
+@author Eduardo Riera
+@since 12/03/1998
+/*/
+//-------------------------------------------------------------------
+Function SldCliente(cCliLoja,dData,nMoeda,lMovSE5)
+
+LOCAL aArea     := { Alias() , IndexOrd() , Recno() }
+LOCAL aAreaSE1  := { SE1->(IndexOrd()), SE1->(Recno()) }
+LOCAL bCondSE1
+LOCAL nSaldo    := 0
+LOCAL nTamCli   := len(Criavar("A1_COD"))
+LOCAL nTamLoja  := len(Criavar("A1_LOJA"))
+LOCAL cCliente  := SubStr(cCliLoja,1,nTamCli)
+LOCAL cLoja     := SubStr(cCliLoja,nTamCli+1,nTamLoja)
+LOCAL nSaldoTit := 0
+
+// Quando eh chamada do Excel, estas variaveis estao em branco
+IF Empty(MVABATIM) .Or.;
+	Empty(MV_CRNEG) .Or.;
+	Empty(MVRECANT)
+	CriaTipos()
+Endif
+// ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+// ³ Testa os parametros vindos do Excel                  ³
+// ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nMoeda      := If(Empty(nMoeda),1,nMoeda)
+dData       := If(Empty(dData),dDataBase,dData)
+If ( ValType(nMoeda) == "C" )
+	nMoeda      := Val(nMoeda)
+EndIf
+dData       := DataWindow(dData)
+lMovSE5     := BoolWindow(lMovSe5)
+
+dbSelectArea("SE1")
+dbSetOrder(2)
+dbSeek(xFilial()+cCliente+cLoja)
+If ( !Empty(cLoja) )
+	bCondSE1  := {|| !Eof() .And. xFilial() == SE1->E1_FILIAL .And.;
+		cCliente == SE1->E1_CLIENTE .And.;
+		cLoja    == SE1->E1_LOJA }
+Else
+	bCondSE1  := {|| !Eof() .And. xFilial() == SE1->E1_FILIAL .And.;
+		cCliente == SE1->E1_CLIENTE }
+EndIf
+While ( Eval(bCondSe1) )
+	If ( SE1->E1_EMISSAO <= dData .And. ;
+			!SE1->E1_TIPO $ MVPROVIS+"/"+MVABATIM .And.;
+			((!Empty(SE1->E1_FATURA).And.;
+			Substr(SE1->E1_FATURA,1,6)=="NOTFAT" ) .Or.;
+			(!Empty(SE1->E1_FATURA) .And.;
+			Substr(SE1->E1_FATURA,1,6)!="NOTFAT" .And.;
+			SE1->E1_DTFATUR > dData ) .Or.;
+			Empty(SE1->E1_FATURA)) )
+		If (!SE1->E1_TIPO $ MVRECANT+"/"+MV_CRNEG )
+			If ( !lMovSE5 )
+				If SE1->E1_SALDO > 0
+					nSaldo += xMoeda(SE1->E1_SALDO,SE1->E1_MOEDA,1,dData)
+					nSaldo -= SomaAbat(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,"R",1,dData,SE1->E1_CLIENTE)
+				Endif
+			Else
+				nSaldoTit := SaldoTit(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_NATUREZ,"R",SE1->E1_CLIENTE,nMoeda,,dData,SE1->E1_LOJA)
+				If nSaldoTit > 0
+					nSaldoTit -= SomaAbat(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,"R",1,dData,SE1->E1_CLIENTE)
+				Endif
+				nSaldo += nSaldoTit
+			EndIf
+		Else
+			If ( !lMovSE5  )
+				nSaldo -= SaldoTit(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_NATUREZ,"R",SE1->E1_CLIENTE,nMoeda,,dData,SE1->E1_LOJA)
+			Else
+				nSaldo -= xMoeda(SE1->E1_SALDO,SE1->E1_MOEDA,1,dData)
+			EndIf
+		EndIf
+	EndIf
+	dbSelectArea("SE1")
+	dbSkip()
+EndDo
+dbSelectArea("SE1")
+dbSetOrder(aAreaSE1[1])
+dbGoto(aAreaSE1[2])
+dbSelectArea(aArea[1])
+dbSetOrder(aArea[2])
+dbGoto(aArea[3])
+Return(nSaldo)
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} CONVPN2PC
+
+Converte parcela numerica para parcela caracter (CDCI). 
+
+Arquivo original: FINXFUN.PRX 
+
+@author Eduardo Motta
+@since 16/05/2000
+/*/
+//-------------------------------------------------------------------
+Function ConvPN2PC(nParc)
+LOCAL nRet
+If nParc <= 9
+	nRet := Str(nParc,1)
+Else
+	nRet := Chr(55+nParc)
+EndIf
+Return nRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} EXCONTCDCI
+
+Excluir o contrato de CDCI 
+
+Arquivo original: FINXFUN.PRX 
+
+@param cContrato - Numero do Contrato 
+
+@author Eduardo Motta
+@since 26/10/2000
+/*/
+//-------------------------------------------------------------------
+Function ExContCDCI(cContrato)
+LOCAL aSEM := SEM->(GetArea())
+
+BEGIN SEQUENCE
+
+   If cContrato == Nil
+      Help("  ",1,"EXCCDCI01")
+      BREAK
+   Endif
+   DbSelectArea("SEM")
+   DbSetOrder(1)
+   DbSeek(xFilial("SEM")+cContrato)
+   If Eof()
+      Help("  ",1,"EXCCDCI03",,cContrato,3,1)
+      BREAK
+   EndIf
+   If !Empty(EM_BORDERO)
+      Help("  ",1,"EXCCDCI02",,EM_BORDERO,5,1)
+      BREAK
+   EndIf
+   RecLock("SEM",.f.)
+   DbDelete()
+   MSUnlock()
+END SEQUENCE
+
+RestArea(aSEM)
+
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} EXTITCDCI
+
+Excluir os titulos de CDCI (Processa)  
+
+Arquivo original: FINXFUN.PRX 
+
+@param cContrato - Numero do Contrato 
+
+@author Eduardo Motta
+@since 26/10/2000
+/*/
+//-------------------------------------------------------------------
+Function ExTitCDCI(cContrato)
+
+Processa({||ExTitCDCIb(cContrato)})
+
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} EXTITCDCIB
+
+Excluir os titulos de CDCI  
+
+Arquivo original: FINXFUN.PRX 
+
+@param cContrato - Numero do Contrato 
+
+@author Eduardo Motta
+@since 26/10/2000
+/*/
+//-------------------------------------------------------------------
+Function ExTitCDCIb(cContrato)
+LOCAL nI := 0
+LOCAL aTitulo := {	{"E1_PREFIXO"	,,Nil},;
+                  	{"E1_NUM"		,,Nil},;
+	                  {"E1_PARCELA"	,,Nil},;
+                   	{"E1_TIPO"		,,Nil},;
+                   	{"E1_NATUREZ"	,,Nil},;
+                  	{"E1_CLIENTE"	,,Nil},;
+                  	{"E1_LOJA"		,,Nil},;
+                   	{"E1_EMISSAO"	,,NIL},;
+                   	{"E1_VENCTO"	,,NIL},;
+                  	{"E1_VENCREA"	,,NIL},;
+                   	{"E1_VALOR"		,,Nil}}
+LOCAL aSE1:= SE1->(GetArea())
+LOCAL aSEM:= SEM->(GetArea())
+
+LOCAL cPrefixo := "000",cTipo := "CDC"
+LOCAL aParcelas := {}
+
+BEGIN SEQUENCE
+   If cContrato == Nil
+      Help("  ",1,"EXCCDCI01")
+      BREAK
+   Endif
+
+   DbSelectArea("SEM")
+   DbSetOrder(1)
+   DbSeek(xFilial("SEM")+cContrato)
+   If Eof()
+      Help("  ",1,"EXCCDCI03",,cContrato,3,1)
+      BREAK
+   EndIf
+   If !Empty(EM_BORDERO)
+      Help("  ",1,"EXCCDCI02",,EM_BORDERO,5,1)
+      BREAK
+   EndIf
+
+   DbSelectArea("SE1")
+   DbSetOrder(1)
+   DbSeek(xFilial("SE1")+cPrefixo+cContrato)
+   While xFilial("SE1") == E1_FILIAL .and. cPrefixo == E1_PREFIXO .and. cContrato == E1_NUM .and. !Eof()
+      If E1_TIPO = cTipo
+         aadd(aParcelas,E1_PARCELA)
+      EndIf
+      DbSkip()
+   EndDo
+
+   ProcRegua(Len(aParcelas))
+   For nI := 1 to Len(aParcelas)
+      IncProc(STR0001) //"Excluindo Titulos a Receber"
+   	aTitulo[01,2] := cPrefixo  		  		// E1_PREFIXO
+  	   aTitulo[02,2] := cContrato         	// E1_NUM
+	   aTitulo[03,2] := aParcelas[nI]    		// E1_PARCELA
+	   aTitulo[04,2] := cTipo              	// E1_TIPO
+   	MSExecAuto({|x,y| FINA040(x,y)},aTitulo,5)
+   Next
+END SEQUENCE
+
+RestArea(aSE1)
+RestArea(aSEM)
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} CALCCDCI
+
+Função para Calcular o CDCI    
+
+Arquivo original: FINXFUN.PRX 
+
+@param nValor - Valor a Vista
+@param nValorc - Valor combinado (se nao houver coloque 0)
+@param nEntrada - Valor da Entrada
+@param cCodPla - Codigo do plano do CDCI 
+
+@author Eduardo Motta
+@since 02/05/2000
+/*/
+//-------------------------------------------------------------------
+Function CalcCDCI( nValor, nValorc, nEntrada, cCodpla)
+LOCAL cArq := Alias(), nReg := Recno(), nOrd := IndexOrd()
+LOCAL nCoef, nParcelas, nVdesc, nBase, nVrpar, nTotfin, nCare, nRazao
+LOCAL aParcelas := {}, i
+LOCAL dData := dDataBase
+dbselectarea("SEN")
+dbsetorder(1)
+dbseek(xFilial("SEN")+cCodpla)
+nCoef     := sen->en_coef
+nParcelas := sen->en_maxparc
+nCare     := sen->en_carenc
+nRazao    := sen->en_razao
+nBase     := 0.00
+nVdesc    := 0.00
+if nValorc == 0.00    // se valor combinado for 0.00 o calculo e feito com base no valor da nota
+	nVdesc := 0.00
+else                  // senao o total das parcelas tem que dar o valor combinado gerando assim um desconto.
+	nVdesc := (((nValor-nEntrada)*nParcelas*nCoef)-(nValorc-nEntrada)) / (nParcelas*nCoef)
+endif
+nBase     := (nValor-nEntrada-nVdesc)
+nVrpar    := nCoef  * nBase
+nTotfin   := nVrpar * nParcelas
+dVenini   := dData  + nCare
+for i := 1 to nParcelas
+	Aadd(aParcelas,{dVenini,nVrpar})
+	dVenini := dVenini + nRazao
+next
+dbselectarea(cArq)
+dbsetorder(nOrd)
+dbgoto(nReg)
+return {nVdesc,aParcelas}
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GCONTCDCI
+
+Função para gerar Contrato de CDCI    
+
+Arquivo original: FINXFUN.PRX 
+
+
+@param cContrato - Numero do Contrato
+@param cCliente  - Cliente
+@param cLoja     - Loja
+@param cNota     - Numero da Nota
+@param cSerie    - Serie da Nota
+@param dData     - Data de Emissao da Nota
+@param nValorNf  - Valor da Nota Fiscal
+@param nValorEnt - Valor da Entrada
+@param nValorFin - Valor Financiado
+@param nTotFin   - Total Financiado
+@param nVrPar    - Valor da Parcela
+@param dVenc1    - Data do Primeiro Vencimento
+@param cPlano    - Codigo do Plano
+@param nCoefic   - Coeficiente do Plano
+@param nIndIoc   - Indice para calculo do Valor de IOC
+
+obs:o parametro cContrato e passado como referencia para que possa ser
+ utilizado fora deste Funcao(se o cContrato for passado em branco e 
+ gerado o numero automaricamente).
+
+@author Eduardo Motta
+@since 02/05/2000
+/*/
+//-------------------------------------------------------------------
+Function GContCDCI(cContrato,cCliente,cLoja,cNota,cSerie,dData,nValorNf,nValorEnt,nValorFin,nTotFin,nVrPar,dVenc1,cPlano,nVDesc,nCoefic,nIndIoc)
+LOCAL lGerCont := .F.
+LOCAL nSaveSx8 := 0
+
+If !Empty(cContrato)    // se for passado o numero do Contrato verifica se ja existe
+	DbSelectArea('SEM')
+	DbSetOrder(1)
+	If DbSeek(xFilial('SEM')+cContrato)
+		Help(" ",1,"CONTCDCCAD")  // 'Contrato ja cadastrado'
+		Return .F.
+	EndIf
+Else
+	nSaveSx8	 := GetSx8Len()
+	cContrato := CriaVar("EM_CONTRAT",.T.)
+	lGerCont  := .T.
+Endif
+RecLock("SEM",.t.)
+SEM->EM_FILIAL 	 := xFilial("SEM")
+SEM->EM_CONTRAT	 := cContrato
+SEM->EM_CLIENTE	 := cCliente
+SEM->EM_LOJA	 := cLoja
+SEM->EM_NRONOTA	 := cNota
+SEM->EM_SERIE  	 := cSerie
+SEM->EM_EMISSAO	 := dData
+SEM->EM_VALOR  	 := nValorNF
+SEM->EM_ENTRADA	 := nValorEnt
+SEM->EM_VLRFIN 	 := nValorFin
+SEM->EM_TOTFIN 	 := nTotFin
+SEM->EM_VLRDESC	 := nVDesc
+SEM->EM_PRESTAC	 := nVrPar
+SEM->EM_DTINI  	 := dVenc1
+SEM->EM_PLANO  	 := cPlano
+SEM->EM_COEFIC 	 := nCoefic
+SEM->EM_INDIOC 	 := nIndIoc
+If lGerCont    // se o numero tiver sido gerado automaticamente
+	While (GetSx8Len() > nSaveSx8)
+		ConfirmSx8()
+	Enddo
+Endif
+MSUnlock()
+
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINXIND
+
+Preenche o campo TAXA INDICE conforme codigo tabela INDICES APLICADOS.    
+
+Arquivo original: FINXFUN.PRX 
+
+@author Newton Rogerio Ghiraldelli 
+@since 18/04/2000
+/*/
+//-------------------------------------------------------------------
+Function FINXIND( nCodDe, lGatilho )
+
+lGatilho := IIf( lGatilho == Nil, .t., lGatilho )
+
+If !Inclui .or. lGatilho
+	SEP->( DbSeek( xFilial( "SEP" ) + nCodDe ) )
+	Return SEP->EP_TAXA
+Else
+	Return 0
+EndIf
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GTITCDCI
+
+Preenche o campo TAXA INDICE conforme codigo tabela INDICES APLICADOS.    
+
+Arquivo original: FINXFUN.PRX 
+
+@param aParCdci - Array contendo as parcelas do CDCI
+@param cCliente - Codigo do Cliente
+@param cLoja - Codigo da Loja
+@param cContrato - Numero do Contrato de CDCI
+@param cNatureza - Natureza para Geracao do Titulo
+
+@author Eduardo Motta 
+@since 02/05/2000
+/*/
+//-------------------------------------------------------------------
+Function GTitCDCI(aParCdci,cCliente,cLoja,cContrato,cNatureza)
+
+Processa({||GTitCDCIb(aParCdci,cCliente,cLoja,cContrato,cNatureza)})
+
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GTITCDCI
+
+Programa para gerar Titulo a partir do CDCI    
+
+Arquivo original: FINXFUN.PRX 
+
+@param aParCdci - Array contendo as parcelas do CDCI
+@param cCliente - Codigo do Cliente
+@param cLoja - Codigo da Loja
+@param cContrato - Numero do Contrato de CDCI
+@param cNatureza - Natureza para Geracao do Titulo
+
+@author Eduardo Motta 
+@since 02/05/2000
+/*/
+//-------------------------------------------------------------------
+Function GTitCDCIb(aParCdci,cCliente,cLoja,cContrato,cNatureza)
+LOCAL i
+LOCAL aTitulo := {	{"E1_PREFIXO"	,,Nil},;
+	{"E1_NUM"		,,Nil},;
+	{"E1_PARCELA"	,,Nil},;
+	{"E1_TIPO"		,,Nil},;
+	{"E1_NATUREZ"	,,Nil},;
+	{"E1_CLIENTE"	,,Nil},;
+	{"E1_LOJA"		,,Nil},;
+	{"E1_EMISSAO"	,,NIL},;
+	{"E1_VENCTO"	,,NIL},;
+	{"E1_VENCREA"	,,NIL},;
+	{"E1_VALOR"		,,Nil}}
+LOCAL cArq := Alias(), nReg := Recno(), nOrd := IndexOrd()
+LOCAL nRegCli := SA1->(Recno()),nOrdCli := SA1->(IndexOrd())
+
+If cNatureza == Nil   // se nao for passado a Natureza como parametro assume a natureza do CLIENTE
+	SA1->(DbSetOrder(1))
+	If SA1->(DbSeek(xFilial("SA1")+cCliente+cLoja))
+		cNatureza := SA1->A1_NATUREZ
+	Endif
+	SA1->(DbSetOrder(nOrdCli))
+	SA1->(DbGoto(nRegCli))
+Endif
+ProcRegua(Len(aParCdci))
+For i := 1 to Len(aParCdci)
+	IncProc(STR0002) //"Incluindo Titulos a Receber"
+	aTitulo[01,2] := '000'           	   // E1_PREFIXO
+	aTitulo[02,2] := cContrato            	       // E1_NUM
+	aTitulo[03,2] := ConvPN2PC(i)         	       // E1_PARCELA
+	aTitulo[04,2] := "CDC"                    	   // E1_TIPO
+	aTitulo[05,2] := cNatureza               	   // E1_NATUREZA
+	aTitulo[06,2] := cCliente                	   // E1_CLIENTE
+	aTitulo[07,2] := cLoja                         // E1_LOJA
+	aTitulo[08,2] := dDataBase                	   // E1_EMISSAO
+	aTitulo[09,2] := aParCdci[i,1]           	   // E1_VENCTO
+	aTitulo[10,2] := DataValida(aParCdci[i,1])	   // E1_VENCREA
+	aTitulo[11,2] := aParCdci[i,2]            	   // E1_VALOR
+	MSExecAuto({|x,y| FINA040(x,y)},aTitulo,3)
+Next
+
+dbselectarea(cArq)
+dbsetorder(nOrd)
+dbgoto(nReg)
+
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINXIOC
+
+Programa para gerar Titulo a partir do CDCI    
+
+Arquivo original: FINXFUN.PRX 
+
+@param nCodDe - Alias do Arquivo
+@param lGatilho - Numero do Registro
+
+@author Newton Rogerio Ghiraldelli 
+@since 18/04/2000
+/*/
+//-------------------------------------------------------------------
+Function FINXIOC( nCodDe, lGatilho )
+
+lGatilho := IIf( lGatilho == Nil, .t., lGatilho )
+
+If !Inclui .or. lGatilho
+	SEO->( DbSeek( xFilial( "SEO" ) + nCodDe ) )
+	Return SEO->EO_TAXA
+Else
+	Return 0
+EndIf
+

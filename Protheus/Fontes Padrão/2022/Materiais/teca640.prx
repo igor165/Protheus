@@ -1,0 +1,598 @@
+#Include "TECA640.ch"  
+#Include "Protheus.ch"
+#INCLUDE "TBICONN.CH"
+
+Static aMarcados
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} TECA640
+@description	Geração de OS a partir dos movimentos de manutenção
+@param			NIL
+@return		NIL 
+@author		Sergio Silveira
+@since			09/10/1999
+/*/
+//-------------------------------------------------------------------
+Function TECA640()
+
+Local lPergunte	:= .T.
+Local cCond		:= ""
+Local cTemp		:= ""							// Temporário com o filtro adicional do ponto de entrada
+Local aIndexAA3	:= {}
+Local lAT640Fil	:= FindFunction("U_AT640FIL")	// P.E. Complemento do filtro do browser
+
+Private aRotina		:= MenuDef()
+Private cMarca      := GetMark(,'AA3','AA3_OK')
+Private bFiltraAA3
+
+DbSelectArea( "AA3" )
+DbSetOrder( 1 )
+
+INCLUI		:= .F.
+lPergunte	:= Pergunte( "ATA640", .T. )
+
+If lPergunte
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Cria IndRegua                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea( "AA3" )
+	
+	cArqInd	:= CriaTrab(  , .F. )
+	
+	cCond		:= ''
+	cCond		+= 'AA3_FILIAL=="'   + xFilial( "AA3" ) + '" .And.'
+	cCond		+= 'AA3_CODCLI>="'   + MV_PAR01         + '" .And.'
+	cCond		+= 'AA3_CODCLI<="'   + MV_PAR02         + '" .And.'
+	cCond		+= 'AA3_CODPRO>="'   + MV_PAR03         + '" .And.'
+	cCond		+= 'AA3_CODPRO<="'   + MV_PAR04         + '"'
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Executa P.E. AT640FIL.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lAT640Fil
+		cTemp := ExecBlock("AT640Fil",.F.,.F.)
+		If ValType(cTemp) == "C"
+			cCond += " .And. " + cTemp
+		EndIf
+	EndIf
+	    
+	bFiltraAA3 := {|x| If(x==Nil,FilBrowse("AA3",@aIndexAA3,@cCond),cCond) }
+	Eval(bFiltraAA3)
+	
+	cCadastro	:= STR0001	// Expande planos de Preventivas
+	aMarcados	:= {}
+	MarkBrow("AA3", "AA3_OK", "", , , cMarca, "At640MrkAll()", , , , "At640Mrk()")
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Restaura a IndRegua            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("AA3")
+	RetIndex("AA3")
+	dbClearFilter()
+	aEval(aIndexAA3,{|x| Ferase(x[1]+OrdBagExt())})
+EndIf
+
+Return( Nil )
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+@description	Definição do aRotina (Menu funcional)
+@param			NIL
+@return		aRet, Array, Array com as rotinas disponíveis 
+@author		Conrado Q. Gomes
+@since			08/12/2006
+/*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+
+Local aRotina := {{STR0002, "At640Pesq",  0, 1, 0, .F.},;  // "Pesquisar"
+                  {STR0003, "At040Visua", 0, 2, 0, .T.},;  // "Visualizar"
+                  {STR0004, "At640Proc",  0, 4, 0, .T.}}   // "Gerar O.S."
+
+Return(aRotina)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640Proc
+@description	Processamento da Programacao das OS pelo Plano de Manut.
+@param			NIL
+@return		lRet, lógico, .T. = Continua com o processo
+@author		Sergio Silveira
+@since			04/10/1999
+/*/
+//-------------------------------------------------------------------
+Function At640Proc()
+
+Local nOpcA := 0
+
+FormBatch( cCadastro,;
+           {STR0009, STR0010, STR0011},;
+           {{5, .F., {|| .T. }},;
+            {1, .T., {|o| nOpcA := 1, o:oWnd:End()}},;
+            {2, .T., {|o| nOpcA := 0, o:oWnd:End()}}} )
+
+If ( nOpcA == 1)
+	Processa({|| At640OS()})
+	CloseBrowse()
+	aMarcados	:= {}
+EndIf
+Return( .T. )
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640OS
+@description	Efetua a criacao da ordem de servico a partir dos Movimentos de manutenção
+@param			NIL
+@return		NIL
+@author		Sergio Silveira
+@since			30/09/1999
+/*/
+//-------------------------------------------------------------------
+Static Function At640OS()
+Local cProduto	:= ""
+Local cNumSeri	:= ""
+Local nOpcA		:= 0
+Local nIndiceAA3:= AA3->( IndexOrd() )
+Local nInd		:= 0
+Local nTotRecMrk:= Len(aMarcados)
+Local oMark2	
+Local oDlg
+Local aStruABE 	:= {}
+Local nX		:= 0
+Local oTempTbl	:= Nil
+Local aCpos		:= {}
+Local aAreaSX3	:= {}
+Local cMark		:= "XX"
+Local lExistABE	:= .F.
+
+aSort(aMarcados)
+ProcRegua(nTotRecMrk)
+For nInd := 1 to nTotRecMrk
+
+	nOpcA := 0
+	aStruABE := {}
+	aCpos	 := {}
+	lExistABE := .F. 
+	AA3->( DbSetOrder( nIndiceAA3 ) )
+	AA3->( DbGoTo( aMarcados[nInd] ) )
+	IncProc(STR0008+": "+AA3->AA3_CODCLI+"/"+AA3->AA3_LOJA+"-"+AA3->AA3_CODPRO+"/"+AA3->AA3_NUMSER)
+
+	If ( MV_PAR07 == 1 ) // Sim
+
+		DbSelectArea("ABE")
+		ABE->(DbSetOrder(1))
+
+		If ABE->( DbSeek( xFilial( "ABE" ) + AA3->AA3_CODFAB +;
+		 									 AA3->AA3_LOJAFA +;
+											 AA3->AA3_CODPRO +;
+											 AA3->AA3_NUMSER ))
+			
+			dbSelectArea("SX3")
+			aAreaSX3 := SX3->(GetArea())
+			SX3->(dbSetOrder(1))
+			SX3->(dbSeek("ABE"))
+		
+			While !Eof() .And. SX3->X3_ARQUIVO = "ABE"
+				
+				//Para deixar o ok do MarkBrowse em primeiro.
+				If Empty(aStruABE)
+					Aadd(aStruABE,{"ABE_OK","C",2,0})									
+					Aadd(aCpos,{"ABE_OK","","Ok",""})				
+				ElseIf SX3->X3_CAMPO <> "ABE_OK"
+					Aadd(aStruABE,{SX3->X3_CAMPO,SX3->X3_TIPO,SX3->X3_TAMANHO,SX3->X3_DECIMAL})					
+					Aadd(aCpos,{SX3->X3_CAMPO,"",AllTrim(X3Titulo()),SX3->X3_PICTURE})				
+				Endif
+				
+				SX3->(dbSkip())
+			EnDdo
+			
+			RestArea(aAreaSX3)
+
+			oTempTbl := FWTemporaryTable():New( "ABETEMP" )  
+			oTempTbl:SetFields(aStruABE) 	
+			oTempTbl:AddIndex("1", {"ABE_DATA","ABE_PLANO","ABE_ITEM"})
+			oTempTbl:Create()
+
+			While ABE->(!Eof()) .And. ABE->ABE_FILIAL == xFilial( "ABE" );
+								.And. ABE->ABE_CODFAB == AA3->AA3_CODFAB;
+								.And. ABE->ABE_LOJAFA == AA3->AA3_LOJAFA;
+								.And. ABE->ABE_CODPRO == AA3->AA3_CODPRO;
+								.And. ABE->ABE_NUMSER == AA3->AA3_NUMSER;
+								.And. dTos(ABE->ABE_DATA) >= dTos(MV_PAR05);
+								.And. dTos(ABE->ABE_DATA) <= dTos(MV_PAR06)
+
+				If Empty(ABE->ABE_NUMOS)
+					RecLock("ABETEMP",.T.)	
+						For nX := 1 To Len(aStruABE)
+							&("ABETEMP->"+aStruABE[nX][1]) := &("ABE->"+aStruABE[nX][1])
+						Next nX			
+					ABETEMP->(MsunLock())
+					lExistABE := .T.
+				Endif
+
+				ABE->(DbSkip())
+
+			EndDo
+			If lExistABE
+				DbSelectArea( "ABETEMP" )
+				ABETEMP->( DbGoTop() )
+				
+				cProduto := AA3->AA3_CODPRO
+				cNumSeri := AA3->AA3_NUMSER
+				DEFINE MSDIALOG oDlg TITLE STR0005 From 009, 000 To 28, 80 OF oMainWnd // Planos de manutenção Preventiva
+				@ 03, 010 SAY STR0006            SIZE 40, 08 of oDlg PIXEL //"Produto"
+				@ 03, 040 GET cProduto  WHEN .F. SIZE 40, 08 of oDlg PIXEL
+				@ 03, 090 SAY STR0007            SIZE 40, 08 of oDlg PIXEL //"Num.Serie"
+				@ 03, 130 GET cNumSeri  WHEN .F. SIZE 40, 08 of oDlg PIXEL
+				oMark2 :=	MsSelect():New( "ABETEMP", "ABE_OK", ,aCpos , ,@cMark ,{ 15, 1, 123, 315 } )
+				oMark2:oBrowse:lCanAllMark := .T.
+				oMark2:oBrowse:lHasMark    := .T.
+				oMark2:oBrowse:bAllMark		:= { || MarkAllSlc( cMark ) }
+
+				DEFINE SBUTTON FROM 127, 238 TYPE 1 ACTION ( nOpca := 1, oDlg:End() ) ENABLE of oDlg PIXEL
+				DEFINE SBUTTON FROM 127, 278 TYPE 2 ACTION ( nOpca := 0, oDlg:End() ) ENABLE of oDlg PIXEL
+				ACTIVATE MSDIALOG oDlg
+			Endif
+		EndIf	
+
+		If !lExistABE
+			Help( " ", 1, "NAOMOV" ) // Nao existem movimentos para esta operação
+		Endif
+
+	Else
+		nOpcA := 1
+	EndIf
+
+	If nOpcA == 1
+		At640GrvOS( MV_PAR07 == 1 )
+	EndIf
+
+	If oTempTbl <> Nil
+		ABETEMP->(DbCloseArea())
+		oTempTbl:Delete()
+		oTempTbl := Nil
+	Endif
+
+Next nInd
+
+Return( Nil )
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640GrvOS'
+@description	Gera os ordens de servico a partir dos itens selecionadas.
+                Observação: A base instalada deve estar posicionada. 
+@param			lMarkBrowse, Lógico, Indica se esta efetuando MarkBrowse dos movimentos
+       			oMark, Objeto
+@return		lRet, .T. , continua com o processo
+@author		Sergio Silveira
+@since			05/10/1999
+/*/
+//-------------------------------------------------------------------
+Static Function At640GrvOS( lMarkBrowse )
+
+Local aArea		:= GetArea()
+Local aAreaSA1	:= SA1->(GetArea())
+Local aColsLine	:= {}
+Local aCodPrb	:= {}
+Local bCampo	:= { |nCpo| FieldName( nCpo ) }
+Local nLoop		:= 0
+Local cQuery	:= ""
+Local cAlias	:= "ABETEMP2"
+Local nSaveSX8	:= GetSX8Len()
+Local dDataOri	:= dDataBase						// Salva a database original
+Local lOSxCtrt	:= SuperGetMv("MV_OSXCTRT",.F.,.F.)        // Amarracao O/S X Contrato
+Local lContinua	:= .T.
+
+Private aCols      := {}
+Private aHeader    := {}
+Private aColsAB7   := {}
+Private aColsAB8   := {}
+Private aHeaderAB7 := {}
+Private aHeaderAB8 := {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Monta o aHeader AB7 e AB8      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+At450Monta()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Posiciona Cliente              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SA1->( DbSetOrder( 1 ) )
+If SA1->( DbSeek( xFilial( "SA1" ) + AA3->AA3_CODCLI + AA3->AA3_LOJA ) )
+
+	If lMarkBrowse
+		ABETEMP->(dBGoTop())
+	Endif
+
+	While !lMarkBrowse .Or. (lMarkBrowse .And. ABETEMP->(!Eof()))
+	
+		If !lMarkBrowse .Or. (lMarkBrowse .And. !Empty(ABETEMP->ABE_OK))
+
+			cQuery := "SELECT ABE3.R_E_C_N_O_ ABERECNO, AA9.R_E_C_N_O_ AA9RECNO "
+			cQuery +=   "FROM "+RetSqlName("ABE")+" ABE3, "+RetSqlName("AA9")+" AA9 "
+			cQuery +=   "WHERE ABE3.ABE_FILIAL = '"+xFilial("ABE")+"' AND "
+			
+			If lMarkBrowse
+				cQuery +=        "ABE3.ABE_CODFAB = '"+ABETEMP->ABE_CODFAB+"' AND "
+				cQuery +=        "ABE3.ABE_LOJAFA = '"+ABETEMP->ABE_LOJAFA+"' AND "
+				cQuery +=        "ABE3.ABE_CODPRO = '"+ABETEMP->ABE_CODPRO+"' AND "
+				cQuery +=        "ABE3.ABE_NUMSER = '"+ABETEMP->ABE_NUMSER+"' AND "
+				cQuery +=        "ABE3.ABE_PLANO  = '"+ABETEMP->ABE_PLANO+"' AND "
+				cQuery +=        "ABE3.ABE_ITEM   = '"+ABETEMP->ABE_ITEM+"' AND "
+				cQuery +=        "ABE3.ABE_SEQUEN = "+cValtoChar(ABETEMP->ABE_SEQUEN)+" AND "
+				cQuery +=        "ABE3.ABE_DATA   = '"+Dtos(ABETEMP->ABE_DATA)+"' AND "
+			Else
+				cQuery +=        "ABE3.ABE_CODFAB = '"+AA3->AA3_CODFAB+"' AND "
+				cQuery +=        "ABE3.ABE_LOJAFA = '"+AA3->AA3_LOJAFA+"' AND "
+				cQuery +=        "ABE3.ABE_CODPRO = '"+AA3->AA3_CODPRO+"' AND "
+				cQuery +=        "ABE3.ABE_NUMSER = '"+AA3->AA3_NUMSER+"' AND "
+				cQuery +=        "ABE3.ABE_DATA >= '"+Dtos(MV_PAR05)+"' AND "
+				cQuery +=        "ABE3.ABE_DATA <= '"+Dtos(MV_PAR06)+"' AND "
+			Endif
+			
+			cQuery +=    	 "ABE3.ABE_NUMOS = '' AND "
+			cQuery +=        "ABE3.D_E_L_E_T_ = '' AND "
+			cQuery +=        "AA9.AA9_FILIAL  = '"+xFilial("AA9")+"' AND "
+			cQuery +=        "AA9.AA9_PLANO   = ABE3.ABE_PLANO AND "
+			cQuery +=        "AA9.AA9_ITEM 	  = ABE3.ABE_ITEM AND "
+			cQuery +=        "AA9.D_E_L_E_T_  = '' "
+
+			cQuery := ChangeQuery(cQuery)
+			cAlias := CriaTrab(,.F.)
+			DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAlias,.T.,.T.)
+			
+			While (cAlias)->(!Eof())
+
+				aColsAB7	:= {}
+				aColsAB8	:= {}
+				aHeader		:= {}
+				aCodPrb		:= {}
+				nPlano 		:= (cAlias)->ABERECNO			
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Posiciona Registros             ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		
+				ABE->(dBGoTo((cAlias)->ABERECNO))
+				AA9->(dBGoTo((cAlias)->AA9RECNO))
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Monta o aColsLine e adiciona ao aCols ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				aColsLine := Array( Len( aHeaderAB7 ) + 1 )
+						
+				aEval( aHeader, { |x,y| aColsLine[ y ] := CriaVar( x[ 2 ] ) } )
+						
+				aColsLine[ GDFieldPos( "AB7_CODPRO", aHeaderAB7 ) ] := ABE->ABE_CODPRO
+				aColsLine[ GDFieldPos( "AB7_NUMSER", aHeaderAB7 ) ] := ABE->ABE_NUMSER
+				aColsLine[ GDFieldPos( "AB7_ITEM"  , aHeaderAB7 ) ] := StrZero( Len( aColsAB7 ) + 1, 2 )
+				aColsLine[ GDFieldPos( "AB7_CODPRB", aHeaderAB7 ) ] := AA9->AA9_CODPRB
+				aColsLine[ GDFieldPos( "AB7_TIPO"  , aHeaderAB7 ) ] := "1"
+				aColsLine[ Len( aHeaderAB7 ) + 1 ] := .F.
+						
+				AAdd( aColsAB7, AClone( aColsLine ) )
+				AAdd( aCodPrb, AA9->AA9_CODPRB )
+
+				aCols    := aClone( aColsAB7   )
+				aHeader  := aClone( aHeaderAB7 )
+										
+				DbSelectArea("AB6")
+				For nLoop := 1 To FCount()
+					M->&( Eval( bCampo, nLoop ) ) := CriaVar( FieldName( nLoop ) )
+				Next nLoop
+						
+				M->AB6_CODCLI := AA3->AA3_CODCLI
+				M->AB6_LOJA   := AA3->AA3_LOJA
+				M->AB6_CONPAG := SA1->A1_COND
+					
+				//Verifica se tem contrato vinculado a base de atendimento
+				If lOSxCtrt .AND. ! ( Empty(AA3->AA3_CONTRT) )
+					//Verifica se o contrato está ativo
+					DbSelectArea("AAH")
+					DbSetOrder(1)
+					If AAH->(DbSeek(xFilial("AAH")+AA3->AA3_CONTRT) )
+						If ( AAH->(FieldPos('AAH_STATUS')) > 0 ) .And. AAH->AAH_STATUS == "1"
+							M->AB6_TPCONT := "1"
+							M->AB6_CONTRT := AA3->AA3_CONTRT
+						EndIf
+					EndIf
+				EndIf
+					
+				//Valida a OS já criada para esse plano está encerrada
+				If !Empty(ABE->ABE_NUMOS)
+					lContinua := At640VldOS(ABE->ABE_NUMOS)
+				EndIf
+					
+				If lContinua
+					
+					Begin Transaction
+							
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Configura a database para a data do plano para que o técnico³
+						//³seja alocado na data correta.                               ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						dDataBase := ABE->ABE_DATA
+						At450Grava( 1 )
+						dDataBase := dDataOri
+							
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Confirma o SX8                 ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						EvalTrigger()
+						While ( GetSX8Len() > nSaveSx8 )
+							ConfirmSX8()
+						EndDo
+
+						If nPlano >= 0
+							ABE->(dBGoTo(nPlano))
+							RecLock( "ABE", .F. ) 
+								If lMarkBrowse
+									ABE->ABE_OK    := ABETEMP->ABE_OK
+								Endif
+								ABE->ABE_NUMOS := M->AB6_NUMOS
+							ABE->( MsUnlock() )
+						EndIf
+															
+					End Transaction
+
+				EndIf
+		
+				(cAlias)->(DbSkip())
+
+			EndDo		
+			
+			(cAlias)->(DbCloseArea())
+
+		Endif
+		
+		If lMarkBrowse
+			ABETEMP->(DbSkip())
+		Else
+			Exit
+		Endif
+	
+	EndDo
+EndIf
+
+RestArea(aAreaSA1)
+RestArea(aArea)
+
+Return( .T. )
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640Pesq
+@description	Tratamento do Filtro na Pesquisa da MarkBrowse
+@param			NIL
+@return		.T., Continua com o processo
+@author		Eduardo Riera
+@since			27.08.1999
+/*/
+//-------------------------------------------------------------------
+Function At640Pesq()
+
+AxPesqui()
+Eval(bFiltraAA3)
+
+Return(.T.)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640VldOS
+@description	Validação do Status da O.S criada e associada ao plano de manutenção
+@param			cNumOs, Caracter, Numero da O.S
+@return		lRet, .T. , continua com o processo
+@author		Serviços
+@since			22/12/2015
+/*/
+//-------------------------------------------------------------------
+Static Function At640VldOS(cNumOS)
+
+Local lRet			:= .T.
+Local aAreaAB6	:= AB6->(GetArea())
+
+DbSelectArea("AB6")
+DbSetOrder(1)
+If AB6->(DbSeek(xFilial("AB6")+cNumOS))
+	If AB6->AB6_STATUS == "A"
+		lRet := MsgYesNo(STR0012 + cNumOS + STR0013 + ABE->ABE_PLANO + STR0014)
+	EndIf
+EndIf
+
+RestArea(aAreaAB6)
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640Mrk
+@description	Realiza o controle da marcação do registro
+@param			NIL
+@return		NIL
+@author		Serviços
+@since			09/03/2017
+/*/
+//-------------------------------------------------------------------
+Function At640Mrk()
+
+Local nPos		:= aScan(aMarcados, AA3->(RecNo()))
+
+If SoftLock("AA3")
+	If AA3->AA3_OK == cMarca
+		AA3->AA3_OK := ""
+		If nPos > 0
+			aDel(aMarcados, nPos)
+			aSize(aMarcados, Len(aMarcados)-1)
+		EndIf
+	Else
+		AA3->AA3_OK := cMarca
+		If nPos == 0
+			aAdd(aMarcados, AA3->(Recno()))
+		EndIf
+	EndIf
+	AA3->(MsUnLock())
+EndIf
+
+Return NIL
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} At640MrkAll
+@description	Realiza a inversão da marcação de todos os registros do browse
+@param			NIL
+@return		NIL
+@author		Serviços
+@since			09/03/2017
+/*/
+//-------------------------------------------------------------------
+Function At640MrkAll()
+
+Local nPos		:= 0
+Local nRecAA3	:= AA3->(RecNo())
+
+AA3->(dBGoTop())
+While AA3->(! Eof())
+	nPos	:= aScan(aMarcados, AA3->(RecNo()))
+	If SoftLock("AA3")
+		If AA3->AA3_OK == cMarca
+			AA3->AA3_OK := ""
+			If nPos > 0
+				aDel(aMarcados, nPos)
+				aSize(aMarcados, Len(aMarcados)-1)
+			EndIf
+		Else
+			AA3->AA3_OK := cMarca
+			If nPos == 0
+				aAdd(aMarcados, AA3->(Recno()))
+			EndIf
+		EndIf
+		AA3->(MsUnLock())
+	EndIf
+	AA3->(dBSkip())
+EndDo
+
+AA3->(DbGoTo(nRecAA3))
+Return NIL
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MarkAllSlc
+@description	Realiza a marcação de todos os registros do MsSelect.
+@param			cMark - Marcações.
+@return			NIL
+@author			Kaique Schiller
+@since			28/04/2020
+/*/
+//-------------------------------------------------------------------
+Static Function MarkAllSlc(cMark)
+Local nRec := ABETEMP->(Recno())
+
+DbSelectArea("ABETEMP")
+ABETEMP->(DbGoTop())
+
+While !Eof()
+	RecLock("ABETEMP",.F.)	
+		If ABETEMP->ABE_OK == cMark
+			ABETEMP->ABE_OK := ""
+		Else
+			ABETEMP->ABE_OK := cMark
+		EndIf	
+	ABETEMP->(MsUnlock())
+	ABETEMP->(dbSkip())
+EndDo
+
+ABETEMP->(DbGoTo(nRec))
+
+Return Nil

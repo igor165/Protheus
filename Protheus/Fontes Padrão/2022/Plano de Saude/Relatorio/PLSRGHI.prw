@@ -1,0 +1,2 @@
+Function PLSRGHI(nGuia)	
+Return

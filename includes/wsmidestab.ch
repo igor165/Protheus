@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Servicio genérico para devolución de la información de sucursales del Microsiga Protheus."
+	#define STR0002 "application/json"
+	#define STR0003 "Método para consultar el detalle de los establecimientos"
+	#define STR0004 "api/rh/esocial/v1/GPEEsocialEstablishment/"
+	#define STR0005 "v1"
+	#define STR0006 "Falla al inicializar el entorno con los datos informados."
+	#define STR0007 "Ocurrió una falla en la devolución de la información."
+	#define STR0008 "El parámetro CompanyId es obligatorio."
+	#define STR0009 "Falla al buscar datos del establecimiento."
+	#define STR0010 "Falla en el montaje de la estructura de devolución de la API de establecimientos."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generic service for the return of information of Microsiga Protheus sites"
+		#define STR0002 "application/json"
+		#define STR0003 "Method for searching Sites details"
+		#define STR0004 "api/rh/esocial/v1/GPEEsocialEstablishment/"
+		#define STR0005 "v1"
+		#define STR0006 "Failed to start the Environment with the data entered."
+		#define STR0007 "Failed to return information."
+		#define STR0008 "CompanyId parameter is required."
+		#define STR0009 "Failed to search Site data."
+		#define STR0010 "Failure to set up the Site API return structure"
+	#else
+		#define STR0001 "Serviço genérico para retorno das informações de Estabelecimentos do Microsiga Protheus."
+		#define STR0002 "application/json"
+		#define STR0003 "Método para consultar o detalhamento dos Estabelecimentos"
+		#define STR0004 "api/rh/esocial/v1/GPEEsocialEstablishment/"
+		#define STR0005 "v1"
+		#define STR0006 "Falha ao Inicializar o Ambiente com os dados informados!"
+		#define STR0007 "Ocorreu uma falha no retorno da informação."
+		#define STR0008 "O parâmetro companyId é obrigatório."
+		#define STR0009 "Falha ao buscar dados do Estabelecimento!"
+		#define STR0010 "Falha na montagem da estrutura de retorno da API de Estabelecimentos!"
+	#endif
+#endif

@@ -1,0 +1,3042 @@
+#INCLUDE "PONM040.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "PONCALEN.CH"
+#include "Fileio.ch"
+Static lPnm040CposBlock
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONM040  ³ Autor ³ Marinaldo de Jesus   			 ³ Data ³11/05/2001³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Integracao com a Folha de Pagamento               		           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON							   						 		   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             		   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ FNC/Requisito ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±|Leandro Dr. ³13/04/14³      			³Projeto P12. Unificao da Folha.      	   ³±±
+±±|            ³        ³      			³Integraao Ponto/Folha de Pagamento. 	   ³±±
+±±|Christiane V³22/10/14³M_RH006/296902	³Inclusão da função IntegDef.       	   ³±±
+±±³Leandro Dr. ³25/05/15³TSLMNR ³Inclusao de validacao da pergunta data de 		   º±±
+±±³            ³        ³       ³vencimento.                               		   º±± 
+±±³Oswaldo L.  ³03/04/17³DRHPONTP-164 ³      ³Projeto cTree                        ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function PONM040
+	
+	Local aArea					:= GetArea()
+	Local aSays					:= {}
+	Local aButtons				:= {}
+	Local cPerg					:= "PNM040"
+	Local cSvFilAnt				:= cFilAnt
+	Local lBarG1ShowTm 			:= .F.
+	Local lBarG2ShowTm 			:= .F.
+	Local nOpcA					:= 0
+	
+	Private lAbortPrint			:= .F.
+	Private cCadastro   		:= OemToAnsi(STR0001 )	//"Integração com a Folha de Pagamento"
+	Private lSegFaltas			:= SuperGetMv("MV_SEGFALT",NIL,.F.)
+	Private aCodFol				:= {}
+	Private lSchedule  			:= IsBlind()
+	
+	DEFAULT lPnm040CposBlock	:= ExistBlock( "PNM040CPOS"	) 
+	
+	SetMnemonicos(xFilial("RCA"),NIL,.T.)
+	lSegFaltas := P_SEGFALT := If( Type("P_SEGFALT") == "U", .F., P_SEGFALT)
+	
+	If !Fp_CodFol(@aCodFol, xFilial('SRV'))
+		Return(.F.)
+	EndIf
+	
+	If ( ValidArqPon() )
+		
+		If lSchedule
+			nOpcA := 1
+		Else
+			aAdd(aSays,OemToAnsi( STR0002 ) )	// "Este programa irá efetuar a Geração dos Resultados"
+			
+			aAdd(aButtons, { 5,.T.,{|| Pergunte( cPerg , .T. ),Pn040VldPer(cPerg) } } )	
+			aAdd(aButtons, { 1,.T.,{|o| nOpcA := 1,IF(GpConfOK(),FechaBatch(),nOpcA:=0 ) } } )
+			aAdd(aButtons, { 2,.T.,{|o| FechaBatch() } } )
+			
+			// Monta e Disponibiliza Tela para Selecao das Perguntas
+			FormBatch( cCadastro, aSays, aButtons )
+		EndIf
+		
+		If ( nOpcA == 1 )
+			// Verifica se deve Mostrar Calculo de Tempo nas BarGauge
+			lBarG1ShowTm := ( SuperGetMv("MV_PNSWTG1",NIL,"N") == "S" )
+			lBarG2ShowTm := ( SuperGetMv("MV_PNSWTG2",NIL,"S") == "S" )
+			
+			// Executa o Processo de Integracao com a Folha de Pagamento
+			If lSchedule
+				Pnm040Processa( cPerg )
+			Else
+				Proc2BarGauge( {|| Pnm040Processa( cPerg ) }, cCadastro, NIL, NIL, .T., lBarG1ShowTm, lBarG2ShowTm )
+			EndIf
+		EndIf	
+	EndIf
+	
+	cFilAnt := cSvFilAnt
+	
+	RestArea( aArea )
+	
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³PONM040Processa³ Autor ³Marinaldo de Jesus³ Data ³11/05/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³ Processa a Integra‡„o Integra‡„o com a Folha de Pagamento  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso  	   ³ SIGAPON							             			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³                                                            ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Pnm040Processa( cPerg )
+
+Local aLogPer		:= {}
+Local aColsRGB		:= {}
+Local aColsSRK		:= {}
+Local aRGBColEmpty	:= {}      
+Local aSRKColEmpty	:= {}      
+Local aColsSPB		:= {}
+Local aSPBQCond		:= {}
+Local aRGBQCond		:= {}
+Local aSRKQCond		:= {}
+Local aRGBVirtual	:= {}
+Local aSRKVirtual	:= {}
+Local aSPBVirtual	:= {}
+Local aAreaSPB		:= SPB->( GetArea() )
+Local aAreaSRA		:= SRA->( GetArea() )
+Local aAreaRGB		:= RGB->( GetArea() )
+Local aAreaSRK		:= SRK->( GetArea() )
+Local aInfo			:= {} 
+Local aItensSPB		:= {}   
+Local aRecnoRGB		:= {}    
+Local aRecnoSRK		:= {}    
+Local aSeqRGB		:= {}  
+Local aSeqSRK		:= {}  
+Local aHeaderSPB	:= {}
+Local aHeaderRGB	:= {}  
+Local aHeaderSRK	:= {}  
+Local aRecsBarG		:= {}
+Local aRetSRV		:= {}
+Local bSpbSkip		:= { || .F. }
+Local bRGBSkip		:= { || .F. } 
+Local bEval			:= { |e| &(e) }
+Local cMens			:= ""
+Local cTimeIni		:= Time()
+Local cAlias		:= "RGB"    
+Local cExclui		:= "" 
+Local cFilSRA		:= ""
+Local cMatSRA		:= ""   
+Local cNomeSRA		:= ""
+Local cInicio		:= ""
+Local cFim			:= ""
+Local cAcessaSRA	:= IF( Empty( cAcessaSRA := ChkRH( "PONM040" , "SRA" , "2" ) ) , ".T." , cAcessaSRA )
+Local cArqDbf		:= ""
+Local cArqInd		:= ""
+Local cNomeArq		:= ""
+Local cChaveFilMat	:= ""
+Local cFilAux		:= "########"
+Local cLastFil		:= "__LastFil__"  
+Local cMsgBarG1		:= ""
+Local cFilBranco	:= Space( TamSx3(	"RA_FILIAL"	)[1] )
+Local cMatBranco 	:= Space( TamSx3(	"RA_MAT"	)[1] )
+Local cNomeBranco	:= Space( TamSx3(	"RA_NOME"	)[1] ) 
+Local cSRAIndexKey	:= ""
+Local cPerIni		:= ""
+Local cTpC1			:= ""
+Local dPerIni		:= Ctod("//")
+Local dPerFim		:= Ctod("//")
+Local lIntegra		:= .T.
+Local lAdmMes		:= .T.
+Local lLancaPd		:= .T. 
+Local lGeraSRK		:= .F.
+Local lInterm		:= .F.
+Local lVerAfas		:= .F.
+Local nCountRGB		:= 1.00
+Local nCountSRK		:= 1.00
+Local nNumSeq		:= 0.00
+Local naColsSPB		:= 0.00   
+Local naColsRGB		:= 0.00
+Local naColsSRK		:= 0.00
+Local nLastRec		:= 0.00
+Local nIncPercG1	:= 0.00
+Local nIncPercG2	:= 0.00
+Local nLenaItens	:= 0.00
+Local nLenaRecRGB 	:= 0.00   
+Local nLenaRecSRK 	:= 0.00   
+Local nLenRGBaCols 	:= 0.00  
+Local nLenSRKaCols 	:= 0.00  
+Local nLenSPBaCols 	:= 0.00  
+Local nLimHoras		:= Val( Replicate( "9", ( TamSx3("RGB_HORAS")[1] - ( TamSx3("RGB_HORAS")[2] + 1 ) ) ) + "." + Replicate("9",TamSx3("RGB_HORAS")[2]))
+Local nLimValor		:= Val( Replicate( "9", ( TamSx3("RGB_VALOR")[1] - ( TamSx3("RGB_VALOR")[2] + 1 ) ) ) + "." + Replicate("9",TamSx3("RGB_VALOR")[2]))
+Local nPosRGB		:= 0.00
+Local nPosSRK		:= 0.00
+Local nRecnoSRA		:= 0.00
+Local nTpContr		:= 0
+Local nI			:= 0
+
+Local aStruSRA		:= {}
+Local aCposSRA		:= {}
+Local aTempSRA		:= SRA->( dbStruct() )
+Local cIniData		:= ""
+Local cFimData		:= ""
+Local cQuery	 	:= ""
+Local cFixQuery		:= ""	
+Local lSraQryOpened	:= .F.
+Local nContField	:= Len( aTempSRA	)
+Local uRet			:= NIL
+Local nX
+Local cSRAAlias		:= ""
+Local cTpContr		:= ""
+Local lLog  		:= .F.
+
+Private aLog			:= {} 
+Private aSPBRec			:= ""
+Private aRGBRec			:= ""
+Private aSRKRec			:= ""
+Private aConvoc			:= {}
+Private	cFilDe			:= ""
+Private cFilAte			:= ""
+Private cCcDe			:= ""
+Private cCcAte			:= ""
+Private cTnoDe			:= ""
+Private cTnoAte			:= ""
+Private cRegDe			:= ""
+Private cRegAte     	:= ""
+Private cMatDe			:= ""
+Private cMatAte			:= ""
+Private cNomeDe			:= ""
+Private cNomeAte		:= ""
+Private cSituacao		:= ""
+Private cSqlSitua		:= ""
+Private cCategoria		:= ""   
+Private cSqlCateg		:= ""
+Private cProcesso		:= ""
+Private cPeriodo		:= ""
+Private cNumPagto		:= ""
+Private cRot			:= ""
+
+Private dVencFut		:= Ctod("//")
+
+Private nPosSPBCC  		:= 0.00
+Private nPosSPBPD		:= 0.00
+Private nPosSPBHORAS	:= 0.00
+Private nPosSPBVALOR	:= 0.00
+Private nPosSPBT1   	:= 0.00
+Private nPosSPBT2   	:= 0.00
+Private nPosSPBDATA		:= 0.00   
+Private nPosSPBConv		:= 0.00   
+Private nPosRGBCC  		:= 0.00
+Private nPosRGBPD		:= 0.00
+Private nPosRGBSEQ		:= 0.00
+Private nPosRGBT2   	:= 0.00
+Private nPosRGBT1   	:= 0.00
+Private nPosRGBHCALC	:= 0.00
+Private nPosRGBVCALC	:= 0.00   
+Private nPosRGBSEMANA	:= 0.00 
+Private nPosRGBDeleted	:= 0.00
+Private nPosRGBProces	:= 0.00
+Private nPosRGBPeriodo	:= 0.00
+Private nPosRGBRoteiro	:= 0.00
+Private nPosRGBDataRef	:= 0.00
+Private nPosRGBConv		:= 0.00
+Private nPosRGBFunc		:= 0.00
+Private nPosRGBDept		:= 0.00
+Private nPosSRKCC  		:= 0.00
+Private nPosSRKPD		:= 0.00
+Private nPosSRKPARC 	:= 0.00
+Private nPosSRKVENC 	:= 0.00
+Private nPosSRKDOC		:= 0.00
+Private nPosSRKTp   	:= 0.00
+Private nPosSRKHORAS	:= 0.00
+Private nPosSRKProces	:= 0.00
+Private nPosSRKDeleted	:= 0.00
+
+Private lComisPuro		:= .F.
+Private lSobrepoe		:= .F.
+Private lPBConvoc 		:= SPB->(ColumnPos("PB_CONVOC")) > 0
+Private lContrInt		:= RGB->(ColumnPos("RGB_CONVOC")) > 0
+Private lHEInterm		:= .F.
+
+Private dMvPerIni		:= Ctod("//")
+Private dMvPerFim		:= Ctod("//")
+
+Private oTmpTabFO1
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carregando as Perguntas                                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Pergunte( cPerg , .F. )
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carregando MV_PAR nas Variaveis do Sistema                   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cFilDe		:= mv_par01				//Filial De
+cFilAte		:= mv_par02				//Filial Ate
+cCcDe		:= mv_par03				//Centro de Custo De
+cCcAte		:= mv_par04				//Centro de Custo Ate
+cTnoDe		:= mv_par05             //Turno De
+cTnoAte		:= mv_par06             //Turno Ate
+cRegDe		:= mv_par07				//Regra Ate
+cRegAte     := mv_par08             //Regra Ate
+cMatDe		:= mv_par09				//Matricula De
+cMatAte		:= mv_par10				//Matricula Ate
+cNomeDe		:= mv_par11				//Nome De
+cNomeAte	:= mv_par12				//Nome Ate
+cSituacao	:= mv_par13				//Situacaoes
+cCategoria	:= mv_par14				//Categorias
+lIntegra	:= ( mv_par15 == 1 )	//Integracao ou Geracao
+cNomeArq	:= mv_par16				//Nome do Arquivo Para Geracao do TXT
+lAdmMes  	:= ( mv_par17 == 1 )	//Gera Para Admitidos no Mes
+dMvPerIni	:= mv_par18				//Data Inicial do Processamento
+dMvPerFim	:= mv_par19				//Data Final do Processamento
+lSobrepoe	:= ( mv_par20 == 1 )	//Sobrepoe Marcacoes Existentes 
+
+If cPaisLoc == "BRA"
+	lVerAfas  	:= ( mv_par21 == 1 )	//Verifica Afastamento
+	dVencFut	:= mv_par22				//Data Vencimento
+EndIf
+
+cProcesso	:= mv_par23				//Processo da folha
+cPeriodo	:= mv_par24				//Periodo da folha
+cNumPagto	:= mv_par25				//Numero de Pagamento da folha
+cRot		:= mv_par26				//Roteiro da folha
+
+If Type("mv_par27") == "C"
+	cTpContr := mv_par27
+	If cTpContr == "***" .Or. Empty(cTpContr)
+		nTpContr := 4
+	Else
+		cTpC1 := "("
+		For nI := 1 To 3
+			If cValToChar(nI) $ cTpContr .And. nI == 1
+				cTpC1 += "' ','*','1'"
+			ElseIf cValToChar(nI) $ cTpContr .And. nI == 2
+				If cTpC1 == "("
+					cTpC1 += "'2'"
+				Else
+					cTpC1 += ",'2'"
+				EndIf
+			ElseIf cValToChar(nI) $ cTpContr .And. nI == 3
+				If cTpC1 == "("
+					cTpC1 += "'3'"
+				Else
+					cTpC1 += ",'3'"
+				EndIf
+			EndIf
+		Next
+		cTpC1 += ")"
+		nTpContr := 1
+	EndIf
+ElseIf Type("mv_par27") == "N"
+	nTpContr    := Iif(Empty(mv_par27), 4, mv_par27)
+	If nTpContr == 1
+		cTpC1 := "(' ','*','1')"
+	ElseIf nTpContr == 2
+		cTpC1 := "('2')"
+	ElseIf nTpContr == 3
+		cTpC1 := "('3')"
+	EndIf
+EndIf
+
+cMens := ""
+If Empty(cProcesso)
+	cMens += OemToAnsi(STR0031)
+EndIf
+
+If Empty(cPeriodo)
+    If !Empty(cMens)
+    	cMens += ", "
+    EndIf
+	cMens += OemToAnsi(STR0032)
+EndIf
+
+If Empty(cRot)
+    If !Empty(cMens)
+    	cMens += ", "
+    EndIf
+	cMens += OemToAnsi(STR0033)
+EndIf
+
+If !Empty(cMens)
+	Help(NIL, NIL, STR0006, NIL, STR0034 + cMens, 1, 0, NIL, NIL, NIL, NIL, NIL, { STR0054 }) // "Informe as perguntas necessárias para executar a rotina."
+	Return( NIL )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Bloco que definira a Consistencia da Parametrizacao dos Intervalos sele³
+³cionados nas Perguntas De? Ate?.                                       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cExclui += "(RA_FILIAL   < cFilDe     .or. RA_FILIAL  > cFilAte    ) .or."
+cExclui += "(RA_CC       < cCcDe      .or. RA_CC      > cCCAte     ) .or." 
+cExclui += "(RA_TNOTRAB  < cTnoDe     .or. RA_TNOTRAB > cTnoAte    ) .or." 
+cExclui += "(RA_TNOTRAB  < cTnoDe     .or. RA_TNOTRAB > cTnoAte    ) .or." 
+cExclui += "(RA_REGRA    < cRegDe     .or. RA_REGRA   > cRegAte    ) .or." 
+cExclui += "(RA_MAT      < cMatDe     .or. RA_MAT     > cMatAte    ) .or." 
+cExclui += "(RA_NOME     < cNomeDe    .or. RA_NOME    > cNomeAte   ) .or." 
+cExclui += "!(RA_PROCES  = cProcesso) .or." 
+cExclui += "!(RA_SITFOLH $ cSituacao) .or. "
+cExclui += "!(RA_CATFUNC $ cCategoria)"
+If lPBConvoc .And. nTpContr != 4
+	cExclui += " .or. !(RA_TPCONTR $ cTpC1)"
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Cria Arquivo Temporario Quando for Exportacao.                         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !( lIntegra )
+	cAlias := "PONM040TMP"
+	If !Cria_Temp(  )
+		Help(" ",1,"PN040NOARQ")
+		Return( NIL )
+	EndIf
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta as Ordens dos Arquivos que serao utilizadas no Processamento    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+SPB->( dbSetOrder( RetOrdem("SPB") ) )
+SRA->( dbSetOrder( RetOrdem("SRA") ) )
+cSRAIndexKey := SRA->( IndexKey() )
+RGB->( dbSetOrder( RetOrdem("RGB") ) )
+SRK->( dbSetOrder( RetOrdem("SRK") ) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Atualiza a Mensagem para a IncProcG1() (Cadastro de Empresas)³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !lSchedule
+	CREATE SCOPE aInfo FOR ( M0_CODIGO == cEmpAnt )
+	BarGauge1Set( ( nRecsBarG := SM0->( ScopeCount( aInfo ) ) ) )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta apenas os Campos do SRA que serao Utilizados           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aAdd( aCposSRA , "RA_FILIAL"	)
+aAdd( aCposSRA , "RA_MAT" 		)
+aAdd( aCposSRA , "RA_NOME"		)
+aAdd( aCposSRA , "RA_CC"		)
+aAdd( aCposSRA , "RA_TNOTRAB"	)
+aAdd( aCposSRA , "RA_REGRA"  	)
+aAdd( aCposSRA , "RA_ADMISSA"  	)
+aAdd( aCposSRA , "RA_CATFUNC"  	)
+aAdd( aCposSRA , "RA_SITFOLH"  	)
+aAdd( aCposSRA , "RA_TIPOPGT"  	)
+aAdd( aCposSRA , "RA_DEMISSA"  	)
+aAdd( aCposSRA , "RA_PROCES"  	)
+aAdd( aCposSRA , "RA_ITEM"  	)
+aAdd( aCposSRA , "RA_CLVL"  	)
+aAdd( aCposSRA , "RA_TPCONTR"	)
+aAdd( aCposSRA , "RA_SALARIO"	)
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Ponto de Entrada para Campos do Usuario                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If ( lPnm040CposBlock )
+	If ( ValType( uRet := ExecBlock("PNM040CPOS",.F.,.F.,aCposSRA) ) == "A" )
+		If Len( uRet ) >= Len( aCposSRA )
+			aCposSRA := aClone(uRet)
+			uRet	 := NIL
+		EndIf
+	EndIf
+EndIf
+
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Carrega os Campos do SRA para a Montagem da Query			   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If aScan( aCposSRA , { |x| Upper(AllTrim(x)) == Upper( AllTrim( aTempSRA[ nX , 1 ] ) ) } ) > 0.00
+		aAdd( aStruSRA , aClone( aTempSRA[ nX ] ) )
+	EndIf
+Next nX
+
+aCposSRA	:= aTempSRA := NIL
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Monta string de categorias e situacoes para query			   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cSqlCateg := "("
+
+For nX := 1 to len(cCategoria)
+	If SubStr(cCategoria,nX,1) != "*"
+		If Len(cSqlCateg) > 1
+			cSqlCateg += ","
+		EndIf
+		cSqlCateg += "'" + SubStr(cCategoria,nX,1) + "'"
+	EndIf
+Next nX
+
+cSqlCateg += ")"
+
+cSqlSitua := "("
+For nX := 1 to len(cSituacao)
+	If SubStr(cSituacao,nX,1) != "*"
+		If Len(cSqlSitua) > 1
+			cSqlSitua += ","
+		EndIf
+		cSqlSitua += "'" + SubStr(cSituacao,nX,1) + "'"
+	EndIf		
+Next nX
+cSqlSitua += ")"
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Monta a Query Condicional             					   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cFixQuery := "SRA.RA_FILIAL>='"+cFilDe+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_FILIAL<='"+cFilAte+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_TNOTRAB>='"+cTnoDe+"'"	
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_TNOTRAB<='"+cTnoAte+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_MAT>='"+cMatDe+"'"	
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_MAT<='"+cMatAte+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_NOME>='"+cNomeDe+"'"	
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_NOME<='"+cNomeAte+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_REGRA>='"+cRegDe+"'"	
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_REGRA<='"+cRegAte+"'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_CC>='"+cCCDe+"'"	
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_CC<='"+cCCAte+"'"
+cFixQuery += " AND "                        
+cFixQuery += "SRA.RA_PROCES = '" + cProcesso + "'"
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_SITFOLH IN " + cSqlSitua
+cFixQuery += " AND "
+cFixQuery += "SRA.RA_CATFUNC IN " + cSqlCateg
+cFixQuery += " AND "
+If lPBConvoc .And. nTpContr != 4
+	cFixQuery += "SRA.RA_TPCONTR IN " + cTpC1 + " AND "
+End
+cFixQuery += "SRA.D_E_L_E_T_=' ' "
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Monta a Query Para Selecao das Informacoes no SRA			   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nContField	:= Len( aStruSRA ) 
+cQuery := "SELECT "
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inclui os Campos na Montagem da Query						   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery += aStruSRA[ nX , 1 ] + ", "
+Next nX
+
+cQuery += "R_E_C_N_O_ RECNO "
+cQuery += "FROM "+InitSqlName("SRA")+" SRA "
+cQuery += "WHERE "
+cQuery += cFixQuery
+cQuery += "ORDER BY "+SqlOrder( cSRAIndexKey )
+cQuery := ChangeQuery(cQuery)
+
+SRA->( dbCloseArea() ) //Fecha o SRA para uso da Query
+
+cSRAAlias := GetNextAlias()
+
+// Monta e Abre a Query
+If ( lSraQryOpened := MsOpenDbf(.T., "TOPCONN", TcGenQry(, , cQuery), cSRAAlias, .T., .T.) )
+	
+	// Seta os Campos que nao Sao Caracteres
+	For nX := 1 To nContField
+		If ( aStruSRA[nX, 2] <> "C" )
+			TcSetField(cSRAAlias, aStruSRA[nX, 1], aStruSRA[nX, 2], aStruSRA[nX, 3], aStruSRA[nX, 4])
+		EndIf
+	Next nX
+	
+	// Verifica o Total de Registros a Serem Processados
+	cQuery := "SELECT COUNT(*) NLASTREC "
+	cQuery += "FROM " + InitSqlName("SRA") + " SRA "
+	cQuery += "WHERE "
+	cQuery += cFixQuery
+	cQuery := ChangeQuery(cQuery)
+    If ( MsOpenDbf(.T., "TOPCONN", TcGenQry(,, cQuery), "__QRYCOUNT", .T., .T.) )
+		nLastRec := __QRYCOUNT->NLASTREC
+		__QRYCOUNT->( dbCloseArea() )
+    Else
+		MsAguarde( { || (cSRAAlias)->( dbEval({ || ++nLastRec }))} , STR0021 + STR0022 )	//'Aguarde...'###'Selecionaldo Funcionarios'
+		(cSRAAlias)->( dbGotop() )
+	EndIf
+	cFixQuery := ""	
+Else
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura Arquivo Padrao e Ordem                             ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	ChkFile( "SRA" )
+	SRA->( dbSetOrder( RetOrdem("SRA") ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Posiciona no Primeiro Registro Selecionado nos Parametros De/Ate     ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	SRA->( dbSeek( cFilDe + cMatDe , .T. ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	aRecsBarG := {}
+	If !lSchedule
+		CREATE SCOPE aRecsBarG FOR !Eval( bEval , cExclui )
+		nLastRec := SRA->( ScopeCount( aRecsBarG ) )
+	EndIf
+EndIf
+
+If !lSchedule
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicializa a Mensagem para a IncProcG2() ( Funcionarios )	   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IncProcG2( OemToAnsi( STR0003 ) , .F. )	//"Processando..."
+	
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicia regua de processamento.                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	BarGauge2Set( nLastRec )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SPB              								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aHeaderSPB 	:= SPB->( GdMontaHeader(NIL,@aSPBVirtual,NIL,NIL,NIL,NIL,.T.,.F.,.F.,.F.) )
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta Bloco para SKIP em GdMontaCols    								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bSpbSkip   	:= { ||;
+						( ( PB_TIPO1 == "H" ) .and. ( PB_HORAS == 0.00 ) ) .or.	;
+						( ( PB_TIPO1 == "D" ) .and. ( PB_HORAS == 0.00 ) ) .or. ;
+						( ( PB_TIPO1 == "V" ) .and. ( PB_VALOR == 0.00 ) )		;
+			  }                                                              
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Obtem o Posicionamento dos Campos do SPB								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nPosSPBCC  		:= GdFieldPos( "PB_CC"		, aHeaderSPB )	//[01] C.Custo
+nPosSPBPD		:= GdFieldPos( "PB_PD"		, aHeaderSPB )	//[02] PD
+nPosSPBHORAS	:= GdFieldPos( "PB_HORAS"	, aHeaderSPB ) 	//[03] Horas
+nPosSPBVALOR	:= GdFieldPos( "PB_VALOR"	, aHeaderSPB ) 	//[04] Valor
+nPosSPBT1   	:= GdFieldPos( "PB_TIPO1"	, aHeaderSPB ) 	//[05] Tipo1 
+nPosSPBDATA		:= GdFieldPos( "PB_DATA"	, aHeaderSPB ) 	//[06] Data 
+nPosSPBT2   	:= GdFieldPos( "PB_TIPO2"	, aHeaderSPB ) 	//[07] Tipo2
+nPosSPBConv   	:= GdFieldPos( "PB_CONVOC"	, aHeaderSPB ) 	//Cod. Convoc  
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do RGB              								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aHeaderRGB 	:= RGB->( GdMontaHeader(NIL,@aRGBVirtual,NIL,NIL,{"RGB_FILIAL","RGB_MAT"},NIL,NIL,.F.,.F.,.F.,.F.) )
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SRK              								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aHeaderSRK 	:= SRK->( GdMontaHeader(NIL,@aSRKVirtual,NIL,NIL,{"RK_FILIAL","RK_MAT"},NIL,NIL,.F.,.F.,.F.,.F.) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta Bloco para SKIP em GdMontaCols    								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bRGBSkip   	:= { || RGB_PROCES+RGB_PERIOD+RGB_SEMANA+RGB_ROTEIR <> cProcesso+cPeriodo+cNumPagto+cRot }   
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Obtem o Posicionamento dos Campos do RGB								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nPosRGBCC  		:= GdFieldPos( "RGB_CC"		, aHeaderRGB )	//[01] C.Custo
+nPosRGBPD		:= GdFieldPos( "RGB_PD"		, aHeaderRGB )	//[02] PD
+nPosRGBSEQ		:= GdFieldPos( "RGB_SEQ"	, aHeaderRGB )	//[03] Sequencia
+nPosRGBT1   	:= GdFieldPos( "RGB_TIPO1"	, aHeaderRGB )	//[04] Tipo1			
+nPosRGBT2   	:= GdFieldPos( "RGB_TIPO2"	, aHeaderRGB )	//[05] Tipo2	
+nPosRGBHCALC	:= GdFieldPos( "RGB_HORAS"	, aHeaderRGB )	//[06] Horas Calculadas
+nPosRGBVCALC	:= GdFieldPos( "RGB_VALOR"	, aHeaderRGB )	//[08] Valor Calculado
+nPosRGBSEMANA	:= GdFieldPos( "RGB_SEMANA"	, aHeaderRGB )	//[10] Semana
+nPosRGBDeleted	:= GdFieldPos( "GDDELETED"	, aHeaderRGB )	//[11] Posicao de Deletado no aCols
+nPosRGBProces	:= GdFieldPos( "RGB_PROCES"	, aHeaderRGB )	//[12] Processo
+nPosRGBPeriodo	:= GdFieldPos( "RGB_PERIOD"	, aHeaderRGB )	//[13] Periodo
+nPosRGBRoteiro	:= GdFieldPos( "RGB_ROTEIR"	, aHeaderRGB )	//[14] Roteiro
+nPosRGBDataRef	:= GdFieldPos( "RGB_DTREF"	, aHeaderRGB )	//[15] Data de Referencia
+nPosRGBConv		:= GdFieldPos( "RGB_CONVOC"	, aHeaderRGB )	//Cod. Convoc 
+nPosRGBFunc  	:= GdFieldPos( "RGB_CODFUN"	, aHeaderRGB )	//Cod Funcao
+nPosRGBDept  	:= GdFieldPos( "RGB_DEPTO"	, aHeaderRGB )	//Codigo Depto
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Obtem o Posicionamento dos Campos do SRK								³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nPosSRKCC  		:= GdFieldPos( "RK_CC"		, aHeaderSRK )	//[1] C.Custo
+nPosSRKPD		:= GdFieldPos( "RK_PD"		, aHeaderSRK )	//[2] PD
+nPosSRKPARC 	:= GdFieldPos( "RK_PARCELA"	, aHeaderSRK )	//[3] Parcelas
+nPosSRKVENC 	:= GdFieldPos( "RK_DTVENC"	, aHeaderSRK )	//[4] Data Vencimento
+nPosSRKDOC		:= GdFieldPos( "RK_DOCUMEN"	, aHeaderSRK )	//[5] Documento
+nPosSRKTp   	:= GdFieldPos( "RK_TIPO"	, aHeaderSRK )	//[6] Tipo
+nPosSRKHORAS	:= GdFieldPos( "RK_HORAS"	, aHeaderSRK )	//[7] Horas		
+nPosSRKDeleted	:= GdFieldPos( "GDDELETED"	, aHeaderSRK )	//[8] Posicao de Deletado no aCols
+nPosSRKProces   := GdFieldPos( "RK_PROCES"	, aHeaderSRK )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Cria um Elemento Vazio com Base na Estrutura do RGB					³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aRGBColEmpty := GdRmkaCols( aHeaderRGB , .F. )
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Cria um Elemento Vazio com Base na Estrutura do SRK					³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aSRKColEmpty := GdRmkaCols( aHeaderSRK , .F. )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Monta Expressao para Avaliar Inicio e Final do Processamento         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cInicio		:= ( "RA_FILIAL + RA_MAT" )
+cFim		:= ( cFilAte + cMatAte )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Executa enquanto atender aos Parametros                       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+While (cSRAAlias)->( !Eof() .and. Eval( bEval , cInicio ) <= cFim )
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Consiste Intervalo das Perguntas De? Ate?                              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF (cSRAAlias)->( Eval( bEval , cExclui ) )
+			(cSRAAlias)->( dbSkip() )
+			Loop
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Aborta o Processamento                            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lAbortPrint )
+			Exit
+		EndIf                                                                
+		
+		SRA->( dbSetOrder(1) )
+		SRA->( dbSeek( (cSRAAlias)->RA_FILIAL+(cSRAAlias)->RA_MAT ) )
+
+		aConvoc		:= {}
+		lInterm		:= SRA->RA_TPCONTR == "3"
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Variaveis auxiliares para preencher arrays em logs e comparacoes		³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cFilSRA		 := (cSRAAlias)->RA_FILIAL
+		cMatSRA		 := (cSRAAlias)->RA_MAT  
+		cNomeSRA	 := (cSRAAlias)->RA_NOME  		
+		cProcesSRA	 := (cSRAAlias)->RA_PROCES
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Carrega o Periodo de Apontamento por Filial                            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !( cLastFil == cFilSRA )
+			//Já passou pela validação do período e não encontrou
+			If cFilAux == cFilSRA
+				(cSRAAlias)->( dbSkip() )
+				Loop
+			EndIf
+			
+			//Valida periodo da folha para integração
+			RCH->( dbsetOrder( Retorder( "RCH" , "RCH_FILIAL+RCH_PROCES+RCH_PER+RCH_NUMPAG+RCH_ROTEIR" ) ) )
+			If RCH->( dbSeek( xFilial("RCH",cFilSRA) + cProcesso + cPeriodo + cNumPagto + cRot, .F. ) )	
+				If !Empty(RCH->RCH_DTFECH)
+					//Período correspondente fechado.
+					aAdd( aLogPer , STR0044 + " - " + cFilSRA + "/" + cProcesso + "/" + cRot + "/" + cPeriodo + "/" + cNumPagto )
+					cFilAux := cFilSRA
+					(cSRAAlias)->( dbSkip() )
+					Loop
+				EndIf
+			Else
+				aAdd( aLogPer , STR0029 + " - " + cFilSRA + "/" + cProcesso + "/" + cRot + "/" + cPeriodo + "/" + cNumPagto )
+				cFilAux := cFilSRA
+				(cSRAAlias)->( dbSkip() )
+				Loop
+			EndIf	
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Atualiza cLastFil														³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cLastFil	:= cFilSRA  
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Obtem o % de Incremento da 2a. BarGauge					   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			nIncPercG1 := SuperGetMv( "MV_PONINC1" , NIL , 5 , cLastFil )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Obtem o % de Incremento da 2a. BarGauge					   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			nIncPercG2 := SuperGetMv( "MV_PONINCP" , NIL , 5 , cLastFil )
+			IF !( CheckPonMes( @dPerIni , @dPerFim , NIL , .T. , NIL , cLastFil ) )
+				//"Periodo para Integracao Invalido. "
+				aAdd( aLogPer , STR0015 + Dtoc( dPerIni ) + " - " + Dtoc( dPerFim ) )
+				Exit
+			EndIf
+
+			lHEInterm	:= SuperGetMv("MV_PONINTE ",NIL,.F.,cLastFil) .And. lPBConvoc .And. (GetApoInfo("GPEM020.PRX")[4] >= sToD("20200903"))//--Apuração de hora extra para contrato intermitente separado por convocação
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza cPerINi                       					   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cPerIni := Dtos( dPerIni )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza a Mensagem para a IncProcG1() ( Turnos )			   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			fInfo( @aInfo , cLastFil )
+			cMsgBarG1 := ( STR0016 + " " + cLastFil + " - " + AllTrim( aInfo[3] ) ) ////"Filial:"
+			If !lSchedule
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Inicializa Mensagem na 1a BarGauge                           ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IncProcG1( cMsgBarG1 , .F.  )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Incrementa a Barra de Gauge referente a Filial				   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IncPrcG1Time( cMsgBarG1 , nRecsBarG , cTimeIni , .F. , 1 , nIncPercG1 )
+			EndIf
+		EndIf
+		
+		If lInterm .And. lHEInterm
+			aConvoc := BuscaConv(dMvPerIni, dMvPerFim, .T. )
+		EndIf
+		
+		If !lSchedule
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Movimenta a R‚gua de Processamento                           ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IncPrcG2Time( OemToAnsi( STR0020 ) , nLastRec , cTimeIni , .T. , 2 , nIncPercG2 )	//"Integrados:"
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Consiste Filiais e Acessos                                             ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF (cSRAAlias)->( !( cFilSRA $ fValidFil() ) .or. !Eval( bEval , cAcessaSRA ) )
+			(cSRAAlias)->( dbSkip() )
+			Loop
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Verifica Admissao no Mes                                               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( !( lAdmMes ) .and. Dtos((cSRAAlias)->RA_ADMISSA ) >= cPerIni )
+	      	(cSRAAlias)->( dbSkip() )
+	       	Loop
+		EndIf
+		
+	    /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Posiciona no funcionario do arquivo SRA Padrao						    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If ( lSraQryOpened )
+			nRecnoSRA := (cSRAAlias)->RECNO
+			SRA->( dbGoto( nRecnoSRA ) ) 	
+		EndIf
+
+	    /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		// ³Identifica comissionista puro			 							³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		lComisPuro :=  ( cPaisLoc == "BRA" )  .and.  ((cSRAAlias)->RA_CATFUNC == "C" ) .and.  Empty((cSRAAlias)->RA_SALARIO ) 
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Monta Chave com a Filial + Matricula do Funcionario          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cChaveFilMat := ( cFilSRA + cMatSRA )
+
+	    /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Bloqueia o Funcionario no SRA verdadeiro e nao na query de alias SRA   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+       	If !MyLockReg( "SRA" , { nRecnoSRA } , { cChaveFilMat } )
+			aAdd( aLog								,;
+			 			{					 		 ;
+					 		cFilSRA					,; // 01 - Filial
+			 				cMatSRA					,; // 02 - Matricula
+			 				cNomeSRA				,; // 03 - Nome	
+							STR0026					,; // 04 - 'Cadastro do Funcionario (SRA) em Uso por Outro Usuario.'
+							0.00					,; // 05 - 
+							0.00            		,; // 06 - Horas Calc. (Folha)
+							"LOCK"					,; // 07 - Numero Maximo de Lancamentos para a verba
+							0.00 					 ; // 08 - Horas(Ponto)
+						};
+				)
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Desbloqueia Registros e Arquivos										³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			FreeMyLock()
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Procua o Proximo Funcionario    										³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			(cSRAAlias)->( dbSkip() )
+			Loop
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Monta Query para a Selecao das Informacoes                   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ SPB                                                          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If Empty( aSPBQCond )
+			aSPBQCond		:= Array( 25 )
+			aSPBQCond[01]	:= "PB_FILIAL='"+cFilSRA+"'"
+			aSPBQCond[02]	:= " AND "
+			aSPBQCond[03]	:= "PB_MAT='"+cMatSRA+"'"
+			aSPBQCond[04]	:= " AND "
+			aSPBQCond[05]	:= " ( "
+			aSPBQCond[06]	:=		" ( "
+			aSPBQCond[07]	:= 			"PB_TIPO1='H'"
+			aSPBQCond[08]	:= 			" AND "
+			aSPBQCond[09]	:= 			"PB_HORAS<>0"
+			aSPBQCond[10]	:= 		 " ) "
+			aSPBQCond[11]	:= 		" OR "
+			aSPBQCond[12]	:=		" ( "
+			aSPBQCond[13]	:= 			"PB_TIPO1='D'"
+			aSPBQCond[14]	:= 			" AND "
+			aSPBQCond[15]	:= 			"PB_HORAS<>0"
+			aSPBQCond[16]	:= 		 " ) "
+			aSPBQCond[17]	:= 		" OR "
+			aSPBQCond[18]	:=		" ( "
+			aSPBQCond[19]	:= 			"PB_TIPO1='V'"
+			aSPBQCond[20]	:= 			" AND "
+			aSPBQCond[21]	:= 			"PB_VALOR<>0"
+			aSPBQCond[22]	:= 		 " ) "
+			aSPBQCond[23]	:= " ) "
+			aSPBQCond[24]	:= " AND "
+			aSPBQCond[25]	:= "D_E_L_E_T_=' ' "
+		Else
+			aSPBQCond[01]	:= "PB_FILIAL='"+cFilSRA+"'"
+			aSPBQCond[03]	:= "PB_MAT='"+cMatSRA+"'"
+		EndIf
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ RGB                                                          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If Empty( aRGBQCond ) 
+			aRGBQCond		:= Array( 05 )
+			aRGBQCond[01]	:= "RGB_FILIAL='"+cFilSRA+"'"
+			aRGBQCond[02]	:= " AND "
+			aRGBQCond[03]	:= "RGB_MAT='"+cMatSRA+"'"
+			aRGBQCond[04]	:= " AND "
+			aRGBQCond[05]	:= "D_E_L_E_T_=' ' "
+		Else
+			aRGBQCond[01]	:= "RGB_FILIAL='"+cFilSRA+"'"
+			aRGBQCond[03]	:= "RGB_MAT='"+cMatSRA+"'"
+		EndIf	
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ SRK                                                          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If Empty( aSRKQCond ) 
+			aSRKQCond		:= Array( 05 )
+			aSRKQCond[01]	:= "RK_FILIAL='"+cFilSRA+"'"
+			aSRKQCond[02]	:= " AND "
+			aSRKQCond[03]	:= "RK_MAT='"+cMatSRA+"'"
+			aSRKQCond[04]	:= " AND "
+			aSRKQCond[05]	:= "D_E_L_E_T_=' ' "
+		Else
+			aSRKQCond[01]	:= "RK_FILIAL='"+cFilSRA+"'"
+			aSRKQCond[03]	:= "RK_MAT='"+cMatSRA+"'"
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Reinicializa Variaveis a Cada Funcionario								³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aSPBRec  		:= {}
+		aColsSPB		:= {}
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Carrega os Lancamentos de Resultados  do Funcionario				    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aColsSPB 		:= GdMontaCols(;
+											aHeaderSPB		,;	//01 -> Array com os Campos do Cabecalho da GetDados
+											NIL				,;	//02 -> Numero de Campos em Uso
+											aSPBVirtual		,;	//03 -> [@]Array com os Campos Virtuais
+											NIL				,;	//04 -> [@]Array com os Campos Visuais
+											"SPB"			,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+											NIL				,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+											@aSPBRec		,;	//07 -> [@]Array unidimensional contendo os Recnos
+											"SPB"			,;	//08 -> Alias do Arquivo Pai
+											cChaveFilMat	,;	//09 -> Chave para o Posicionamento no Alias Filho
+											NIL				,;	//10 -> Bloco para condicao de Loop While
+											bSpbSkip		,;	//11 -> Bloco para Skip no Loop While
+											.F.				,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+											.F.				,;	//13 -> Se cria variaveis Publicas
+											.F.				,;	//14 -> Se Sera considerado o Inicializador Padrao
+											NIL				,;	//15 -> Lado para o inicializador padrao
+											.F.				,;	//16 -> Opcional, Carregar Todos os Campos
+											.T.				,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+											aSPBQCond		,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+											.F.				,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+											.F.				,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+											.F.				,;	//21 -> Carregar Coluna Fantasma
+											.F.				,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+											.F.				,;	//23 -> Verifica se Deve verificar se o campo eh usado
+											.F.				,;	//24 -> Verifica se Deve verificar o nivel do usuario
+											.F.				,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+											NIL				 ;	//26 -> [@]Array que contera as chaves conforme recnos
+										)
+        		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Bloqueia Todos os Lancamentos de Resultados do Funcionario		        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !Empty( aSPBRec )
+			IF !MyLockReg( "SPB" , aSPBRec , { cChaveFilMat } ) //Funcao Static para tratamento de filial
+				aAdd( aLog								,;
+				 			{					 		 ;
+						 		cFilSRA					,; // 01 - Filial
+				 				cMatSRA					,; // 02 - Matricula
+				 				cNomeSRA				,; // 03 - Nome	  
+				 				STR0028					,; // 04 - 'Lancamentos de Resultados (SPB) em Uso por Outro Usuario.'
+								0.00       				,; // 05 - 
+								0.00            		,; // 06 - Horas Calc. (Folha)
+								"LOCK"					,; // 07 - Numero Maximo de Lancamentos para a verba
+								0.00 					 ; // 08 - Horas(Ponto)
+							};
+					)               
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Desbloqueia Registros e Arquivos										³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				FreeMyLock()
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Procura o Proximo Funcionario    										³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				(cSRAAlias)->( dbSkip() )
+				Loop			
+			EndIf
+	    EndIf
+	    
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Soma Eventos de Periodos Distintos antes da Integracao					³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aColsSPB:= FSomaSPB(	aColsSPB	,; //01 -> Array de Lancamentos do Resultado do Ponto 
+						   		dMvPerIni	,; //02 -> Inicio do Periodo de Processamento
+ 	                        	dMvPerFim	,; //03 -> Fim do Periodo de Processamento
+								Nil			,; //04 -> Substitui o Valores Anteriores 
+								lInterm		,; //05 -> Funcionário com contrato intermitente
+								lHEInterm	;  //06 -> MV_PONINTE ativo
+ 	                    	)
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Obtem o Numero de Elementos do aColsSPB                    	        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+        nLenSPBaCols	:= Len(aColsSPB)
+	    
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Inicializa Arrays Referente ao RGB e SRK a Cada Funcionario   	        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+    	aRGBRec 	:= {}
+    	aSRKRec 	:= {}
+	    aColsRGB	:= {}
+	    aColsSRK	:= {}
+	    aSeqRGB		:= {}	    
+	    aSeqSRK		:= {}	    
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Se for Integracao														³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	    IF ( lIntegra )
+			//Para o Brasil, deve verificar se funcionario trabalhou ao menos um dia para gerar o lancto no SRC
+			//Caso contratrio, o lancto sera gerado na SRK
+			If cPaisLoc == "BRA" .And. lVerAfas
+				cSitFolh  := fBuscaSituacao(SRA->RA_FILIAL,SRA->RA_MAT, Ctod(StrZero(F_ULTDIA( sToD(cPeriodo+"01") ), 2)+"/"+Strzero(Month(sToD(cPeriodo+"01")),2)+"/"+right(str(Year(sToD(cPeriodo+"01"))),2),"ddmmyy"))
+				cTipoRot  := fGetTipoRot( cRot )
+				nDiasAfas := 0
+				nDiasTrab := 0
+				nDiasC := nDiasP := 30
+				FDiasTrab(@nDiasTrab, GetMv("MV_DIASMES"), .F., Ctod(StrZero(F_ULTDIA( sToD(cPeriodo+"01") ), 2)+"/"+Strzero(Month(sToD(cPeriodo+"01")),2)+"/"+right(str(Year(sToD(cPeriodo+"01"))),2),"ddmmyy"))
+				FDiasAfast(@nDiasAfas, @nDiasTrab)
+				lGeraSRK  := If( nDiasTrab == 0 .And. cSitFolh == "F", .T., .F. )
+			EndIf
+
+			If lGeraSRK
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Carrega Todos os Itens do SRK do Funcionario           		        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				aColsSRK 		:= GdMontaCols(;
+													aHeaderSRK				,;	//01 -> Array com os Campos do Cabecalho da GetDados
+													NIL						,;	//02 -> Numero de Campos em Uso
+													aSRKVirtual				,;	//03 -> [@]Array com os Campos Virtuais
+													NIL						,;	//04 -> [@]Array com os Campos Visuais
+													"SRK"					,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+													{"RK_FILIAL","RK_MAT"}	,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+													@aSRKRec				,;	//07 -> [@]Array unidimensional contendo os Recnos
+													"SRK"					,;	//08 -> Alias do Arquivo Pai
+													cChaveFilMat			,;	//09 -> Chave para o Posicionamento no Alias Filho
+													NIL						,;	//10 -> Bloco para condicao de Loop While
+													Nil						,;	//11 -> Bloco para Skip no Loop While
+													.T.						,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+													.F.						,;	//13 -> Se cria variaveis Publicas
+													.F.						,;	//14 -> Se Sera considerado o Inicializador Padrao
+													NIL						,;	//15 -> Lado para o inicializador padrao
+													.F.						,;	//16 -> Opcional, Carregar Todos os Campos
+													.T.						,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+													aSRKQCond				,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+													.F.						,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+													.T.						,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+													.F.						,;	//21 -> Carregar Coluna Fantasma
+													.F.						,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+													.F.						,;	//23 -> Verifica se Deve verificar se o campo eh usado
+													.F.						,;	//24 -> Verifica se Deve verificar o nivel do usuario
+													.F.						,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+													NIL						 ;	//26 -> [@]Array que contera as chaves conforme recnos
+												)
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Obtem o Numero de Elementos do aColsSRK                    	        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nLenSRKaCols	:= Len(aColsSRK)																										
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Bloqueia Todos os Lancamentos de Verbas  do Funcionario		        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF !Empty(aSRKRec) 
+					IF !MyLockReg( "SRK" , aSRKRec , { cChaveFilMat } ) //Funcao Static para tratamento de filial
+						aAdd( aLog								,;
+						 			{					 		 ;
+								 		cFilSRA					,; // 01 - Filial
+						 				cMatSRA					,; // 02 - Matricula
+						 				cNomeSRA				,; // 03 - Nome	
+										STR0027					,; // 04 - 'Lancamentos do Movimento Mensal (SRC) em Uso por Outro Usuario.'				
+										0.00            		,; // 05 - 
+										0.00            		,; // 06 - Horas(Folha)
+										"LOCK"					,; // 07 - Numero Maximo de Lancamentos para a verba
+										0.00 					 ; // 08 - Horas(Ponto)
+									};
+							)              
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Desbloqueia Registros e Arquivos										³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						FreeMyLock()
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Procua o Proximo Funcionario    										³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						SRA->( dbSkip() )
+						Loop			
+					EndIF
+				EndIF			
+			Else
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Carrega Todos os Itens do RGB do Funcionario           		        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				aColsRGB 		:= GdMontaCols(;
+													aHeaderRGB				,;	//01 -> Array com os Campos do Cabecalho da GetDados
+													NIL						,;	//02 -> Numero de Campos em Uso
+													aRGBVirtual				,;	//03 -> [@]Array com os Campos Virtuais
+													NIL						,;	//04 -> [@]Array com os Campos Visuais
+													cAlias					,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+													{"RGB_FILIAL","RGB_MAT"},;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+													@aRGBRec				,;	//07 -> [@]Array unidimensional contendo os Recnos
+													cAlias					,;	//08 -> Alias do Arquivo Pai
+													cChaveFilMat			,;	//09 -> Chave para o Posicionamento no Alias Filho
+													NIL						,;	//10 -> Bloco para condicao de Loop While
+													bRGBSkip				,;	//11 -> Bloco para Skip no Loop While
+													.T.						,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+													.F.						,;	//13 -> Se cria variaveis Publicas
+													.F.						,;	//14 -> Se Sera considerado o Inicializador Padrao
+													NIL						,;	//15 -> Lado para o inicializador padrao
+													.F.						,;	//16 -> Opcional, Carregar Todos os Campos
+													.T.						,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+													aRGBQCond				,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+													.F.						,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+													.T.						,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+													.F.						,;	//21 -> Carregar Coluna Fantasma
+													.F.						,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+													.F.						,;	//23 -> Verifica se Deve verificar se o campo eh usado
+													.F.						,;	//24 -> Verifica se Deve verificar o nivel do usuario
+													.F.						,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+													NIL						 ;	//26 -> [@]Array que contera as chaves conforme recnos
+												)
+
+
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Obtem o Numero de Elementos do aColsRGB                    	        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nLenRGBaCols	:= Len(aColsRGB)																										
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Bloqueia Todos os Lancamentos de Verbas  do Funcionario		        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF !Empty(aRGBRec) 
+					IF !MyLockReg( cAlias , aRGBRec , { cChaveFilMat } ) //Funcao Static para tratamento de filial
+						aAdd( aLog								,;
+									{					 		 ;
+										cFilSRA					,; // 01 - Filial
+										cMatSRA					,; // 02 - Matricula
+										cNomeSRA				,; // 03 - Nome	
+										STR0027					,; // 04 - 'Lancamentos do Movimento Mensal (RGB) em Uso por Outro Usuario.'				
+										0.00            		,; // 05 - 
+										0.00            		,; // 06 - Horas Calc. (Folha)
+										"LOCK"					,; // 07 - Numero Maximo de Lancamentos para a verba
+										0.00 					 ; // 08 - Horas(Ponto)
+									};
+							)              
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Desbloqueia Registros e Arquivos										³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						FreeMyLock()
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Procua o Proximo Funcionario    										³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						(cSRAAlias)->( dbSkip() )
+						Loop			
+					EndIf
+				EndIf
+			EndIf
+		Else                                                                       
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Arquivo Temporario Requer apenas a criacao de um array limpo           ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			aColsRGB	 := aClone( aRGBColEmpty )
+   			nLenRGBaCols := 1
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Verifica se o Funcionario Tem Apontamentos a Serem Integrados          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !Empty( aSPBRec )  
+			For naColsSPB := 1 To nLenSPBaCols
+
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³                             *** FIM ATENCAO ***						³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/  
+
+   				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Reinicializando Variaveis  											³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				aItensSPB	:= {}  
+				aRecnoRGB	:= {}
+				aRecnoSRK	:= {}
+                
+   				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Integra Lancamentos SIGAGPE											³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF ( lIntegra )
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³*** Tratamento para comissionista puro (BRA)							³
+					³    Converte a verba de hora extra para verba de hora extra s/comissoes³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					If lComisPuro
+						aRetSRV := PosSrv(aColsSPB[ naColsSPB, nPosSPBPD ],cFilSRA,{"RV_CODCORR","RV_HE"}) 
+						//-- Se a verba for de hora extra
+						If aRetSRV[2] == "S"
+							//-- Substitui o codigo da verba pelo correspondente 
+							If !Empty(aRetSRV[1]) 
+								aColsSPB[ naColsSPB, nPosSPBPD ] := aRetSRV[1]
+							EndIf 
+						EndIf
+					EndIf
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Verifica se a Verba Pode Receber Lancamentos no RGB e Carrega numero de³
+					³Lancamentos Permitidos para a Verba									³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					nNumSeq		:= 0.00
+					IF ( (lLancaPd := fNotLancPD( aColsSPB[naColsSPB, nPosSPBPD	] , cFilSRA , .F. , @nNumSeq ) ) )
+			            /*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³SubDivide o Lancamento se a quantidade de horas ultrapassar o limite   ³
+						³permitido pelo campo destino (Ex.:999.99)  							³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			            fDividLanc( aColsSPB[naColsSPB], nLimHoras, nLimValor, @aItensSPB)
+				    	/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Verifica se a quantidade de lancamentos desdobrados supera a qtde de se³ 
+						³quencias permitidas													³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						nLenaItens	:= Len(aItensSPB)
+					    IF ( nLenaItens > nNumSeq )
+					    	/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³Emite Log com os lancamentos a serem integrados que irao superar o     ³ 
+							³de sequencias permitidas pela verba. 								    ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							aAdd( aLog												,;
+							 			{					 						 ;
+									 		cFilSRA									,; // 01 - Filial
+							 				cMatSRA									,; // 02 - Matricula
+							 				cNomeSRA								,; // 03 - Nome	
+											aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+											aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+											0.00            						,; // 06 - Horas Calc. (Folha)
+											"MAXLANC"								,; // 07 - Numero Maximo de Lancamentos para a verba
+											aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+										};
+								)  
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³Informacoes sobre Verba vs Lancamento									³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							aAdd( aLog 					,;
+					 					{				 ; 	
+					 						cFilBranco	,; // 01 - Filial
+					 						cMatBranco	,; // 02 - Matricula
+					 						cNomeBranco	,; // 03 - Nome	
+							 				""			,; // 04 - Verba
+							 				""			,; // 05 - Centro de Custo
+							 				0.00		,; // 06 - Horas Calc. (Folha)
+							 				"QTDEREQ"	,; // 07 - Identificador de Qtde de Lancamentos Requerida pela Verba
+						 					0.00		,; // 08 - Horas(Ponto)
+						 					nNumSeq 	,; // 09 - Qtde Lactos Verba
+						 					nLenaItens	 ; // 10 -  Qtde Lactos Exigida						
+										};  
+								)	
+							Loop
+						EndIf
+				    	
+						If lGeraSRK
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³Procura pelos Movimentos Mensais de mesma data de referencia do arquivo SPB				  ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							IF !Empty( nPosSRK := aScan(aColsSRK,{|x|   x[ nPosSRKPD ] == aColsSPB[ naColsSPB , nPosSPBPD ] .and. 	;	// Verba
+				                    					 	 		   	AllTrim( x[ nPosSRKCC ] ) == AllTrim( aColsSPB[ naColsSPB , nPosSPBCC ] ) 	 	;	// Centro de Custo
+				                    					 	 	 };		
+				                                        );
+			                          )
+			
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³Inicializa Contador                                                    ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								nCountSRK	:= 0.00
+	
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³ATENCAO: 													  ³
+								³Nao devemos ordenar o array de modo que teremos que  corre-lo³
+								³todo														  ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								For naColsSRK := nPosSRK To nLenSRKaCols
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³So Grava no SRK as Verbas que Podem Receber Lancamentos                ³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									IF (	aColsSRK[ naColsSRK , nPosSRKPD ] == aColsSPB[naColsSPB, nPosSPBPD	] .and. 	;	//03 - Verba
+		                    				AllTrim( aColsSRK[ naColsSRK , nPosSRKCC ] ) == AllTrim( aColsSPB[naColsSPB, nPosSPBCC	] )		 	;	//04 - Centro de Custo
+		                                 )
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Verifica Quantas Vezes ja Existe a Verba para verificar se nao estourou³
+										³o Numero Maximo de Sequencias Permitidas para a Verba					³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										++nCountSRK
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Verifica Apenas as Verbas que foram Geradas Pelo Ponto: RK_TIPO2 == "E"³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										IF ( aColsSRK[naColsSRK, nPosSRKTp   ] == "P" )
+											IF !( lSobrepoe )
+												aAdd( aLog												,;
+										 					{					 		 				 ; 	
+										 						cFilSRA									,; // 01 - Filial
+										 						cMatSRA									,; // 02 - Matricula
+										 						cNomeSRA								,; // 03 - Nome	
+											 					aColsSRK[naColsSRK, nPosSRKPD		]	,; // 04 - Verba
+												 				aColsSRK[naColsSRK, nPosSRKCC		]	,; // 05 - Centro de Custo
+												 				aColsSRK[naColsSRK, nPosSRKHORAS	]	,; // 06 - Horas(Folha)
+												 				aColsSRK[naColsSRK, nPosSRKTp   	]	,; // 07 - Tipo (G,I,E...)
+											 					aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+															};
+													)
+											EndIF
+											/*
+											ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+											³Armazena os registros referentes ao Ponto Eletronico					³
+											³Adiciona o No.Reg (0.00 se nao existir), a Sequencia e a linha do array³
+											³principal																³
+											ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+											aAdd(aRecnoSRK,{ aSRKRec[naColsSRK], aColsSRK[naColsSRK, nPosSRKDOC	], naColsSRK} )
+										EndIF
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Armazena as Sequencias das Verbas independente da origem para posterior³
+										³reutilizacao de "janelas" entre as sequencias.							³
+										³Salvamos o no.registro(0.00 se nao existir fisicamente), a  sequencia e³
+										³o flag																    ³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										aAdd( aSeqSRK ,{ aSRKRec[ naColsSRK ], aColsSRK[ naColsSRK , nPosSRKDOC	], aColsSRK[ naColsSRK , nPosSRKTp ] } )
+									EndIF
+								Next naColsSRK
+		
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³Calcula o numero total de lancamentos para mesma verba com os novos    ³
+								³lancamentos.															³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/								                           
+								//-- Obtem o numero de sequencias do lancamento do ponto para a verba
+								nLenaRecSRK := Len(aRecnoSRK)
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³ Acrescenta as novas sequencias ao total existente 					³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								IF ( lSobrepoe )                  
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Se sobrepoe, subtrai os lancamentos anteriores e acrescenta os novos	³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									nCountSRK := ( ( nCountSRK - nLenaRecSRK) + nLenaItens )
+								Else
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Se nao sobrepoe, acrescenta os novos lancamentos						³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									nCountSRK += nLenaItens
+								EndIF
+		
+								IF ( nLenaRecSRK > 0.00 )   
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Grava apenas se Estiver dentro da Quantidade Maxima de Lancamentos  per³
+									³mitidos para a Verba													³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									IF ( lSobrepoe )  .and. !( nCountSRK > nNumSeq )  
+										fMontaSRK( aHeaderSRK , @aColsSRK , aItensSPB , @aSRKRec , aRecnoSRK , @aSeqSRK , aSRKColEmpty )
+									Else                                             
+									   	/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Emite Log com o numero de sequencias que extrapola o limite de lancamen³ 
+										³tos permitidos a verba. 								    			³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										IF (lSobrepoe) .and.  ( nCountSRK > nNumSeq )
+												/*
+												ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+												³Emite Log com os lancamentos a serem integrados que irao superar o     ³ 
+												³de sequencias permitidas pela verba. 								    ³
+												ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+												aAdd( aLog										,;
+										 			{					 						 ;
+												 		cFilSRA									,; // 01 - Filial
+										 				cMatSRA									,; // 02 - Matricula
+										 				cNomeSRA								,; // 03 - Nome	
+														aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+														aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+														0.00            						,; // 06 - Horas(Folha)
+														"MAXLANC"								,; // 07 - Numero Maximo de Lancamentos para a verba
+														aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+													};
+												)	
+												/*
+												ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+												³Informacoes sobre Verba vs Lancamento									³
+												ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+												aAdd( aLog 			,;
+								 					{				 ; 	
+								 						cFilBranco	,; // 01 - Filial
+								 						cMatBranco	,; // 02 - Matricula
+								 						cNomeBranco	,; // 03 - Nome	
+										 				""			,; // 04 - Verba
+										 				""			,; // 05 - Centro de Custo
+										 				0.00		,; // 06 - Horas(Folha)
+										 				"QTDEREQ"	,; // 07 - Identificador de Qtde de Lancamentos Requerida pela Verba
+									 					0.00		,; // 08 - Horas(Ponto)
+									 					nNumSeq 	,; // 09 - Qtde Lactos Verba
+									 					nCountSRK	 ; // 10 -  Qtde Lactos Exigida						
+													};
+												)
+										EndIF
+									EndIF	
+								ElseIF ( nCountSRK <= nNumSeq )
+										fMontaSRK( aHeaderSRK , @aColsSRK , aItensSPB , @aSRKRec , NIL , @aSeqSRK , aSRKColEmpty )
+								ElseIF ( nCountSRK > nNumSeq )
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Carrega no aLog Informacao correspondente ao Extrapolamento no   numero³
+										³de Lancamentos Permitidos para a verba									³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									    aAdd( aLog												,;
+										 			{					 						 ;
+												 		cFilSRA									,; // 01 - Filial
+								 						cMatSRA									,; // 02 - Matricula
+								 						cNomeSRA								,; // 03 - Nome	
+														aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+														aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+														0.00            						,; // 06 - Horas(Folha)
+														"MAXLANC"								,; // 07 - Numero Maximo de Lancamentos para a verba
+														aColsSPB[naColsSPB, nPosSPBHORAS	]	 		 ; // 08 - Horas(Ponto)
+													};
+											)	
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Informacoes sobre Verba vs Lancamento									³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										aAdd( aLog 					,;
+								 					{				 ; 	
+								 						cFilBranco	,; // 01 - Filial
+								 						cMatBranco	,; // 02 - Matricula
+								 						cNomeBranco	,; // 03 - Nome	
+										 				""			,; // 04 - Verba
+										 				""			,; // 05 - Centro de Custo
+										 				0.00		,; // 06 - Horas(Folha)
+										 				"QTDEREQ"	,; // 07 - Identificador de Qtde de Lancamentos Requerida pela Verba
+									 					0.00		,; // 08 - Horas(Ponto)
+									 					nNumSeq 	,; // 09 - Qtde Lactos Verba
+									 					nCountSRC	 ; // 10 -  Qtde Lactos Exigida						
+													} ;
+											)		
+								EndIF	
+							Else
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³So Grava no SRK as Verbas que Podem Receber Lancamentos                ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								fMontaSRK( aHeaderSRK , @aColsSRK , aItensSPB , @aSRKRec , NIL , NIL , aSRKColEmpty )
+							EndIF				    	
+						Else
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³Procura pelos Movimentos Mensais de mesma data de referencia do arquivo SPB				  ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							IF !Empty( nPosRGB := aScan(aColsRGB,{|x| x[ nPosRGBPD      ] == aColsSPB[ naColsSPB , nPosSPBPD   ] ;	// Verba
+																.and. x[ nPosRGBCC      ] == aColsSPB[ naColsSPB , nPosSPBCC   ] ;	// Centro de Custo
+																};		
+														);
+									)
+								
+								
+								
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³Inicializa Contador                                                    ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								nCountRGB	:= 0.00
+								
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³ATENCAO: 													  ³
+								³Nao devemos ordenar o array de modo que teremos que  corre-lo³
+								³todo														  ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								For naColsRGB := nPosRGB To nLenRGBaCols
+									// So Grava na RGB as Verbas que Podem Receber Lancamentos
+									IF (	aColsRGB[ naColsRGB, nPosRGBPD ] == aColsSPB[naColsSPB, nPosSPBPD] .And. 	;	//03 - Verba
+											aColsRGB[ naColsRGB, nPosRGBCC ] == aColsSPB[naColsSPB, nPosSPBCC] .And.	;	//04 - Centro de Custo
+											(aColsRGB[ naColsRGB, nPosRGBDataRef ] == aColsSPB[naColsSPB, nPosSPBDATA] .Or. (Empty(aColsRGB[naColsRGB, nPosRGBDataRef]) .And. !lSegFaltas)) .And.; // - Data de Referência
+											!(lHEInterm .And. SRA->RA_TPCONTR == "3" .And. aColsRGB[ naColsRGB, nPosRGBConv ] != aColsSPB[naColsSPB, nPosSPBConv]); // - Convocação
+										)
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Verifica Quantas Vezes ja Existe a Verba para verificar se nao estourou³
+										³o Numero Maximo de Sequencias Permitidas para a Verba					³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										++nCountRGB
+										
+										// Sobrepõe Apenas as Verbas que foram Geradas Pelo Ponto: RGB_TIPO2 == "E"
+										If !(lSobrepoe .And. aColsRGB[naColsRGB, nPosRGBT2 ] == "E")
+											aAdd( aLog,{cFilSRA									,; // 01 - Filial
+														cMatSRA									,; // 02 - Matricula
+														cNomeSRA								,; // 03 - Nome	
+														aColsRGB[naColsRGB, nPosRGBPD		]	,; // 04 - Verba
+														aColsRGB[naColsRGB, nPosRGBCC		]	,; // 05 - Centro de Custo
+														aColsRGB[naColsRGB, nPosRGBHCALC	]	,; // 06 - Horas Calc. (Folha)
+														aColsRGB[naColsRGB, nPosRGBT2   	]	,; // 07 - Tipo (G,I,E...)
+														aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+													})
+											lLog := .T.	
+											Exit
+										Else 
+											/*
+											ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+											³Armazena os registros referentes ao Ponto Eletronico					³
+											³Adiciona o No.Reg (0.00 se nao existir), a Sequencia e a linha do array³
+											³principal																³
+											ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+											If aColsRGB[naColsRGB, nPosRGBT2 ] == "E"
+												aAdd(aRecnoRGB,{ aRGBRec[naColsRGB], aColsRGB[naColsRGB, nPosRGBSEQ	], naColsRGB} )
+											EndIf
+											
+										EndIf
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Armazena as Sequencias das Verbas independente da origem para posterior³
+										³reutilizacao de "janelas" entre as sequencias.							³
+										³Salvamos o no.registro(0.00 se nao existir fisicamente), a  sequencia e³
+										³o flag																    ³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										aAdd( aSeqRGB ,{ aRGBRec[ naColsRGB ], aColsRGB[ naColsRGB , nPosRGBSEQ	], aColsRGB[ naColsRGB , nPosRGBT2 ], aColsRGB[ naColsRGB , nPosRGBPD ], aColsRGB[ naColsRGB , nPosRGBDataRef ] } )
+									EndIf
+								Next naColsRGB
+								
+								If lLog // A verba foi adicionada no log 
+									lLog := .F. 
+									Loop
+								EndIf
+								
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³Calcula o numero total de lancamentos para mesma verba com os novos    ³
+								³lancamentos.															³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/								                           
+								//-- Obtem o numero de sequencias do lancamento do ponto para a verba
+								nLenaRecRGB := Len(aRecnoRGB)
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³ Acrescenta as novas sequencias ao total existente 					³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								IF ( lSobrepoe )                  
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Se sobrepoe, subtrai os lancamentos anteriores e acrescenta os novos	³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									nCountRGB := ( ( nCountRGB - nLenaRecRGB) + nLenaItens )
+								Else
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Se nao sobrepoe, acrescenta os novos lancamentos						³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									nCountRGB += nLenaItens
+								EndIf
+								
+								IF ( nLenaRecRGB > 0.00 )   
+									/*
+									ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									³Grava apenas se Estiver dentro da Quantidade Maxima de Lancamentos  per³
+									³mitidos para a Verba													³
+									ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+									IF ( lSobrepoe )  .and. !( nCountRGB > nNumSeq )  
+										fMontaRGB( aHeaderRGB , @aColsRGB , aItensSPB , @aRGBRec , aRecnoRGB , @aSeqRGB , aRGBColEmpty )
+									Else                                             
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Emite Log com o numero de sequencias que extrapola o limite de lancamen³ 
+										³tos permitidos a verba. 								    			³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										IF (lSobrepoe) .and.  ( nCountRGB > nNumSeq )
+												/*
+												ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+												³Emite Log com os lancamentos a serem integrados que irao superar o     ³ 
+												³de sequencias permitidas pela verba. 								    ³
+												ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+												aAdd( aLog										,;
+													{					 						 ;
+														cFilSRA									,; // 01 - Filial
+														cMatSRA									,; // 02 - Matricula
+														cNomeSRA								,; // 03 - Nome	
+														aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+														aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+														0.00            						,; // 06 - Horas Calc. (Folha)
+														"MAXLANC"								,; // 07 - Numero Maximo de Lancamentos para a verba
+														aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+													};
+												)	
+												/*
+												ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+												³Informacoes sobre Verba vs Lancamento									³
+												ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+												aAdd( aLog 			,;
+													{				 ; 	
+														cFilBranco	,; // 01 - Filial
+														cMatBranco	,; // 02 - Matricula
+														cNomeBranco	,; // 03 - Nome	
+														""			,; // 04 - Verba
+														""			,; // 05 - Centro de Custo
+														0.00		,; // 06 - Horas Calc. (Folha)
+														"QTDEREQ"	,; // 07 - Identificador de Qtde de Lancamentos Requerida pela Verba
+														0.00		,; // 08 - Horas(Ponto)
+														nNumSeq 	,; // 09 - Qtde Lactos Verba
+														nCountRGB	 ; // 10 - Qtde Lactos Exigida						
+													};
+												)
+										EndIf
+									EndIf	
+								ElseIf ( nCountRGB <= nNumSeq )
+										fMontaRGB( aHeaderRGB , @aColsRGB , aItensSPB , @aRGBRec , NIL , @aSeqRGB , aRGBColEmpty )
+								ElseIf ( nCountRGB > nNumSeq )
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Carrega no aLog Informacao correspondente ao Extrapolamento no   numero³
+										³de Lancamentos Permitidos para a verba									³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										aAdd( aLog												,;
+													{					 						 ;
+														cFilSRA									,; // 01 - Filial
+														cMatSRA									,; // 02 - Matricula
+														cNomeSRA								,; // 03 - Nome	
+														aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+														aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+														0.00            						,; // 06 - Horas Calc. (Folha)
+														"MAXLANC"								,; // 07 - Numero Maximo de Lancamentos para a verba
+														aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+													};
+											)	
+										/*
+										ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										³Informacoes sobre Verba vs Lancamento									³
+										ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+										aAdd( aLog 					,;
+													{				 ; 	
+														cFilBranco	,; // 01 - Filial
+														cMatBranco	,; // 02 - Matricula
+														cNomeBranco	,; // 03 - Nome	
+														""			,; // 04 - Verba
+														""			,; // 05 - Centro de Custo
+														0.00		,; // 06 - Horas Calc. (Folha)
+														"QTDEREQ"	,; // 07 - Identificador de Qtde de Lancamentos Requerida pela Verba
+														0.00		,; // 08 - Horas(Ponto)
+														nNumSeq 	,; // 09 - Qtde Lactos Verba
+														nCountRGB	 ; // 10 -  Qtde Lactos Exigida						
+													} ;
+											)		
+								EndIf	
+							Else
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³So Grava no RGB as Verbas que Podem Receber Lancamentos                ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								fMontaRGB( aHeaderRGB , @aColsRGB , aItensSPB , @aRGBRec , NIL , @aSeqRGB , aRGBColEmpty )
+							EndIf
+						EndIf
+					Else
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Carrega no aLog Informacao de que a verba nao Permite Lancamento       ³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						 aAdd( aLog												,;
+						 			{					 						 ;
+								 		cFilSRA									,; // 01 - Filial
+				 						cMatSRA									,; // 02 - Matricula
+				 						cNomeSRA								,; // 03 - Nome	
+										aColsSPB[naColsSPB, nPosSPBPD		]	,; // 04 - Verba
+										aColsSPB[naColsSPB, nPosSPBCC		]	,; // 05 - Centro de Custo
+										0.00            						,; // 06 - Horas Calc. (Folha)
+										"NOLANC"								,; // 07 - Nao eh permitido lancamentos para a verba
+										aColsSPB[naColsSPB, nPosSPBHORAS	]	 ; // 08 - Horas(Ponto)
+									};
+							)		
+					EndIf
+				Else 
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³EXPORTA Lancamentos													³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³SubDivide o Lancamento se a quantidade de horas ultrapassar o limite   ³
+					³permitido pelo campo destino (Ex.:999.99)  							³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					fDividLanc( aColsSPB[naColsSPB], nLimHoras, nLimValor, @aItensSPB)
+				
+                	IF !Empty( nPosRGB := aScan( aColsRGB , {|x|	x[ nPosRGBPD ] == aColsSPB[ naColsSPB , nPosSPBPD	] .and. 	;	// Verba
+                   					 	 		   		       		x[ nPosRGBCC ] == aColsSPB[ naColsSPB , nPosSPBCC	]		 	;	// Centro de Custo
+		                    					 	 		};
+            			                          	);
+            			          )
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Grava no Arquivo Temporario que Sera Utilizado Para Exportacao         ³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						For naColsRGB := nPosRGB To nLenRGBaCols 
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³ATENCAO: 													  ³
+							³Nao devemos ordenar o array de modo que teremos que  corre-lo³
+							³todo														  ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							IF (;
+									aColsRGB[naColsRGB, nPosRGBPD ] == aColsSPB[ naColsSPB , nPosSPBPD	] .and. 	;	// Verba
+									aColsRGB[naColsRGB, nPosRGBCC ] == aColsSPB[ naColsSPB , nPosSPBCC	]		 	;	// Centro de Custo
+		                        )
+								/*
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³Adiciona o No.Reg(0.00 se nao existir), a Sequencia e a linha³
+								³do array principal											  ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								aAdd( aRecnoRGB , { aRGBRec[ naColsRGB ] , aColsRGB[ naColsRGB , nPosRGBSEQ	] , naColsRGB } )
+							EndIf
+						Next naColsRGB
+						/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³ Atualiza o array de movimentos mensais e de nrs.de registro ³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+						fMontaRGB( aHeaderRGB , @aColsRGB , aItensSPB , @aRGBRec , aRecnoRGB , NIL , aRGBColEmpty )
+		            Else 
+		            	/*
+						ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						³Todos os lancamentos							          			    ³
+						ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				        fMontaRGB( aHeaderRGB , @aColsRGB , aItensSPB , @aRGBRec , NIL , NIL , aRGBColEmpty )
+					EndIf
+				EndIf
+			Next naColsSPB
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Verifica as Integracoes Feitas no SIGAGPE ( RGB )                      ³
+		³ELIMINA Verbas Anteriores na Ausencia de Resultados a Integrar         ³
+		³GRAVA   Resultados integrados										    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+		IF !Empty(aRGBRec) 
+		    fGravaRGB( cAlias , cFilSRA , cMatSRA , aHeaderRGB , aColsRGB , aColsSPB , aRGBRec, lIntegra )
+        EndIf
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Verifica as Integracoes Feitas no SIGAGPE ( SRK )                      ³
+		³ELIMINA Verbas Anteriores na Ausencia de Resultados a Integrar         ³
+		³GRAVA   Resultados integrados										    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+		IF !Empty(aSRKRec) 
+		    fGravaSRK( "SRK" , cFilSRA , cMatSRA , aHeaderSRK , aColsSRK , aColsSPB , aSRKRec, lIntegra )
+        EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Desbloqueia Registros e Arquivos							  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		FreeMyLock()
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Reseta o valor padrão do lComisPuro						  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		lComisPuro := .F.
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Proximo Funcionario              							  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		(cSRAAlias)->( dbSkip() )
+
+End While
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Garante que todos os Registros Estarao Desboqueados         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+FreeMyLock()
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Fecha a Query do SRA e Restaura o Padrao                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If ( lSraQryOpened )
+	SRA->( dbCloseArea() )
+	( cSRAAlias )->( dbCloseArea() )
+	ChkFile( "SRA" )
+EndIf	
+	
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Gerar o TXT utilizado na Exportacao dos Dados                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !( lIntegra )
+	
+	If oTmpTabFO1 <> Nil
+		dbSelectArea( "PONM040TMP" )  
+		
+		FazCopyTo(cNomeArq,"PONM040TMP")
+		
+	    ("PONM040TMP")->(dbCloseArea())
+	    
+	    oTmpTabFO1:Delete()
+	    Freeobj(oTmpTabFO1)
+    EndIf
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Mostrar o Log de Ocorrencias                                           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !Empty( aLog ) .or. !Empty( aLogPer )
+	If lSchedule .Or. MsgYesNo( OemToAnsi( STR0005 ) , OemToAnsi( STR0006 ) ) //"Foram encontradas Inconsistencias na Integra‡„o. Deseja Gerar o Log?"###"Aten‡„o"	
+		GeraLog( aLog , cPerg , aLogPer )
+	EndIf
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Restaura os Dados de Entrada dos Arquivos Utilizados no Processamento ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+( RestArea( aAreaSPB ) , RestArea( aAreaSRA ) , RestArea( aAreaRGB ) , RestArea( aAreaSRK ) )
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³GeraLog   ³ Autor ³Marinaldo de Jesus     ³ Data ³11/05/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Emissao do Log de Ocorrencias   	                        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³aLog -> Log com as Ocorrencias Encontradas                  ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function GeraLog( aLog , cPerg , aLogPer )
+
+Local aReturn		:= {STR0008, 1, STR0009, 2, 2, 1, "",1 }	//"Zebrado"###"Administra‡„o"
+Local aTitLog		:= {}
+Local aNewLog		:= {}
+Local cTamanho		:= "M"
+Local cTitulo		:= ( STR0007 + STR0011 )					//"Log de Ocorrencias"###" na Integracao com a Folha de Pagamento ( Geracao dos Resultados )"
+Local cDet			:= ""
+Local nX			:= 0.00
+Local nTamLog		:= Len( aLog )
+Local cPitRV_Qtde	
+
+DBSELECTAREA('SRV')
+cPitRV_Qtde	:= AllTrim(X3Picture("RV_QTDLANC"))
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Mascara do Relatorio                                         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+//        10        20        30        40        50        60        70        80        90       100       110       120
+//123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+//Filial Matricula Nome                            Verba Centro de Custo  Horas(Folha) Horas(Ponto)  Tipo Inconsistencia
+//XX     XXXXXX    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX   XXX  XXXXXXXXXXXXXXX        999.99    999999.99    X  XXXXXXXXXXXXXX
+//                                                 Qtde.Lancamentos =>    Permitida: 9   Exigida: 9                                  
+
+
+For nX := 1 To nTamLog  
+	cTipo := AllTrim( aLog[ nX , 7 ] )
+	cDet := aLog[ nX , 1 ] 	 + Space( 05 ) 								//Filial
+	cDet += aLog[ nX , 2 ] 	 + Space( 04 ) 								//Matricula
+	cDet += aLog[ nX , 3 ] 	 + Space( 03 ) 								//Nome
+	If ( cTipo == "LOCK" )
+		cDet += aLog[nX, 4] + Space(02) 								//Mensagens de Nao Integracao
+	ElseIf ( cTipo == "QTDEREQ" )
+	 	cDet += STR0025	+ Space(02)																	//"Qtde Lancamentos: =>"
+	 	cDet += STR0023	+ Space(01)																	//"Permitida:"
+		cDet += Transform( aLog[ nX , 9 ] , cPitRV_Qtde ) + Space(03)
+	 	cDet += STR0024	+ Space(01)																	//"Exigida:"
+		cDet += Transform( aLog[ nX , 10 ] , cPitRV_Qtde )					
+	ElseIf ( cTipo == "CONV" )
+	 	cDet += aLog[nX, 4] + ": " + aLog[nX, 5] 													//'Convocação não encontrada.'
+	ElseIf ( cTipo == "CONV2" )
+	 	cDet += aLog[nX, 4] + ": " + aLog[nX, 5] + Space( 02 )										//'Convocação fora do período da folha.'
+	 	cDet += STR0052	+ aLog[nX, 6] + " | " + STR0053	+ aLog[nX, 8]								//'Início: '##'Término: '
+	Else
+		cDet += aLog[ nX , 4 ] 							  	+ Space( 02 ) 							//Verba 
+		cDet += aLog[ nX , 5 ] 								+ Space( 23 - Len( aLog[ nX , 5 ] ) )	//Centro de Custo
+		cDet += Transform( aLog[ nX , 6 ] , "@R 999.99" )	+ Space( 04 ) 							//Horas(Folha)
+		cDet += Transform( aLog[ nX , 8 ] , "@R 999999.99" )										//Horas Ponto
+		IF ( Len( cTipo ) <= 1 )
+			cDet +=	Space( 03 )+aLog[ nX , 7 ] + Space(1)											//Tipo
+		Else
+			cDet +=Space( 05 )																		//Tipo
+		EndIf
+		cDet += Space(02)
+		IF ( Len( cTipo ) > 1 )
+			IF ( cTipo == "MAXLANC" )
+				cDet += STR0012																		//"No.Max.Lancamentos Exced."
+			ElseIf ( cTipo == "NOLANC" )
+				cDet += STR0013																		//"Verba Nao Recebe Lancto."
+			EndIf																		
+		Else
+			cDet += STR0014																			//"Ja Existe Lancamento"
+		EndIf
+	EndIf	
+	aAdd( aNewLog , cDet )
+Next nX
+
+aLog := {}
+IF !Empty( aNewLog )
+	aAdd( aTitLog , STR0010 ) //"Filial Matricula Nome                            Verba Centro de Custo  Horas(Folha)  Tipo Horas(Ponto)"
+	aAdd( aLog , aClone( aNewLog ) )
+EndIf	
+IF !Empty( aLogPer )
+	aAdd( aLog , aClone( aLogPer ) )
+EndIf	
+
+fMakeLog( aLog , aTitLog , cPerg , .T. , FunName() , cTitulo , cTamanho , "L" , aReturn )
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ Cria_Temp ³ Autor ³Equipe Advanced RH    ³ Data ³21/11/1996³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³ Cria arquivo tempor rio para exporta‡„o de Dados.          ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso  	   ³ SIGAPON							   						³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³ NIL                                                        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ cArqDbf = Nome do Arquivo     a ser criado.                ³
+³          ³ cArqInd = Nome do Indice a ser criado.                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Cria_Temp(  )
+
+Local aFields	:= {}
+Local lRet		:= .T.
+Local __aStruRGB__
+Local nLoop := 0
+Local nTotLoop := 0
+Local aLstIndices := {}
+
+__aStruRGB__  := RGB->( dbStruct() )
+
+nTotLoop	:= Len(__aStruRGB__)  
+
+For nLoop:=1 To nTotLoop
+	AADD(aFields,{	__aStruRGB__[nLoop,1]   ,;
+       		        __aStruRGB__[nLoop,2]  	,;
+			        __aStruRGB__[nLoop,3]  	,;
+			        __aStruRGB__[nLoop,4]    }    )  
+Next
+		
+AAdd(aLstIndices, {"RGB_FILIAL","RGB_MAT","RGB_PD"} )
+
+oTmpTabFO1:= RhCriaTrab("PONM040TMP", aFields, aLstIndices)
+
+
+
+IF ( lRet := ( Select( "PONM040TMP" ) > 0.00 ) )
+	
+	PONM040TMP->( dbGotop() )
+EndIf	
+
+Return( lRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fMontaRGB ³ Autor ³ MauricioMR 		      ³ Data ³05/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Gerencia a Montagem em Memoria do aCols de Lancamentos      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fMontaRGB( aHeaderRGB , aColsRGB , aItensSPB , aRGBRec , aRecnoRGB , aSeqRGB , aRGBColEmpty )
+
+Local nI		:=		0.00
+Local nLenSPB	:=		0.00
+Local nLenRGB	:=		0.00
+Local nNewRecno	:=  	0.00
+
+DEFAULT aRecnoRGB	:= {}
+DEFAULT aSeqRGB		:= {}
+
+nLenSPB := Len( aItensSPB )
+nLenRGB := Len( aRecnoRGB )                     
+
+//-- Se Nao existirem lancamentos do Ponto  em movimentos mensais 
+If Empty(nLenRGB)  
+   //-- Corre Todos os Lancamentos a Gravar
+	For nI :=1.00 To nLenSPB	  
+	   	//-- Verifica se deve acrescentar novos elementos no acols do RGB ou utilizar o primeiro
+        //-- registro em branco quando apresentar um unico elemento
+	   	If ( ( Len(aColsRGB) ==1 ) .and. Empty(aColsRGB[1,nPosRGBPD]) )
+	   	   nNewRecno:=	1  
+	   	   //-- Se Nao existe elemento de referemcia a registro/linha acrescenta 0.00
+	   	   If Empty(aRGBRec)
+		   	   aAdd( aRGBRec, 0.00 )
+	   	   EndIf
+	   	Else
+	   	   nNewRecno:=	0.00
+	   	EndIf   
+		//-- Adiciona as novas informacoes 
+		fMontaReg( aHeaderRGB , @aColsRGB , nNewRecno , aItensSPB[nI] , fIncrSeq(@aSeqRGB, aItensSPB[nI,nPosSPBPD],, aItensSPB[nI,nPosSPBDATA]) , @aRGBRec , aRGBColEmpty )
+	Next nI
+Else
+	//-- Se os Lancamentos possuirem verbas correspondentes
+	If ( nLenSPB == nLenRGB )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenSPB	  
+            //-- Sobrepoe conteudo anterior com as novas informacoes
+			fMontaReg( aHeaderRGB , @aColsRGB , aRecnoRGB[nI,3] , aItensSPB[nI] , aRecnoRGB[nI,2] , @aRGBRec  , aRGBColEmpty )
+		Next nI
+	//-- Novos Lancamentos (Sequencias)
+	ElseIf ( nLenSPB > nLenRGB )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenRGB	            
+			//-- Sobrepoe conteudo anterior com as novas informacoes
+			fMontaReg( aHeaderRGB , @aColsRGB , aRecnoRGB[nI,3] , aItensSPB[nI] , aRecnoRGB[nI,2] , @aRGBRec , aRGBColEmpty )
+		Next nI
+		//-- Corre Demais Lancamentos a Gravar
+		For nI := nLenRGB+1 To nLenSPB	     
+			//-- Adiciona as novas informacoes
+			fMontaReg( aHeaderRGB , @aColsRGB , 0.00 , aItensSPB[nI] , fIncrSeq(@aSeqRGB, aItensSPB[nI,nPosSPBPD]) , @aRGBRec , aRGBColEmpty )
+		Next nI   
+	//-- Descartar lancamentos antigos			
+	ElseIf ( nLenSPB < nLenRGB )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenSPB	          
+			//-- Sobrepoe conteudo anterior com as novas informacoes
+			fMontaReg( aHeaderRGB , @aColsRGB , aRecnoRGB[nI,3] , aItensSPB[nI] , aRecnoRGB[nI,2] , @aRGBRec , aRGBColEmpty )
+		Next nI             
+		//-- Corre Todos os Lancamentos a Deletar
+		For nI := nLenSPB+1 To nLenRGB
+			//-- Elimina Sequencias anteriores
+			aColsRGB[aRecnoRGB[nI,3],nPosRGBDeleted] := .T.
+		Next nI
+	EndIf
+EndIf	
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fMontaReg ³ Autor ³ MauricioMR            ³ Data ³05/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Atualiza as Informacoes de cada elemento do aCols           ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fMontaReg( aHeaderRGB , aColsRGB , naColsRGB , aItensSPB , nSeq , aRGBRec , aRGBColEmpty )
+
+//-- Se for novo lancamento utiliza o primeiro elemento para gerar novo lancamento 
+If Empty(naColsRGB)
+   //-- Criar um novo elemento baseado no RGB
+   aAdd( aColsRGB, aClone( aRGBColEmpty[1] ) )
+   aAdd( aRGBRec, 0.00 )
+   naColsRGB := Len( aColsRGB )
+EndIf
+	
+aColsRGB[naColsRGB, nPosRGBCC		]   := aItensSPB[ nPosSPBCC		] 	// CC
+aColsRGB[naColsRGB, nPosRGBPD		]   := aItensSPB[ nPosSPBPD		] 	// PD
+aColsRGB[naColsRGB, nPosRGBHCALC	] 	:= aItensSPB[ nPosSPBHORAS	] 	// HORAS CALC.
+aColsRGB[naColsRGB, nPosRGBVCALC	]  	:= aItensSPB[ nPosSPBVALOR	] 	// VALOR CALC.
+aColsRGB[naColsRGB, nPosRGBT1   	]  	:= aItensSPB[ nPosSPBT1   	] 	// TIPO1
+aColsRGB[naColsRGB, nPosRGBT2   	]  	:= "E"                         	// TIPO2
+aColsRGB[naColsRGB, nPosRGBSEQ		]  	:= nSeq 						// SEQUENCIA									
+aColsRGB[naColsRGB, nPosRGBDataRef	]   := aItensSPB[ nPosSPBDATA 	]	// DATA DE REFERENCIA
+aColsRGB[naColsRGB, nPosRGBProces	]   := cProcesso				 	// PROCESSO
+aColsRGB[naColsRGB, nPosRGBPeriodo	]   := cPeriodo					 	// PERIODO
+aColsRGB[naColsRGB, nPosRGBSEMANA	]   := cNumPagto					// NUMERO DE PAGTO
+aColsRGB[naColsRGB, nPosRGBRoteiro	]   := cRot							// ROTEIRO
+If lHEInterm .And. SRA->RA_TPCONTR == "3"
+	aColsRGB[naColsRGB, nPosRGBConv	]   := aItensSPB[ nPosSPBConv   ] 	// COD. CONVOCAÇÃO
+EndIf
+If nPosRGBFunc > 0
+	aColsRGB[naColsRGB, nPosRGBFunc	]   := ""							// Cod Funcao
+EndIf
+If nPosRGBDept > 0
+	aColsRGB[naColsRGB, nPosRGBDept	]   := ""							// Codigo Depto
+EndIf
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fMontaSRK ³ Autor ³ Equipe RH 		      ³ Data ³10/08/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Gerencia a Montagem em Memoria do aCols de Lancamentos      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fMontaSRK( aHeaderSRK , aColsSRK , aItensSPB , aSRKRec , aRecnoSRK , aSeqSRK , aSRKColEmpty )
+
+Local nI		:=		0.00
+Local nLenSPB	:=		0.00
+Local nLenSRK	:=		0.00
+Local nNewRecno	:=  	0.00
+
+DEFAULT aRecnoSRK	:= {}
+DEFAULT aSeqSRK		:= {}
+
+nLenSPB 		:= Len( aItensSPB )
+nLenSRK 		:= Len( aRecnoSRK )
+
+//-- Se Nao existirem lancamentos do Ponto  em movimentos mensais 
+If Empty(nLenSRK)  
+   //-- Corre Todos os Lancamentos a Gravar
+	For nI :=1.00 To nLenSPB	  
+	   	//-- Verifica se deve acrescentar novos elementos no acols do SRC ou utilizar o primeiro
+        //-- registro em branco quando apresentar um unico elemento
+	   	If ( ( Len(aColsSRK) ==1 ) .and. Empty(aColsSRK[1,nPosSRKPD]) )
+	   	   nNewRecno:=	1  
+	   	   //-- Se Nao existe elemento de referemcia a registro/linha acrescenta 0.00
+	   	   If Empty(aSRKRec)
+		   	   aAdd( aSRKRec, 0.00 )
+	   	   Endif
+	   	Else
+	   	   nNewRecno:=	0.00
+	   	Endif   
+		//-- Adiciona as novas informacoes 
+		fAtuSRK( aHeaderSRK , @aColsSRK , nNewRecno , aItensSPB[nI] , fIncrSeq(@aSeqSRK, aItensSPB[nI,nPosSPBPD], 2, aItensSPB[nI,nPosSPBDATA]) , @aSRKRec , aSRKColEmpty )
+	Next nI
+Else
+	//-- Se os Lancamentos possuirem verbas correspondentes
+	If ( nLenSPB == nLenSRK )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenSPB	  
+            //-- Sobrepoe conteudo anterior com as novas informacoes
+			fAtuSRK( aHeaderSRK , @aColsSRK , aRecnoSRK[nI,3] , aItensSPB[nI] , aRecnoSRK[nI,2] , @aSRKRec  , aSRKColEmpty )
+		Next nI
+	//-- Novos Lancamentos (Sequencias)
+	ElseIf ( nLenSPB > nLenSRK )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenSRK	            
+			//-- Sobrepoe conteudo anterior com as novas informacoes
+			fAtuSRK( aHeaderSRK , @aColsSRK , aRecnoSRK[nI,3] , aItensSPB[nI] , aRecnoSRK[nI,2] , @aSRKRec , aSRKColEmpty )
+		Next nI
+		//-- Corre Demais Lancamentos a Gravar
+		For nI := nLenSRK+1 To nLenSPB	     
+			//-- Adiciona as novas informacoes
+			fAtuSRK( aHeaderSRK , @aColsSRK , 0.00 , aItensSPB[nI] , fIncrSeq(@aSeqSRK, aItensSPB[nI,nPosSRKPD], 2) , @aSRKRec , aSRKColEmpty )
+		Next nI   
+	//-- Descartar lancamentos antigos			
+	ElseIf ( nLenSPB < nLenSRK )
+		//-- Corre Todos os Lancamentos a Gravar
+		For nI := 1.00 To nLenSPB	          
+			//-- Sobrepoe conteudo anterior com as novas informacoes
+			fAtuSRK( aHeaderSRK , @aColsSRK , aRecnoSRK[nI,3] , aItensSPB[nI] , aRecnoSRK[nI,2] , @aSRKRec , aSRKColEmpty )
+		Next nI             
+		//-- Corre Todos os Lancamentos a Deletar
+		For nI := nLenSPB+1 To nLenSRK
+			//-- Elimina Sequencias anteriores
+			aColsSRK[aRecnoSRK[nI,3],nPosSRKDeleted] := .T.
+		Next nI
+	Endif
+Endif	
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fAtuSRK   ³ Autor ³Equipe RH              ³ Data ³10/08/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Atualiza as Informacoes de cada elemento do aCols           ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fAtuSRK( aHeaderSRK , aColsSRK , naColsSRK , aItensSPB , nSeq , aSRKRec , aSRKColEmpty )
+
+//-- Se for novo lancamento utiliza o primeiro elemento para gerar novo lancamento 
+If Empty(naColsSRK)
+   //-- Criar um novo elemento baseado no SRC
+   aAdd( aColsSRK, aClone( aSRKColEmpty[1] ) )
+   aAdd( aSRKRec, 0.00 )
+   naColsSRK := Len( aColsSRK )
+Endif
+	
+aColsSRK[naColsSRK, nPosSRKCC		]   := aItensSPB[ nPosSPBCC		] 	// CC
+aColsSRK[naColsSRK, nPosSRKPD		]   := aItensSPB[ nPosSPBPD		] 	// PD
+aColsSRK[naColsSRK, nPosSRKPARC 	] 	:= 1						 	// PARCELAS
+aColsSRK[naColsSRK, nPosSRKVENC 	] 	:= dVencFut						// DATA VENCIMENTO
+aColsSRK[naColsSRK, nPosSRKDOC		]  	:= nSeq 						// DOCUMENTO									
+aColsSRK[naColsSRK, nPosSRKTp   	]  	:= "P"                         	// TIPO
+aColsSRK[naColsSRK, nPosSRKHORAS	] 	:= aItensSPB[ nPosSPBHORAS	] 	// HORAS
+aColsSRK[naColsSRK, nPosSRKProces	]   := cProcesso				 	// PROCESSO
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fDividLanc³ Autor ³ MauricioMR            ³ Data ³05/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Divide um lancamento em n lancamentos                       ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fDividLanc( aLancSPB, nLimHoras, nLimValor, aItensSPB)
+
+Local lParaHoras	:= .F.
+Local lParaValor	:= .F.  
+
+DEFAULT nLimHoras	:= Val( Replicate( '9', ( TamSx3("RGB_HORAS")[1] - ( TamSx3("RGB_HORAS")[2] + 1 ) ) ) + '.' + Replicate('9',TamSx3("RGB_HORAS")[2]))
+DEFAULT nLimValor	:= Val( Replicate( '9', ( TamSx3("RGB_VALOR")[1] - ( TamSx3("RGB_VALOR")[2] + 1 ) ) ) + '.' + Replicate('9',TamSx3("RGB_VALOR")[2]))						               	 
+DEFAULT aItensSPB	:= {}
+
+//-- Carrega qtdes originais do lancamento de resultados       
+nHoras := aLancSPB[nPosSPBHORAS] // Horas
+nValor := aLancSPB[nPosSPBVALOR] // Valor
+
+//-- Se a Quantidade ou o Valor ultrapassou o limite correspondente
+If ( (nHoras-nLimhoras) >  0.00 ) 	.or. ( (nValor-nLimValor) > 0.00 )            
+    //-- Cria tantos lancamentos quantas vezes a quantidade ultrapassar o limite 
+	While ( !( lParaHoras ) .or. !( lParaValor ) )
+	    //-- Calcula nova Qtde de Horas
+	   	If (nHoras-nLimhoras) >  0.00  
+	   		nHoras:= nHoras-nLimHoras 
+	   	Else
+	   	    lParaHoras	:=	.T.	
+	   	    nLimHoras	:=	nHoras
+ 	   	EndIf            
+		//-- Calcula novo Valor
+		If (nValor-nLimValor) >  0.00  
+	   		nValor:= nValor-nLimValor
+	   	Else
+	   		lParaValor	:= .T.	
+	   		nLimValor	:= nValor
+	   	EndIf 
+	   	//-- Cria Lancamento Complementar       	   	
+	   	aAdd(aItensSPB,aClone(aLancSPB))    	   	
+	   	aItensSPB[Len(aItensSPB), nPosSPBHORAS]:= nLimHoras    
+	   	aItensSPB[Len(aItensSPB), nPosSPBVALOR]:= nLimValor  
+	   	//-- Zera o Saldo restante se criado o lancamento do mesmo
+	   	nHoras := if(lParaHoras, 0.00, nHoras)
+	   	nValor := if(lParaValor, 0.00, nValor)
+	Enddo  
+Else
+	//-- Armazena  lancamento original se nao foi subdividido
+	aAdd(aItensSPB,aClone(aLancSPB))    
+EndIf
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fIncrSeq  ³ Autor ³ MauricioMR            ³ Data ³06/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Incrementa a Sequencia "aproveitando janelas" Ex.(1-X-3-X-X)³
+³          ³em virutde de delecao de sequencias.                        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fIncrSeq(aSeqRGB, cRGBPD, nTipo,dDataLanc)
+
+Local nI		:= 0.00
+Local nLenaSeq	:= Len(aSeqRGB)
+Local nSeq		:= 0.00
+
+DEFAULT aSeqRGB		:= {}
+DEFAULT cRGBPD		:= ""
+DEFAULT nTipo		:= 1
+DEFAULT dDataLanc	:= ""
+
+//Corre Todas as Sequencias Possiveis
+While ( nSeq < 10.00 )
+   //-- Se a sequencia gerada eh inedita abandona loop
+   If Empty( aScan( aSeqRGB,{|x| Val(X[2]) = nSeq .And. x[4] == cRGBPD .And. x[5] == dDataLanc} ) )
+      Exit
+   EndIf 
+   nSeq++
+Enddo    
+//-- Adiciona nova sequencia para posterior comparacao
+If nTipo == 1
+	aAdd(aSeqRGB,{NIL,If(nSeq == 0.00 .Or. nSeq > 9,"",StrZero( nSeq ,TamSx3("RGB_SEQ")[1] )),'E', cRGBPD, dDataLanc} )
+Else
+	aAdd(aSeqRGB,{NIL,StrZero( nSeq ,TamSx3("RK_DOCUMEN")[1] ),'E', cRGBPD, dDataLanc} )
+EndIf
+
+Return aSeqRGB[Len(aSeqRGB),2]
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fGravaRGB ³ Autor ³ MauricioMR            ³ Data ³13/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Grava as Informacoes do acols para o arquivo RGB			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fGravaRGB( cAlias , cFil , cMat , aHeader , aColsRGB , aColsSPB , aRGBRec, lIntegra )
+
+Local cSvFilAnt		:= cFilAnt
+Local cMsgErr		:= ""
+Local lAppend		:= .T.
+Local lDeleta   	:= .F.
+Local nArray		:= 0
+Local nForArray 	:= Len(aColsRGB)
+Local nForHeader	:= Len(aHeader)
+Local nHeader		:= 0
+
+//-- Troca Filial de Entrada para Integridade
+cFilAnt := IF( !Empty( cFil ) , cFil , cFilAnt )
+For nArray := 1 To nForArray   
+	IF !(aColsRGB[ nArray, nPosRGBT2   ] == "E" )
+	   Loop
+	EndIf
+	//-- Posiciona no Registro se antigo 
+	//-- Seta flag para adicionar novo registro se for o caso (qdo o conteudo do elemento for nulo)
+	IF !( lAppend := Empty( aRGBRec[ nArray ] ) )
+		( cAlias )->( dbGoto( aRGBRec[ nArray ] ) )
+	EndIf
+	lDeleta:= .F.
+	//-- Se lancamento de Resultado nao deletado	 
+	IF !aColsRGB[ nArray , nPosRGBDeleted ]
+		//-- Verifica a existencia de lancamento de Resultados correspondente
+		//-- ATENCAO: Verbas sem Resultados serao eliminadas
+		If lSobrepoe .Or. !lSegFaltas
+			If !lSegFaltas .Or. aColsRGB[ nArray , nPosRGBDataRef ] >= dMvPerIni .And. aColsRGB[ nArray , nPosRGBDataRef ] <= dMvPerFim
+				lDeleta := (;
+								Empty(;
+										aScan( aColsSPB ,;
+															{|x|	( !lSegFaltas .Or. ( x[nPosSPBDATA] == aColsRGB[ nArray , nPosRGBDataRef ] ) ) .And.;	//01 - Data de Referencia
+																	x[nPosSPBPD  ] == aColsRGB[ nArray , nPosRGBPD      ] .And.						;	//02 - Verba
+																	x[nPosSPBCC  ] == aColsRGB[ nArray , nPosRGBCC      ]	 						;	//03 - Centro de Custo
+															};
+											);
+									);
+						)
+				EndIf		      		  
+		EndIf
+	Else 
+	    lDeleta:= .T.
+	EndIf
+	//-- Se lancamento nao for Deletado
+	IF !( lDeleta )
+	    //-- Cria/Bloqueia Registro
+		IF !RecLock( cAlias, lAppend )   
+			Loop
+		EndIf
+		//-- Salva Campos que Nao fizeram parte do aHeader
+		( cAlias )->( RGB_FILIAL )	:= cFil
+		( cAlias )->( RGB_MAT	)	:= cMat
+		//-- Corre todos os campos do aHeader
+		For nHeader := 1 To nForHeader      
+		    //-- Se o campo foi encontrado (Nao virtual, por exemplo)
+		    //-- Grava seu novo conteudo 
+			IF ( cAlias )->( FieldPos ( aHeader[ nHeader , 2 ] ) > 0 )			    
+				( cAlias )->( FieldPut( FieldPos ( aHeader[ nHeader , 2 ] ) , aColsRGB[ nArray , nHeader ] ) )
+			EndIf
+		Next nHeader
+		( cAlias )->( RGB_ITEM	)	:= SRA->RA_ITEM
+		( cAlias )->( RGB_CLVL	)	:= SRA->RA_CLVL
+		If !lSegFaltas .And. SRA->RA_TPCONTR <> '3'//Se não for para gerar faltas de forma analitica, não grava nada na data de referencia
+			( cAlias )->( RGB_DTREF	)	:= CtoD("") //Não grava nada na data de referencia
+		EndIf
+		
+		If cPaisLoc == "BRA" .And. !lHEInterm .And. lContrInt .And. SRA->RA_TPCONTR == '3'
+			( cAlias )->( RGB_CONVOC ) := fBuscaSV7(SRA->RA_FILIAL, SRA->RA_MAT, ( cAlias )->RGB_DTREF)
+		EndIf
+		
+		( cAlias )->( RGB_ROTORI )	:= "PON"
+		//-- Desbloqueia Novo Registro
+		( cAlias)->( MsUnlock())
+	//-- Deleta elemento Se a Verba estiver marcada como Deletada ou 
+	//-- Se NAO existir Resultado Correspondente	
+	ElseIf !( lAppend )
+		If !RecLock( cAlias, lAppend )
+			Loop
+		EndIf
+		If !( cAlias )->( FkDelete( @cMsgErr ) )
+			( cAlias )->( RollBackDelTran( cMsgErr ) )
+		EndIf
+		( cAlias )->( MsUnLock() )
+	EndIf
+Next nArray
+
+cFilAnt	:= cSvFilAnt
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fGravaSRK ³ Autor ³ Equipe RH             ³ Data ³10/08/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Grava as Informacoes do acols para o arquivo SRK			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fGravaSRK( cAlias , cFil , cMat , aHeader , aColsSRK , aColsSPB , aSRKRec, cSemana, lIntegra )
+
+Local cSvFilAnt		:= cFilAnt
+Local cMsgErr		:= ""
+Local lAppend		:= .T.
+Local lDeleta   	:= .F.
+Local nArray		:= 0
+Local nForArray 	:= Len(aColsSRK)
+Local nForHeader	:= Len(aHeader)
+Local nHeader		:= 0
+
+//-- Troca Filial de Entrada para Integridade
+cFilAnt := IF( !Empty( cFil ) , cFil , cFilAnt )
+For nArray := 1 To nForArray   
+	IF !(aColsSRK[ nArray, nPosSRKTp   ] == "P" )
+	   Loop
+	EndIF
+	//-- Posiciona no Registro se antigo 
+	//-- Seta flag para adicionar novo registro se for o caso (qdo o conteudo do elemento for nulo)
+	IF !( lAppend := Empty( aSRKRec[ nArray ] ) )
+		( cAlias )->( dbGoto( aSRKRec[ nArray ] ) )
+	EndIF
+	lDeleta:= .F.
+	//-- Se lancamento de Resultado nao deletado	 
+	IF !aColsSRK[ nArray , nPosSRKDeleted ]
+		//-- Verifica a existencia de lancamento de Resultados correspondente
+		//-- ATENCAO: Verbas sem Resultados serao eliminadas
+		lDeleta := (;
+						Empty(;
+								aScan( aColsSPB ,;
+		 											 {|x|	x[nPosSPBPD] == aColsSRK[ nArray , nPosSRKPD ] .and.	;	//01 - Verba
+										 	 	    		x[nPosSPBCC] == aColsSRK[ nArray , nPosSRKCC ]	 		;	//02 - Centro de Custo
+										 			 };
+						      		  );
+						      );
+				   )		      		  
+	Else 
+	    lDeleta:= .T.
+	EndIF
+	//-- Se lancamento nao for Deletado
+	IF !( lDeleta )
+	    //-- Cria/Bloqueia Registro
+		IF ( lAppend )
+			IF !RecLock( cAlias, lAppend )   
+				Loop
+			EndIF
+		EndIF
+		//-- Salva Campos que Nao fizeram parte do aHeader
+		( cAlias )->( RK_FILIAL )	:= cFil
+		( cAlias )->( RK_MAT	)	:= cMat
+		
+		( cAlias )->( RK_ITEM ) := SRA->RA_ITEM
+		( cAlias )->( RK_CLVL ) := SRA->RA_CLVL
+		
+		//-- Corre todos os campos do aHeader
+		For nHeader := 1 To nForHeader      
+		    //-- Se o campo foi encontrado (Nao virtual, por exemplo)
+		    //-- Grava seu novo conteudo 
+			IF ( cAlias )->( FieldPos ( aHeader[ nHeader , 2 ] ) > 0 )
+				( cAlias )->( FieldPut( FieldPos ( aHeader[ nHeader , 2 ] ) , aColsSRK[ nArray , nHeader ] ) )
+			EndIF
+		Next nHeader                  
+		//-- Desbloqueia Novo Registro
+		IF ( lAppend )
+		   ( cAlias)->( MsUnlock())
+		EndIF
+	//-- Deleta elemento Se a Verba estiver marcada como Deletada ou 
+	//-- Se NAO existir Resultado Correspondente	
+	ElseIF !( lAppend )
+		IF !RecLock( cAlias, lAppend )
+			Loop
+		EndIF
+		IF !( cAlias )->( FkDelete( @cMsgErr ) )
+			( cAlias )->( RollBackDelTran( cMsgErr ) )
+		EndIF
+		( cAlias )->( MsUnLock() )
+	EndIF
+Next nArray
+
+cFilAnt	:= cSvFilAnt
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³MyLockReg ³ Autor ³MauricioMR / Marinaldo ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Trata Bloqueio de Registros com Uso de MayIUseCode.			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function MyLockReg( cAlias , aRegsLock , aKeysLock )
+
+Local nTentaLocks	:= 5
+Local nSecondsWait	:= 5
+
+Return( PonLockRegs( cAlias , aRegsLock , aKeysLock , nTentaLocks , nSecondsWait ) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³FreeMyLock³ Autor ³MauricioMR / Marinaldo ³ Data ³28/05/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Libera Lock gerado pela MyLockReg.							³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	    
+Static Function FreeMyLock( cAlias , nReg )
+Return( PonFreeLocks( cAlias , nReg ) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³FSomaSPB  ³ Autor ³MauricioMR             ³ Data ³17/09/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Soma Lancamentos de Resultados antes de Intergrar a Folha	³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ PONM040                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	    
+Static Function FSomaSPB( 	aColsSPB	,; //01 -> Array de Lancamentos do Resultado do Ponto 
+						   	dMvPerIni	,; //02 -> Inicio do Periodo de Processamento
+ 	                        dMvPerFim	,; //03 -> Fim do Periodo de Processamento
+ 	                        lSubstitui  ,; //04 -> Substitui o Valores Anteriores 
+							lInterm		,; //05 -> Funcionário com contrato intermitente
+							lHEInterm	;  //06 -> MV_PONINTE ativo
+ 	                    )
+ 	                        
+Local nLenSPBaCols	:= Len(aColsSPB)
+Local aTotais		:= {}
+Local naColsSPB
+Local nPosConv		:= 0
+
+For naColsSPB := 1 To nLenSPBaCols
+	IF (;
+	   		(	aColsSPB[ naColsSPB, nPosSPBDATA	] < dMvPerIni .or.	;
+	    		aColsSPB[ naColsSPB, nPosSPBDATA	] > dMvPerFim 		;
+	   		);
+	   	)	
+	   Loop
+	EndIf
+
+	If lInterm .And. lHEInterm .And. !Empty(aColsSPB[ naColsSPB, nPosSPBConv ])
+		If ( nPosConv := aScan( aConvoc, { |x| x[1] == aColsSPB[ naColsSPB, nPosSPBConv ] } ) ) == 0 
+			aAdd( aLog								,;
+						{					 		 ;
+							SRA->RA_FILIAL			,; // 01 - Filial
+							SRA->RA_MAT				,; // 02 - Matricula
+							SRA->RA_NOME			,; // 03 - Nome	
+							STR0050					,; // 04 - 'Convocação não encontrada.'
+							aColsSPB[ naColsSPB, nPosSPBConv ],; // 05 - Código da convocação
+							0.00     				,; // 06
+							"CONV"					,; // 07 - Convocação fora do período da folha
+							0.00  		 			;  // 08 
+						};
+				)
+			Loop
+		ElseIf !( aConvoc[nPosConv, 2] >= RCH->RCH_DTINI .And. aConvoc[nPosConv, 3] <= RCH->RCH_DTFIM )
+			aAdd( aLog								,;
+						{					 		 ;
+							SRA->RA_FILIAL			,; 	// 01 - Filial
+							SRA->RA_MAT				,; 	// 02 - Matricula
+							SRA->RA_NOME			,; 	// 03 - Nome	
+							STR0051					,; 	// 04 - 'Convocação fora do período da folha.'
+							aColsSPB[ naColsSPB, nPosSPBConv ],; // 05 - Código da convocação
+							dToC(aConvoc[nPosConv, 9]),;// 06 - Início da convocação
+							"CONV2"					,; 	// 07 - Convocação fora do período da folha
+							dToC(aConvoc[nPosConv, 8]);// 08 - Fim da convocação
+						};
+				)
+			Loop		
+		EndIf
+	EndIf
+
+	fGeraTot(	@aTotais 		  		 ,;	//01 -> Array com os Totais do Ponto
+				aColsSPB[naColsSPB		],;	//02 -> Com os resultados a serem somados   
+				lSubstitui	 			  ;	//03 -> Substitui a(s) Hora(s) Existente(s) em aTotais
+		 	) 
+Next naColsSPB 
+
+Return(aClone(aTotais))				 
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³fGeraTot     ³Autor ³MauricioMR           ³ Data ³17/09/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Gerar no Array aTotais os Totais Apontado					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³< Vide Parametros Formais >								  	³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >								  	³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function fGeraTot(	aTotais 	,;	//01 -> Array com os Totais do Ponto   
+                            aResult		,;	//02 -> Com os resultados a serem somados   
+							lSubstitui	 ;	//03 -> Substitui a(s) Hora(s) Existente(s) em aTotais
+				  )
+
+
+
+Local bAsc		:= { || .F. }
+Local nPos		:= 0
+
+DEFAULT aTotais		:= {}
+DEFAULT aResult		:= {}
+DEFAULT lSubstitui	:= .F.
+
+bAsc := { |x|	(;  
+					( x[nPosSPBData ]  ==  aResult[ nPosSPBData	] );
+					.and.;
+					( x[nPosSPBPD   ]  ==  aResult[ nPosSPBPD	] );
+					.and.;
+					( x[nPosSPBCC   ]  ==  aResult[ nPosSPBCC	] );
+				);
+		}   
+
+IF ( ( nPos := aScan( aTotais , bAsc ) ) > 0 )
+	IF ( lSubstitui )
+		aTotais[ nPos , nPosSPBHORAS] 	:= aResult[nPosSPBHORAS ]
+		aTotais[ nPos , nPosSPBVALOR ] 	:= aResult[nPosSPBVALOR ]
+	Else
+	    aTotais[ nPos , nPosSPBHORAS ] += aResult[nPosSPBHORAS ] 
+		aTotais[ nPos , nPosSPBVALOR ] += aResult[nPosSPBVALOR ]
+	EndIf
+Else
+	aAdd( aTotais , aClone(aResult))
+EndIf
+
+Return( Nil )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³gpRCHFilPon    ³Autor³Leandro Drumond       ³Data³13/04/2014³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Filtro da Consulta Padrao RCHPON							³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³PONM040                  			                  	   	³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Function gpRCHFilPon(cMvProc,cMvPer)
+
+Local aRotFol := fGetRotTipo("1")
+Local cRotFol := ""
+Local cProces := MV_PAR23
+Local cFiltro := ""
+Local nRotFol := 0
+
+For nRotFol := 1 To Len(aRotFol)
+	If aRotFol[nRotFol] <> "MUV"
+		cRotFol += aRotFol[nRotFol]+ "/"    
+	Endif
+Next nRotFol
+
+cFiltro := "(RCH->RCH_FILIAL == '" + xFilial("RCH") + "') .AND. EMPTY(RCH->RCH_DTFECH) .AND. RCH->RCH_ROTEIR $ '" + cRotFol + "/" + fGetCalcRot('9') + "'" 
+
+If !Empty(cProces)
+	cFiltro	+= " .AND. (RCH->RCH_PROCES == '" + cProces + "')" 
+EndIf
+
+cFiltro := "@#" + cFiltro + "@#"
+                                                                                                                      
+Return ( cFiltro )
+
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³Ponm040Per   ³Autor³Kelly Soares            ³Data³12/07/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Validar o Periodo digitado na Consulta Padrao				³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³Consulta Padrao (SXB)				                  	   	³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Function Ponm040Per( nTipo , cProces, cPer, cNPag , cReturn )
+
+Local cOldAlias := Alias()
+Local cFilRCH	:= xFilial("RCH")
+Local cMsg
+
+Local lRet 		:= .T.
+
+Begin Sequence
+
+	If ( nTipo == 1 )
+		If !( lRet := NaoVazio() )
+			Break
+		EndIf
+	EndIf
+
+	DbSelectArea("RCH")
+	RCH->( dbsetOrder( Retorder( "RCH" , "RCH_FILIAL+RCH_PROCES+RCH_PER+RCH_NUMPAG+RCH_ROTEIR" ) ) )
+	RCH->( dbSeek( cFilRCH + cProces + cPer + mv_par25 + mv_par26, .F. ) )
+	While RCH->( !Eof() .and. ( ( RCH_FILIAL + RCH_PROCES + RCH_PER + RCH_NUMPAG + RCH_ROTEIR ) == ( cFilRCH + cProces + cPer + mv_par25 + mv_par26) ) )
+		If Empty(RCH->RCH_DTFECH)
+			Exit
+		EndIf
+		RCH->( dbSkip() )	
+	Enddo			
+	If RCH->( !Empty( RCH_DTFECH ) .or. !( ( RCH_FILIAL + RCH_PROCES + RCH_PER + RCH_NUMPAG + RCH_ROTEIR ) == ( cFilRCH + cProces + cPer + mv_par25 + mv_par26 ) ) )
+		RCH->(DbGoBottom())
+		RCH->(dbSkip())
+	EndIf		
+	If RCH->( Eof() )
+		lRet := .F.
+		If ( nTipo == 1 )
+			cMsg := STR0029	// "Periodo nao Cadastrado!"
+		Else
+			cMsg := STR0030	// "No. Pagamento nao Cadastrado para este Periodo!"
+		EndIf	
+		MsgInfo( cMsg, STR0006)	
+	Else
+		If ( nTipo == 1 )
+			&cReturn := cPer
+			mv_par25 := RCH->RCH_NUMPAG
+			mv_par26 := RCH->RCH_ROTEIR
+		Else
+			&cReturn := cNPag
+		EndIf
+	EndIf
+
+End Sequence
+
+DbSelectArea(cOldAlias)
+
+Return( lRet )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³IntegDef ºAutor  ³Totvs        		º Data ³ 22/10/2014   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Mensagem Única                                              º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA010                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function IntegDef(cXML, nTypeTrans, cTypeMessage, cVersaoMsg )
+
+Local aRet
+
+// Chama a rotina que trata a parte principal
+aRet := PONY040(cXML, nTypeTrans, cTypeMessage, cVersaoMsg )
+
+Return aRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Pn040VldPerºAutor  ³Leandro Drumondº Data ³ 25/05/2015      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Valida pergunte                                             º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ PONM040                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Pn040VldPer(cPerg)
+Local lRet := .T.
+
+
+If cPaisLoc == "BRA"
+	lRet := .F.
+	While !lRet
+		If mv_par21 == 1 .and. Empty(mv_par22)	//Se Verifica Afastamento for verdadeiro e a data de vencimento estiver vazia
+			Help( ,, OemToAnsi(STR0006),, OemToAnsi(STR0049), 1, 0 ) //"Atenção" ## "Data de vencimento deve ser preenchida quando parametro 'Verifica Afastamento' estiver definido como 'Sim'."		
+			If Pergunte(cPerg,.T.)
+				lRet := .F.
+			Else
+				lRet := .T.
+			EndIf
+		Else
+			lRet := .T.
+		EndIf
+	EndDo
+EndIf
+
+Return lRet
+
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³FazCopyTo ºAutor  ³Oswaldo L.     º Data ³ 10/04/2017      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³funcao para substituir comando COPY TO do ctree             º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ PONM040                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+static function FazCopyTo(cNomeArq, cTabAlias)
+Local aStructRGB
+Local nLoop    := 0
+Local nTotLoop := 0
+Local cGrava   := ""
+Local nHandle 
+Local cReferencia  := '' 
+aStructRGB         := RGB->( dbStruct() )
+nTotLoop	       := Len(aStructRGB)
+
+nHandle := 	MSFCREATE(cNomeArq)
+
+(cTabAlias)->(Dbgotop())
+		
+While (cTabAlias)->(!Eof())
+	cGrava := ""
+	fSeek(nHandle, 0, FS_END)
+	For nLoop := 1 to nTotLoop  
+	
+	    cReferencia := "(cTabAlias)->(" + aStructRGB[nLoop,1] + ")"
+	    
+		If aStructRGB[nLoop,2] == "C" 
+			cGrava += &cReferencia
+		EndIf
+		
+		If aStructRGB[nLoop,2] == "L" 
+			If &cReferencia//no modelo SDF do copy to que anterioemente havia no codigo ...sistema emita T para true e F para False
+				cGrava += "T"
+			Else
+				cGrava += "F"
+			EndIf
+		EndIf
+		
+		If aStructRGB[nLoop,2] == "N" 
+			cGrava += Padl(&cReferencia,aStructRGB[nLoop,3])
+		EndIf
+		
+		If aStructRGB[nLoop,2] == "D" 
+			cGrava += dtos(&cReferencia)
+		EndIf
+		
+		If nTotLoop == nLoop
+			cGrava += (Chr(13)+Chr(10))
+			Fwrite(nHandle,cGrava)
+		EndIf
+		
+	Next
+	
+	(cTabAlias)->(DbSkip())
+End
+
+(cTabAlias)->(Dbgotop())
+
+FClose(nHandle)
+return
+
+/*/{Protheus.doc} fBuscaSV7()
+Função responsável por buscar o código de convocação ativo mediante uma data de referência
+Caso não encontre irá buscar a última data de convocação.
+@type function
+@author Claudinei Soares
+@since 21/09/2018
+@version 1.0
+@param cFilFun 		= Filial a ser pesquisada na tabela SV7
+@param cMatFun 		= Matrícula a ser pesquisada na tabela SV7
+@param dDtBusca	= Data para busca
+@param cCodConv		= Código de Convocação (Passada como referência)
+@return 
+/*/
+
+Static Function fBuscaSV7(cFilFun, cMatFun, dDtBusca)
+
+Local aArea			:= GetArea()
+Local cCodBkp		:= ""
+Local cCodConv		:= ""
+Local aConv			:= {}
+Local nI			:= 1 
+Default cFilFun		:= ""
+Default cMatFun		:= ""
+Default dDtBusca	:= cTod("//")
+
+If ChkFile("SV7")
+	aConv := BuscaConv2()
+	If Len(aConv) > 0
+		If Empty(dDtBusca)
+			cCodconv := aConv[len(aConv),1]
+		Else
+			cCodBkp := aConv[len(aConv),1]
+			For nI := 1 to Len(aConv)
+				If dDtBusca >= aConv[nI,2] .And. dDtBusca <= aConv[nI,3]
+					cCodconv := aConv[nI,1]
+					Exit
+				EndIf
+			Next nI
+			If Empty(cCodconv)
+				cCodconv := cCodBkp
+			EndIf
+		EndIf
+	EndIf
+Endif
+RestArea(aArea)
+Return( cCodconv )
+
+
+Static Function BuscaConv2()
+Local aConvoc		:= {}
+Local cAliasConv	:= ""
+Local nDias			:= 0
+Local dDtFim
+Local dDtIni
+Local cMes			:= ""
+Local cAno   		:= ""
+Local aPerAberto    := {}
+Local nPos          := 0
+
+cMes 		:= SubStr(cPeriodo,5,2)
+cAno 		:= SubStr(cPeriodo,1,4)
+fRetPerComp(cMes, cAno, NIL, cProcesso, fGetCalcRot("1"), @aPerAberto)
+nPos 		:= aScan(aPerAberto, {|x| x[01]+x[02] == cPeriodo+cNumPagto})
+If nPos > 0
+	dPerFim		:= aPerAberto[nPos,6]
+	dIniPer		:= aPerAberto[nPos,5]
+Else
+	dPerFim 	:= LastDate(Stod(cPeriodo + "01"))
+	dIniPer		:= FirstDate(dPerFim)
+EndIf
+
+cAliasConv := GetNextAlias()
+
+BeginSQL Alias cAliasConv
+	column V7_DTINI AS Date
+	column V7_DTFIM AS Date
+	SELECT SV7.V7_COD, SV7.V7_DTINI, SV7.V7_DTFIM, SV7.V7_SALAR, SV7.V7_HRSDIA
+	
+	FROM %Table:SV7% SV7
+	
+	WHERE SV7.V7_FILIAL = %Exp:SRA->RA_FILIAL%
+	AND SV7.V7_MAT = %Exp:SRA->RA_MAT%
+	AND ( SV7.V7_DTINI BETWEEN  %Exp:Dtos(dIniPer)% AND %Exp:Dtos(dPerFim)% 
+	OR ( SV7.V7_DTINI < %Exp:Dtos(dIniPer)% AND SV7.V7_DTFIM = '' )
+	OR (SV7.V7_DTINI < %Exp:Dtos(dIniPer)% AND SV7.V7_DTFIM >= %Exp:Dtos(dIniPer)% ))
+	AND SV7.%NotDel%
+	ORDER BY V7_DTINI, V7_DTFIM
+EndSQL
+
+While !(cAliasConv)->(Eof())
+	If Empty((cAliasConv)->V7_DTFIM)
+		dDtFim := dPerFim 
+	Else
+		dDtFim := Min((cAliasConv)->V7_DTFIM, dPerFim)	// Data fim do periodo de calculo ou data fim da convocação... o que for menor
+	EndIf
+	dDtIni := (cAliasConv)->V7_DTINI 
+	If dDtIni < dIniPer
+		dDtIni := dIniPer
+	EndIf
+	
+	nDias := (dDtFim - dDtIni) + 1
+	Aadd(aConvoc, {(cAliasConv)->V7_COD, dDtIni, dDtFim,(cAliasConv)->V7_SALAR, nDias, .F., (cAliasConv)->V7_HRSDIA })
+	(cAliasConv)->(dbSkip())
+EndDo
+
+(cAliasConv)->(dbCloseArea())
+	
+	
+Return aConvoc

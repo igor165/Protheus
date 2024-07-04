@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Servicio genérico para devolución de la información de asignaciones del Microsiga Protheus."
+	#define STR0002 "application/json"
+	#define STR0003 "Método para consultar el detalle de las asignaciones en el Esocial"
+	#define STR0004 "api/rh/esocial/v1/GPEEsocialLotation/"
+	#define STR0005 "v1"
+	#define STR0006 "Falla al inicializar el entorno con los datos informados."
+	#define STR0007 "Ocurrió una falla en la devolución de la información."
+	#define STR0008 "El parámetro CompanyId es obligatorio."
+	#define STR0009 "¡Falla al buscar datos de la asignación!"
+	#define STR0010 "Falla en el montaje de la estructura de devolución de la API de asignaciones."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generic service for the return of information of Microsiga Protheus allocations"
+		#define STR0002 "application/json"
+		#define STR0003 "Method for searching the details of Esocial Allocations"
+		#define STR0004 "api/rh/esocial/v1/GPEEsocialLotation/"
+		#define STR0005 "v1"
+		#define STR0006 "Failed to start the Environment with the data entered."
+		#define STR0007 "Failed to return information."
+		#define STR0008 "CompanyId parameter is required."
+		#define STR0009 "Failed to search Allocation data."
+		#define STR0010 "Failure to set up the Allocation API return structure"
+	#else
+		#define STR0001 "Serviço genérico para retorno das informações de Lotações do Microsiga Protheus."
+		#define STR0002 "application/json"
+		#define STR0003 "Método para consultar o detalhamento de Lotações no Esocial"
+		#define STR0004 "api/rh/esocial/v1/GPEEsocialLotation/"
+		#define STR0005 "v1"
+		#define STR0006 "Falha ao Inicializar o Ambiente com os dados informados!"
+		#define STR0007 "Ocorreu uma falha no retorno da informação."
+		#define STR0008 "O parâmetro companyId é obrigatório."
+		#define STR0009 "Falha ao buscar dados da Lotação!"
+		#define STR0010 "Falha na montagem da estrutura de retorno da API de Lotações!"
+	#endif
+#endif

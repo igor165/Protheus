@@ -1,0 +1,2524 @@
+#Include "MatR909.ch"
+#Include "Protheus.ch"
+
+#Define NSERNFID_3 1
+#Define NSERNFID_6 2
+
+/*/{Protheus.doc} MATR909
+Registro de Entradas e Saidas dos Selos de Controle
+
+@author Edstron E. Correia
+@since 29/11/2002
+
+@obs Fonte ajustado para ir para pasta unica. - Vitor Ribeiro (vitor.e@totvs.com.br) - 25/09/2017
+/*/
+
+Function MATR909()
+	
+	Local aSave := {Alias(),IndexOrd(),Recno()}	// Salva a Integridade dos dados de Entrada
+	Local aSays := {}
+	Local aButtons := {}
+	Local aCampos := {}
+	
+	Local oDlg
+	
+	Local cCadastro:= STR0001
+	Local cTitulo := STR0002
+	Local cText1 := STR0003
+	Local NomeProg := "MATR909"
+	Local cString := "SD2"
+	Local cProblema := ""
+	Local cSolucao := ""
+	
+	Local nOpca := 0
+	
+	Private cPerg := "MTR909"
+	Private cTamanho := "G"
+	
+	Private nLastKey := 0
+	Private Limite := 220
+	
+	Private lEnd :=.F.
+	
+	Private aReturn := {STR0004,1,STR0005,2,2,1,"",1}
+	
+	// VerIfica se os campos necessarios a rotina estao criados
+	If FindFunction("a907Campos")
+		aCampos := a907Campos()
+		If Len(aCampos) > 0
+			a907MsgCmp(aCampos)
+		Else
+			/* Variaveis utilizadas para parametros
+				mv_par01 - Data Inicial
+				mv_par02 - Data Final
+				mv_par03 - Livros/T.Abertura/T.Fechamento
+				mv_par04 - Periodo
+				mv_par05 - Pagina Inicial
+				mv_par06 - Feixe de Paginas
+				mv_par07 - Reinicia Paginas
+				mv_par08 - Numero do Livro
+				mv_par09 - Controle pela 2ª Unidade de medida?
+				mv_par10 - Sem Movimento?
+				mv_par11 - Modelo?
+				mv_par12 - Seleciona Filiais?
+				mv_par13 - Aglut.Seleção por CNPJ Raiz?
+				mv_par14 - Realiza fechamento:  SIM/NAO
+				mv_par15 - Agrupa impressão NF: SIM/NAO
+			*/
+			Pergunte(cPerg,.F.)
+			
+			// Envia controle para a funcao SETPRINT
+			wnrel := "MATR909"
+			wnrel := SetPrint(cString,wnrel,cPerg,cTitulo,cText1,,,.F.,"",.F.,cTamanho)
+			
+			If nLastKey==27
+				dbClearFilter()
+				Return
+			Endif
+			
+			SetDefault(aReturn,cString)
+			If nLastKey==27
+				dbClearFilter()
+				Return
+			Endif
+			RptStatus({||LivroSelo()})
+		EndIf
+	Else
+		cTitulo := STR0013 // "Rotinas divergentes"
+		cProblema := STR0014 // "As rotinas que envolvem o processo de manutenção dos selos de controle estão divergentes. "  
+		cProblema += STR0015 // "Algumas funções não foram localizadas e, portanto, não há como continuar o processamento."
+		cSolucao := STR0016 // "Solicite e aplique o último pacote que contenha os fontes referentes ao processo de selos de controle: "
+		cSolucao += STR0017 // "Mata907, Mata908 e Matr909 para prosseguir."
+		xMagHelpFis(cTitulo,cProblema,cSolucao)
+	EndIf
+	
+	// Restaura Ambiente
+	dbSelectArea("SD2")
+	dbSetOrder(1)
+	If aReturn[5] == 1
+	   Set Printer TO
+	   dbcommitAll()
+	   OurSpool(wnrel)
+	EndIf
+	
+Return
+
+/*/{Protheus.doc} LivroSelo
+Selecao dos Dados e Emissao Livro do Selo de Controle
+
+@author Edstron E. Correia
+@since 29/11/2002
+/*/
+
+Static Function LivroSelo()
+
+	Local aStruSD2  := {}
+	Local aStruSF4  := {}
+	Local aStruSB1  := {}
+	Local aStruSFN  := {}
+	Local aCampos	:= {}
+	Local aSaidas	:= {}
+	Local aLay      := Array(28)
+	Local aProduto	:= {}  
+	Local aPerda	:= {}
+	Local aClasse	:= {}
+	Local aBkpSFN	:= {}
+	Local aSerieNfId:= {}
+	
+	Local cAliasSF4	:= "SF4"
+	Local cAliasSB1	:= "SB1"
+	Local cAliasSD2	:= "SD2"
+	Local cAliasSFN	:= "SFN"
+	Local cArqSelo	:= ""
+	Local cAlias	:= Alias()
+	Local cQuery	:= ""
+	Local cClasse	:= ""
+	Local cNumGuia	:= ""
+	Local cKey		:= ""
+	Local cFilter	:= ""
+	Local cDesc		:= ""
+	Local cMesAnoAnt:= SPACE(06)
+	Local cMesAnoAtu:= SPACE(06)
+	Local cCodProd	:= ""
+	Local cTipConv	:= ""
+	Local cArqSelo2 := ""
+	Local cArqSelo3 := ""
+	Local cCor		:= "" 
+	Local cSerie	:= ""
+	Local cObserv	:= ""  
+	Local cObserva	:= ""
+	Local cSaldo	:= ""
+	Local cSaldo2	:= ""
+	Local cChave	:= ""
+	
+	Local dDiaAnt	:= CTOD("//")
+	Local dDatCad	:= CTOD("//")  
+	Local dDtSaldo	:= CTOD("//")  
+	
+	Local lQuery	:= .F.    
+	Local lImpNotas	:= .F.
+	Local lM908SUni := ExistBlock("M908SUni")
+	Local lEstoque	:= dDataBase >= GetNewPar("MV_ESTSELO",cToD("/")) .And. !Empty(GetNewPar("MV_ESTSELO",cToD("/")))
+	Local lMovtos	:= .F. 
+	
+	Local nPos		:= 0
+	Local nX		:= 0
+	Local nFolha    := mv_par05
+	Local nLin   	:= 0 
+	Local nLinAnt	:= 0 
+	Local nLinTot	:= 58
+	Local nSaldAtu	:= 0
+	Local nIteQtdEnt:= 0
+	Local nIteQtdSai:= 0
+	Local nIteOutras:= 0
+	Local nIteSaldo	:= 0
+	Local nTotQtdEnt:= 0
+	Local nTotQtdSai:= 0
+	Local nTotOutras:= 0
+	Local nClasse	:= Space(TamSX3("FN_CLASSE")[01])
+	Local nQtdeNf	:= 0
+	Local nFatConv	:= 0
+	Local nQtde		:= 0
+	Local nPerda	:= 0   
+	Local nSMov		:= 0
+	Local nY		:= 0       
+	Local nTotSaldo	:= 0
+	Local lSaldo	:= .F.
+	Local cAliasCLY	:= "CLY"
+	Local cAliasProd	:= ""
+	Local dData		:= CTOD("//")
+	Local cCLYClasse	:= ""
+	Local lExisteCLY	:= AliasInDic("CLY") .And. CLY->(FieldPos("CLY_FILIAL")) > 0  .And. CLY->(FieldPos("CLY_COD")) > 0 .And. CLY->(FieldPos("CLY_PRODUT")) > 0 .And. CLY->(FieldPos("CLY_DTINI")) > 0 .And. CLY->(FieldPos("CLY_DTFIM")) > 0 .And. CLY->(FieldPos("CLY_CLASSE")) > 0 .And. CLY->(FieldPos("CLY_GRUPO")) > 0 .And. CLY->(FieldPos("CLY_TIPO")) > 0 
+	Local cWhere		:= ""
+	Local lProduto	:= .F.
+	Local lInclui	   := .F.
+	Local cChaveSelo := ""
+	
+	#IFDEF TOP
+		Local lSelFil	:= ( MV_PAR12 == 1 )
+		Local lAglFil	:= lSelFil .and. ( MV_PAR13 == 1 ) 
+		Local cFilBack	:= cFilAnt
+		Local nForFilial:= 0
+		Local aFilsCalc	:= MatFilCalc( lSelFil, , , lAglFil, , 3 )
+	#ENDIF
+	
+	Private lPriDec := .T.
+	Private lSegDec := .T.	
+	Private lTerDec := .T.
+	Private lPriQui := .T.
+	Private lSegQui := .T.
+	Private nPagina := 1
+	Private cPagina := 1
+	Private aPagTerm:= {}
+	Private nPagIni := mv_par05
+	Private nQtFeixe:= mv_par06
+	Private lReiniPg:= If(mv_par07 == 1,.T.,.F.)
+	Private lFecha := MV_PAR14 == 1
+	
+	// Retorno da nOpcao = 3 -> Nome do Campo Serie a ser utilizado
+	Aadd(aSerieNfId,SerieNfId("SD2",3,"D2_SERIE"))
+	
+	// Retorno da nOpcao = 6 -> Se com o dicionario atualizado o tamanho dos campos _SERIE for alterado para 14 retorna o TamSX3 do campo _SDOC
+	Aadd(aSerieNfId,SerieNfId("SD2",6,"D2_SERIE"))
+	
+	#IFDEF TOP
+		For nForFilial := 1 to Len( aFilsCalc )
+		
+			If !aFilsCalc[ nForFilial, 1 ]
+				Loop
+			EndIf
+			
+			cFilAnt := aFilsCalc[ nForFilial, 2 ]		
+	#ENDIF
+			If mv_par03 == 1
+				// TRB para contrelo do saldo por GUIA para ser utilizado no fechamento
+				AADD(aCampos,{"CLASSE"	,"C"	,TamSX3("FN_CLASSE")[01],0})
+				AADD(aCampos,{"NUMGUIA"	,"C"	,012,0})
+				AADD(aCampos,{"SALDO"	,"N"	,012,2})
+				AADD(aCampos,{"COR"		,"C"	,015,0})
+				AADD(aCampos,{"FODATA"	,"D"	,008,0})
+				AADD(aCampos,{"SERIE"	,"C"	,TamSX3("FN_SERIE")[01],0})
+				AADD(aCampos,{"SFORECNO"	,"N"	,012,0})
+				
+				cSaldo	:=	CriaTrab(aCampos)
+				dbUseArea(.T.,__LocalDriver,cSaldo,cSaldo,.T.,.F.)
+				IndRegua(cSaldo,cSaldo,"CLASSE+DTOS(FODATA)+NUMGUIA",,,STR0040)
+				dbClearIndex()
+				
+				cSaldo2 := CriaTrab(Nil,.F.)
+				IndRegua(cSaldo,cSaldo2,"CLASSE+NUMGUIA",,,STR0040) 
+				dbClearIndex()
+				
+				dbSelectArea(cSaldo)
+				dbSetIndex(cSaldo+OrdBagExt())
+				dbSetIndex(cSaldo2+OrdBagExt()) 
+				dbSetOrder(1)
+				
+				aCampos :=  {}
+				
+				// TRB com todas as movimentações de GUIA (SFN) e NF (SD1 e SD2) e também o saldo anterior (SFO)
+				AADD(aCampos,{"DATREG"		,"D"	,008,0})
+				AADD(aCampos,{"NUMGUIA"		,"C"	,012,0})
+				AADD(aCampos,{"DATGUIA"		,"D"	,008,0})
+				AADD(aCampos,{"QUANTIDADE"	,"N"	,012,2})
+				AADD(aCampos,{"NUMEROS"		,"C"	,021,0})
+				AADD(aCampos,{"SERIE"		,"C"	,TamSX3("D2_SERIE")[1],0})
+				AADD(aCampos,{"NOTAFISCAL"	,"C"	,009,0})
+				AADD(aCampos,{"NFISCALATE"	,"C"	,009,0})
+				AADD(aCampos,{"QTDENOTA"	,"N"	,012,2})
+				AADD(aCampos,{"OUTRQTDE"	,"N"	,012,2})
+				AADD(aCampos,{"TES"			,"C"	,003,0})
+				AADD(aCampos,{"CLASSE"		,"C"	,TamSX3("FN_CLASSE")[01],0})
+				AADD(aCampos,{"OBSERVACAO"	,"C"	,050,0})
+				AADD(aCampos,{"DESCRICAO"	,"C"	,050,0})
+				AADD(aCampos,{"COR"			,"C"	,015,0})
+				AADD(aCampos,{"SERIEGUIA"	,"C"	,010,0})   
+				AADD(aCampos,{"MOTIVO"		,"C"	,002,0})
+				AADD(aCampos,{"TIPO"		,"C"	,001,0})
+				AADD(aCampos,{"SEMMOV"		,"C"	,001,0})   
+				AADD(aCampos,{"QTDESALDO"	,"N"	,012,2})
+				AADD(aCampos,{"SALDO"		,"C"	,001,0})
+				AADD(aCampos,{"ITEMNF"	    ,"C"	,002,0})
+				AADD(aCampos,{"SERIEVIEW"	,"C"	,aSerieNfId[NSERNFID_6],0})
+				AADD(aCampos,{"GUIAORI"	    ,"C"	,012,0})
+				AADD(aCampos,{"ENTSAI"	    ,"C"	,001,0})	// E=Entrada;S=Saída
+				AADD(aCampos,{"TESSELO"	    ,"C"	,001,0})	// 1=Venda/Compra;2=Remessa/Devolucao;3=Outros;
+				
+				cArqSelo	:=	CriaTrab(aCampos)
+				dbUseArea(.T.,__LocalDriver,cArqSelo,cArqSelo,.T.,.F.)
+				IndRegua(cArqSelo,cArqSelo,"CLASSE+DTOS(DATREG)+ENTSAI+TESSELO+SERIE+NOTAFISCAL+NUMGUIA+TES+ITEMNF",,,STR0040)
+				dbClearIndex()
+				
+				cArqSelo2 := CriaTrab(Nil,.F.)
+				IndRegua(cArqSelo,cArqSelo2,"CLASSE+DTOS(DATREG)+MOTIVO",,,STR0040) 
+				dbClearIndex()
+				
+				cArqSelo3 := CriaTrab(Nil,.F.)
+				IndRegua(cArqSelo,cArqSelo3,"CLASSE+DTOS(DATREG)+SERIE+NOTAFISCAL",,,STR0040) 
+				dbClearIndex()
+				
+				dbSelectArea(cArqSelo)
+				dbSetIndex(cArqSelo+OrdBagExt())
+				dbSetIndex(cArqSelo2+OrdBagExt())   
+				dbSetIndex(cArqSelo3+OrdBagExt())
+				dbSetOrder(1)
+				
+				// Verifica as classes cadastradas e os saldos de cada uma pelo fechamento anterior
+				dBSelectArea("SFN")
+				dBSelectArea("SFO")
+			
+				If lFecha
+					//	Se realiza o fechamento verifico que já não foi fechado
+					lFecha:= ChkFecha()
+				EndIf
+				
+				SX5->(dbSetOrder(1))
+				SX5->(dbSeek(xFilial("SX5")+"A9"))
+				Do While SX5->X5_TABELA == "A9" .And. !SX5->(Eof())
+					nSaldAtu := 0
+					RetDesc(@cDesc,Alltrim(SX5->X5_CHAVE))
+					ChkGuia(@nSaldAtu,Alltrim(SX5->X5_CHAVE),"",@dDtSaldo,lEstoque,@aProduto,@cCor,@cSerie)
+					aAdd(aClasse,{Alltrim(SX5->X5_CHAVE),.F.,Alltrim(cDesc),nSaldAtu,dDtSaldo,cCor,cSerie})
+					SX5->(dbSkip())   
+				Enddo
+				
+				If lFecha
+					(cSaldo)->(DbSetOrder(2))
+					SFOFecha(cSaldo)
+					(cSaldo)->(DbSetOrder(1))
+				EndIf
+				
+				dbSelectArea(cAlias)
+				dBSelectArea("SFN")
+				SFN->(dbSetOrder(2))
+				#IFDEF TOP
+					lQuery := .T.
+					cAliasSFN := "cSFN"
+					aStruSFN := SFN->(dbStruct())
+					cQuery := "SELECT SFN.* "
+					cQuery += "FROM "+RetSqlName("SFN")+" SFN "
+					cQuery += "WHERE FN_FILIAL='"+xFilial("SFN")+"' AND "
+					cQuery += "FN_DATA>='"+Dtos(mv_par01)+"' AND "
+					cQuery += "FN_DATA<='"+Dtos(mv_par02)+"' AND "
+					cQuery += "D_E_L_E_T_ <> '*' "
+					cQuery += "ORDER BY "+SqlOrder(SFN->(IndexKey()))
+					
+					cQuery := ChangeQuery(cQuery)
+					dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSFN,.T.,.T.)
+					
+					For nX := 1 To len(aStruSFN)
+						If aStruSFN[nX][2] <> "C" .And. FieldPos(aStruSFN[nX][1])<>0
+							TcSetField(cAliasSFN,aStruSFN[nX][1],aStruSFN[nX][2],aStruSFN[nX][3],aStruSFN[nX][4])
+						EndIf
+					Next nX
+					dbSelectArea(cAliasSFN)
+				#ELSE
+			 		cIndexSFN  	:= CriaTrab(nil,.f.)
+					cFilter 	:= 'SFN->FN_FILIAL == "' + xFilial("SFN") + '" .And. '
+					cFilter 	+= 'DTOS(SFN->FN_DATA) >= "' + DTOS(mv_par01) + '" .AND. '
+					cFilter 	+= 'DTOS(SFN->FN_DATA) <= "' + DTOS(mv_par02) + '"'
+					IndRegua("SFN",cIndexSFN,"FN_FILIAL+FN_CLASSE+FN_GUIAORI+DTOS(FN_DATA)",,cFilter,STR0040)
+					DbSetIndex(cIndexSFN+OrdBagExt())
+					SFN->(DbGoTop())      
+					(cAliasSFN)->(dbSeek(xFilial("SFN")+SPACE(03),.T.) )
+				#ENDIF
+				
+				While (cAliasSFN)->(!eof())
+					// Monta a observacao a ser impressa de acordo com o tipo da guia
+					If (cAliasSFN)->FN_TIPO == 'N'
+						cObserv := STR0006	//"Entrada de Guia"
+					ElseIf (cAliasSFN)->FN_TIPO == 'T'
+						cObserv := STR0010	//"Transferencia de Guia"
+					ElseIf (cAliasSFN)->FN_TIPO == 'E'
+						cObserv := STR0018	//"Entrada de Guia por Transferencia"
+					Else
+						cObserv := STR0011	//"Devolucao de Guia"
+					Endif
+					
+					If !lQuery
+						RecLock(cArqSelo,.T.)
+						(cArqSelo)->CLASSE		:=(cAliasSFN)->FN_CLASSE
+						(cArqSelo)->DATREG	 	:=(cAliasSFN)->FN_DATA
+						(cArqSelo)->NUMGUIA	 	:=(cAliasSFN)->FN_GUIA
+						(cArqSelo)->DATGUIA	 	:=(cAliasSFN)->FN_DATA
+						
+						/*
+							Apenas as guias de entrada apresentam valor no campo "quantidade"
+							As demais, deverao apresentar em "outras quantidades"
+						*/
+						If (cAliasSFN)->FN_TIPO $ "N/E" 
+							(cArqSelo)->QUANTIDADE	:= (cAliasSFN)->FN_QTDE
+						Else                                
+							(cArqSelo)->OUTRQTDE	:= (cAliasSFN)->FN_QTDE
+						Endif
+						
+						(cArqSelo)->NUMEROS := Padr((cAliasSFN)->FN_NUMERO,9) + " a " + Padr((cAliasSFN)->FN_NRFINAL,9)
+						
+						RetDesc(@cDesc,(cArqSelo)->CLASSE)
+						(cArqSelo)->DESCRICAO	:= cDesc
+						(cArqSelo)->OBSERVACAO	:= cObserv
+						(cArqSelo)->COR			:= (cAliasSFN)->FN_COR
+						(cArqSelo)->SERIEGUIA	:= (cAliasSFN)->FN_SERIE
+						(cArqSelo)->TIPO		:= (cAliasSFN)->FN_TIPO
+						(cArqSelo)->(MsUnLock())
+					Else
+						RecLock(cArqSelo,.T.)
+						(cArqSelo)->CLASSE		:= (cAliasSFN)->FN_CLASSE
+						(cArqSelo)->DATREG	 	:= (cAliasSFN)->FN_DATA
+						(cArqSelo)->NUMGUIA	 	:= (cAliasSFN)->FN_GUIA
+						(cArqSelo)->DATGUIA	 	:= (cAliasSFN)->FN_DATA
+			
+						/*
+							Apenas as guias de entrada apresentam valor no campo "quantidade"
+							As demais, deverao apresentar em "outras quantidades"
+						*/
+						If (cAliasSFN)->FN_TIPO $ "N/E" 
+							(cArqSelo)->QUANTIDADE	:= (cAliasSFN)->FN_QTDE
+			   			Else
+			   				(cArqSelo)->OUTRQTDE	:= (cAliasSFN)->FN_QTDE
+			   			Endif
+						
+						(cArqSelo)->NUMEROS := Padr((cAliasSFN)->FN_NUMERO,9) + " a " + Padr((cAliasSFN)->FN_NRFINAL,9)
+						
+						RetDesc(@cDesc,(cArqSelo)->CLASSE)
+						(cArqSelo)->DESCRICAO	:= cDesc
+						(cArqSelo)->OBSERVACAO	:= cObserv
+						(cArqSelo)->COR			:= (cAliasSFN)->FN_COR
+						(cArqSelo)->SERIEGUIA	:= (cAliasSFN)->FN_SERIE
+						(cArqSelo)->TIPO		:= (cAliasSFN)->FN_TIPO
+						(cArqSelo)->GUIAORI		:= (cAliasSFN)->FN_GUIAORI
+						(cArqSelo)->(MsUnLock())
+						 
+						aAdd(aBkpSFN, {(cAliasSFN)->FN_CLASSE, (cAliasSFN)->FN_COR, (cAliasSFN)->FN_SERIE})
+					Endif
+					
+					// Adiciona o array com as guias que deverao verIficar o controle de perdas de estoque
+					If lEstoque .And. (cAliasSFN)->FN_ESTOQUE == "1" .And. !Empty((cAliasSFN)->FN_LOTECTL)
+						If Ascan(aProduto,{|x| 	x[1] == (cAliasSFN)->FN_CODIGO .And. x[3] == (cAliasSFN)->FN_CLASSE}) == 0
+							aAdd(aProduto,	{(cAliasSFN)->FN_CODIGO,(cAliasSFN)->FN_LOTECTL,(cAliasSFN)->FN_CLASSE})
+						Endif
+					EndIf
+					
+					(cAliasSFN)->(dbSkip())
+					
+					// Para imprimir as classes sem movimento no periodo.
+					nSMov := Ascan(aClasse,{|x| x[1] == (cArqSelo)->CLASSE})
+					If nSMov > 0
+						aClasse[nSMov][2] := .T.
+					Endif
+				Enddo
+				
+				// Processa os documentos de saida com produtos que controlam o estoque
+				dBSelectArea("SD2")
+				SD2->(dbSetOrder(5))
+				cChave := ""
+				
+				#IFDEF TOP
+					lQuery := .T.
+					cAliasSD2 := "a996AMontSD2"
+					cAliasSF4 := "a996AMontSD2"
+					cAliasSB1 := "a996AMontSD2"
+					aStruSD2 := SD2->(dbStruct())
+					aStruSF4 := SF4->(dbStruct())
+					aStruSB1 := SB1->(dbStruct())
+					
+					cQuery := "SELECT D2_FILIAL, D2_EMISSAO, D2_TES, D2_COD, D2_SERIE,"
+					cQuery += IIF(aSerieNfId[NSERNFID_3]<>"D2_SERIE",aSerieNfId[NSERNFID_3]+",","")
+					cQuery += "D2_DOC, D2_QUANT, D2_CLIENTE, D2_LOJA, D2_ITEM, "
+					cQuery += "F4_FILIAL, F4_SELO, F4_CODIGO, "
+					cQuery += "B1_FILIAL, B1_SELO, B1_COD, B1_CONV, B1_TIPCONV, B1_CLASSE, B1_GRUPO "
+					cQuery += "FROM "+RetSqlName("SD2")+" SD2, "
+					cQuery += RetSqlName("SF4")+" SF4, "	
+					cQuery += RetSqlName("SB1")+" SB1  "	
+					cQuery += "WHERE D2_FILIAL='"+xFilial("SD2")+"' AND "
+					cQuery += "D2_EMISSAO>='"+Dtos(mv_par01)+"' AND "
+					cQuery += "D2_EMISSAO<='"+Dtos(mv_par02)+"' AND "
+					cQuery += "SD2.D_E_L_E_T_ <> '*' AND "
+					cQuery += "F4_FILIAL = '"+xFilial("SF4")+"' AND "
+					cQuery += "F4_SELO IN ('1','2','3') AND "
+					cQuery += "SF4.F4_CODIGO = SD2.D2_TES AND "
+					cQuery += "SF4.D_E_L_E_T_ <> '*' AND "
+					cQuery += "B1_FILIAL = '"+xFilial("SB1")+"' AND "
+					cQuery += "B1_COD = D2_COD AND "
+					cQuery += "B1_SELO = '1' AND "
+					cQuery += "SB1.D_E_L_E_T_ <> '*' "
+					
+					If MV_PAR15<>1
+						cQuery += "ORDER BY "+SqlOrder(SD2->(IndexKey()))
+					Else
+						cQuery += "ORDER BY  SB1.B1_CLASSE, SD2.D2_EMISSAO, SD2.D2_SERIE, SD2.D2_DOC"
+					EndIf
+					
+					cQuery := ChangeQuery(cQuery)
+					dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD2,.T.,.T.)
+					
+					For nX := 1 To len(aStruSD2)
+						If aStruSD2[nX][2] <> "C" .And. FieldPos(aStruSD2[nX][1])<>0
+							TcSetField(cAliasSD2,aStruSD2[nX][1],aStruSD2[nX][2],aStruSD2[nX][3],aStruSD2[nX][4])
+						EndIf
+					Next nX
+					
+					For nX := 1 To len(aStruSF4)
+						If aStruSF4[nX][2] <> "C" .And. FieldPos(aStruSF4[nX][1])<>0
+							TcSetField(cAliasSF4,aStruSF4[nX][1],aStruSF4[nX][2],aStruSF4[nX][3],aStruSF4[nX][4])
+						EndIf
+					Next nX
+					
+					For nX := 1 To len(aStruSB1)
+						If aStruSB1[nX][2] <> "C" .And. FieldPos(aStruSB1[nX][1])<>0
+							TcSetField(cAliasSB1,aStruSB1[nX][1],aStruSB1[nX][2],aStruSB1[nX][3],aStruSB1[nX][4])
+						EndIf
+					Next nX
+					
+					dbSelectArea(cAliasSD2)	
+				#ELSE
+					(cAliasSD2)->(dbSeek(xFilial("SD2")+DtoS(mv_par01),.T.) )
+				#ENDIF
+				
+				If !lQuery
+					(cAliasSF4)->(dbSetOrder(1))
+					(cAliasSB1)->(dbSetOrder(1))
+				Endif
+				
+				While (cAliasSD2)->(!eof()) .and. xFilial("SD2") == (cAliasSD2)->D2_FILIAL .and. (cAliasSD2)->D2_EMISSAO <=mv_par02
+					cChave	:= ""
+					cCLYClasse := (cAliasSB1)->B1_CLASSE
+					
+					If !lQuery
+						If (cAliasSF4)->(dbSeek(xFilial("SF4")+(cAliasSD2)->D2_TES))
+							If (cAliasSF4)->F4_SELO$"123"
+								If (cAliasSF4)->F4_SELO=="1"
+									cObserv :=STR0007 //"Compra/Venda"
+								ElseIf (cAliasSF4)->F4_SELO=="2"
+									cObserv :=STR0008 //"Remessa/Devolucao"
+								ElseIf (cAliasSF4)->F4_SELO=="3"
+									cObserv :=STR0009 //"Outros"
+								Endif
+								
+								IF lExisteCLY
+									DbSelectArea("CLY")
+									CLY->(dbSetOrder(1))	// CLY_FILIAL+CLY_TIPO+CLY_CLASSE+CLY_COD                                                                                                                          
+									Do While !CLY->(Eof ()) .And. CLY->(MsSeek(xFilial("CLY")+"2"+(cAliasSD2)->D2_COD))
+										IF CLY->CLY_DTINI <= DTOS((cAliasSD2)->D2_EMISSAO) .And.  CLY->CLY_DTFIM >=DTOS((cAliasSD2)->D2_EMISSAO)
+											cCLYClasse := CLY->CLY_CLASSE
+										EndIf
+										CLY->(DbSkip ())
+									EndDo
+									
+									DbSelectArea("CLY")
+									CLY->(dbSetOrder(2))	// CLY_FILIAL+CLY_TIPO+CLY_CLASSE+CLY_GRUPO 
+									Do While !CLY->(Eof ()) .And. CLY->(MsSeek(xFilial("CLY")+"1"+(cAliasSD2)->B1_GRUPO))                                                                                                                      
+										IF CLY->CLY_DTINI <= DTOS((cAliasSD2)->D2_EMISSAO) .And.  CLY->CLY_DTFIM >=DTOS((cAliasSD2)->D2_EMISSAO)
+											cCLYClasse := CLY->CLY_CLASSE
+										EndIf
+										CLY->(DbSkip ())
+									EndDo
+								EndIf
+								
+								If (cAliasSB1)->(dbSeek(xFilial("SB1")+(cAliasSD2)->D2_COD))
+									nQtdeNf 	:= A909Conv((cAliasSD2)->D2_COD,Iif(lM908SUni,ExecBlock("M908SUni",.T.,.T.,{(cAliasSD2)->D2_QUANT}),(cAliasSD2)->D2_QUANT),Mv_Par09,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+									cCodProd	:=	(cAliasSD2)->D2_COD
+									nFatConv	:=	(cAliasSB1)->B1_CONV
+									cTipConv	:=	(cAliasSB1)->B1_TIPCONV
+									
+									If MV_PAR15==1
+										cChave := cCLYClasse+DTOS((cAliasSD2)->D2_EMISSAO)+"S"+(cAliasSF4)->F4_SELO+(cAliasSD2)->D2_SERIE
+									Else
+										cChave := cCLYClasse+DTOS((cAliasSD2)->D2_EMISSAO)+"S"+(cAliasSF4)->F4_SELO+(cAliasSD2)->D2_SERIE+(cAliasSD2)->D2_DOC+PADR(SPACE(12),12)+(cAliasSD2)->D2_TES
+									EndIf
+									
+									If (cAliasSB1)->B1_SELO=="1"
+										// If alterado para incluir outro registro caso encontre lacunas.
+										If (cArqSelo)->(dbseek(cChave))   
+											lInclui := .T.	
+											
+											IF MV_PAR15==1
+												cChaveSelo := (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"S"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE
+											Else
+												cChaveSelo :=  (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"S"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE+(cArqSelo)->NOTAFISCAL+PADR(SPACE(12),12)+(cArqSelo)->TES
+											EndIf
+											
+											While (cArqSelo)->( !Eof()) .And. cChaveSelo == cChave
+												If( (cArqSelo)->NFISCALATE == (cAliasSD2)->D2_DOC .Or. Val(Alltrim((cArqSelo)->NFISCALATE))+1 == Val(Alltrim((cAliasSD2)->D2_DOC))  )
+													lInclui := .F.
+													Exit
+												EndIf
+												(cArqSelo)->(dbSkip()) 
+											EndDo
+										ELSE
+											lInclui := .T.
+										EndIf
+										
+										If lInclui
+											RecLock(cArqSelo,.T.)
+											(cArqSelo)->CLASSE		:=cCLYClasse
+											(cArqSelo)->DATREG		:=(cAliasSD2)->D2_EMISSAO
+											(cArqSelo)->SERIE		:=(cAliasSD2)->D2_SERIE
+											(cArqSelo)->SERIEVIEW  := (cAliasSD2)->&(aSerieNfId[NSERNFID_3])
+											(cArqSelo)->NOTAFISCAL	:=(cAliasSD2)->D2_DOC
+											(cArqSelo)->ITEMNF       :=(cAliasSD2)->D2_ITEM
+											(cArqSelo)->TES		    :=(cAliasSD2)->D2_TES
+											(cArqSelo)->TESSELO	    :=(cAliasSF4)->F4_SELO
+											(cArqSelo)->ENTSAI	    := "S"
+										Else
+											RecLock(cArqSelo,.F.)
+										EndIf
+										
+										// 1=Venda/Compra;2=Remessa/Devolucao;3=Outros;4=Nõo Movimenta
+										If (cAliasSF4)->F4_SELO<>"3"
+											(cArqSelo)->QTDENOTA += nQtdeNf
+										Else
+											(cArqSelo)->OUTRQTDE += nQtdeNf
+										Endif
+										
+										(cArqSelo)->NFISCALATE := (cAliasSD2)->D2_DOC
+										(cArqSelo)->OBSERVACAO := cObserv
+										RetDesc(@cDesc,(cArqSelo)->CLASSE)
+										(cArqSelo)->DESCRICAO		:=cDesc
+										(cArqSelo)->(MsUnLock())
+										nPos :=Ascan(aSaidas,{|x|x[1]==(cArqSelo)->CLASSE})
+										
+										If nPos==0
+											AADD(aSaidas,{(cArqSelo)->CLASSE,nQtdeNf})
+										Else
+											aSaidas[nPos,2] +=nQtdeNf
+										Endif
+									Endif
+								Endif
+							Endif
+						Endif
+					Else
+						IF lExisteCLY
+							cAliasProd := GetNextAlias()
+							
+							BeginSql Alias cAliasProd
+								SELECT
+									R_E_C_N_O_ CLYRECNO, CLY_CLASSE 
+								FROM %Table:CLY% CLY 
+								WHERE 
+								CLY.CLY_FILIAL=%xFilial:CLY% AND 
+								(CLY.CLY_DTINI<=%Exp:DTOS((cAliasSD2)->D2_EMISSAO)% AND 
+								CLY.CLY_DTFIM>=%Exp:DTOS((cAliasSD2)->D2_EMISSAO)%) AND
+								CLY.CLY_COD = %Exp:(cAliasSD2)->D2_COD% AND
+								CLY.CLY_TIPO = "2" AND
+								CLY.%NotDel%
+							EndSql
+							
+							DbSelectArea (cAliasProd)
+							(cAliasProd)->(DbGoTop())
+							
+							IF !Empty(CLYRECNO)
+								cCLYClasse := (cAliasProd)->CLY_CLASSE
+							ElseIf !Empty((cAliasSD2)->B1_GRUPO)
+								cAliasCLY	:=	GetNextAlias()
+								
+								BeginSql Alias cAliasCLY
+									SELECT  CLY.*, R_E_C_N_O_ CLYRECNO "
+									FROM %Table:CLY% CLY 
+									WHERE 
+									CLY.CLY_FILIAL=%xFilial:CLY% AND 
+									(CLY.CLY_DTINI<=%Exp:DTOS((cAliasSD2)->D2_EMISSAO)% AND 
+									CLY.CLY_DTFIM>=%Exp:DTOS((cAliasSD2)->D2_EMISSAO)%) AND
+									CLY.CLY_GRUPO=%Exp:(cAliasSD2)->B1_GRUPO% AND
+									CLY.CLY_TIPO = "1" AND
+									CLY.%NotDel%
+								EndSql
+								
+								DbSelectArea (cAliasCLY)
+								(cAliasCLY)->(DbGoTop())
+								
+								While (cAliasCLY)->(!EOF()) 
+									cCLYClasse := (cAliasCLY)->CLY_CLASSE
+									(cAliasCLY)->(dbSkip()) 
+								EndDo
+								(cAliasCLY)->(DbCloseArea ())
+							EndIF
+						
+							(cAliasProd)->(DbCloseArea ())
+						EndIf
+						
+						nQtdeNf := A909Conv((cAliasSD2)->D2_COD,Iif(lM908SUni,ExecBlock("M908SUni",.T.,.T.,{(cAliasSD2)->D2_QUANT}),(cAliasSD2)->D2_QUANT),Mv_Par09,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)         
+						cCodProd	:=	(cAliasSD2)->D2_COD
+						nFatConv	:=	(cAliasSB1)->B1_CONV
+						cTipConv	:=	(cAliasSB1)->B1_TIPCONV
+						
+						If MV_PAR15==1
+							cChave := cCLYClasse+DTOS((cAliasSD2)->D2_EMISSAO)+"S"+(cAliasSF4)->F4_SELO+(cAliasSD2)->D2_SERIE
+						Else
+							cChave := cCLYClasse+DTOS((cAliasSD2)->D2_EMISSAO)+"S"+(cAliasSF4)->F4_SELO+(cAliasSD2)->D2_SERIE+(cAliasSD2)->D2_DOC+PADR(SPACE(12),12)+(cAliasSD2)->D2_TES
+						EndIf
+						
+						If  (cArqSelo)->(dbseek(cChave))   
+							lInclui := .T.
+							
+							IF MV_PAR15==1
+								cChaveSelo := (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"S"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE
+							Else
+								cChaveSelo :=  (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"S"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE+(cArqSelo)->NOTAFISCAL+PADR(SPACE(12),12)+(cArqSelo)->TES
+							EndIf
+							
+							While (cArqSelo)->( !Eof()) .And. cChaveSelo == cChave
+								If( (cArqSelo)->NFISCALATE == (cAliasSD2)->D2_DOC .Or. Val(Alltrim((cArqSelo)->NFISCALATE))+1 == Val(Alltrim((cAliasSD2)->D2_DOC))  )
+									lInclui := .F.	
+									Exit
+								EndIf
+								
+								(cArqSelo)->(dbSkip()) 
+							EndDo
+						ELSE
+							lInclui := .T.
+						EndIf
+						
+						If lInclui
+							RecLock(cArqSelo,.T.)
+							(cArqSelo)->CLASSE := cCLYClasse
+							(cArqSelo)->DATREG := (cAliasSD2)->D2_EMISSAO
+							(cArqSelo)->SERIE := (cAliasSD2)->D2_SERIE
+							(cArqSelo)->SERIEVIEW := (cAliasSD2)->&(aSerieNfId[NSERNFID_3])
+							(cArqSelo)->NOTAFISCAL := (cAliasSD2)->D2_DOC
+							(cArqSelo)->ITEMNF := (cAliasSD2)->D2_ITEM
+							(cArqSelo)->TES := (cAliasSD2)->D2_TES
+							(cArqSelo)->TESSELO := (cAliasSF4)->F4_SELO
+							(cArqSelo)->ENTSAI := "S"
+						Else
+							RecLock(cArqSelo,.F.)
+						EndIf
+						
+						If (cAliasSF4)->F4_SELO=="1"
+							cObserv :=STR0007 //"Compra/Venda"
+						ElseIf (cAliasSF4)->F4_SELO=="2"
+							cObserv :=STR0008 //"Remessa/Devolucao"
+						ElseIf (cAliasSF4)->F4_SELO=="3"
+							cObserv :=STR0009 //"Outros"
+						Endif
+						
+						If (cAliasSF4)->F4_SELO<>"3"
+							(cArqSelo)->QTDENOTA	+=nQtdeNf
+						Else
+							(cArqSelo)->OUTRQTDE	+=nQtdeNf
+						Endif
+						
+						(cArqSelo)->NFISCALATE := (cAliasSD2)->D2_DOC
+						(cArqSelo)->OBSERVACAO := cObserv
+						RetDesc(@cDesc,(cArqSelo)->CLASSE)
+						(cArqSelo)->DESCRICAO := cDesc
+						
+						nX := Ascan(aBkpSFN, {|x|x[1]==cCLYClasse})
+						If nX <> 0
+							(cArqSelo)->COR			:= aBkpSFN[nX,2] 
+							(cArqSelo)->SERIEGUIA 	:= aBkpSFN[nX,3]
+						EndIf
+						
+						(cArqSelo)->(MsUnLock())
+						nPos := Ascan(aSaidas,{|x|x[1]==(cArqSelo)->CLASSE})
+						
+						If nPos==0
+							AADD(aSaidas,{(cArqSelo)->CLASSE,nQtdeNf})
+						Else
+							aSaidas[nPos,2] +=nQtdeNf
+						Endif
+					Endif
+					
+					// Para imprimir as classes sem movimento no periodo.
+					nSMov := Ascan(aClasse,{|x| x[1] == (cArqSelo)->CLASSE})
+					If nSMov > 0
+						aClasse[nSMov][2] := .T.
+					Endif
+					
+					(cAliasSD2)->( dbSkip())
+				Enddo
+				
+				// Processa as Devolucoes de Selos do Periodo
+				ProcDev(cObserv,nQtdeNf,cCodProd,nFatConv,cTipConv,cArqSelo,cDesc,@aSaidas,lM908SUni)
+				
+				dbSelectArea(cAliasSFN)
+				(cAliasSFN)->(RetIndex("SFN"))   
+				(cAliasSFN)->(dbClearFilter())
+				IF !lQuery
+					Ferase(cIndexSFN+OrdBagExt())
+					SFN->(dbSelectArea("SFN"))
+				ENDIF
+				
+				/*
+					VerIfica se ocorreram perdas de estoque para as guias processadas.
+					Somente quando ha o controle fisico do estoque.
+				*/
+				If lEstoque
+					a907Perda(aProduto,@aPerda,mv_par01,mv_par02)
+					
+					/* Adiciona as perdas encontradas as saidas processadas
+						Posicoes do array aPerdas:
+						[01] = Codigo do produto selo
+						[02] = Motivo da perda (codigo)
+						[03] = Motivo da perda (descricao)
+						[04] = Quantidade perdida
+						[05] = Data em que ocorreu a perda
+						[06] = Classe		
+					*/
+					For nPerda := 1 to Len(aPerda)
+					    If aPerda[nPerda][04] > 0
+						    SB1->(MsSeek(xFilial("SB1")+aPerda[nPerda][01]))
+			
+							// Cria o registro de perda para impressao no livro
+							If (cArqSelo)->(dbseek(aPerda[nPerda][06]+dtOs(aPerda[nPerda][05])+aPerda[nPerda][02]))
+								RecLock(cArqSelo,.F.)
+							Else
+								RecLock(cArqSelo,.T.)
+								(cArqSelo)->CLASSE		:= aPerda[nPerda][06]                                         
+								(cArqSelo)->NUMGUIA		:= Replicate("Z",12)
+								(cArqSelo)->DATREG		:= aPerda[nPerda][05]
+								(cArqSelo)->MOTIVO		:= aPerda[nPerda][02]
+								(cArqSelo)->OBSERVACAO	:= STR0012 + Lower(aPerda[nPerda][03]) //"QUEBRA DE ESTOQUE: "
+								RetDesc(@cDesc,(cArqSelo)->CLASSE)
+								(cArqSelo)->DESCRICAO	:=cDesc
+							Endif
+							(cArqSelo)->OUTRQTDE	+= aPerda[nPerda][04]
+							(cArqSelo)->(MsUnLock())
+							
+							nPos := Ascan(aSaidas,{|x| x[1] == aPerda[nPerda][06]})
+					 		If nPos==0
+								aAdd(aSaidas,{(cArqSelo)->CLASSE,aPerda[nPerda][04]})
+							Else
+								aSaidas[nPos,2] += aPerda[nPerda][04]
+							Endif
+							
+							// Para imprimir as classes sem movimento no periodo.
+					        nSMov := Ascan(aClasse,{|x| x[1] == (cArqSelo)->CLASSE})
+					        If nSMov > 0
+					        	aClasse[nSMov][2] := .T.
+					        Endif
+						Endif
+			        Next
+				Endif
+			
+				/*
+					Insere um registro no temporario com o saldo inicial de todas as classes
+					Identifica se houve movimento para a classe
+				*/
+				For nX := 1 to Len(aClasse)
+					/* Somente adiciona o item se:
+						- tiver saldo inicial ou
+						- nao tiver saldo, mas houver indicacao para imprimir os sem movimento
+					*/
+					If (!aClasse[nX][2] .And. aClasse[nX][4] == 0 .And. mv_par10 <> 1) .Or.;
+						((cArqSelo)->(dbSeek(aClasse[nX][1])) .And. aClasse[nX][4] == 0)
+					  	Loop
+					Endif
+					RecLock((cArqSelo),.T.)
+					(cArqSelo)->CLASSE 		:= aClasse[nX][1]
+					(cArqSelo)->DESCRICAO	:= aClasse[nX][3]
+					(cArqSelo)->QTDESALDO	:= aClasse[nX][4]
+					(cArqSelo)->DATREG 		:= mv_par01
+					(cArqSelo)->COR 		:= aClasse[nX][6]
+					(cArqSelo)->SERIEGUIA  := aClasse[nX][7]
+					(cArqSelo)->OBSERVACAO	:= STR0049 // "Saldo Anterior"
+					(cArqSelo)->SALDO		:= "1"
+					If !aClasse[nX][2]           
+						(cArqSelo)->SEMMOV 	:= "1"
+					Endif
+					MsUnLock()
+				Next
+				
+				nLin := 0
+				aLay := Array(28)
+				LayOutSelo(@aLay)   
+				dbselectarea(cArqSelo)
+				DbSetOrder(1)
+				(cArqSelo)->(Dbgotop())
+				SetRegua(LastRec())
+				cClasse := (cArqSelo)->CLASSE
+				cNumGuia := (cArqSelo)->NUMGUIA
+				
+				// Inicia a impressao das informacoes filtradas.
+				If lFecha
+					(cSaldo)->( DbSetOrder(1) )
+					(cSaldo)->( DbGoTop() )
+				EndIf
+				
+				While !(cArqSelo)->(Eof())
+					lPriDec	:= .F.
+					lSegDec	:= .F.
+					lTerDec	:= .F.
+					lPriQui	:= .F.
+					lSegQui	:= .F.
+					lMovtos	:= .F.
+					lSaldo	:= .F.
+					nSaldAtu:= 0
+					
+					// Se a classe nao teve movimento, imprime a indicacao de sem movimento
+					If mv_par10 == 1 .And. (cArqSelo)->SEMMOV == "1" .And. (cArqSelo)->QTDESALDO == 0
+						nLin 		:= 0
+						a909Cab(@nLin,@nFolha,aLay,(cArqSelo)->CLASSE,(cArqSelo)->DESCRICAO,(cArqSelo)->COR,(cArqSelo)->SERIEGUIA)
+						cLinha 		:= FmtLin(Array(11),aLay[27],,,nLin,.F.)
+						R93xFillPage(cLinha,STR0019,@nLin,60)	// "NAO HOUVE MOVIMENTO"
+						FmtLin(,aLay[19],,,@nLin)   
+						(cArqSelo)->(dbSkip())
+						cClasse		:=(cArqSelo)->CLASSE
+						cNumGuia 	:=(cArqSelo)->NUMGUIA         
+						nLin 		:= 0
+						Loop
+					Endif
+					
+					If lFecha
+						//daria seek pela classe no trb -  order classe , data(da inclusão da GUIA) , guia
+						(cSaldo)->( MsSeek(cClasse))
+					EndIf
+					
+					While (cArqSelo)->CLASSE==cClasse
+						IncRegua()
+						
+						// Cabecalho
+						If ( nLin == 0 )       
+							a909Cab(@nLin,@nFolha,aLay,(cArqSelo)->CLASSE,(cArqSelo)->DESCRICAO,(cArqSelo)->COR,(cArqSelo)->SERIEGUIA)
+							dbselectarea(cArqSelo)
+						Endif                                                       
+						
+						// Observacao muda de tamanho de acordo com o Layout
+						If mv_par11 <> 2
+							cObserva := SubStr((cArqSelo)->OBSERVACAO,1,70)
+						Else  
+					   		cObserva := SubStr((cArqSelo)->OBSERVACAO,1,60)
+						Endif
+					 
+						// Imprime os saldos anteriores
+						If (cArqSelo)->QTDESALDO > 0 
+							nSaldAtu :=(cArqSelo)->QTDESALDO
+							FmtLin({(cArqSelo)->DATREG,;
+									(cArqSelo)->QTDESALDO,;
+									nSaldAtu,;
+									cObserva},aLay[28],,,@nLin)
+							lSaldo := .T.
+						Endif       	          
+			       	          
+						// Imprime as movimentacoes quando o registro nao for de saldo inicial ou sem movimento
+						If (cArqSelo)->SALDO <> "1"
+						
+							lSaldo := .T.
+			       	       
+							// Imprime os movimentos acobertados por nota fiscal
+							If !Empty((cArqSelo)->TES)
+								nSaldAtu -=If((cArqSelo)->QTDENOTA==0.00,(cArqSelo)->OUTRQTDE,(cArqSelo)->QTDENOTA)
+								If MV_PAR15==1
+									FmtLin({(cArqSelo)->DATREG,;
+											(cArqSelo)->SERIE,;
+											(cArqSelo)->NOTAFISCAL,;
+											(cArqSelo)->NFISCALATE,;
+											Abs((cArqSelo)->QTDENOTA),;
+											Abs((cArqSelo)->OUTRQTDE),;
+											nSaldAtu,;
+											cObserva},aLay[14],,,@nLin)
+								Else
+									FmtLin({(cArqSelo)->DATREG,;
+											(cArqSelo)->SERIE,;
+											(cArqSelo)->NOTAFISCAL,;
+											Abs((cArqSelo)->QTDENOTA),;
+											Abs((cArqSelo)->OUTRQTDE),;
+											nSaldAtu,;
+											cObserva},aLay[14],,,@nLin)
+								EndIf
+								If lFecha
+									AtuSaldo(cClasse, cSaldo, If((cArqSelo)->QTDENOTA==0.00,(cArqSelo)->OUTRQTDE,(cArqSelo)->QTDENOTA))
+								EndIf
+							// Imprime os movimentos acobertados por guia
+							ElseIf Empty((cArqSelo)->MOTIVO)                   
+								//Guias de entrada - Normal e Entrada por transferencia de outra filial
+								If (cArqSelo)->TIPO $ "N/E"
+									nSaldAtu +=(cArqSelo)->QUANTIDADE
+									If mv_par11 <> 2
+										FmtLin({(cArqSelo)->DATREG,;
+												(cArqSelo)->NUMGUIA,;
+												(cArqSelo)->DATGUIA,;
+												(cArqSelo)->QUANTIDADE,;
+												(cArqSelo)->NUMEROS,;
+												nSaldAtu,;
+												cObserva},aLay[21],,,@nLin)
+									Else
+										FmtLin({(cArqSelo)->DATREG,;
+												(cArqSelo)->NUMGUIA,;
+												(cArqSelo)->DATGUIA,;
+												(cArqSelo)->QUANTIDADE,;
+												SubStr((cArqSelo)->SERIEGUIA,1,3),;
+												(cArqSelo)->NUMEROS,;
+												nSaldAtu,;
+												cObserva},aLay[21],,,@nLin)
+									Endif
+									// Não é necessário chamar a função AtuSaldo pois os tipos E/N do período já estão no cSaldo via select na SFO
+									
+								// Guias de saida - Devolucao ou Transferencia
+								ElseIf !Empty((cArqSelo)->TIPO)
+									nSaldAtu -=(cArqSelo)->OUTRQTDE
+									If mv_par11 <> 2
+										FmtLin({(cArqSelo)->DATREG,;
+												(cArqSelo)->NUMGUIA,;
+												(cArqSelo)->DATGUIA,;
+												(cArqSelo)->OUTRQTDE,;
+												nSaldAtu,;
+												cObserva},aLay[26],,,@nLin)
+									Else
+										FmtLin({(cArqSelo)->DATREG,;
+												(cArqSelo)->NUMGUIA,;
+												(cArqSelo)->DATGUIA,;
+												SubStr((cArqSelo)->SERIEGUIA,1,3),;
+												(cArqSelo)->OUTRQTDE,;
+												nSaldAtu,;
+												cObserva},aLay[26],,,@nLin)
+									Endif
+									//Consome trb para controle do fechamento
+									If lFecha
+										AtuSaldo(cClasse, cSaldo, (cArqSelo)->OUTRQTDE,(cArqSelo)->GUIAORI)
+									EndIf
+								Endif
+							//³Imprime os movimentos sem documento - perdas     ³
+							ElseIf (cArqSelo)->OUTRQTDE > 0
+								nSaldAtu -=(cArqSelo)->OUTRQTDE
+								FmtLin({(cArqSelo)->DATREG,;
+										(cArqSelo)->OUTRQTDE,;
+										nSaldAtu,;
+										cObserva},aLay[25],,,@nLin)
+								If lFecha
+									AtuSaldo(cClasse, cSaldo,(cArqSelo)->OUTRQTDE)
+								EndIf
+							Endif                  
+						Endif
+						
+						lPriDec :=	If(DAY((cArqSelo)->DATREG)>=1 .And. DAY((cArqSelo)->DATREG)<=10,.T.,.F.)
+						lSegDec :=	If(DAY((cArqSelo)->DATREG)>10 .And. DAY((cArqSelo)->DATREG)<=20,.T.,.F.)
+						lTerDec :=	If(DAY((cArqSelo)->DATREG)>20 .And. DAY((cArqSelo)->DATREG)<=31,.T.,.F.)
+						lPriQui :=	If(DAY((cArqSelo)->DATREG)>=1 .And. DAY((cArqSelo)->DATREG)<=15,.T.,.F.)
+						lSegQui :=	If(DAY((cArqSelo)->DATREG)>15 .And. DAY((cArqSelo)->DATREG)<=31,.T.,.F.)
+						
+						nIteQtdEnt 	+=	(cArqSelo)->QUANTIDADE + (cArqSelo)->QTDESALDO
+						nIteQtdSai 	+=	(cArqSelo)->QTDENOTA
+						nIteOutras 	+=	(cArqSelo)->OUTRQTDE
+						nIteSaldo	:=	nSaldAtu
+						nTotQtdEnt	+=	(cArqSelo)->QUANTIDADE + (cArqSelo)->QTDESALDO
+						nTotQtdSai	+=	(cArqSelo)->QTDENOTA
+						nTotOutras	+=	(cArqSelo)->OUTRQTDE
+						nLinAnt    	:=	nLin
+						lImpNotas	:=	.T.
+						cMesAnoAnt 	:=	STRZERO(MONTH((cArqSelo)->DATREG),2)+"/"+STRZERO(YEAR((cArqSelo)->DATREG),4)
+						
+						(cArqSelo)->(Dbskip())
+						
+						lMovtos :=.T.		 
+						cMesAnoAtu 	:=	STRZERO(MONTH((cArqSelo)->DATREG),2)+"/"+STRZERO(YEAR((cArqSelo)->DATREG),4)
+						ChkQuebra(DAY((cArqSelo)->DATREG),aLay,@nLin,@nIteQtdEnt,@nIteQtdSai,@nIteOutras,@nIteSaldo,@dDiaAnt,cMesAnoAnt,cMesAnoAtu,cClasse)
+						
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Imprime a linha de separacao quando for saldo ou movimento³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If nLinAnt==nLin .And. lSaldo
+							FmtLin(,aLay[15],,,@nLin)
+						Endif   
+						
+						If nLin >= nLinTot
+							nLin :=0
+						Endif
+					EndDo
+					
+					lImpNotas	:=	.F.
+					cClasse		:=	(cArqSelo)->CLASSE
+					cNumGuia 	:=	(cArqSelo)->NUMGUIA         
+					nLin		:=	If((cArqSelo)->(Eof()),nLin,0)
+					nTotSaldo	+=  nSaldAtu
+					nIteQtdEnt 	:=	0.00
+					nIteQtdSai 	:=	0.00
+					nIteOutras 	:=	0.00
+					nIteSaldo	:=	0.00
+				EndDo
+								
+				If lFecha
+					AtuSFO(cSaldo)
+				EndIf
+			   
+				dbSelectArea(cSaldo)
+				dbCloseArea()
+				Ferase(cSaldo+".DBF")
+				Ferase(cSaldo+OrdBagExt())
+			
+				dbSelectArea(cArqSelo)
+				dbCloseArea()
+				Ferase(cArqSelo+".DBF")
+				Ferase(cArqSelo+OrdBagExt())
+			
+				#IFDEF TOP
+					dbSelectArea(cAliasSD2)
+					dbCloseArea()
+					dbSelectArea("SA1")
+					dbSelectArea(cAliasSFN)
+					dbCloseArea()      
+					dbSelectArea("SA1")
+				#ENDIF    
+			   
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Imprime os termos de abertura e encerramento³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			ElseIf mv_par03 == 2 
+				aPagTerm	:=	CtrlPg(@nPagina,nQtFeixe,lReiniPg)
+				cPagina		:=	Transform(StrZero(nPagina,6),"@R 999.999")
+				ImprimeTermo(aPagTerm[1],nPagIni,nQtFeixe,GetMv("MV_LSELOA"),Limite,cPerg)
+				nPagIni		:=	ImprimeTermo(aPagTerm[2],nPagIni,nQtFeixe,GetMv("MV_LSELOA"),Limite,cPerg)
+			ElseIf mv_par03 == 3
+				aPagTerm	:=	CtrlPg(@nPagina,nQtFeixe,lReiniPg)
+				cPagina		:=	Transform(StrZero(nPagina,6),"@R 999.999")
+				ImprimeTermo(aPagTerm[1],nPagIni,nQtFeixe,GetMv("MV_LSELOF"),Limite,cPerg)
+				nPagIni		:=	ImprimeTermo(aPagTerm[2],nPagIni,nQtFeixe,GetMv("MV_LSELOF"),Limite,cPerg)
+			Endif                                                                                     
+	
+	#IFDEF TOP
+			// Reinicializa as variáveis para o loop
+			aStruSD2  := {}
+			aStruSF4  := {}
+			aStruSB1  := {}
+			aStruSFN  := {}
+			aCampos	:= {}
+			aSaidas	:= {}
+			aLay      := Array(28)
+			aProduto	:= {}  
+			aPerda	:= {}
+			aClasse	:= {}
+			cAliasSF4	:= "SF4"
+			cAliasSB1	:= "SB1"
+			cAliasSD2	:= "SD2"
+			cAliasSFN	:= "SFN"	
+			cArqSelo	:= ""
+			cAlias	:= Alias()
+			cQuery	:= ""
+			cClasse	:= ""
+			cNumGuia	:= ""
+			cKey		:= ""
+			cFilter	:= ""
+			cDesc		:= ""
+			cMesAnoAnt:= SPACE(06)
+			cMesAnoAtu:= SPACE(06)
+			cCodProd	:= ""
+			cTipConv	:= ""
+			cArqSelo2 := ""
+			cCor		:= "" 
+			cSerie	:= ""
+			cObserv	:= ""  
+			cObserva	:= ""
+			dDiaAnt	:= CTOD("//")  
+			dDatCad	:= CTOD("//")  
+			dDtSaldo	:= CTOD("//")  
+			lQuery	:= .F.    
+			lImpNotas	:= .F.
+			lM908SUni := ExistBlock("M908SUni")
+			lEstoque	:= dDataBase >= GetNewPar("MV_ESTSELO",cToD("/")) .And. !Empty(GetNewPar("MV_ESTSELO",cToD("/")))
+			lMovtos	:= .F. 
+			nPos		:= 0
+			nX		:= 0
+			nFolha    := mv_par05
+			nLin   	:= 0 
+			nLinAnt	:= 0 
+			nLinTot	:= 58
+			nSaldAtu	:= 0
+			nIteQtdEnt:= 0
+			nIteQtdSai:= 0
+			nIteOutras:= 0
+			nIteSaldo	:= 0
+			nTotQtdEnt:= 0
+			nTotQtdSai:= 0
+			nTotOutras:= 0
+			nClasse	:= Space(TamSX3("FN_CLASSE")[01])
+			nQtdeNf	:= 0
+			nFatConv	:= 0
+			nQtde		:= 0
+			nPerda	:= 0   
+			nSMov		:= 0
+			nY		:= 0       
+			nTotSaldo	:= 0
+			lPriDec := .T.
+			lSegDec := .T.	
+			lTerDec := .T.
+			lPriQui := .T.
+			lSegQui := .T.
+			nPagina := 1
+			cPagina := 1
+			aPagTerm:= {}
+			nPagIni := mv_par05
+			nQtFeixe:= mv_par06
+			lReiniPg:= If(mv_par07==1,.t.,.f.)
+			lSaldo	:= .F.
+		Next
+	#ENDIF
+	
+	cFilAnt := cFilBack
+	
+Return
+
+/*/{Protheus.doc} ChkGuia
+Checa o saldo e retorna a Guia que sera utilizada no relatorio
+
+@author Edstron E. Correia
+@since 03/12/2002
+/*/
+
+Static Function ChkGuia(nSaldAtu,cClasse,cNumGuia,dDtSaldo,lEstoque,aProduto,cCor,cSerie)
+
+	Local aAreaSFN	:= SFN->(GetArea())
+	Local aSalGuia	:= {}
+	
+	Local cAliasSFO	:= "SFO"
+	Local cAliasSD2	:= "SD2"
+	Local cGuia		:= ""
+	
+	Local nPos		:= 0
+	Local lVeSD2	:= .F.
+	
+	#IFDEF TOP
+		Local cQuery	:=""
+		Local lQuery	:=.T.
+		Local aStru		:={}
+		Local nX		:=0
+	#ELSE
+		Local cIndSFO 	:= ""
+		Local nIndSFO 	:= 0
+	#ENDIF
+	
+	dBSelectArea("SFO")
+	SFO->(dbSetOrder(1))
+	
+	#IFDEF TOP
+		lQuery := .T.
+		cAliasSFO := "SFOa"
+		aStru := SFO->(dbStruct())
+		cQuery := "SELECT SFO.*, R_E_C_N_O_ SFORECNO "
+		cQuery += "FROM "+RetSqlName("SFO")+" SFO "
+		cQuery += "WHERE FO_FILIAL='"+xFilial("SFO")+"' AND "
+		cQuery += "FO_CLASSE='"+cClasse+"' AND "
+		cQuery += "FO_DATA<'"+Dtos(MV_PAR01)+"' AND "
+		cQuery += "FO_DATA>='"+Dtos(MV_PAR01-2)+"' AND " //período passado
+		cQuery += "D_E_L_E_T_ <> '*' "
+		cQuery += "ORDER BY FO_CLASSE, FO_DATA, FO_GUIA"
+		
+		cQuery := ChangeQuery(cQuery)
+		dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSFO,.T.,.T.)
+		
+		For nX := 1 To len(aStru)
+			If aStru[nX][2] <> "C" .And. FieldPos(aStru[nX][1])<>0
+				TcSetField(cAliasSFO,aStru[nX][1],aStru[nX][2],aStru[nX][3],aStru[nX][4])
+			EndIf
+		Next nX
+
+		dbSelectArea(cAliasSFO)	
+	#ELSE
+		dbSelectArea("SFO")		
+		cIndSFO := CriaTrab(NIL,.F.)
+		IndRegua("SFO",cIndSFO,"FO_CLASSE+FO_GUIA+DTOS(FO_DATA)",,"FO_FILIAL=='"+xFilial("SFO")+"' .And. Dtos(FO_DATA) < '"+Dtos(MV_PAR01)+"' .And. FO_CLASSE =='"+cClasse+"'")
+		nIndSFO := RetIndex("SFO")
+		dbSetIndex(cIndSFO+OrdBagExt())
+		dbSelectArea("SFO")
+		dbSetOrder(nIndSFO+1)
+		dbGoTop()
+	#ENDIF
+	
+	While (cAliasSFO)->(!Eof())
+		If (cAliasSFO)->FO_SALDO > 0
+			nPos := Ascan(aSalGuia,{|x|	 x[1] == (cAliasSFO)->FO_GUIA})
+			If nPos == 0
+				aAdd(aSalGuia,{(cAliasSFO)->FO_GUIA,(cAliasSFO)->FO_SALDO,(cAliasSFO)->FO_DATA})
+			Else
+				aSalGuia[nPos][2] := (cAliasSFO)->FO_SALDO
+				aSalGuia[nPos][3] := (cAliasSFO)->FO_DATA
+			Endif
+			
+			cGuia := (cAliasSFO)->FO_GUIA
+			cCor := (cAliasSFO)->FO_COR
+			cSerie := (cAliasSFO)->FO_SERIE
+			
+			// Adiciona o array com as guias que deverao verIficar o controle de perdas de estoque
+			If lEstoque
+				If SFN->(dbSeek(xFilial("SFN")+(cAliasSFO)->FO_CLASSE+(cAliasSFO)->FO_GUIA))
+				 	If SFN->FN_ESTOQUE == "1" .And. !Empty(SFN->FN_LOTECTL)
+						If Ascan(aProduto,{|x| 	x[1] == SFN->FN_CODIGO .And. x[3] == SFN->FN_CLASSE}) == 0
+							aAdd(aProduto,	{SFN->FN_CODIGO,SFN->FN_LOTECTL,SFN->FN_CLASSE})
+						Endif
+					Endif
+			 	EndIf
+		  	Endif
+		EndIf
+		
+		(cAliasSFO)->( dbSkip())
+	EndDo
+	
+	For nPos := 1 to Len(aSalGuia)
+		nSaldAtu += aSalGuia[nPos][2]
+		dDtSaldo := aSalGuia[nPos][3]
+		lVeSD2 := .T.
+	Next
+	
+	#IFDEF TOP
+		dbSelectArea(cAliasSFO)
+		dbCloseArea()
+		
+		dbSelectArea("SA1")
+	#ELSE
+		dbSelectArea("SFO")
+		RetIndex("SFO")
+		dbClearFilter()
+		Ferase(cIndSFO+OrdBagExt())
+	#ENDIF
+	
+	RestArea(aAreaSFN)
+	
+Return
+
+/*/{Protheus.doc} ChkQuebra
+Quebra de relatorio
+
+@author Edstron E. Correia
+@since 03/12/2002
+/*/
+
+Static Function ChkQuebra(dDia,aLay,nLin,nIteQtdEnt,nIteQtdSai,nIteOutras,nIteSaldo,dDiaAnt,cMesAnoAnt,cMesAnoAtu,cClasse)
+
+	Local nPriDec := 10
+	Local nSegDec := 20
+	Local nTerDec := 30
+	
+	dDiaAnt := If(!Eof(),dDia,dDiaAnt)
+	dDia := If(Eof(),dDiaAnt,dDia)
+	dDia := If(Empty(dDia),0,dDia)
+	
+	If Eof()
+		Do Case
+			Case dDia<nPriDec
+				dDia +=(nPriDec-dDia+1)
+			Case dDia>nPriDec .and. dDia<=nSegDec
+				dDia +=(nSegDec-dDia+1)
+			Case dDia>nSegDec .and. dDia<=nTerDec
+				dDia +=(nTerDec-dDia+1)
+			Case dDia>nTerDec 
+				dDia +=(nTerDec-dDia+1)
+		EndCase
+	Endif
+	
+	If cClasse == CLASSE
+		If mv_par04==1
+			If dDia >=1 .And. dDia <=10 .And. cMesAnoAnt<cMesAnoAtu .And. lTerDec
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"3.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lTerDec := .F.
+			ElseIf lSegDec .And. (dDia>20 .OR. cMesAnoAnt<cMesAnoAtu)
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"2.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt :=0
+				nIteQtdSai :=0
+				nIteOutras :=0
+				nIteSaldo :=0
+				lSegDec :=.F.                                
+			ElseIf lPriDec .And. (dDia>10 .OR. cMesAnoAnt<cMesAnoAtu)
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"1.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt :=0
+				nIteQtdSai :=0
+				nIteOutras :=0
+				nIteSaldo :=0
+				lPriDec :=.F.
+			Endif
+		ElseIf mv_par04==2
+			If lSegQui
+				If dDia >= 1 .And. dDia <= 15 .And. cMesAnoAnt<cMesAnoAtu
+					FmtLin(,aLay[23],,,@nLin)
+					
+					FmtLin({"2a.",;
+					nIteQtdEnt,;
+					nIteQtdSai,;
+					nIteOutras,;
+					nIteSaldo},aLay[17],,,@nLin)
+					
+					FmtLin(,aLay[23],,,@nLin)
+					
+					nIteQtdEnt := 0
+					nIteQtdSai := 0
+					nIteOutras := 0
+					nIteSaldo := 0
+					lSegQui := .F.
+				Endif
+			Endif
+			
+			If lPriQui
+				If dDia>15 .OR. cMesAnoAnt<cMesAnoAtu
+					FmtLin(,aLay[23],,,@nLin)
+					
+					FmtLin({"1a.",;
+					nIteQtdEnt,;
+					nIteQtdSai,;
+					nIteOutras,;
+					nIteSaldo},aLay[17],,,@nLin)
+					
+					FmtLin(,aLay[23],,,@nLin)
+					
+					nIteQtdEnt := 0
+					nIteQtdSai := 0
+					nIteOutras := 0
+					nIteSaldo := 0
+					lPriQui := .F.
+				Endif
+			Endif
+		ElseIf mv_par04==3
+			If (cMesAnoAnt<>cMesAnoAtu)
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({cMesAnoAnt,;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[18],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				      
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+			Endif
+		Endif   
+	Else
+		If mv_par04==1
+			If lTerDec
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"3.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lTerDec := .F.
+			Endif
+			
+			If lSegDec
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"2.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lSegDec := .F.
+			Endif
+			
+			If lPriDec
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"1.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[16],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lPriDec := .F.
+			Endif
+		ElseIf mv_par04 == 2
+			If lSegQui
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"2a.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[17],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				      
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lSegQui := .F.
+			Endif
+			
+			If lPriQui
+				FmtLin(,aLay[23],,,@nLin)
+				
+				FmtLin({"1a.",;
+				nIteQtdEnt,;
+				nIteQtdSai,;
+				nIteOutras,;
+				nIteSaldo},aLay[17],,,@nLin)
+				
+				FmtLin(,aLay[23],,,@nLin)
+				      
+				nIteQtdEnt := 0
+				nIteQtdSai := 0
+				nIteOutras := 0
+				nIteSaldo := 0
+				lPriQui := .F.
+			Endif
+		ElseIf mv_par04==3
+			FmtLin(,aLay[23],,,@nLin)
+			
+			FmtLin({cMesAnoAnt,;
+			nIteQtdEnt,;
+			nIteQtdSai,;
+			nIteOutras,;
+			nIteSaldo},aLay[18],,,@nLin)
+			
+			FmtLin(,aLay[23],,,@nLin)
+			      
+			nIteQtdEnt := 0
+			nIteQtdSai := 0
+			nIteOutras := 0
+			nIteSaldo := 0
+		Endif
+	Endif
+	
+Return
+
+/*/{Protheus.doc} CtrlPg
+Controla numeracao de paginas dos livros fiscais
+
+@author Juan Jose Pereira
+@since 02/02/1996
+
+@return array, contem as paginas.
+/*/
+
+Static Function CtrlPg(nPagina,nQtdPag,lReiniPg)
+
+	Local lFeixe := .f.
+	Local aPaginas := {0,0}
+	
+	lReiniPg	:=	IIF(lReiniPg==NIL,.f.,lReiniPg)
+	nQtdPag	:=	IIf(Empty(nQtdPag) .or. nQtdPag<=0,500,nQtdPag)
+	
+	nPagina	:=	If(nPagina==1,0,nPagina)
+	If (nPagina%nQtdPag==0)
+		If lReiniPg
+			nPagina:=0
+		Endif
+		aPaginas[1]:=nPagina
+		aPaginas[2]:=nPagina+1
+		nPagina:=nPagina+2
+		lFeixe:=.t.
+	Else
+		nPagina++
+		If (nPagina%nQtdPag==0)
+			If lReiniPg
+				nPagina:=0
+			Endif
+			aPaginas[1]:=nPagina
+			aPaginas[2]:=nPagina+1
+			nPagina:=nPagina+2
+			lFeixe:=.t.
+		Endif
+	Endif
+	
+Return aPaginas
+
+/*/{Protheus.doc} ImprimeTermo
+Imprime termos de abertura e encerramento dos livros fiscais
+
+@author Juan Jose Pereira
+@since 02/02/1996
+
+@return numerico, numero da pagina
+/*/
+
+Static Function ImprimeTermo(nPagina,nPagIni,nQuebra,cArqTerm,nLargMax,cPerg)
+
+	Local	cSvAlias	:=	Alias()
+	Local	i
+	Local	aVariaveis:={}
+	Local w
+	Local j
+	Local cCaracter
+	Local cLinha
+	Local nPosAcento
+	Local cAcentos:="€ú\‡ú\Žú\ú\…ú\†ú\„ú\ ú\ú\ˆú\Šú\‚ú\¡ú\“ú\”ú\•ú\¢ú\£ú"
+	Local cAcSubst:="C,\c,\A~\A'\a`\a~\a~\a'\E'\e^\e`\e'\i'\o^\o~\o`\o'\U'"
+	Local aLayOut:={}
+	Local cTexto
+	Local uConteudo
+	Local cConteudo
+	
+	If nPagina==0.or.!File(cArqTerm)
+		Return
+	Endif
+	aadd(aVariaveis,{"VAR_IXB",VAR_IXB})
+	dbSelectArea("SM0")
+	For i:=1 to FCount()
+		If FieldName(i)=="M0_CGC"
+			AADD(aVariaveis,{FieldName(i),Transform(FieldGet(i),"@R 99.999.999/9999-99")})
+		ElseIf FieldName(i)=="M0_INSC"
+			AADD(aVariaveis,{FieldName(i),InscrEst()})
+		Else
+			If FieldName(i)=="M0_NOME"
+				Loop
+			Endif
+			AADD(aVariaveis,{FieldName(i),FieldGet(i)})
+		Endif
+	Next
+	
+	If AliasIndic( "CVB" )
+		dbSelectArea( "CVB" )
+		CVB->(dbSeek( xFilial( "CVB" ) ))
+		For i:=1 to FCount()
+			If FieldName(i)=="CVB_CGC"
+				AADD(aVariaveis,{FieldName(i),Transform(FieldGet(i),"@R 99.999.999/9999-99")})
+			ElseIf FieldName(i)=="CVB_CPF"
+				AADD(aVariaveis,{FieldName(i),Transform(FieldGet(i),"@R 999.999.999-99")})
+			Else
+				AADD(aVariaveis,{FieldName(i),FieldGet(i)})
+			Endif
+		Next
+	EndIf
+	
+	dbSelectArea("SX1")
+	SX1->(dbSetOrder(1))
+	dbSeek(cPerg+"    01")
+	While SX1->X1_GRUPO==cPerg + "    "
+		uConteudo	:=	&(X1_VAR01)
+		If Valtype(uConteudo)=="N"
+			cConteudo	:=	Alltrim(Str(uConteudo))
+		Elseif Valtype(uConteudo)=="D"
+			cConteudo	:=	Alltrim(dToc(uConteudo))
+		Else
+			cConteudo	:=	Alltrim(uConteudo)
+		Endif
+		AADD(aVariaveis,{Rtrim(Upper(X1_VAR01)),cConteudo})
+		dbSkip()
+	End
+	
+	AADD(aVariaveis,{"__PAGINAINICIAL",Transform(StrZero(nPagIni,6),"@R 999.999")})
+	AADD(aVariaveis,{"__PAGINAFINAL",Transform(StrZero(nPagina,6),"@R 999.999")})
+	AADD(aVariaveis,{"D_I_A",Day(dDatabase)})
+	AADD(aVariaveis,{"M_E_S",Alltrim(MesExtenso(Month(dDatabase)))})
+	AADD(aVariaveis,{"A_N_O",Year(dDatabase)})
+	
+	cTexto:=MemoRead(cArqTerm)
+	For w:=1 to len(aVariaveis)
+		cTexto	:=	StrTran(cTexto,aVariaveis[w,1],if(valtype(aVariaveis[w,2])<>"C" .and. valtype(aVariaveis[w,2])<>"U",if(valtype(avariaveis[w,2])="D",dtoc(aVariaveis[w,2]),str(aVariaveis[w,2])),aVariaveis[w,2]))
+	Next
+	@ 0,0 PSAY AvalImp(nLargMax)
+	
+	For i:=1 to Mlcount(cTexto,nLargMax)
+	
+		SysRefresh()
+		If Interrupcao(@lAbortPrint)
+			Exit
+		Endif
+		cLinha	:=	MemoLine(cTexto,nLargMax,i)
+		cLinha	:=	Strtran(cLinha,chr(13)+chr(10))
+		For j:=1 to Len(cLinha)
+			cCaracter	:=	Substr(cLinha,j,1)
+			nPosAcento	:=	Rat(cAcentos,cCaracter)
+			If nPosAcento>0
+				cCaracter:=Substr(AcSubst,nPosAcento,2)
+				@ i,j PSAY Substr(cCaracter,1,1)
+				@ i,j PSAY Substr(cCaracter,2,1)
+			Else
+				@ i,j PSAY cCaracter
+			Endif
+		Next j
+	Next i
+	
+	dbSelectArea(cSvAlias)
+	
+Return nPagina
+
+/*/{Protheus.doc} LayOutSelo
+Imprime termos de abertura e encerramento dos livros fiscais
+
+@author Edstron E. Correia
+@since 03/12/2002
+/*/
+
+Static Function LayOutSelo(aLay)
+
+	If MV_PAR15==1
+		          //1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+		aLay[01] := STR0020 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[02] := STR0021 //"|                                                                                  Registro de Entrada e Saida do Selo de Controle                                                                              |  Folha  |"
+		aLay[03] := STR0022 //"|                                                                                                                                                                                                               |  #####  |"
+		aLay[04] := STR0023 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[05] := STR0024 //"|Firma :             ############################################################################                                                                                                                         |"
+		aLay[06] := STR0025 //"|Grupo ou SubGrupo : ###########################                                                                                                                 Cor : ###############                  Serie : ##########|"
+	
+		aLay[07] := /*STR0026*/"+---------+-----------------------------------------------------------------+----------------------------------------------------------------+---------------+------------------------------------------------------------+"
+		aLay[08] := /*STR0027*/"|         |                          E N T R A D A                          |                      S A I D A                                 |               |                                                            |"
+		aLay[09] := /*STR0028*/"+   Ano   |---------------------------+---------------+---------------------+------------------------------------------------+---------------|     SALDO     |                                                            |"
+		aLay[10] := /*STR0029*/"|         |           Guia            |               |                     |             NOTA FISCAL                        |    Outras     |               |                              OBSERVACOES                   |"
+		aLay[11] := /*STR0030*/"|         |---------------------------| 4)Quantidade  |      5)Numeros      |------------------------------------------------|  Quantidades  | (Quantidade)  |                                                            |"
+		aLay[12] := /*STR0031*/"|1)Mes/Ano| 2)Numero     | 3)Data     |               |                     | 6)Serie |       7)Numero       | 8)Quantidade  | 9)            | 10)           |11)                                                         |"
+		aLay[13] := /*STR0032*/"+---------+--------------+------------+---------------+---------------------+---------+----------------------+---------------+---------------+---------------+------------------------------------------------------------+"
+		aLay[14] := /*STR0033*/"|##/##/## |              |            |               |                     |   ###   | ######### a #########| ############  | ############  | ############  |############################################################|"
+		aLay[15] := /*STR0034*/"+---------+--------------+------------+---------------+---------------------+---------+----------------------+---------------+---------------+---------------+------------------------------------------------------------+"
+		aLay[16] := /*STR0035*/"|Total do ## Decendio                 | ############# |                                                      | ############# | ############# | ############# |                                                            |"
+		aLay[17] := /*STR0036*/"|Total da ## Quinzena                 | ############# |                                                      | ############# | ############# | ############# |                                                            |"
+		aLay[18] := /*STR0037*/"|Total do Mes #######                 | ############# |                                                      | ############# | ############# | ############# |                                                            |"
+		aLay[19] := /*STR0038*/"+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+"
+		aLay[20] := /*STR0039*/"|##/##/## | ############ | ##/##/##   |               |                     |         |                      |               |               | ############  |                                                            |"
+		aLay[21] := /*STR0041*/"|##/##/## | ############ | ##/##/##   | ############  |######### a #########|         |                      |               |               | ############  |############################################################|"
+		aLay[22] := /*STR0042*/"|Total Geral                          | ############# |                                                      | ############# | ############# | ############# |                                                            |"
+		aLay[23] := /*STR0043*/"+-------------------------------------+---------------+------------------------------------------------------+---------------+---------------+---------------+------------------------------------------------------------+"
+		aLay[24] := /*STR0044*/"|         |              |            |               |                     |         |                      |               |               |               |                                                            |"
+		aLay[25] := /*STR0045*/"|##/##/## |              |            |               |                     |         |                      |               | ############# | ############  |############################################################|"
+		aLay[26] := /*STR0046*/"|##/##/## | ############ | ##/##/##   |               |                     |         |                      |               | ############# | ############  |############################################################|"
+		aLay[27] := /*STR0047*/"|#########| ############ | ########## | ############# | ################### | ####### | #########            | ############# | ############# | ############  |############################################################|"
+		aLay[28] := /*STR0048*/"|##/##/## |              |            | ############# |                     |         |                      |               |               | ############  |############################################################|"
+	
+	ElseIf mv_par11 <> 2
+		          //1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+		aLay[01] := STR0020 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[02] := STR0021 //"|                                                                                  Registro de Entrada e Saida do Selo de Controle                                                                              |  Folha  |"
+		aLay[03] := STR0022 //"|                                                                                                                                                                                                               |  #####  |"
+		aLay[04] := STR0023 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[05] := STR0024 //"|Firma :             ############################################################################                                                                                                                         |"
+		aLay[06] := STR0025 //"|Grupo ou SubGrupo : ###########################                                                                                                                 Cor : ###############                  Serie : ##########|"
+		aLay[07] := STR0026 //"+---------+-----------------------------------------------------------------+----------------------------------------------------+---------------+------------------------------------------------------------------------+"
+		aLay[08] := STR0027 //"|         |                          E N T R A D A                          |                      S A I D A                     |               |                                                                        |"
+		aLay[09] := STR0028 //"+   Ano   |---------------------------+---------------+---------------------+------------------------------------+---------------|     SALDO     |                                                                        |"
+		aLay[10] := STR0029 //"|         |           Guia            |               |                     |             NOTA FISCAL            |    Outras     |               |                              OBSERVACOES                               |"
+		aLay[11] := STR0030 //"|         |---------------------------| 4)Quantidade  |      5)Numeros      |------------------------------------|  Quantidades  | (Quantidade)  |                                                                        |"
+		aLay[12] := STR0031 //"|1)Mes/Ano| 2)Numero     | 3)Data     |               |                     | 6)Serie | 7)Numero | 8)Quantidade  | 9)            | 10)           |11)                                                                     |"
+		aLay[13] := STR0032 //"+---------+--------------+------------+---------------+---------------------+---------+----------+---------------+---------------+---------------+------------------------------------------------------------------------+"
+		aLay[14] := STR0033 //"|##/##/## |              |            |               |                     |   ###   | #########| ############  | ############  | ############  |########################################################################|"
+		aLay[15] := STR0034 //"+---------+--------------+------------+---------------+---------------------+---------+----------+---------------+---------------+---------------+------------------------------------------------------------------------+"
+		aLay[16] := STR0035 //"|Total do ## Decendio                 | ############# |                                          | ############# | ############# | ############# |                                                                        |"
+		aLay[17] := STR0036 //"|Total da ## Quinzena                 | ############# |                                          | ############# | ############# | ############# |                                                                        |"
+		aLay[18] := STR0037 //"|Total do Mes #######                 | ############# |                                          | ############# | ############# | ############# |                                                                        |"
+		aLay[19] := STR0038 //"+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+"
+		aLay[20] := STR0039 //"|##/##/## | ############ | ##/##/##   |               |                     |         |          |               |               | ############  |                                                                        |"
+		aLay[21] := STR0041 //"|##/##/## | ############ | ##/##/##   | ############  |######### a #########|         |          |               |               | ############  |########################################################################|"
+		aLay[22] := STR0042 //"|Total Geral                          | ############# |                                          | ############# | ############# | ############# |                                                                        |"
+		aLay[23] := STR0043 //"+-------------------------------------+---------------+------------------------------------------+---------------+---------------+---------------+------------------------------------------------------------------------+"
+		aLay[24] := STR0044 //"|         |              |            |               |                     |         |          |               |               |               |                                                                        |"
+		aLay[25] := STR0045 //"|##/##/## |              |            |               |                     |         |          |               | ############# | ############  |########################################################################|"
+		aLay[26] := STR0046 //"|##/##/## | ############ | ##/##/##   |               |                     |         |          |               | ############# | ############  |########################################################################|"
+		aLay[27] := STR0047 //"|#########| ############ | ########## | ############# | ################### | ####### | #########| ############# | ############# | ############  |########################################################################|"
+		aLay[28] := STR0048 //"|##/##/## |              |            | ############# |                     |         |          |               |               | ############  |########################################################################|"
+	Else
+		          //1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+		aLay[01] := STR0020 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[02] := STR0021 //"|                                                                                  Registro de Entrada e Saida do Selo de Controle                                                                              |  Folha  |"
+		aLay[03] := STR0022 //"|                                                                                                                                                                                                               |  #####  |"
+		aLay[04] := STR0023 //"+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+"
+		aLay[05] := STR0024 //"|Firma :             ############################################################################                                                                                                                         |"
+		aLay[06] := STR0050 //"|Grupo ou SubGrupo : ###########################                                                                                                                 Cor : ###############                                    |"
+		aLay[07] := STR0051 //"+---------+---------------------------------------------------------------------------+----------------------------------------------------+---------------+--------------------------------------------------------------+"
+		aLay[08] := STR0052 //"|         |                               E N T R A D A                               |              S A I D A             |               |               |                                                              |"
+		aLay[09] := STR0053 //"+   Ano   |---------------------------+---------------+-------+-----------------------+------------------------------------+---------------|     SALDO     |                                                              |"
+		aLay[10] := STR0054 //"|         |           Guia            |               |       |                       |             NOTA FISCAL            |    Outras     |               |                              OBSERVACOES                     |"
+		aLay[11] := STR0055 //"|         |---------------------------| 4)Quantidade  | Serie |      5)Numeros        |------------------------------------|  Quantidades  | (Quantidade)  |                                                              |"
+		aLay[12] := STR0056 //"|1)Mes/Ano| 2)Numero     | 3)Data     |               |       |                       | 6)Serie | 7)Numero | 8)Quantidade  | 9)            | 10)           |11)                                                           |"
+		aLay[13] := STR0057 //"+---------+--------------+------------+---------------+-------+-----------------------+---------+----------+---------------+---------------+---------------+--------------------------------------------------------------+"
+		aLay[14] := STR0058 //"|##/##/## |              |            |               |       |                       |   ###   | #########| ############  | ############  | ############  |##############################################################|"
+		aLay[15] := STR0059 //"+---------+--------------+------------+---------------+-------+-----------------------+---------+----------+---------------+---------------+---------------+--------------------------------------------------------------+"
+		aLay[16] := STR0060 //"|Total do ## Decendio                 | ############# |                                                    | ############# | ############# | ############# |                                                              |"
+		aLay[17] := STR0061 //"|Total da ## Quinzena                 | ############# |                                                    | ############# | ############# | ############# |                                                              |"
+		aLay[18] := STR0062 //"|Total do Mes #######                 | ############# |                                                    | ############# | ############# | ############# |                                                              |"
+		aLay[19] := STR0063 //"+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+"
+		aLay[20] := STR0064 //"|##/##/## | ############ | ##/##/##   |               |       |                       |         |          |               |               | ############  |                                                              |"
+		aLay[21] := STR0065 //"|##/##/## | ############ | ##/##/##   | ############  | ###   | ######### a ######### |         |          |               |               | ############  |##############################################################|"
+		aLay[22] := STR0066 //"|Total Geral                          | ############# |                                                    | ############# | ############# | ############# |                                                              |"
+		aLay[23] := STR0067 //"+-------------------------------------+---------------+----------------------------------------------------+---------------+---------------+---------------+--------------------------------------------------------------+"
+		aLay[24] := STR0068 //"|         |              |            |               |                               |         |          |               |               |               |                                                              |"
+		aLay[25] := STR0069 //"|##/##/## |              |            |               |                               |         |          |               | ############# | ############  |##############################################################|"
+		aLay[26] := STR0070 //"|##/##/## | ############ | ##/##/##   |               | ###   |                       |         |          |               | ############# | ############  |##############################################################|"
+		aLay[27] := STR0071 //"|#########| ############ | ########## | ############# | ###   | ##################### | ####### | ######## | ############# | ############# | ############  |##############################################################|"
+		aLay[28] := STR0072 //"|##/##/## |              |            | ############# |       |                       |         |          |               |               | ############  |##############################################################|"
+	Endif
+
+Return 
+
+/*/{Protheus.doc} RetDesc
+Retorna descricao da tabela utilizada no SX5
+
+@author Edstron E. Correia
+@since 03/12/2002
+/*/
+
+Static Function RetDesc(cDesc,nClasse)
+	
+	dbSelectArea("SX5")
+
+	IF SX5->(MSSeek(xFilial("SX5")+"A9"+nClasse))
+		cDesc := AllTrim(X5Descri())
+	Endif
+	
+Return 
+
+/*/{Protheus.doc} A909Conv
+Retorna descricao da tabela utilizada no SX5
+
+@author Sergio S. Fuzinaka
+@since 01/07/2003
+
+@return numerico, o valor conforme o tipo de conversao.
+/*/
+
+Function A909Conv(cCod,nQuant,nSegUm,nConv,cTipo)
+
+	Local aArea := GetArea()
+	Local nRet  := nQuant
+	
+	If nSegUm == 1 .And. nConv > 0
+	   If cTipo == "M"
+	      nRet  :=nRet*nConv
+	   Else
+	      nRet  :=nRet/nConv
+	   Endif
+	EndIf
+	
+	RestArea(aArea)
+	
+Return nRet
+
+/*/{Protheus.doc} a909Cab
+Imprime o cabecalho do livro
+
+@author Mary C. Hergert
+@since 15/04/2008
+/*/
+
+Static Function a909Cab(nLin,nFolha,aLay,cClasse,cDescr,cCor,cSerie)
+
+	@ nLin,000 PSAY aValImp(Limite)
+	nLin++
+	FmtLin(,aLay[01],,,@nLin)
+	FmtLin(,aLay[02],,,@nLin)
+	FmtLin({StrZero(nFolha,5)},aLay[03],,,@nLin)
+	FmtLin(,aLay[04],,,@nLin)
+	FmtLin({SM0->M0_NOMECOM},aLay[05],,,@nLin)                
+	If mv_par11 <> 2
+		FmtLin({(cClasse + " - " + cDescr),cCor,cSerie},aLay[06],,,@nLin)
+	Else                                                                   
+		FmtLin({(cClasse + " - " + cDescr),cCor},aLay[06],,,@nLin)
+	Endif
+	FmtLin(,aLay[07],,,@nLin)
+	FmtLin(,aLay[08],,,@nLin)
+	FmtLin(,aLay[09],,,@nLin)
+	FmtLin(,aLay[10],,,@nLin)
+	FmtLin(,aLay[11],,,@nLin)
+	FmtLin(,aLay[12],,,@nLin)
+	FmtLin(,aLay[13],,,@nLin)
+	nFolha ++
+
+Return
+
+/*/{Protheus.doc} ProcDev
+Funcao que Processa as Devolucoes de Selo do Periodo
+
+@author Luccas Curcio
+@since 09/08/2012
+
+@param cObserv, caracter, Strinf que contem observacao do registro
+@param nQtdeNf, numerico, Quantidade da nota fiscal
+@param cCodProd, caracter, Codigo do produto
+@param nFatConv, numerico, Fator de Conversao
+@param cTipConv, caracter, Tipo da Conversao
+@param cArqSelo, caracter, Arquivo de trabalho do relatorio
+@param cDesc, caracter, Descricao da classe
+@param aSaidas, array, Array com as saidas do periodo
+@param lM908SUni, logico, Existencia do Ponto de Entrada "M908SUni"
+/*/
+
+Static Function ProcDev(cObserv,nQtdeNf,cCodProd,nFatConv,cTipConv,cArqSelo,cDesc,aSaidas,lM908SUni)
+
+	Local	cAliasSD1	:= "SD1"
+	Local	cAliasSB1	:= "SB1"
+	Local	cAliasSF4	:= "SF4"
+	Local	cSelect		:=	""
+	Local	cFrom		:=	""
+	Local	cWhere		:=	""
+	local	cIndex		:=	""
+	Local	cFiltro		:=	""
+	Local	lProcessa	:=	.F.
+	Local	lQuery		:=	.F.
+	Local	nIndex		:=	0
+	Local	nPos		:=	0
+	Local	cChave		:= ""
+	Local cAliasCLY	:= "CLY"
+	Local dData		:= CTOD("//")
+	Local cCLYClasse		:= ""
+	Local lExisteCLY	:= AliasInDic("CLY") 
+	Local cAliasProd	:= ""
+	Local lInclui	   := .F.
+	Local cChaveSelo := ""
+	
+	#IFDEF TOP
+		If (TcSrvType ()<>"AS/400")
+			lQuery		:= .T.
+			lProcessa	:= .T.
+			cAliasSD1	:= GetNextAlias()
+		 	cAliasSF4	:= cAliasSB1	:= cAliasSD1
+		   
+		   	cSelect	:= "%SD1.D1_COD, SD1.D1_DTDIGIT, SD1.D1_SERIE, SD1.D1_DOC, SD1.D1_ITEM, SD1.D1_TES, SD1.D1_QUANT, SD1.D1_TIPO, "
+		   	cSelect	+= "SB1.B1_CLASSE,SB1.B1_GRUPO,  SB1.B1_CONV, SB1.B1_TIPCONV, SB1.B1_SELO, SF4.F4_SELO%"
+		   
+		   	cFrom 	+= "%"+RetSqlName("SD1")+" SD1 "
+		   	cFrom 	+= "LEFT JOIN "+RetSqlName("SF4")+" SF4 ON SF4.F4_FILIAL='"+xFilial("SF4")+"' AND SF4.F4_CODIGO=SD1.D1_TES AND SF4.D_E_L_E_T_ <> '*' "
+		   	cFrom 	+= "LEFT JOIN "+RetSqlName("SB1")+" SB1 ON SB1.B1_FILIAL='"+xFilial("SB1")+"' AND SB1.B1_COD=SD1.D1_COD AND SB1.D_E_L_E_T_ <> '*' %"
+		   
+		   	cWhere 	+= "%SD1.D1_FILIAL = '"+xFilial("SD1")+"' AND "
+		   	cWhere 	+= "D1_DTDIGIT>='"+DTOS(MV_PAR01)+"' AND "
+		   	cWhere 	+= "D1_DTDIGIT<='"+DTOS(MV_PAR02)+"' AND "
+		   	cWhere 	+= "SD1.D_E_L_E_T_ <> '*' AND "
+		   	cWhere 	+= "F4_FILIAL = '"+xFilial("SF4")+"' AND "
+		   	cWhere 	+= "F4_SELO = '2' AND " 
+		   	cWhere 	+= "B1_FILIAL = '"+xFilial("SB1")+"' AND "
+		   	cWhere 	+= "B1_SELO = '1' AND "
+		   	cWhere 	+= "SB1.D_E_L_E_T_ <> '*' %"
+		   	
+		   	BeginSql Alias cAliasSD1
+			
+				SELECT 
+					%Exp:cSelect%
+			
+				FROM 
+					%Exp:cFrom%
+			
+				WHERE 
+					%Exp:cWhere%
+	
+				ORDER BY 
+					SD1.D1_DTDIGIT, SD1.D1_SERIE, SD1.D1_DOC
+					
+			EndSql
+		Else
+	#ENDIF
+			cIndex  	:= CriaTrab(Nil,.F.)
+		 	
+		 	cFiltro 	:=	'SD1->D1_FILIAL=="'+xFilial("SD1")+'" .And. '
+		 	cFiltro 	+=	'SD1->D1_TIPO=="D" .And. '
+		 	cFiltro 	+=	'SD1->D1_DTDIGIT>="'+DTOS(MV_PAR01)+'" .And. ' 
+		 	cFiltro 	+=	'SD1->D1_DTDIGIT<="'+DTOS(MV_PAR02)+'"
+		 	
+		 	IndRegua("SD1",cIndex,"D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_ITEM",,cFiltro,STR0040)
+		   	nIndex := RetIndex("SD1")
+		   	
+		   	#IFNDEF TOP
+		    	DbSetIndex(cIndex+OrdBagExt())
+		   	#ENDIF
+		   	
+		   	DbSelectArea("SD1")
+		   	DbSetOrder(nIndex+1)
+	
+	#IFDEF TOP
+		EndIf
+	#ENDIF
+	
+	While !(cAliasSD1)->(Eof())
+	
+		If !lQuery
+			(cAliasSF4)->(dbSetOrder(1))
+			(cAliasSF4)->(dbSeek(xFilial("SF4")+(cAliasSD1)->D1_TES))
+			(cAliasSB1)->(dbSetOrder(1))
+			(cAliasSB1)->(dbSeek(xFilial("SB1")+(cAliasSD1)->D1_COD))
+	    
+			If (cAliasSB1)->B1_SELO == "1" .And. (cAliasSF4)->F4_SELO == "2"
+	   			lProcessa := .T.
+	  		Endif
+		Endif   
+		cCLYClasse:= (cAliasSB1)->B1_CLASSE
+		
+		
+		IF lExisteCLY
+			cAliasProd	:=	GetNextAlias()
+			BeginSql Alias cAliasProd
+				
+				SELECT  R_E_C_N_O_ CLYRECNO, CLY_CLASSE 
+				FROM 
+				%Table:CLY% CLY 
+				WHERE 
+				CLY.CLY_FILIAL=%xFilial:CLY% AND 
+				(CLY.CLY_DTINI<=%Exp:(cAliasSD1)->D1_DTDIGIT% AND 
+				CLY.CLY_DTFIM>=%Exp:(cAliasSD1)->D1_DTDIGIT%) AND
+				CLY.CLY_COD = %Exp:(cAliasSD1)->D1_COD% AND
+				CLY.CLY_TIPO = "2" AND
+				CLY.%NotDel%
+		   EndSql
+						
+			DbSelectArea (cAliasProd)
+			(cAliasProd)->(DbGoTop())
+			         	
+			IF !Empty(CLYRECNO)
+			     cCLYClasse := (cAliasProd)->CLY_CLASSE
+			ElseIf !Empty((cAliasSD1)->B1_GRUPO)
+				cAliasCLY	:=	GetNextAlias()
+				BeginSql Alias cAliasCLY
+					
+						SELECT  CLY.*, R_E_C_N_O_ CLYRECNO "
+						FROM 
+							%Table:CLY% CLY 
+						WHERE 
+							CLY.CLY_FILIAL=%xFilial:CLY% AND 
+							(CLY.CLY_DTINI<=%Exp:(cAliasSD1)->D1_DTDIGIT% AND 
+							CLY.CLY_DTFIM>=%Exp:(cAliasSD1)->D1_DTDIGIT%) AND
+							CLY.CLY_GRUPO=%Exp:(cAliasSD1)->B1_GRUPO% AND
+							CLY.CLY_TIPO = "1" AND
+							CLY.%NotDel%
+				EndSql
+							
+				DbSelectArea (cAliasCLY)
+				(cAliasCLY)->(DbGoTop())
+					       
+				While (cAliasCLY)->(!EOF()) 
+					cCLYClasse := (cAliasCLY)->CLY_CLASSE
+				   (cAliasCLY)->(dbSkip()) 
+				EndDo
+				(cAliasCLY)->(DbCloseArea ())
+		 EndIF	         	
+		(cAliasProd)->(DbCloseArea ())
+		EndIf		
+	
+		If lProcessa
+			cObserv		:=	STR0008 //"Remessa/Devolucao"
+			nQtdeNf		:=	A909Conv((cAliasSD1)->D1_COD,Iif(lM908SUni,ExecBlock("M908SUni",.T.,.T.,{(cAliasSD1)->D1_QUANT}),(cAliasSD1)->D1_QUANT),Mv_Par09,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)         
+			cCodProd	:=	(cAliasSD1)->D1_COD
+			nFatConv	:=	(cAliasSB1)->B1_CONV
+			cTipConv	:=	(cAliasSB1)->B1_TIPCONV
+	
+			If MV_PAR15==1
+				cChave := cCLYClasse+(cAliasSD1)->D1_DTDIGIT+"E"+(cAliasSF4)->F4_SELO+(cAliasSD1)->D1_SERIE
+			Else
+				cChave := cCLYClasse+(cAliasSD1)->D1_DTDIGIT+"E"+(cAliasSF4)->F4_SELO+(cAliasSD1)->D1_SERIE+(cAliasSD1)->D1_DOC+PADR(SPACE(12),12)+(cAliasSD1)->D1_TES//+(cAliasSD1)->D1_ITEM
+			EndIf
+	        
+			// IF alterado para incluir outro registro caso encontre lacunas.
+			  If  (cArqSelo)->(dbseek(cChave))   
+	            	lInclui := .T.	
+	            	
+	            	IF MV_PAR15==1
+	            		cChaveSelo := (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"E"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE
+	            	Else
+	            		cChaveSelo :=  (cArqSelo)->CLASSE+DTOS((cArqSelo)->DATREG)+"E"+(cArqSelo)->TESSELO+(cArqSelo)->SERIE+(cArqSelo)->NOTAFISCAL+PADR(SPACE(12),12)+(cArqSelo)->TES//+(cArqSelo)->ITEMNF
+	            	EndIf	
+	            	
+	            	While (cArqSelo)->( !Eof()) .And. cChaveSelo == cChave
+	
+	            		If( (cArqSelo)->NFISCALATE == (cAliasSD1)->D1_DOC .Or. Val(Alltrim((cArqSelo)->NFISCALATE))+1 == Val(Alltrim((cAliasSD1)->D1_DOC)))
+		               	lInclui := .F.	
+		               	Exit
+		               EndIf
+		           	(cArqSelo)->(dbSkip()) 
+		         	EndDo
+		    ELSE
+		        		lInclui := .T.
+	       EndIf
+	            
+	       If lInclui
+			     RecLock(cArqSelo,.T.)
+				(cArqSelo)->CLASSE		:=	cCLYClasse
+				(cArqSelo)->DATREG		:=	STOD((cAliasSD1)->D1_DTDIGIT)
+				(cArqSelo)->SERIE		:=	(cAliasSD1)->D1_SERIE
+				(cArqSelo)->NOTAFISCAL	:=	(cAliasSD1)->D1_DOC
+				(cArqSelo)->ITEMNF		:=	(cAliasSD1)->D1_ITEM
+				(cArqSelo)->TES			:=	(cAliasSD1)->D1_TES
+				(cArqSelo)->TESSELO		:=	(cAliasSF4)->F4_SELO
+				(cArqSelo)->ENTSAI		:=	"E"
+			Else
+	         		RecLock(cArqSelo,.F.)
+		   EndIf
+			
+			
+			(cArqSelo)->QTDENOTA		-=	nQtdeNf
+			(cArqSelo)->OBSERVACAO		:=	cObserv
+			(cArqSelo)->NFISCALATE		:=	(cAliasSD1)->D1_DOC
+			RetDesc(@cDesc,(cArqSelo)->CLASSE)
+			(cArqSelo)->DESCRICAO		:=	cDesc
+			(cArqSelo)->(MsUnLock())
+	
+			nPos :=Ascan(aSaidas,{|x|x[1]==(cArqSelo)->CLASSE})
+			If nPos==0                            		
+				AADD(aSaidas,{(cArqSelo)->CLASSE,nQtdeNf})
+			Else
+				aSaidas[nPos,2]	+=	nQtdeNf
+			Endif
+		Endif
+	
+		(cAliasSD1)->(DbSkip())
+	EndDo
+	
+	If lQuery
+		(cAliasSD1)->(DbCloseArea())
+	EndIf
+	
+Return
+
+/*/{Protheus.doc} SFOFecha
+Função para realizar o fechamento
+
+@author Desconhecido
+@since Desconhecido
+
+@param cSaldo, caracter, alias da tabela temporária.
+/*/
+
+Static Function SFOFecha(cSaldo)
+
+	Local aArea		:= GetArea()
+	Local cAliasSFO	:= "SFO"
+	Local cFiltro	:= ""
+	Local cIndex	:= ""
+	Local nIndex	:= 0
+	Local dData		:= CTOD("//")
+	
+	DbSelectArea (cAliasSFO)
+	(cAliasSFO)->(DbSetOrder (1))
+	#IFDEF TOP
+	    If (TcSrvType ()<>"AS/400")
+	    	cAliasSFO	:=	GetNextAlias()
+	
+	    	BeginSql Alias cAliasSFO
+				
+				COLUMN FO_DTFECHA 	AS DATE
+				COLUMN FO_DATA 		AS DATE
+				
+				SELECT
+					SFO.R_E_C_N_O_ SFORECNO, SFO.*
+				FROM 
+					%Table:SFO% SFO
+				WHERE
+					SFO.FO_FILIAL=%xFilial:SFO% AND
+					SFO.FO_DTFECHA=%Exp:dData% AND
+					SFO.FO_DATA<=%Exp:DToS (MV_PAR02)% AND
+					SFO.%NotDel%
+			EndSql
+		Else
+	#ENDIF
+		    cIndex	:= CriaTrab(NIL,.F.)
+		    cFiltro	:= 'FO_FILIAL=="'+xFilial ("SFO")+'".And.'
+		   	cFiltro += 'FO_DATA<="'+ DToS (MV_PAR02) +'" .And. FO_DTFECHA=="" '
+	
+		    IndRegua (cAliasSFO, cIndex, SFO->(IndexKey ()),, cFiltro)
+		    nIndex := RetIndex(cAliasSFO)
+	
+			#IFNDEF TOP
+				DbSetIndex (cIndex+OrdBagExt ())
+			#ENDIF
+			
+			DbSelectArea (cAliasSFO)
+		    DbSetOrder (nIndex+1)
+	#IFDEF TOP
+		Endif
+	#ENDIF
+	
+	DbSelectArea (cAliasSFO)
+	(cAliasSFO)->(DbGoTop ())
+	
+	Do While !(cAliasSFO)->(Eof ())
+	
+		If SFN->(dbSeek(xFilial("SFN")+(cAliasSFO)->FO_CLASSE+(cAliasSFO)->FO_GUIA))
+			// Utilizo a data da SFN pois quero saber a ordem que as GUIAS foram incluidas
+			dData := SFN->FN_DATA
+	
+			If (cSaldo)->( !MsSeek((cAliasSFO)->FO_CLASSE+(cAliasSFO)->FO_GUIA ) )
+				RecLock(cSaldo,.T.)
+				(cSaldo)->SFORECNO	:= (cAliasSFO)->SFORECNO
+				(cSaldo)->CLASSE	:= (cAliasSFO)->FO_CLASSE
+				(cSaldo)->NUMGUIA	:= (cAliasSFO)->FO_GUIA
+				(cSaldo)->SALDO		:= (cAliasSFO)->FO_SALDATU
+				(cSaldo)->FODATA	:= dData
+				(cSaldo)->COR		:= (cAliasSFO)->FO_COR
+				(cSaldo)->SERIE		:= (cAliasSFO)->FO_SERIE
+				(cSaldo)->(MsUnLock())
+			EndIf
+	
+		EndIf
+		(cAliasSFO)->(DbSkip ())			
+	EndDo
+	
+	#IFDEF TOP
+		If (TcSrvType ()<>"AS/400")
+			DbSelectArea (cAliasSFO)
+			(cAliasSFO)->(DbCloseArea ())
+		Else
+	#ENDIF
+			RetIndex("SFO")
+			FErase(cIndex+OrdBagExt ())
+	#IFDEF TOP
+		EndIf
+	#ENDIF
+	
+	RestArea(aArea)
+	
+Return
+
+/*/{Protheus.doc} AtuSaldo
+Função para atualizar o saldo
+
+@author Desconhecido
+@since Desconhecido
+
+@param cClasse, caracter, classe do selo.
+@param cSaldo, caracter, alias da tabela temporária.
+@param nQuant, numerico, quantidade da nota.
+@param cGuiaOri, caracter, guia de Origem dos selos.
+/*/
+
+Static Function AtuSaldo (cClasse, cSaldo, nQuant, cGuiaOri )
+	Local aArea := {}
+	
+	DEFAULT cGuiaOri 	:= ""
+	
+	If (cSaldo)->CLASSE==cClasse
+	
+	    If !Empty(cGuiaOri)
+	    	aArea	:= (cSaldo)->(GetArea())
+	    	// Tenta consumir da GUIA original, caso não consiga, consome da atual
+			If (cSaldo)->( MsSeek(cClasse+cGuiaOri)) .And. (cSaldo)->SALDO >= nQuant
+				RecLock(cSaldo, .F.)
+				(cSaldo)->SALDO -= nQuant
+				(cSaldo)->(MsUnLock())
+			Else
+				cGuiaOri := ""
+			EndIf
+	    	RestArea(aArea)
+	    EndIf
+	    
+	    If Empty(cGuiaOri)
+	   	 	// Motivo do IF abaixo:
+		 	// (cSaldo)->SALDO < nQuant	: Verifico se o saldo não é suficiente, sendo necessário tratar
+		 	// (cSaldo)->SALDO >=0		: Verifio se ainda é positivo, pois caso contrário o tratamento já foi relizado e basta subtrair
+		 	//  nQuant > 0				: Caso seja < 0 significa que é uma entrada, então deve ir para o "Else" e ser "somada" no TRB Exemplo: 10 -= (-2) resulta 12
+			If (cSaldo)->SALDO < nQuant .And. (cSaldo)->SALDO >=0 .And. nQuant > 0
+				// Separo a diferença, zero o saldo e commo está ordenado por CLASSE+GUIA, vejo se a próxima GUIA é da mesma classe,
+				// se for, consumo a diferença nela, caso contrário, volto e deixo negativo
+				nQuant -= (cSaldo)->SALDO
+		
+				RecLock(cSaldo, .F.)
+				(cSaldo)->SALDO := 0
+				(cSaldo)->(MsUnLock())
+		
+				(cSaldo)->( DbSkip() )
+				If (cSaldo)->CLASSE == cClasse
+					RecLock(cSaldo, .F.)
+					(cSaldo)->SALDO -= nQuant
+					(cSaldo)->(MsUnLock())
+				Else
+					(cSaldo)->( DbSkip(-1) )
+					//deixo negativo mesmo, caso devolva o saldo ficará correto, caso continue negativo gravo ZERO na SFO
+					RecLock(cSaldo, .F.)
+					(cSaldo)->SALDO -= nQuant
+					(cSaldo)->(MsUnLock())
+				EndIf
+			Else
+				RecLock(cSaldo, .F.)
+				(cSaldo)->SALDO -= nQuant
+				(cSaldo)->(MsUnLock())
+			EndIf
+		EndIf
+	EndIf
+	
+Return
+
+/*/{Protheus.doc} AtuSFO
+Função para atualizar a tabela de saldos iniciais de selo (SFO)
+
+@author Desconhecido
+@since Desconhecido
+
+@param cSaldo, caracter, alias da tabela temporária.
+/*/
+
+Static Function AtuSFO(cSaldo)
+
+	Local aArea	:= GetArea()
+	
+	(cSaldo)->( DbSetOrder(1) )
+	(cSaldo)->( DbGoTop() )
+	
+	Do While (cSaldo)->( !Eof() )
+	
+		SFO->( DbGoTo((cSaldo)->SFORECNO) )
+	    If SFO->( !Eof() )
+	
+			RecLock("SFO", .F.)
+			SFO->FO_SALDATU := Iif((cSaldo)->SALDO > 0,(cSaldo)->SALDO, 0 )
+			SFO->FO_DTFECHA := MV_PAR02
+			SFO->(MsUnLock())
+			SFO->(FkCommit())
+	
+			If (cSaldo)->SALDO > 0
+				Begin Transaction	         
+					RecLock("SFO",.T.)
+		   			SFO->FO_FILIAL		:= xFilial("SFO")
+		   			SFO->FO_DATA  		:= MV_PAR02
+		   			SFO->FO_GUIA		:= (cSaldo)->NUMGUIA
+		   			SFO->FO_SALDO  		:= (cSaldo)->SALDO
+		   			SFO->FO_SALDATU		:= (cSaldo)->SALDO
+					SFO->FO_CLASSE		:= (cSaldo)->CLASSE
+					SFO->FO_COR			:= (cSaldo)->COR
+					SFO->FO_SERIE		:= (cSaldo)->SERIE
+		   			SFO->(MsUnLock())	  	     
+		  	   End Transaction
+			EndIf
+	
+		EndIf
+		(cSaldo)->( DbSkip() )
+	EndDo
+	
+	RestArea(aArea)
+	
+Return
+
+/*/{Protheus.doc} ChkFecha
+Função para checar os fechamentos
+
+@author Desconhecido
+@since Desconhecido
+
+@return logico, se realiza o fechamento ou não.
+/*/
+
+Static Function ChkFecha()
+
+	Local aArea		:= GetArea()
+	Local cAliasSFO	:= "SFO"
+	Local cAliasSFN	:= "SFN"
+	Local cFiltro	:= ""
+	Local cIndex	:= ""
+	Local nIndex	:= 0
+	Local dData		:= CTOD("//")
+	Local lRet		:= .T.
+	Local lAchou	:= .F.
+	Local lQuery	:= .F.
+	Local cMens		:= "Foram encontrados fechamentos no período ou em períodos posteriores, deseja excluí-los para fechar este período?"
+	
+	DbSelectArea (cAliasSFO)
+	(cAliasSFO)->(DbSetOrder (1))
+	#IFDEF TOP
+	    If (TcSrvType ()<>"AS/400")
+			lQuery		:= .T.
+	    	cAliasSFO	:=	GetNextAlias()
+	
+	    	BeginSql Alias cAliasSFO
+				
+				COLUMN FO_DTFECHA 	AS DATE
+				COLUMN FO_DATA 		AS DATE
+				
+				SELECT
+					SFO.R_E_C_N_O_ SFORECNO, SFO.*
+				FROM 
+					%Table:SFO% SFO
+				WHERE
+					SFO.FO_FILIAL=%xFilial:SFO% AND
+					( SFO.FO_DTFECHA=%Exp:DToS (dData)% OR SFO.FO_DTFECHA>=%Exp:DToS(MV_PAR01)% ) AND
+					SFO.FO_Data>=%Exp:DToS(MV_PAR01-2)% AND
+					SFO.%NotDel%
+				ORDER BY 
+					SFO.FO_CLASSE, SFO.FO_DATA, SFO.FO_DTFECHA, SFO.FO_GUIA
+			EndSql
+		Else
+	#ENDIF
+		    cIndex	:= CriaTrab(NIL,.F.)
+		    cFiltro	:= 'FO_FILIAL=="'+xFilial ("SFO")+'".And.'
+		   	cFiltro += 'FO_DATA>="'+ DToS (MV_PAR01-2) +'"'
+	
+		    IndRegua (cAliasSFO, cIndex, SFO->(IndexKey ()),, cFiltro)
+		    nIndex := RetIndex(cAliasSFO)
+	
+			#IFNDEF TOP
+				DbSetIndex (cIndex+OrdBagExt ())
+			#ENDIF
+			
+			DbSelectArea (cAliasSFO)
+		    DbSetOrder (nIndex+1)
+	#IFDEF TOP
+		Endif
+	#ENDIF
+	
+	DbSelectArea (cAliasSFO)
+	(cAliasSFO)->(DbGoTop ())
+	Do While !(cAliasSFO)->(Eof ())
+		If !Empty((cAliasSFO)->FO_DTFECHA)
+			lAchou := .T.
+			Exit
+		EndIf
+		(cAliasSFO)->(DbSkip())	
+	EndDo
+	
+	If lAchou
+		If !MsgYesNo(cMens,"Atenção") // Deseja mesmo reabrir?
+			lRet := .F.
+		EndIf
+	EndIf
+	
+	If lAchou .And. lRet
+		(cAliasSFO)->(DbGoTop ())
+	    // abaixo pago todos os saldos de guias do período selecionado, ou dos próximos.
+	    // Após a limpeza, devo rodar SFN com as inclusçoes de GUIA dos próximos períodos e recriar na SFO a cópia da SFN, como na inclusão da SFN.
+		Do While !(cAliasSFO)->(Eof ())
+			SFO->(dbGoTo( (cAliasSFO)->SFORECNO ) )
+			
+			//ATENÇÃO, a query trouxe também SFO do período anterior com o saldo anterior, para ser reaberto e não apagado
+			If (cAliasSFO)->FO_DATA < MV_PAR01 .And. (cAliasSFO)->FO_DTFECHA >= MV_PAR01
+				RecLock("SFO",.F.)
+				SFO->FO_SALDATU := SFO->FO_SALDO
+				SFO->FO_DTFECHA := dData
+				SFO->(MsUnLock())
+				SFO->(FkCommit())
+			ElseIf (cAliasSFO)->FO_DATA >= MV_PAR01
+				RecLock("SFO",.F.)
+				SFO->(dbDelete())
+				SFO->(MsUnLock())
+				SFO->(FkCommit())
+			EndIf
+	
+			(cAliasSFO)->( DbSkip() )
+		EndDo
+	
+		SFO->(dbGoTop())
+	
+		DbSelectArea (cAliasSFN)
+		(cAliasSFN)->(DbSetOrder (1))
+		#IFDEF TOP
+		    If (TcSrvType ()<>"AS/400")
+				lQuery		:= .T.
+		    	cAliasSFN	:=	GetNextAlias()
+		
+		    	BeginSql Alias cAliasSFN
+					
+					COLUMN FN_DATA	AS DATE
+					
+					SELECT
+						SFN.*
+					FROM 
+						%Table:SFN% SFN
+					WHERE
+						SFN.FN_FILIAL=%xFilial:SFN% AND
+						SFN.FN_Data>=%Exp:DToS (MV_PAR01)% AND
+						SFN.FN_TIPO='N' AND
+						SFN.%NotDel%
+					ORDER BY 
+						SFN.FN_CLASSE, SFN.FN_DATA, SFN.FN_GUIA
+				EndSql
+			Else
+		#ENDIF
+			    cIndex	:= CriaTrab(NIL,.F.)
+			    cFiltro	:= 'FN_FILIAL=="'+xFilial ("SFN")+'".And. '
+			   	cFiltro += 'FN_DATA>="'+ DToS (MV_PAR01) +'" .And. '
+				cFiltro += 'FN_TIPO=="N"'
+				
+			    IndRegua (cAliasSFN, cIndex, SFN->(IndexKey ()),, cFiltro)
+			    nIndex := RetIndex(cAliasSFN)
+		
+				#IFNDEF TOP
+					DbSetIndex (cIndex+OrdBagExt ())
+				#ENDIF
+				
+				DbSelectArea (cAliasSFN)
+			    DbSetOrder (nIndex+1)
+		#IFDEF TOP
+			Endif
+		#ENDIF
+	
+		DbSelectArea (cAliasSFN)
+		(cAliasSFN)->(DbGoTop ())
+		Do While !(cAliasSFN)->(Eof ())
+			RecLock("SFO",.T.)
+			SFO->FO_FILIAL		:= xFilial("SFN")
+		   	SFO->FO_DATA  		:= (cAliasSFN)->FN_DATA
+			SFO->FO_GUIA		:= (cAliasSFN)->FN_GUIA
+		   	SFO->FO_SALDO		:= (cAliasSFN)->FN_QTDE
+		   	SFO->FO_SALDATU		:= (cAliasSFN)->FN_QTDE
+		   	SFO->FO_CLASSE		:= (cAliasSFN)->FN_CLASSE
+		   	SFO->FO_SERIE 		:= (cAliasSFN)->FN_SERIE
+		   	SFO->FO_COR 		:= (cAliasSFN)->FN_COR
+			SFO->(MsUnLock())
+			(cAliasSFN)->(DbSkip())
+		EndDo
+		SFO->(FkCommit())
+		If lQuery
+			(cAliasSFN)->(DbCloseArea())
+		EndIf
+	EndIf
+	
+	If lQuery
+		(cAliasSFO)->(DbCloseArea())
+	EndIf
+	
+	RestArea(aArea)
+	
+Return lRet

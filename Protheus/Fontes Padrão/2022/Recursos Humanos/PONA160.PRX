@@ -1,0 +1,2404 @@
+#INCLUDE "PONA160.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#DEFINE Confirma 1
+#DEFINE Abandona 0
+
+Static lPonap160Block
+Static lIncluir:= .F.
+Static lIntegDef 	:= FindFunction("GETROTINTEG") .And. FindFunction("FWHASEAI")
+Static cAA1Fil	:= ""
+Static lInteRHAA1	:= If(FindFunction("IntegRHAA1"),IntegRHAA1(),.F.)
+//Integração com o TAF
+Static lIntTAF		:= ((SuperGetMv("MV_RHTAF",, .F.,cFilAnt) == .T.) .AND. Val(SuperGetMv("MV_FASESOC",/*lHelp*/,' ',cFilAnt)) >= 1 )
+Static lEFDMsg		:= SuperGetMv("MV_EFDMSG",,.F.)
+Static cVersEnvio	:= ""
+Static cVersGPE		:= ""
+Static lMiddleware	:= If( cPaisLoc == 'BRA' .AND. Findfunction("fVerMW"), fVerMW(), .F. )
+Static lCpoIntTaf
+Static lExclTrn		:= SuperGetMv("MV_DLTRTNO,",,.F.)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Pona160  ³ Autor ³ Equeipe Advanced RH       ³ Data ³ 18.11.97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Manuten‡„o de Transferencias de Turnos                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Gen‚rico                                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ BOPS/FNC ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Leandro Dr. ³14/04/14³          ³Retirada de ajustes, database e FieldPos  ³±±
+±±³            ³        ³          ³que nao serao utilizados na P12.		  ³±±
+±±³Flavio Corr ³19/03/15³PCREQ-4163³Integração Mensagem Unica                 ³±±
+±±|Marcia Moura|11/05/2017|DRHESOCP-222|Inclusao controle do registro S-2206  ³±±
+±±|Oswaldo L   |17/08/17  |DRHPONTP    |Liberar troca turno em Lote +         ³±±
+±±|            |          |-1515       |Integracao TSA                        ³±±
+±±|Cecília Carv|08/01/2018|DRHESOCP-   |Ajuste para geração de contrato inter-³±±
+±±|            |          |2682        |mitente - evento S-2200.              ³±±
+±±|Eduardo Vic.|24/03/2018|DRHESOCP3741|CORREÇÃO DE GERAÇÃO DE S-2206		  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+
+Function Pona160(aDadosAuto, nOpc)
+
+Local aArea				:= GetArea()
+Local aIndexSRA			:= {}
+Local cFiltraSRA		:= ""
+Local cPonMes			:= GetMv("MV_PONMES")
+Local lPpeAtiv			:= .F.
+Local nPos				:= 0
+
+Private bFiltraBrw		:= {|| NIL }
+Private dPerIni			:= Ctod("//")
+Private dPerFim			:= Ctod("//")
+Private cCadastro		:= OemToAnsi(STR0011 ) // 'Tranferˆncia de Turno de Trabalho'
+
+Private aRotina			:= MenuDef()
+
+Private aColsInt  		:= {}
+Private lErroInt 		:= .F.
+Private nPosInt 		:= 1
+Private lExc160 		:= .F.
+Private aTpAlt 			:= {.F.,.F.} // indica o tipo de integracao com eSocial
+Private lUseSPJ 		:= If(cPaisLoc == "BRA",.T., SuperGetMv("MV_USESPJ",NIL,"0")  == "1" )
+Private lPONA161Flt 	:= .F.			//Verifica se havera filtro de Browse para o PONA161
+
+Private lMsErroAuto 	:= .F.
+Private aVarAuto		:= {}
+Private aRotAuto		:= aDadosAuto
+Private cChave			:= ""
+Private lAuto  			:= (aRotAuto <> Nil)
+
+DEFAULT lPonap160Block := ExistBlock('PONAP160')
+DEFAULT lCpoIntTaf	:= (ChkFile("SPF") .And. SPF->( ColumnPos("PF_INTGTAF") ) > 0)
+
+IF lAuto
+    aVarAuto := {       "PF_DATA"  	 ,;
+						"PF_TURNODE" ,;
+						"PF_SEQUEDE" ,;
+						"PF_REGRADE" ,;
+						"PF_TURNOPA" ,;
+						"PF_SEQUEPA" ,;
+						"PF_REGRAPA" ,;
+						"PF_TRFOBS"  ,;
+						"GDDELETED"  }
+	IF NOPC == 6
+		PON160lot(aRotAuto)
+		Return (NIL)
+	ENDIF
+ENDIF
+
+if !lAuto
+	cAA1Fil := xFilial("AA1")
+	If (lIntTAF .Or. lMiddleware) 
+		RCA->( dbSetOrder(1) )
+		If RCA->( dbSeek( xFilial("RCA") + "P_LPPEATIV" ) )
+			lPpeAtiv := (AllTrim(RCA->RCA_CONTEU) == ".T.")
+		EndIf
+		If lPpeAtiv .And. (RGE->(ColumnPos("RGE_COD")) == 0 .Or. RGE->(ColumnPos("RGE_SALRED")) == 0 .Or. RGE->(ColumnPos("RGE_PERC")) == 0)
+			fAlertRGE()
+			Return()
+		EndIf
+		If lCpoIntTaf
+			fAlertJob()
+		EndIf
+	EndIf
+Endif
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³So executa se o Modo de Acesso do SPF e SRA foram iguais e se este  ulti³
+³mo nao estiver vazio.                                                   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ValidArqPon() .and. ChkVazio('SRA') .and. ( Empty(cPonMes) .or. CheckPonMes( @dPerIni , @dPerFim , .F. , .T. , .F. ) )
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicializa o filtro utilizando a funcao FilBrowse                      ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	SetBrwCHGAll( .T. )
+	dbSelectArea('SRA')
+	cFiltraRh	:= ChkRh("PONA160","SRA","1")
+
+	If !lAuto
+
+		bFiltraBrw 	:= {|| FilBrowse("SRA",@aIndexSRA,@cFiltraRH) }
+		Eval( bFiltraBrw )
+		lPONA161Flt := .T. //Existe Filtro
+
+		mBrowse( 6, 1,22,75,"SRA",,,,,,fCriaCor() )
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Deleta o filtro utilizando a funcao FilBrowse                     	 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		EndFilBrw("SRA",aIndexSra)
+	else
+			If nOpc == 4 .or. nopc == 3 .or. nopc == 5
+				Pn160Atu(,,nOpc)
+			Endif
+	Endif
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura a Integridade do Sistema                            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	dbSelectArea('SPF')
+	dbSetOrder(1)
+	dbSelectArea('SRA')
+
+EndIF
+
+RestArea( aArea )
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³PN160Atu  ³ Autor ³ Fernando Joly Siquini ³ Data ³ 18.11.97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Programa de Vis.,Inc.,Alt. e Del. de Transf. de Turnos     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ pn160Atu(ExpC1,ExpN1,ExpN2)                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±³          ³ ExpN2 = Numero da opcao selecionada                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Pona160                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Pn160Atu(cAlias,nReg,nOpcX)
+
+Local aAdvSize		:= {}
+Local aInfoAdvSize	:= {}
+Local aObjSize		:= {}
+Local aObjCoords	:= {}
+Local aArea			:= GetArea()
+Local aButtons		:= {}
+Local aNotFields	:= { "PF_FILIAL", "PF_MAT" }
+Local aFields		:= {}
+Local aAltera   	:= {}
+Local aNaoAltera	:= {}
+Local aQueryCond	:= {}
+Local bSet15		:= Nil
+Local bSet24		:= Nil
+Local bDialogInit	:= Nil
+Local cFil			:= ""
+Local cMat			:= ""
+Local cKey			:= ""
+Local cLockByName	:= ""
+Local nOpcA			:= Abandona
+Local nLoop			:= 0
+Local nUsado   		:= 0
+Local oFont
+Local oGroup
+Local oGet
+Local oPanel
+Local bSeekWhile	:= {|| SPF->PF_FILIAL + SPF->PF_MAT }
+Local nX			:= 0
+Local nPos			:= 0
+Local NY			:= 0
+Local aAuxAnt		:= {}
+Local aAux			:= {}
+Local aTempAnt		:= {}
+Local aTemp			:= {}
+Local aOfusca		:= If(FindFunction('ChkOfusca'), ChkOfusca(), {.T. , .F.}) //[1] Acesso; [2]Ofusca
+Local lOfuscaNom	:= .F.
+Local lOfuscaAdm	:= .F.
+Local aFldRot 		:= {'RA_NOME', 'RA_ADMISSA'}
+
+LOCAL aFldOfusca 	:= {}
+
+if !lAuto
+	cFil		:= xFilial( "SPF" , SRA->RA_FILIAL )
+	cMat		:= SRA->RA_MAT
+	cKey 		:= ( cFil + cMat )
+	
+	bSet15		:= { || IF( oGet:TudoOk() , ( nOpcA := Confirma , oDlg:End() ) , nOpcA := Abandona ) }
+	bSet24		:= { || oDlg:End() }
+	bDialogInit	:= { || EnchoiceBar( oDlg , bSet15 , bSet24 , NIL , aButtons ) ,}
+Else
+	cKey := aRotAuto[1]
+	
+	nPosData	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_DATA"})
+	nPosTurnod	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_TURNODE"})
+	nPosSequed	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_SEQUEDE"})
+	nPosRegrad	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_REGRADE"})
+	nPosTurnop	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_TURNOPA"})
+	nPosSequep	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_SEQUEPA"})
+	nPosRegrap	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_REGRAPA"})
+	NPOSTRFOBS	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_TRFOBS"})
+	nDeleted	:= Ascan(aVarAuto,{|x| Alltrim(x) == "GDDELETED"})
+Endif
+
+If lIncluir
+	nOpcx := 3
+	lIncluir :=.F.
+Endif
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Coloca o cursor do Mouse em Estado de Espera				   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+CursorWait()
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carrega Array de Campos Alteraveis                           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cAlias := "SPF"
+
+Begin Sequence
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Monta a entrada de dados do arquivo                          ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	Private aColsAnt  		:= {}
+	Private aRecnos  		:= {}
+	Private aSPF			:= {}
+	Private aTnoGetInfoTab	:= {}
+	Private aHeader  		:= {}
+	Private aCols    		:= {}
+	Private aVirtual 		:= {}
+	Private aVisual	 		:= {}
+	Private aTela			:= {}
+	Private aGets			:= {}
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Bloqueia Chaves Logicas de Excecoes do Funcionario Antes da   ³
+	³montagem do Calendario. Temos que realizar nesse momento pois ³
+	³se deixarmos no 2o bloqueio abaixo, o Calendario podera ser di³
+	³ferente em virtude de novas excecoes de outra sessao dessa ro ³
+	³rotina.                                                       ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !Pona160Locks( nOpcX , cAlias, {}, ProcName() )
+       Break
+    EndIF
+
+	dbSelectArea("SPF")
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Carrega os Dados no aCols                                       ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	aCols := GdMontaCols(	@aHeader	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+						@nUsado		,;	//02 -> Numero de Campos em Uso
+						@aVirtual	,;	//03 -> [@]Array com os Campos Virtuais
+						@aVisual	,;	//04 -> [@]Array com os Campos Visuais
+						cAlias		,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+						aNotFields	,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+						@aRecnos	,;	//07 -> [@]Array unidimensional contendo os Recnos
+						cAlias   	,;	//08 -> Alias do Arquivo Pai
+						cKey		,;	//09 -> Chave para o Posicionamento no Alias Filho
+						bSeekWhile 	,;	// NIL 10 -> Bloco para condicao de Loop While
+						NIL			,;	//11 -> Bloco para Skip no Loop While
+						.T.			,;	//12 -> Se Havera o Elemento de Delecao no aCols
+						.F.			,;	//13 -> Se cria variaveis Publicas
+						.T.			,;	//14 -> Se Sera considerado o Inicializador Padrao
+						NIL			,;	//15 -> Lado para o inicializador padrao
+						NIL			,;	//16 -> Opcional, Carregar Todos os Campos
+						NIL		 	,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+						aQueryCond	,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+						.F.			,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+						.F.			,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+						.F.			,;	//21 -> Carregar Coluna Fantasma
+						.F.			,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+						NIL			,;	//23 -> Verifica se Deve Checar se o campo eh usado
+						NIL			,;	//24 -> Verifica se Deve Checar o nivel do usuario
+						.T.			,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+						NIL			,;	//26 -> [@]Array que contera as chaves conforme recnos
+						.F.			,;	//27 -> [@]Se devera efetuar o Lock dos Registros
+						.F.			,;	//28 -> [@]Se devera obter a Exclusividade nas chaves dos registros
+						NIL			 ;	//29 -> Numero maximo de Locks a ser efetuado
+			)
+	IF lAuto
+		
+		SPF->(DbSetOrder(1))
+		SPF->(DBSEEK(cKey))
+		
+		SRA->(DbSetOrder(1))
+		IF SRA->(DBSEEK(cKey))
+			cFil := SRA->RA_FILIAL
+			cMat := SRA->RA_MAT
+		ENDIF
+		
+		aFields 	:= aHeader
+		acols 		:= {}
+		aColsAnt 	:= {}
+		aRecnos 	:= {}
+		
+		FOR NY := 2 TO LEN(aRotAuto)
+			aAuxAnt := {}
+			aAux 	:= {}
+			
+			FOR nx:= 1 to len(aFields)
+				aAdd(aAuxAnt  , aRotAuto[NY,nx,1])
+				AADD(aAux     , aRotAuto[NY,nx,2])
+			Next nx
+			aAdd(aAuxAnt  , aRotAuto[NY,Len(aRotAuto[NY]),1])
+			AADD(aAux     , aRotAuto[NY,Len(aRotAuto[NY]),2])
+			
+			aadd(aTempAnt, aAuxAnt)
+			aAdd(aTemp, aAux)
+			
+			IF SPF->(dbseek(cFil + cMat + DTOS(aRotAuto[NY, nPosData, 1]) ) )
+				Aadd(aRecnos, SPF->(RECNO()))
+			Endif
+		Next NY
+	ENDIF
+	
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Cria as Variaveis de Memoria e Carrega os Dados Conforme o ar³
+	³ quivo															   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+	IF lAuto
+		aFields := {}
+	EndIf
+	For nLoop := 1 To nUsado
+		PutFileInEof( "SPF" )
+		aAdd( aFields , aHeader[ nLoop , 02 ] )
+		IF !lAuto
+			SetMemVar( aHeader[ nLoop , 02 ] , NIL , .T. , .T. , .F. , .T. , NIL )
+		EndIf
+	Next nLoop
+
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Define os Campos Editaveis								   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+	IF ( ( nOpcX == 3 ) .or. ( nOpcX == 4 ) )
+		nLoops := Len( aVisual )
+		For nLoop := 1 To nLoops
+			aAdd( aNaoAltera , aVisual[ nLoop ] )
+		Next nLoop
+		nLoops := Len( aFields )
+		For nLoop := 1 To nLoops
+			IF ( aScan( aNaoAltera , { |cNaoA| cNaoA == aFields[ nLoop ] } ) == 0 )
+				aAdd( aAltera , aFields[ nLoop ] )
+			EndIF
+		Next nLoop
+	EndIF
+
+	if !lauto
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Inclus„o com Registros											 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( ( nOpcX == 3 ) .and. ( Len(aRecnos) > 0 ) )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Restaura o cursor do Mouse 								   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			CursorArrow()
+			Help(' ',1,'A160CREG')
+			lRet := .F.
+			Break
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Visualiza‡„o, Altera‡„o ou Exclus„o sem Registros				 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		ElseIF (	(	( nOpcX == 2 ) .or. ( nOpcX == 4 ) .or. (nOpcX == 5 ) 	) .and. ( Len(aRecnos) == 0 )  )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Restaura o cursor do Mouse 								   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			CursorArrow()
+			Help(' ',1,'A160SREG')
+			lRet := .F.
+			Break
+		EndIF
+	Endif
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Bloqueia Chaves Logicas e Registros de Troc.Turno do Funcionario³
+	³Depois da Montagem do Calendario.						         ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !Pona160Locks( nOpcX , cAlias, aRecnos, ProcName(), @cLockByName )
+       Break
+    EndIF
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Define Button Para Consulta dos Horarios da Tabela           ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !lAuto
+		IF ( nOpcX == 3 .Or. nOpcX == 4 )
+			aButtons := {;
+						{	"S4SB014N"					,;
+   	    					{ || SPJExceConPad(3) }		,;
+       						OemToAnsi( STR0006 )		,;	//'Consultar Turnos...'
+       						OemToAnsi( STR0106 )		 ;	//'Consultar'
+           				};
+					}
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Efetua Copia de aCols para Comparacao na Gravacao            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aColsAnt := aClone( aCols )
+		
+		EndIF
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Monta as Dimensoes dos Objetos         					   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aAdvSize		:= MsAdvSize()
+		aInfoAdvSize	:= { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 5 , 5 }
+		aAdd( aObjCoords , { 000 , 020 , .T. , .F. } )
+		aAdd( aObjCoords , { 000 , 000 , .T. , .T. } )
+		aObjSize		:= MsObjSize( aInfoAdvSize , aObjCoords )
+		
+		//Tratamento dados sensíveis
+		If aOfusca[2]
+			aFldOfusca 	:= FwProtectedDataUtil():UsrNoAccessFieldsInList( aFldRot) // CAMPOS SEM ACESSO		
+			IF aScan( aFldOfusca , { |x| x:CFIELD == "RA_NOME" } ) > 0 
+				lOfuscaNom	:= FwProtectedDataUtil():IsFieldInList( "RA_NOME" )
+			ENDIF		
+			IF aScan( aFldOfusca , { |x| x:CFIELD == "RA_ADMISSA" } ) > 0 
+				lOfuscaAdm := FwProtectedDataUtil():IsFieldInList( "RA_ADMISSA" )
+			ENDIF					
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Monta Dialogo para Apresentacao das Informacoes              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		DEFINE FONT oFont NAME "Arial" SIZE 0,-11 BOLD
+		DEFINE MSDIALOG oDlg TITLE OemToAnsi(STR0011) From aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] OF oMainWnd PIXEL	// 'Transferˆncia de Turno de Trabalho'
+			
+			@ aObjSize[1,1] , aObjSize[1,2] 					GROUP oGroup TO aObjSize[1,3],(( aObjSize[1,4])*0.18 )		LABEL OemToAnsi(STR0012) OF oDlg PIXEL	// "Matricula:"
+			oGroup:oFont:= oFont
+			@ aObjSize[1,1] , (( aObjSize[1,4])*0.185 )		GROUP oGroup TO aObjSize[1,3],((aObjSize[1,4])*0.87)		LABEL OemToAnsi(STR0013) OF oDlg PIXEL	// "Nome:"
+			oGroup:oFont:= oFont
+			@ aObjSize[1,1] , ((aObjSize[1,4])*0.875)			GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]				LABEL OemToAnsi(STR0015) OF oDlg PIXEL	// "Admiss„o:"
+			oGroup:oFont:= oFont
+			
+			@ aObjSize[1,1]+10, ((aObjSize[1,2]) * 2.5)	 SAY OemToAnsi(SRA->RA_MAT)	SIZE 050,10 OF oDlg PIXEL FONT oFont
+			@ aObjSize[1,1]+10, ((aObjSize[1,4]) * 0.2)	 SAY If(lOfuscaNom,Replicate('*',15),OemToAnsi(SRA->RA_NOME)) 	SIZE 146,10 OF oDlg PIXEL FONT oFont
+			@ aObjSize[1,1]+10, ((aObjSize[1,4]) * 0.89) SAY If(lOfuscaAdm,Replicate('*',10),Dtoc(SRA->RA_ADMISSA))		SIZE 050,10 OF oDlg PIXEL FONT oFont
+			
+			oGet := MSGetDados():New(aObjSize[2,1],aObjSize[2,2],aObjSize[2,3],aObjSize[2,4],nOpcX,'Pn160LinOk','Pn160TudOk','',.T.,aAltera,1,NIL,999999999,,,,'Pn160VldEx')
+			
+		ACTIVATE MSDIALOG oDlg ON INIT Eval( bDialogInit )
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Coloca o cursor do Mouse em Estado de Espera				   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		CursorWait()
+		
+		IF ( ( nOpcA == Confirma  ) .and. ( nOpcX # 2 ) )
+			IF ( ( nOpcX == 3 ) .or. ( nOpcX == 4 ) )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Grava apenas se Houverem Diferencas				 ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF !fCompArray( aCols , aColsAnt )
+					//-- Grava‡„o
+					Pn160Grava(cAlias,nOpcX)
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Executa Ponto de Entrada para a Emissao de Documento³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					IF ( lPonap160Block )
+						ExecBlock('PONAP160' , .F., .F.)
+					EndIF
+				EndIF
+			Else
+				//-- Exclus„o
+				Pn160Exclu(cAlias)
+			EndIF
+			//--Processa Gatilhos
+			EvalTrigger()
+		EndIF
+	Else
+		IF ( nOpcX == 4 )
+			for nX := 1 to len(aTemp)
+					aadd(acols, aTemp[nx])
+					aadd(aColsAnt, aTempAnt[nx])
+			next nx
+			
+			if Pn160TudOk()
+				Pn160Grava(cAlias,nOpcX)
+			Endif
+			
+			IF ( lPonap160Block )
+				ExecBlock('PONAP160' , .F., .F.)
+			EndIF
+			
+		Elseif (nOpcX == 3)
+			for nX := 1 to len(aTempAnt)
+					aadd(aColsAnt, aTempAnt[nx])
+			next nx
+			acols := aColsAnt
+			aColsAnt := {}
+			
+			if Pn160TudOk()
+				Pn160Grava(cAlias,nOpcX)
+			Endif
+			
+			IF ( lPonap160Block )
+				ExecBlock('PONAP160' , .F., .F.)
+			EndIF
+		else
+			Pn160Exclu(cAlias)
+		EndIF
+	ENDIF
+	
+End Sequence
+
+if !lAuto
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Coloca o cursor do Mouse em Estado de Espera				   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	CursorWait()
+	
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Libera Retgistros Locados		                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	FreeLocks( cAlias , NIL , .T. )
+	
+	If !Empty(cLockByName)
+		UnLockByName(cLockByName,.T.,.T.,.T.)
+	EndIf
+	
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura a integridade da janela                             ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	RestArea( aArea )
+	
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura o cursor do Mouse 								   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	CursorArrow()
+Else
+	RestArea( aArea )
+	CursorArrow()
+Endif
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Pn160Grava³ Autor ³Marinaldo de Jesus     ³ Data ³21/04/2004³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Grava no arquivo de Transferˆncia de Turnos                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³Pona160                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Pn160Grava(cAlias,nOpcX)
+
+Local aMestre		:= GdPutIStrMestre( 01 )
+Local aItens		:= {}
+Local aAreaSR6		:= SR6->(GetArea())
+Local aColsAux		:= {}
+Local aRecAux		:= {}
+Local cOpcao		:= "PUT"
+Local nOpTSREP 		:= 4
+
+Local lContinua 	:= .T.
+Local aCopyCols		:= {}
+Local nPosData
+Local nPosTurnod
+Local nPosSequed
+Local nPosRegrad
+Local nPosTurnop
+Local nPosSequep
+Local nPosRegrap
+Local nPosTnoPa	:= 0
+Local nPosSeqPa	:= 0
+Local nPosTafKey
+Local nDeleted
+Local nLoop
+Local nLoops
+Local nXLoop
+Local nI
+Local aAntCols			:= {}
+Local dIniAlt			:= Ctod("//")
+Local dFimAlt			:= Ctod("//")
+
+Local lTSREP		:= SuperGetMv( "MV_TSREP" , NIL , .F. )
+Local cDtIniTSREP	:= ""
+Local cAuxDtIniTSREP:= ""
+Local cTafKey		:= ""
+Local lAtuSRA 		:= .F.
+Local lAtuTaf		:= .F.
+Local lAtuTSREP		:= .F.
+Local lIntegra      := .T.
+Local lDelete
+Local aCampos 		:= {}
+Local lMsgEFD		:= FindFunction("fEFDMsg")
+Local cTrabVnc		:= fCatTrabEFD("TCV")
+Local lMostraMsg 	:= .F.
+Local lcontAuto		:= .T.
+Local nB			:= 0
+Local lAtuSeq		:= .F.
+Local cEFDAviso		:= ""
+Local nPosRec		:= GdFieldPos("PF_REC_WT")
+Local lUltSPF		:= .F.
+
+Private oObjREP		:= Nil
+
+DEFAULT lCpoIntTaf	:= (ChkFile("SPF") .And. SPF->( ColumnPos("PF_INTGTAF") ) > 0)
+
+GetPonMesDat( @dIniAlt , @dFimAlt , SRA->RA_FILIAL )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carrega os Itens Apenas se Houveram Alteracoes ou na Exclusao³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+aItens := GdPutIStrItens( 01 )
+
+aItens[ 01 , 01 ] := "SPF"
+aItens[ 01 , 02 ] := {;
+						{ "FILIAL"	, xFilial( "SPF" , xFilial( "SRA" , SRA->RA_FILIAL ) ) },;
+						{ "MAT"		, SRA->RA_MAT };
+					 }
+
+//Grava apenas os registros que foram incluídos, alterados ou deletados. Quem não teve alteração, não será regravado.
+For nB := 1 to Len(aCols)
+	If nB > Len(aColsAnt) .or. !fCompArray(aColsAnt[nB], aCols[nB])
+		aAdd(aColsAux, aCols[nB])
+		If !Empty(aCols[nB,nPosRec])
+			aAdd(aRecAux, aCols[nB,nPosRec])
+		EndIf
+	EndIf
+Next nB
+
+aItens[ 01 , 03 ] := aClone( aHeader  )
+aItens[ 01 , 04 ] := aClone( aColsAux    )
+aItens[ 01 , 05 ] := aClone( aVirtual )
+aItens[ 01 , 06 ] := aClone( aRecAux  )
+aItens[ 01 , 07 ] := {}
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta a Gravacao ou Exclusao Apenas se Houveram Alteracoes  ou³
+³ se foi Selecionada a Exclusao								   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+aMestre[ 01 , 01 ]	:= "SRA"
+aMestre[ 01 , 02 ]	:= SRA->( Recno() )
+aMestre[ 01 , 03 ]	:= .F.
+aMestre[ 01 , 04 ]	:= {}
+aMestre[ 01 , 05 ]	:= {}
+aMestre[ 01 , 06 ]	:= {}
+aMestre[ 01 , 07 ]	:= aClone( aItens )
+
+Begin Transaction
+	
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Grava as Informacoes                        				   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+	IF !lAuto
+		GdPutInfoData( aMestre , cOpcao , .F. , .F.,,.F. )
+	EndIf
+	nPosData	:= GdFieldPos("PF_DATA")
+	nPosTurnod	:= GdFieldPos("PF_TURNODE")
+	nPosSequed	:= GdFieldPos("PF_SEQUEDE")
+	nPosRegrad	:= GdFieldPos("PF_REGRADE")
+	nPosTurnop	:= GdFieldPos("PF_TURNOPA")
+	nPosSequep	:= GdFieldPos("PF_SEQUEPA")
+	nPosRegrap	:= GdFieldPos("PF_REGRAPA")
+	nPosTafKey	:= GdFieldPos("PF_TAFKEY")
+	nDeleted	:= GdFieldPos("GDDELETED")
+	
+	nLoops		:= Len( aCols )
+	
+	//-- Inicializa a integracao via WebServices TSA
+	If lTSREP
+		
+		oObjREP := PTSREPOBJ():New()
+		
+		cDtIniTSREP	:= DTOS(SRA->RA_ADMISSA)
+		cDtIniTSREP := SubStr(cDtIniTSREP,1,4)+"-"+SubStr(cDtIniTSREP,5,2)+"-"+SubStr(cDtIniTSREP,7,2)
+		
+	EndIF
+	
+	//-- Grava o Turno no Arquivo do Funcionario, com base na Data Atual
+	if !lauto .or. (lauto .and. nOpcX <> 3)
+		aCopyCols := aClone(aCols)
+		aAntCols  := aClone(aColsAnt)
+	elseif lauto .and. nOpcX == 3
+		aCopyCols  := aClone(aCols)
+	Endif
+	
+	if !lauto
+		aSort( aCopyCols , , , { |x,y| DtoS( x[ nPosData ] ) < DtoS( y [ nPosData ] ) } )
+		aSort( aColsAnt , , , { |x,y| DtoS( x[ nPosData ] ) < DtoS( y [ nPosData ] ) } )
+	Endif
+	
+	For nLoop := 1 To nLoops
+		lAtuTaf := .F.
+		lAtuSRA := .F.
+		lAtuSeq	:= .F.
+		cTafKey	:= ""
+		
+		if !lauto
+			/* Verifica se houve alteração somente nos campos de SEQUÊNCIA */
+			FOR nB := 1 TO LEN(aCols[nLoops])
+				//Verifica se houve a alteração foi na mesma linha
+				IF nLoops <= LEN(aColsAnt)
+					IF aCols[nLoop, nB] <> aColsAnt[nLoop, nB] .AND. nB == nPosSequed .OR. nB == nPosSequep
+						lAtuSeq := .T.
+					ELSE
+						lAtuSeq := .F.
+						Exit
+					ENDIF
+				ENDIF
+			NEXT nB
+			
+			IF nLoop > 1 .AND. nLoop > LEN(aColsAnt) .AND. !lAtuSeq
+				//Verifica se houver alteração de sequência
+				IF	(aCols[nLoop, nPosTurnod] == aCols[nLoop, nPosTurnop] .AND.;
+					aCols[nLoop, nPosRegrad] == aCols[nLoop, nPosRegrap] .AND.;
+					aCols[nLoop, nPosSequed] <> aCols[nLoop, nPosSequep])
+					
+					lAtuSeq := .T.
+					
+				ElseIf (nLoop == Len(aColsAnt) + 1 ) .And. ;
+						(aCols[nLoop, nPosTurnop] == aColsAnt[nLoop - 1, nPosTurnop] .AND.;
+						 aCols[nLoop, nPosRegrap] == aColsAnt[nLoop - 1, nPosRegrap] .AND.;
+						 aCols[nLoop, nPosSequep] <> aColsAnt[nLoop - 1, nPosSequep])
+					
+					lAtuSeq := .T.
+					
+				ENDIF
+			ENDIF
+		ENDIF
+		If lTSREP .And. lContinua
+			
+			cAuxDtIniTSREP	:= DTOS(aCopyCols[ nLoop , nPosData ])
+			cAuxDtFimTSREP	:= '20491231'
+			lAtuTSREP 		:= .T.
+			lUltSPF 		:= .F.
+			
+			nOpTSREP := 4 // Inclusao
+			
+			If aCopyCols[ nLoop , nDeleted ]
+				cAuxDtFimTSREP	:= DTOS(Date())
+				cDtFimTSREP  	:= SubStr(cAuxDtFimTSREP,1,4)+"-"+SubStr(cAuxDtFimTSREP,5,2)+"-"+SubStr(cAuxDtFimTSREP,7,2)
+				nOpTSREP 		:= 5 // Exclusao
+				lUltSPF			:= (nLoop > 1 .And. nLoop == nLoops)
+				If SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + cAuxDtIniTSREP)) .And. Empty(SPF->PF_RHEXP)
+					Loop
+				Endif
+			Endif
+			
+			If lAtuTSREP
+				SR6->(dbSetOrder(1))
+				cDtIniTSREP	:= SubStr(cAuxDtIniTSREP,1,4)+"-"+SubStr(cAuxDtIniTSREP,5,2)+"-"+SubStr(cAuxDtIniTSREP,7,2)
+				cDtFimTSREP	:= SubStr(cAuxDtFimTSREP,1,4)+"-"+SubStr(cAuxDtFimTSREP,5,2)+"-"+SubStr(cAuxDtFimTSREP,7,2)
+				
+	            // Verifica se houve alteracao nos lancamentos atuais, exclui no TSA
+				If nOpTSREP == 4
+					If Len(aColsAnt) == nLoop .And. nLoop == nLoops .And. ; // Alterou a última linha
+						( aCopyCols [ nLoop, nPosData 	] <> aColsAnt [ nLoop, nPosData   ] .Or. ;
+						  aCopyCols [ nLoop, nPosSequep ] <> aColsAnt [ nLoop, nPosSequep ] .Or. ;
+						  aCopyCols [ nLoop, nPosTurnoP ] <> aColsAnt [ nLoop, nPosTurnoP ] )
+						
+						// Remove o Funcionário do turno anterior
+						cDIniTSREP	:= DTOS(aColsAnt[ nLoop, nPosData ])
+						cDIniTSREP	:= SubStr(cDIniTSREP, 1, 4) + "-" + SubStr(cDIniTSREP, 5, 2) + "-" + SubStr(cDIniTSREP, 7, 2)
+						cAuxDtFimTSREP	:= DTOS(Date())
+						cDtFimTSREP  	:= SubStr(cAuxDtFimTSREP,1,4)+"-"+SubStr(cAuxDtFimTSREP,5,2)+"-"+SubStr(cAuxDtFimTSREP,7,2)
+						
+						oObjREP:WSUser( 5, cDtIniTSREP,,, aColsAnt[ nLoop, nPosTurnoP ],, cDtFimTSREP, aColsAnt[ nLoop, nPosSequep] )
+						
+						// Envia o turno atual
+						If SR6->(dbSeek(xFilial("SR6", SRA->RA_FILIAL) + aCopyCols[nLoop, nPosTurnoP]))
+							If oObjREP:WSShiftWork(1)
+								oObjRep:WSUpdRHExp("SR6")
+							EndIf
+						EndIf
+						
+						// Vincula o funcionário ao turno atual
+						If oObjREP:WSUser( nOpTSREP , cDtIniTSREP,,, aCopyCols[ nLoop, nPosTurnoP ],, cDtFimTSREP, aCopyCols[ nLoop, nPosSequep ])
+							If SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + cAuxDtIniTSREP))
+								// Grava o controle de exportacao para o TSA - Turno
+								oObjRep:WSUpdRHExp( "SPF" )
+							Endif
+						Endif
+						
+					ElseIf Len(aColsAnt) == nLoop .And. nLoop < nLoops .And.; // Incluiu uma nova troca de turno
+						( aCopyCols [ nLoop, nPosData 	] == aColsAnt [ nLoop, nPosData   ] .And. ;
+						  aCopyCols [ nLoop, nPosSequep ] == aColsAnt [ nLoop, nPosSequep ] .And. ;
+						  aCopyCols [ nLoop, nPosTurnoP ] == aColsAnt [ nLoop, nPosTurnoP ] ) 
+						
+						
+						// Remove o Funcionário do turno anterior
+						cAuxDtFimTSREP	:= DTOS(Date())
+						cDtFimTSREP  	:= SubStr(cAuxDtFimTSREP,1,4)+"-"+SubStr(cAuxDtFimTSREP,5,2)+"-"+SubStr(cAuxDtFimTSREP,7,2)
+						
+						oObjREP:WSUser( 5, cDtIniTSREP,,,aCopyCols[ nLoop, nPosTurnoP ],, cDtFimTSREP, aColsAnt[ nLoop, nPosSequep] )
+						Loop
+					Endif
+					
+					If nLoop == nLoops .And. Len(aColsAnt) < nLoop // Última troca de turno
+						// Envia o turno atual
+						If SR6->(dbSeek(xFilial("SR6", SRA->RA_FILIAL) + aCopyCols[nLoop, nPosTurnoP]))
+							If oObjREP:WSShiftWork(1)
+								oObjRep:WSUpdRHExp("SR6")
+							EndIf
+						EndIf
+						
+						// Vincula o funcionário ao turno atual
+						If oObjREP:WSUser( nOpTSREP , cDtIniTSREP,,,aCopyCols[ nLoop , nPosTurnoP ],,cDtFimTSREP,aCopyCols[ nLoop , nPosSequep ])
+							
+							If SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + cAuxDtIniTSREP))
+								// Grava o controle de exportacao para o TSA - Turno
+								oObjRep:WSUpdRHExp( "SPF" )
+							Endif
+						Endif
+					EndIf
+					
+				EndIf
+				
+				//Se houve exclusão da última linha, verifica a última linha válida para reenviar ao TSA/Suricato
+				If nOpTSREP == 5 .And. lUltSPF
+					If nLoop > 1
+						
+						// Remove o Funcionário do turno anterior
+						cAuxDtFimTSREP := DTOS(Date())
+						cDtFimTSREP := SubStr(cAuxDtFimTSREP, 1, 4) + "-" + SubStr(cAuxDtFimTSREP, 5, 2) + "-" + SubStr(cAuxDtFimTSREP, 7, 2)
+						oObjREP:WSUser( 5, cDtIniTSREP,,, aCopyCols[ nLoop, nPosTurnoP ],, cDtFimTSREP, aCopyCols[ nLoop, nPosSequep] )
+						
+						For nXLoop := nLoop-1 to 1 step -1
+							If !aCopyCols[ nXLoop , nDeleted ]
+								cAuxDtIniTSREP	:= DTOS(aCopyCols[ nXLoop , nPosData ])
+								cAuxDtFimTSREP	:= '20491231'
+								Exit
+							Endif
+						Next
+						
+						cDtIniTSREP	:= SubStr(cAuxDtIniTSREP,1,4)+"-"+SubStr(cAuxDtIniTSREP,5,2)+"-"+SubStr(cAuxDtIniTSREP,7,2)
+						cDtFimTSREP	:= SubStr(cAuxDtFimTSREP,1,4)+"-"+SubStr(cAuxDtFimTSREP,5,2)+"-"+SubStr(cAuxDtFimTSREP,7,2)
+						
+						If SR6->(dbSeek(xFilial("SR6",SRA->RA_FILIAL)+aCopyCols[nLoop, nPosTurnoP]))
+							If oObjREP:WSShiftWork(1)
+								oObjRep:WSUpdRHExp("SR6")
+							EndIf
+						EndIf
+						
+						If oObjREP:WSUser( 4, cDtIniTSREP,,, aCopyCols[ nXLoop, nPosTurnoP ], , cDtFimTSREP, aCopyCols[ nXLoop, nPosSequep ])
+							
+							If SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + cAuxDtIniTSREP))
+								
+								/*/
+								ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								³ Grava o controle de exportacao para o TSA - Turno            ³
+								ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+								oObjRep:WSUpdRHExp( "SPF" )
+								
+							Endif
+						Endif
+					Endif
+				EndIf
+			Endif
+		Endif
+		
+		If lContinua
+			If !lAtuSRA
+				If !( aCopyCols[ nLoop , nDeleted ] ) .And. Empty(dFimAlt) //Se o MV_PONMES estiver vazio, indica que não usa o SIGAPON, então efetua a gravação na SRA.
+					If lInteRHAA1
+						aCampos := {}
+						Aadd(aCampos,{"RA_TNOTRAB",aCopyCols[ nLoop , nPosTurnoP ]})
+						Aadd(aCampos,{"RA_SEQTURN",aCopyCols[ nLoop , nPosSequeP ]})
+						At020AltRH(cAA1Fil, SRA->RA_MAT, aCampos,.F.,SRA->RA_FILIAL)
+					EndIf
+					IF RecLock("SRA")
+						SRA->RA_TNOTRAB := aCopyCols[ nLoop , nPosTurnoP ]
+						SRA->RA_SEQTURN := aCopyCols[ nLoop , nPosSequeP ]
+						SRA->RA_REGRA   := aCopyCols[ nLoop , nPosRegraP ]
+						SRA->( MsUnlock() )
+					EndIF
+					lAtuSRA := .T.
+				ElseIf !( aCopyCols[ nLoop , nDeleted ] ) .And. aCopyCols[ nLoop , nPosData ] <= dFimAlt
+					If lInteRHAA1
+						aCampos := {}
+						Aadd(aCampos,{"RA_TNOTRAB",aCopyCols[ nLoop , nPosTurnoP ]})
+						Aadd(aCampos,{"RA_SEQTURN",aCopyCols[ nLoop , nPosSequeP ]})
+						At020AltRH(cAA1Fil, SRA->RA_MAT, aCampos,.F.,SRA->RA_FILIAL)
+					EndIf
+					IF RecLock("SRA")
+						SRA->RA_TNOTRAB := aCopyCols[ nLoop , nPosTurnoP ]
+						SRA->RA_SEQTURN := aCopyCols[ nLoop , nPosSequeP ]
+						SRA->RA_REGRA   := aCopyCols[ nLoop , nPosRegraP ]
+						SRA->( MsUnlock() )
+					EndIF
+					lAtuSRA := .T.
+				Else
+					IF ( ( nLoop == 1 ) .and. ( nLoop == nLoops ) )
+						If lInteRHAA1
+							aCampos := {}
+							Aadd(aCampos,{"RA_TNOTRAB",aCopyCols[ nLoop , nPosTurnoD ]})
+							Aadd(aCampos,{"RA_SEQTURN",aCopyCols[ nLoop , nPosSequeD ]})
+							At020AltRH(cAA1Fil, SRA->RA_MAT, aCampos,.F.,SRA->RA_FILIAL)
+						EndIf
+						IF RecLock("SRA", .F.)
+							SRA->RA_TNOTRAB := aCopyCols[ nLoop , nPosTurnoD ]
+							SRA->RA_SEQTURN := aCopyCols[ nLoop , nPosSequeD ]
+							SRA->RA_REGRA   := aCopyCols[ nLoop , nPosRegraD ]
+							SRA->( MsUnlock() )
+						EndIF
+						lAtuSRA := .T.
+					EndIf
+				EndIf
+			EndIf
+            IF !( aCopyCols[ nLoop , nDeleted ] )
+                lIntegra:= .T.
+				If nLoop <= Len( aColsAnt ) .And. fCompArray(aCopyCols[nLoop], aColsAnt[nLoop])
+					lIntegra:= .F.
+                EndIf
+				
+                lAtuTAF := .T.
+				
+				if lAuto
+					if nOpcx == 3
+						SPF->(DbSetOrder(1))
+						if SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + dtos(aCopyCols[nLoop, nPosData])))
+							lcontAuto 	:= .F.
+							lAtuTAF 	:= .F.
+							lIntTAF		:= .F.
+							lMiddleware	:= .F.
+						Endif
+					Else
+						SPF->(DbSetOrder(1))
+						if SPF->(dbSeek(SRA->RA_FILIAL + SRA->RA_MAT + dtos(aCopyCols[nLoop, nPosData])))
+							lcontAuto 	:= .T.
+							lAtuTAF 	:= .T.
+							lIntTAF		:= .T.
+							lMiddleware	:= .T.
+						Else
+							lcontAuto 	:= .F.
+							lAtuTAF 	:= .F.
+							lIntTAF		:= .F.
+							lMiddleware	:= .F.
+						Endif
+					Endif
+					if lcontAuto
+						IF RecLock("SPF", iif(nOpcx == 3, .T., .F.))
+							SPF->PF_TURNOPA := aCopyCols[nLoop, nPosTurnop]
+							SPF->PF_SEQUEPA := aCopyCols[nLoop, nPosSequep]
+							SPF->PF_REGRAPA := aCopyCols[nLoop, nPosRegrap]
+							SPF->PF_TRFOBS  := aCopyCols[nLoop, NPOSTRFOBS]
+							if (nOpcX == 3)
+								SPF->PF_FILIAL  := xFilial("SPF")
+								SPF->PF_MAT		:= SRA->RA_MAT
+								SPF->PF_DATA 	:= aCopyCols[nLoop, nPosData]
+								SPF->PF_TURNODE := aCopyCols[nLoop, nPosTurnod]
+								SPF->PF_SEQUEDE := aCopyCols[nLoop, nPosSequed]
+								SPF->PF_REGRADE := aCopyCols[nLoop, nPosRegrad]
+							Endif
+							SPF->( MsUnlock() )
+						EndIF
+					Endif
+				Endif
+				If (lIntTAF .Or. lMiddleware) .And. lIntegra .AND. !lAtuSeq .And. aCopyCols[nLoop, nPosData] <= dDatabase
+					If lCpoIntTaf
+						cTafKey := Substr(FWUUId(SRA->RA_FILIAL + SRA->RA_MAT + dToS(aCopyCols[nLoop, nPosData])), 1, 60)
+						If RecLock("SPF", .F.)
+							SPF->PF_INTGTAF	:= dDatabase
+							SPF->PF_TAFKEY	:= cTafKey
+							SPF->( MsUnlock() )
+						EndIf
+					EndIf
+					RegToMemory("SRA", , .T., .F.)
+					If aTpAlt[2]
+						If FindFunction("fVersEsoc")
+							fVersEsoc( "S2206", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersEnvio, @cVersGPE )
+						EndIf
+						lAtuTaf:= fInt2206("SRA",, 3, "S2206",,, aCopyCols[ nLoop , nPosTurnoP ], aCopyCols[ nLoop , nPosRegraP ],aCopyCols[ nLoop , nPosSequeP ],,cVersEnvio,,aCopyCols [ nLoop , nPosData ], Nil, Nil, Nil, Nil, .T., Nil, Nil, Nil, Nil, cTafKey)
+						//Verifica se o sistema informa ou não a integração com sucesso no TAF
+						cEFDAviso	:= If(cPaisLoc == 'BRA' .And. Findfunction("fEFDAviso"), fEFDAviso(), SuperGetMv("MV_EFDAVIS",, "0")) //Integracao com TAF
+						If lAtuTaf .And. lMsgEFD .And. !lAuto
+							lMostraMsg := .T.
+                        EndIf
+					Endif
+				Endif
+				
+				if nLoop == 1 .And. !lAuto
+					IF (lIntTAF .Or. lMiddleware) .And. !(SRA->RA_CATEFD $ cTrabVnc) .And. lAtuTAF .And. !lAtuSeq
+						MsgAlert( OemToAnsi(STR0218), OemToAnsi(STR0132)) //Turno de trabalho atualizado com sucesso! Trabalhadores sem vínculos com a empresa não ocorrerá integração de alteração contratual para troca de turno (S-2306).
+					ENDIF
+				Endif
+				
+				If (lIntTAF .Or. lMiddleware) .and. !lAtuTAF .And. cEFDAviso == "1"
+						DisarmTransaction()
+						lContinua:= .F.
+				EndIf
+				lAtuSRA := .T.
+			Else
+				IF ( ( nLoop == 1 ) .and. ( nLoop == nLoops ) )
+					lIntegra := .T.
+					lAtuTaf  := .T.
+					If nLoop <= Len( aColsAnt ) .And. fCompArray(aCopyCols[nLoop], aColsAnt[nLoop])
+						lIntegra:= .F.
+					EndIf
+					
+					If (lIntTAF .Or. lMiddleware) .And. lIntegra .AND. !lAtuSeq
+						RegToMemory("SRA")
+						If aTpAlt[1]
+							If FindFunction("fVersEsoc")
+								fVersEsoc( "S2206", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersEnvio, @cVersGPE )
+							EndIf
+							lAtuTaf:= fInt2206("SRA",,,"S2206",,,aCopyCols[ nLoop , nPosTurnoP ],aCopyCols[ nLoop , nPosRegraP ],aCopyCols[ nLoop , nPosSequeP ],,cVersEnvio,,aCopyCols [ nLoop , nPosData ], Nil, Nil, Nil, Nil, .T., Nil, Nil, Nil, Nil, aCopyCols[ nLoop , nPosTafKey ])
+							//Verifica se o sistema informa ou não a integração com sucesso no TAF
+							If lAtuTaf .And. lMsgEFD .And. !lAuto
+								lMostraMsg := .T.
+							EndIf
+						Endif
+					Endif
+					
+					if !lAuto
+						If (lIntTAF .Or. lMiddleware) .And. !(SRA->RA_CATEFD $ cTrabVnc) .And. lAtuTAF .And. !lAtuSeq
+							MsgAlert( OemToAnsi(STR0218), OemToAnsi(STR0132)) //Turno de trabalho atualizado com sucesso! Trabalhadores sem vínculos com a empresa não ocorrerá integração de alteração contratual para troca de turno (S-2306).
+						ENDIF
+					Endif
+					
+					if (lIntTAF .Or. lMiddleware) .and. !lAtuTAF
+                        DisarmTransaction()
+                        lContinua:= .F.
+					Endif
+					lAtuSRA := .T.
+				EndIf
+			EndIf
+		Endif
+	Next nLoop
+    If lContinua
+		//Se Excluiu Todas as Trocas de Turno Retira a Sequencia e a Regra do Cadastro
+		SPF->( dbSetOrder( 1 ) )
+		
+		IF !lAuto
+			lFound := SPF->( dbSeek( xFilial( "SRA" ) + SRA->RA_MAT , .F. ) )
+		else
+			lFound := .T.
+		Endif
+		
+		IF !lFound
+			If lInteRHAA1
+				aCampos := {}
+				Aadd(aCampos,{"RA_SEQTURN",Space( TamSx3( "RA_SEQTURN" )[1] )})
+				At020AltRH(cAA1Fil, SRA->RA_MAT, aCampos,.F.,SRA->RA_FILIAL)
+			EndIf
+			IF RecLock("SRA")
+				SRA->RA_SEQTURN	:= Space( TamSx3( "RA_SEQTURN" )[1] )
+				SRA->RA_REGRA	:= Space( TamSx3( "RA_REGRA" )[1] )
+				SRA->( MsUnlock() )
+			EndIF
+		EndIF
+		
+		lExc160 := .F.
+		
+		If lIntegDef
+			if !lAuto
+				nPosData	:= GdFieldPos( "PF_DATA" )
+				nPosTnoPa	:= GdFieldPos( "PF_TURNOPA" )
+				nPosSeqPa	:= GdFieldPos( "PF_SEQUEPA" )
+			else
+				nPosData	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_DATA"})
+				nPosTnoPa	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_TURNOPA"})
+				nPosSeqPa	:= Ascan(aVarAuto,{|x| Alltrim(x) == "PF_SEQUEPA"})
+			Endif
+			
+			For nI := 1 To Len(aCols)
+				
+				lDelete := .F.
+				If nI > Len(aAntCols)
+					//inclusao
+					if lauto .and. !acols[ni, nDeleted]
+						aColsInt := aClone(aCols[nI])
+						SetRotInteg("PONA160")
+						FwIntegdef("PONA160")
+					elseif !lauto .and. !aCols[nI,GdFieldPos( "GDDELETED" )]
+						aColsInt := aClone(aCols[nI])
+						SetRotInteg("PONA160")
+						FwIntegdef("PONA160")
+					EndIf
+				Else
+					if lauto .and. acols[ni, nDeleted]
+						aColsInt := aClone(aCols[nI])
+						IF LEN(aRecnos) >= NI
+							SPF->(dbGoTo(aRecnos[NI]))
+							RecLock("SPF", .F.)
+								dbDelete()
+							MsUnLock()
+							SetRotInteg("PONA160")
+							FwIntegdef("PONA160")
+						ENDIF
+					Elseif !lauto .and. aCols[nI,GdFieldPos( "GDDELETED" )]
+						aColsInt := aClone(aCols[nI])
+						SetRotInteg("PONA160")
+						FwIntegdef("PONA160")
+					else
+						If aCols [ nI , nPosData ] <> aAntCols[ nI , nPosData ] .Or. ;
+									 aCols [ nI , nPosTnoPa ] <> aAntCols[ nI , nPosTnoPa ] .Or. ;
+									 aCols [ nI , nPosSeqPa ] <> aAntCols[ nI , nPosSeqPa ]
+							
+							//Para o PIMS se tiver alteração de data precisa primeiro excluir com dados antigos para depois incluir novamente
+							If (aCols [ nI , nPosData ] <> aAntCols[ nI , nPosData ])
+								If nOpcX == 4
+									aSave := aCols[nI]
+									aCols[nI] := aAntCols[ nI]
+									if lauto
+										aCols[nI,nDeleted] := .T.
+									else
+										aCols[nI,GdFieldPos( "GDDELETED" )] := .T.
+									Endif
+									lDelete := .T.
+									lErroInt := .F.
+									aColsInt := aClone(aCols[nI])
+									SetRotInteg("PONA160")
+									FwIntegdef("PONA160")
+									aCols[nI] := aSave
+								EndIf
+							EndIf
+							
+							
+							nPosInt := nI
+							lErroInt := .F.
+							aColsInt := aClone(aCols[nI])
+							SetRotInteg("PONA160")
+							FwIntegdef("PONA160")
+							
+							If lErroInt .And. lDelete
+								aCols[nI] := aAntCols[ nI]
+								if lauto
+									aCols[nI,nDeleted] := .T.
+								else
+									aCols[nI,GdFieldPos( "GDDELETED" )] := .F.
+								Endif
+								aColsInt := aClone(aCols[nI])
+								SetRotInteg("PONA160")
+								FwIntegdef("PONA160")
+							Endif
+						EndIf
+					EndIf
+				EndIf
+			Next nI
+		EndIf
+	EndIf
+	
+	If lMsgEFD .And. lMostraMsg .And. lContinua
+		fEFDMsg()
+	EndIf
+	
+End Transaction
+
+RestArea(aAreaSR6)
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Pn160Exclu³ Autor ³ Marinaldo de Jesus    ³ Data ³17/10/2001³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Exclui registros de Transferˆncias de Turnos               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Pona160                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Pn160Exclu( cAlias )
+Local lTSREP		:= SuperGetMv( "MV_TSREP" , NIL , .F. )
+Local nX			:= 0
+Local aRecnosAux	:= aClone(aRecnos)
+Local cDtIniTSREP	:= ""
+Local nI
+lExc160 := .T.
+
+If Pn160VldEx()
+
+	Begin Transaction
+
+		PonDelRecnos( "SPF" , @aRecnos )
+		//Se Excluiu Todas as Trocas de Turno Retira a Sequencia e a Regra do Cadastro
+		SPF->( dbSetOrder( 1 ) )
+		IF !SPF->( dbSeek( xFilial( "SRA" ) + SRA->RA_MAT , .F. ) )
+			IF RecLock("SRA")
+				SRA->RA_SEQTURN		:= Space( TamSx3( "RA_SEQTURN" )[1] )
+				SRA->RA_REGRA		:= Space( TamSx3( "RA_REGRA" )[1] )
+				SRA->( MsUnlock() )
+			EndIF
+		EndIF
+
+		//-- Inicializa a integracao via WebServices TSA
+		If lTSREP
+
+			oObjREP := PTSREPOBJ():New()
+
+			For nX := 1 to Len(aRecnosAux)
+				/*/
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Executa o WebServices TSA - Usuario - Turno de Trabalho      ³
+				³ Remove o turno atual e Inclui o novo turno				   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				SPF->(dbGoTo( aRecnosAux[ nX ] ))
+				cDtIniTSREP	:= DTOS(SPF->PF_DATA)
+				cDtIniTSREP := SubStr(cDtIniTSREP,1,4)+"-"+SubStr(cDtIniTSREP,5,2)+"-"+SubStr(cDtIniTSREP,7,2)
+				oObjREP:WSUser( 5 ,cDtIniTSREP ,,,SPF->PF_TURNOPA,,,SPF->PF_SEQUEPA)
+			Next
+
+		EndIF
+
+		If lIntegDef
+			For nI := 1 To Len(aCols)
+				aColsInt := aClone(aCols[nI])
+				FwIntegdef("PONA160")
+			Next nI
+		EndIf
+
+	End Transaction
+EndIf
+
+lExc160 := .F.
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³                   ROTINAS DE CRITICA DE CAMPOS                        ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Pn160LinOK³Autor  ³ Marinaldo de Jesus    ³ Data ³08/07/2004³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Critica linha digitada                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Pn160LinOK(o)
+
+Local lLinOk	:= .T.
+
+Local nPosData	:= GdFieldPos( "PF_DATA" )
+Local nPosTnoDe	:= GdFieldPos( "PF_TURNODE" )
+Local nPosSeqDe	:= GdFieldPos( "PF_SEQUEDE" )
+Local nPosRegDe	:= GdFieldPos( "PF_REGRADE" )
+Local nPosTnoPa	:= GdFieldPos( "PF_TURNOPA" )
+Local nPosSeqPa	:= GdFieldPos( "PF_SEQUEPA" )
+Local nPosRegPa	:= GdFieldPos( "PF_REGRAPA" )
+Local nDelete	:= GdFieldPos( "GDDELETED" )
+
+Local aCposKey
+Local nLoop
+Local nLoops
+Local nLenaSPF
+
+DEFAULT lCpoIntTaf	:= (ChkFile("SPF") .And. SPF->( ColumnPos("PF_INTGTAF") ) > 0)
+
+Begin Sequence
+
+	IF !( aCols[ n , nDelete ] )
+		If !lCpoIntTaf .And. aCols[ n , nPosData ] > DDATABASE //dPerIni dPerFim
+		   	Help(NIL, NIL, "AVISO", NIL,  OemToAnsi(STR0213), 1, 0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0214+CRLF+STR0215)})//'A data escolhida para troca do turno é superior a data base do sistema.'##"O Governo\RET não aceita datas superiores a data corrente  e por este motivo será necessário alterá-la para data de hoje ou inferior."##"Este Registro não será enviado para o TAF."
+    		lLinOk := .F.
+		  	Break
+		EndIf
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Itens Duplicados na GetDados						   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		aCposKey := { "PF_DATA" }
+		IF !( lLinOk := GdCheckKey( aCposKey , 4 ) )
+			Break
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Se o Campos Estao Devidamente Preenchidos		   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		aAdd( aCposKey , "PF_TURNODE" )
+		aAdd( aCposKey , "PF_TURNOPA" )
+		aAdd( aCposKey , "PF_SEQUEDE" )
+		aAdd( aCposKey , "PF_SEQUEPA" )
+		aAdd( aCposKey , "PF_REGRADE" )
+		aAdd( aCposKey , "PF_REGRAPA" )
+		IF !( lLinOk := GdNoEmpty( aCposKey ) )
+	    	  Break
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Se Turno e Sequencia Digitados Sao Validos		   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		IF !( lLinOk := Pn160VldSeq( aCols[ n , nPosTnoDe ] , aCols[ n , nPosSeqDe ] , .T. ) )
+			Break
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Se Turno e Sequencia Digitados Sao Validos		   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		IF !( lLinOk := Pn160VldSeq( aCols[ n , nPosTnoPa ] , aCols[ n , nPosSeqPa ] , .T.  ) )
+			Break
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Se Regra Digitada eh Valida						   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		IF !( lLinOk := PosSPA( aCols[ n , nPosRegDe ] , xFilial( "SPF" ) , NIL , RetOrdem( "SPA" , "PA_FILIAL+PA_CODIGO" ) , .F. ) )
+			Help( ' ' , 1 , 'Aviso' , , OemToAnsi( STR0216 ) , 1 , 0 )  //"Regra 'de' inválido"
+			Break
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Se Regra Digitada eh Valida						   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		IF !( lLinOk := PosSPA( aCols[ n , nPosRegPa ] , xFilial( "SPF" ) , NIL , RetOrdem( "SPA" , "PA_FILIAL+PA_CODIGO" ) , .F. ) )
+			Help( ' ' , 1 , 'Aviso' , , OemToAnsi( STR0217 ) , 1 , 0 )//"Regra 'para' inválido"
+			Break
+		EndIF
+
+	EndIF
+
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Carrega as Trocas de Turno do Funcionario           		   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+	aSPF 			:= {}
+	aTnoGetInfoTab	:= {}
+	nLoops			:= Len( aCols )
+	For nLoop := 1 To nLoops
+		IF !( aCols[ nLoop , nDelete ] )
+			aAdd( aSPF , Array(7) )
+			nLenaSPF := Len( aSPF )
+			aSPF[nLenaSPF,01] := aCols[ nLoop , nPosTnoDe ]
+			aSPF[nLenaSPF,02] := aCols[ nLoop , nPosTnoPa ]
+			aSPF[nLenaSPF,03] := aCols[ nLoop , nPosData  ]
+			aSPF[nLenaSPF,04] := aCols[ nLoop , nPosSeqDe ]
+			aSPF[nLenaSPF,05] := aCols[ nLoop , nPosSeqPA ]
+			aSPF[nLenaSPF,06] := aCols[ nLoop , nPosRegDe ]
+			aSPF[nLenaSPF,07] := aCols[ nLoop , nPosRegPA ]
+		EndIF
+	Next nLoop
+	fTrocaTno(dPerIni,dPerFim,@aTnoGetInfoTab,aSPF)
+
+End Sequence
+
+Return( lLinOk )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³Pn160TudOk³ Autor ³ Marinaldo de Jesus    ³ Data ³08/07/2004³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Critica tudo antes de salvar                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Pn160TudOk(o)
+
+Local lTudoOk	:= .T.
+Local nSvn		:= 0
+Local nLoop
+Local nLoops
+Local cTrabVincu	:= fCatTrabEFD("TCV") //"101|102|103|104|105|106|111|301|302|303|306|309" //Trabalhador com vinculo
+Local cCPF			:= ""
+Local cStat1		:= ""
+Local cStatus		:= ""
+Local cChaveMid		:= ""
+Local cTpInsc		:= ""
+Local cNRInsc		:= ""
+Local lAdmPubl		:= .F.
+Local cIdXml		:= ""
+Local cVersMW		:= ""
+Local lNT15			:= .F.
+
+if !lauto
+	nSvn := n
+else
+	nSvn := len(acols)
+Endif
+
+Begin Sequence
+
+	nLoops := Len( aCols )
+	For nLoop := 1 To nLoops
+		n := nLoop
+		IF !( lTudoOk := Pn160LinOK(o) )
+			Break
+		EndIF
+		// Ponto de entrada p/ inclusao de novas opcoes em aRotina
+	  	If ExistBlock("PN160VAL")
+	  		lTudoOk := ExecBlock("PN160VAL", .F., .F., {aCols[n]})
+	    	Break
+		EndIf
+
+	Next nLoop
+
+End Sequence
+
+n := nSvn
+
+// Verifica se o registro está correto para a integracao com o TAF
+// Se o registro s-2200 nao existir e o 2100 existir e nao foi enviado, mandamos o 2100 novamente
+// Se o registro s-2200 existir e nao foi enviado, mandamos novamente o 2200
+// Se o registro um desses dois estiver com o status "2" informamos que esta em transito e nao enviamos outro (bloqueia a troca)
+// tirando as situacoes acima enviaremos o 2206
+aTpAlt := {.F.,.F.}
+
+if (lIntTAF .Or. lMiddleware) .AND. SRA->RA_CATEFD $ cTrabVincu
+
+	// VERIFICA O COMPARTILHAMENTO DAS TABELAS C9V/C9Y/CUP/T3L/CRQ/T80/T90/T1U/T1V/TOF/CUU/T3A E COMPARA
+	// AO DA TABELA SRA.
+	If Findfunction("fVldCmpTab") .And. !fVldCmpTab()
+		Return .F.
+	EndIf
+
+	If !lMiddleware
+		cCPF	:= AllTrim(SRA->RA_CIC) + ";" + ALLTRIM(SRA->RA_CODUNIC)
+		cStat1	:= cStatus := TAFGetStat( "S-2200", cCPF )
+
+		If cStatus == " " .and.  cStat1 <> " " // o funcionario foi inserido no esocial pelo registro 2100
+			aTpAlt := {.F.,.T.} // Gerar O 2206
+		
+		ElseIf cStatus == "4" .or.  cStat1 == "4" // o funcionario foi inserido no esocial pelo registro 2100
+			aTpAlt := {.F.,.T.} // Gerar O 2206
+		
+		ElseIf val(cStatus) < 2 .and.  cStatus <> "2" // registro 2200 ainda nao enviado ao RET
+			aTpAlt := {.T.,.F.} // Gerar O 2200 novamente
+		
+		ElseIf cStatus == "2" // em transito
+			cMsg	:= STR0208+SRA->RA_MAT+STR0209
+							//##"Funcionario "##" nao foi transferido pois o registro de admissao ainda esta em transito RET x TAF."
+			If !lAuto
+				MsgAlert(OemToAnsi(cMsg))
+			Endif
+
+			lTudoOk := .F.
+		Endif
+
+	Else
+		cCPF	:= AllTrim(SRA->RA_CIC) + ALLTRIM(SRA->RA_CODUNIC)
+		cStatus := "-1"
+		fPosFil(cEmpAnt, SRA->RA_FILIAL)
+		aInfoC   := fXMLInfos()
+
+		If Len(aInfoC) >= 4
+			cTpInsc		:= aInfoC[1]
+			cIdXml		:= aInfoC[3]
+			lAdmPubl	:= aInfoC[4]
+			cNrInsc		:= Padr(Iif(!lAdmPubl .And. cTpInsc == "1", SubStr(aInfoC[2], 1, 8), aInfoC[2]), 14)
+		Else
+			cTpInsc		:= ""
+			lAdmPubl	:= .F.
+			cNrInsc		:= Padr(Iif(!lAdmPubl .And. cTpInsc == "1", SubStr("0", 1, 8), "0"), 14)
+			cId			:= ""	
+		EndIf
+
+		cChaveMid	:= cTpInsc + cNrInsc + "S2200" + Padr(SRA->RA_CODUNIC, 36, " ")
+		cStatus 	:= "-1"			
+
+		//RJE_TPINSC+RJE_INSCR+RJE_EVENTO+RJE_KEY+RJE_INI
+		GetInfRJE(2, cChaveMid, @cStatus)
+
+		Do Case
+			Case cStatus == "1"
+				aTpAlt := {.F., .F.} // NÃO GERAR O EVENTO S-2206.
+			
+			Case cStatus == "4"
+				aTpAlt := {.F., .T.} // DEVE GERAR O EVENTO S-2206.
+
+			Case cStatus $ "1/3"
+				aTpAlt := {.T., .F.} // DEVE GERAR O EVENTO S-2200 NOVAMENTE.
+
+			Otherwise
+				cMsg := STR0208 + SRA->RA_MAT + STR0222
+				
+				//##"Funcionario "##" nao foi transferido pois o registro de admissao ainda esta em transito RET x TAF."
+				If !lAuto
+					MsgAlert(OemToAnsi(cMsg))
+				Endif
+
+				lTudoOk := .F.
+		EndCase
+	EndIf
+Endif
+
+Return( lTudoOk )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Pn160PutTnoSeq³Autor³ Marinaldo de Jesus  ³ Data ³17/10/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Carrega o Turno ou Sequencia correspondente a data Atual    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³Pn160PutTnoSeq( cPut )										³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³Ponto Eletronico                                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³.T. Por se Tratar de Validacao								³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<void>														³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Pn160PutTnoSeq()
+
+Local aColsClone	:= aClone( aCols )
+Local dData			:= &(ReadVar())
+Local cTno			:= SRA->RA_TNOTRAB
+Local cSeq			:= SRA->RA_SEQTURN
+Local nX			:= 0
+Local nPosData		:= GdFieldPos("PF_DATA")
+Local nPosSeqPa		:= GdFieldPos("PF_SEQUEPA")
+Local nPosTnoPa		:= GdFieldPos("PF_TURNOPA")
+Local nPosRegPa 	:= GdFieldPos("PF_REGRAPA")
+Local nPosSeqDe		:= GdFieldPos("PF_SEQUEDE")
+Local nPosTnoDe		:= GdFieldPos("PF_TURNODE")
+Local nPosRegDe		:= GdFieldPos("PF_REGRADE")
+Local nDelete		:= GdFieldPos("GDDELETED")
+Local nLenaCols		:= Len( aCols )
+Local nLenaSPF		:= 0
+
+If dData < SRA->RA_ADMISSA
+	Help(NIL, NIL, OemToAnsi(STR0211), NIL,  OemToAnsi(STR0229), 1, 0, NIL, NIL, NIL, NIL, NIL)//"Atenção"#"A troca de turno deve ser igual ou superior a data de admissão"
+	Return(.F.)
+EndIf
+
+IF dData > dPerFim
+	aSort( aColsClone ,,, { |x,y| x[nPosData] > y[nPosData] } )
+	( aSPF := {} , aTnoGetInfoTab := {} )
+	For nX := 1 To nLenaCols
+		IF !aColsClone[ nX , nDelete ]
+			IF (;
+					aColsClone[ nX , nPosData ] <= dData	.and.;
+			    	!Empty( aColsClone[ nX , nPosSeqPa ] )	.and.;
+			   		!Empty( aColsClone[ nX , nPosTnoPa ] )	.and.;
+			    	!Empty( aColsClone[ nX , nPosSeqDe ] )	.and.;
+			   		!Empty( aColsClone[ nX , nPosTnoDe ] )	.and.;
+			   		!Empty( aColsClone[ nX , nPosRegDe ] )  .and.;
+			   		!Empty( aColsClone[ nX , nPosRegPa ] ) 		 ;
+			   	)
+				aAdd( aSPF , Array(7) )
+				nLenaSPF := Len( aSPF )
+				aSPF[nLenaSPF,01] := aColsClone[ nX , nPosTnoDe ]
+				aSPF[nLenaSPF,02] := aColsClone[ nX , nPosTnoPa ]
+				aSPF[nLenaSPF,03] := aColsClone[ nX , nPosData  ]
+				aSPF[nLenaSPF,04] := aColsClone[ nX , nPosSeqDe ]
+				aSPF[nLenaSPF,05] := aColsClone[ nX , nPosSeqPa ]
+				aSPF[nLenaSPF,06] := aCols[ nX , nPosRegDe ]
+				aSPF[nLenaSPF,07] := aCols[ nX , nPosRegPA ]
+			EndIF
+		EndIF
+	Next nX
+	IF !Empty( aSPF )
+		cTno := aSPF[01,02]
+		cSeq := aSPF[01,05]
+	EndIF
+	fTrocaTno(dPerIni,dData,@aTnoGetInfoTab,aSPF)
+	aSort( aTnoGetInfoTab ,,, { |x,y| x[3] > y[3] } )
+Else
+	( aSPF := {} , aTnoGetInfoTab := {} )
+	For nX := 1 To nLenaCols
+		IF !aCols[ nX ,nDelete ]
+			IF (;
+					!Empty( aCols[ nX , nPosData  ] )	.and.;
+			    	!Empty( aCols[ nX , nPosSeqPa ] )	.and.;
+			   		!Empty( aCols[ nX , nPosTnoPa ] )	.and.;
+			    	!Empty( aCols[ nX , nPosSeqDe ] )	.and.;
+			   		!Empty( aCols[ nX , nPosTnoDe ] )	.and.;
+			   		!Empty( aCols[ nX , nPosRegDe ] )	.and.;
+			   		!Empty( aCols[ nX , nPosRegPa ] )		 ;
+			   	)
+				aAdd( aSPF , Array(7) )
+				nLenaSPF := Len( aSPF )
+				aSPF[nLenaSPF,01] := aCols[ nX , nPosTnoDe ]
+				aSPF[nLenaSPF,02] := aCols[ nX , nPosTnoPa ]
+				aSPF[nLenaSPF,03] := aCols[ nX , nPosData  ]
+				aSPF[nLenaSPF,04] := aCols[ nX , nPosSeqDe ]
+				aSPF[nLenaSPF,05] := aCols[ nX , nPosSeqPA ]
+				aSPF[nLenaSPF,06] := aCols[ nX , nPosRegDe ]
+				aSPF[nLenaSPF,07] := aCols[ nX , nPosRegPA ]
+			EndIF
+		EndIF
+	Next nX
+	fTrocaTno(dPerIni,dPerFim,@aTnoGetInfoTab,aSPF)
+EndIF
+
+GdFieldPut("PF_TURNODE",GetInfoPosTab(14,,dData,,,,,,cTno,cSeq))
+GdFieldPut("PF_SEQUEDE",GetInfoPosTab(08,,dData,,,,,,cTno,cSeq))
+GdFieldPut("PF_REGRADE",GetInfoPosTab(23,,dData,,,,,,cTno,cSeq))
+
+Return( .T. )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Pn160VldSeq   ³Autor³ Marinaldo de Jesus  ³ Data ³17/10/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Validar a Sequencia digitada                                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³Pn160VldSeq													³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³Ponto Eletronico                                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³lRet 														³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<void>														³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Pn160VldSeq( cTno , cSeq , lFormalParameters  )
+
+Local cCpo	:= ""
+Local cFil	:= xFilial("SPJ")
+Local lRet	:= .T.
+Local cTamFilP := getsx3cache("RE_FILIALP","X3_TAMANHO")
+
+DEFAULT cTno				:= ""
+DEFAULT cSeq				:= ""
+DEFAULT lFormalParameters	:= .F.
+
+IF ( !lFormalParameters )
+	cCpo	:= ReadVar()
+	cSeq	:= &(cCpo)
+	IF ( Type( "aHeader" ) == "A" ) .and. ( Type( "aCols" ) == "A" )
+		cTno := IF("PF_SEQUEDE" $ cCpo , GdFieldGet("PF_TURNODE") , GdFieldGet("PF_TURNOPA") )
+	ElseIF ( IsMemVar( "PF_TURNODE" ) .and. IsMemVar( "PF_TURNOPA" ) )
+		cTno := IF("PF_SEQUEDE" $ cCpo , GetMemVar( "PF_TURNODE" ) , GetMemVar( "PF_TURNODE" ) )
+	Else
+		cTno := SRA->RA_SEQTURN
+	EndIF
+EndIF
+
+IF !( lRet := SPJ->( MsSeek( cFil + cTno + cSeq ) ) )
+	dbSelectArea("SRE")
+	dbSetOrder(2)
+	If dbSeek(cEmpAnt + SRA->RA_FILIAL+SPACE(cTamFilP - LEN(SRA->RA_FILIAL)) + SRA->RA_MAT)
+		cEFilMat := cEmpAnt + SRA->RA_FILIAL + SPACE(cTamFilP - LEN(SRA->RA_FILIAL)) + SRA->RA_MAT
+		cCc      := SRA->RA_CC
+		While SRE->(!EOF()) .And. SRE->(RE_EMPP + RE_FILIALP + RE_MATP) == cEFilMat
+			If !SPJ->( MsSeek( xFilial("SPJ", Alltrim(SRE->RE_FILIALD)) + cTno + cSeq ) ) 
+				SRE->(dbSkip())
+				LOOP
+			Else
+				lRet := .T.
+				EXIT
+			EndIf
+		EndDo
+	EndIf
+	IF !lRet
+		Help( ' ' , 1 , 'PONA160OBR' , , OemToAnsi( STR0021 ) , 5 , 0 ) //Sequencia Nao Cadastrada Para o Turno
+		Conout(OemToAnsi( STR0021 ))
+	EndIf
+EndIF
+
+Return( lRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Pona160F3Seq  ³Autor³ Marinaldo de Jesus  ³ Data ³25/07/2002³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Filtro para a Consulta <F3> para a Consulta XPJ             ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³Pona160F3Seq()												³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³Ponto Eletronico                                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³cRet 														³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<void>														³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Pona160F3Seq()
+	Local cVar		:= ""
+	Local cFil		:= xFilial( "SPJ" )
+	Local cTno		:= ""
+	Local cRet 		:= "@#PJ_DIA=='1' .And. PJ_FILIAL=='" + cFil
+
+	Static __cXPJF3Seq__
+
+	Begin Sequence
+		IF ( ( Type( "aHeader" ) == "A" .and. Type( "aCols" ) == "A" ) )
+			cVar := ReadVar()
+			IF ( !Empty( __cXPJF3Seq__ ) .and. ( "RA_SEQTURN" $ __cXPJF3Seq__ ) )
+				__cXPJF3Seq__ := NIL
+			EndIF
+			IF ( Empty( cVar ) .and. !Empty( __cXPJF3Seq__ ) )
+				cVar := __cXPJF3Seq__
+			EndIF
+			IF ( "PF_SEQUEDE" $ cVar )
+				IF ( !Empty( __cXPJF3Seq__ ) .and. ( "PF_SEQUEPA" $ __cXPJF3Seq__ ) )
+					__cXPJF3Seq__ := NIL
+				EndIF
+				cTno := GdFieldGet( "PF_TURNODE" )
+			ElseIF ( "PF_SEQUEPA" $ cVar )
+				IF ( !Empty( __cXPJF3Seq__ ) .and. ( "PF_SEQUEDE" $ __cXPJF3Seq__ ) )
+					__cXPJF3Seq__ := NIL
+				EndIF
+				cTno := GdFieldGet( "PF_TURNOPA" )
+			EndIF
+			DEFAULT __cXPJF3Seq__ := cVar
+		ElseIF ( IsMemVar("RA_TNOTRAB") .and. IsMemVar("RA_SEQTURN") )
+			cVar := ReadVar()
+			IF ( !Empty( __cXPJF3Seq__ ) .and. !( "RA_SEQTURN" $ __cXPJF3Seq__ ) )
+				__cXPJF3Seq__ := NIL
+			EndIF
+			IF ( Empty( cVar ) .and. !Empty( __cXPJF3Seq__ ) )
+				IF ( "RA_SEQTURN" $ __cXPJF3Seq__ )
+					cVar := __cXPJF3Seq__
+				EndIF
+			EndIF
+			IF ( "RA_SEQTURN" $ cVar )
+				cTno := GetMemVar( "RA_TNOTRAB" )
+			EndIF
+			DEFAULT __cXPJF3Seq__ := cVar
+		EndIF
+	End Sequence
+
+	If !Empty( cTno )
+		cRet += "' .And. PJ_TURNO=='" + cTno
+	EndIf
+	cRet += "'@#"
+
+Return( cRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Pona160Locks    ³Autor³Mauricio MR         ³ Data ³09/03/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Bloqueia Lancamentos de Troca de Turno do Funcionario        ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide parametros formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide parametros formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL		                                               	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³PONA140                                                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Pona160Locks( nOpc , cAlias, aRecnos, cProcName, cLockByName )
+
+Local lLocks	:= .T.
+Local aRecAux	:= {}
+
+Begin Sequence
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Se nao For Visualizacao nem Inclusao	 					   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF ( nOpc == 2 )
+		Break
+	EndIF
+
+	aEval( aRecnos , {|x| IF( !Empty(x) , aAdd( aRecAux , x ) , NIL ) } )
+
+	If Len(aRecnos) > 0
+		cLockByName := cEmpant + xFilial(cAlias) + cAlias + SRA->RA_MAT + cProcName
+		If !( lLocks := LockByName(cLockByName,.T.,.T.,.T.)  )
+			Break
+		EndIf
+	Else
+		If !( lLocks := WhileNoLock( cAlias , aRecAux , {xFilial(cAlias)+SRA->RA_MAT} , 1 , 1 , .T. , NIL )  )
+			Break
+		EndIf
+	EndIf
+
+End Sequence
+
+Return( lLocks )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ MenuDef		³Autor³  Luiz Almeida     ³ Data ³29/11/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Isola opcoes de menu para que as opcoes da rotina possam    ³
+³          ³ser lidas pelas bibliotecas Framework da Versao 9.12 .      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³< Vide Parametros Formais >									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³PONA160                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³aRotina														³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >									³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+
+Static Function MenuDef()
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Define array contendo as Rotinas a executar do programa      ³
+³ ----------- Elementos contidos por dimensao ------------     ³
+³ 1. Nome a aparecer no cabecalho                              ³
+³ 2. Nome da Rotina associada                                  ³
+³ 3. Usado pela rotina                                         ³
+³ 4. Tipo de Transa‡„o a ser efetuada                          ³
+³    1 - Pesquisa e Posiciona em um Banco de Dados             ³
+³    2 - Simplesmente Mostra os Campos                         ³
+³    3 - Inclui registros no Bancos de Dados                   ³
+³    4 - Altera o registro corrente                            ³
+³    5 - Remove o registro corrente do Banco de Dados          ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Local aRotina := {}
+
+	aRotina :=       {	{ STR0004 , 'PesqBrw'	, 0 , 1, ,.F. },;	// 'Pesquisar'
+								{ STR0005 , 'Pn160Atu'	, 0 , 2 },; 		// 'Visualizar'
+								{ STR0007 , 'Pn160Aux'	, 0 , 4,,,.T. },;	// 'Incluir'
+								{ STR0009 , 'Pn160Atu'	, 0 , 4 },; 		// 'Alterar'
+								{ STR0010 , 'Pn160Atu'	, 0 , 5 },;			// 'Excluir'
+								{ STR0110 , 'PONA161Lot', 0 , 6 },;			// 'Troca em Lote'
+								{ STR0014 , 'GpLegend'	, 0 , 7 , , .F.} }	// 'Legenda'
+
+Return aRotina
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ Pn160Aux		³Autor³  Gustavo M.	      ³ Data ³13/07/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Utilizada para identificar quando é selecionado a opçao de  ³
+³          ³incluir    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³< Vide Parametros Formais >									³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³PONA160                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³Pn160Atu														³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >									³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Pn160Aux(cAlias,nReg,nOpcX)
+
+lGPEA011 := IF(Type("lGPEA011")== "U",.F.,lGPEA011)
+
+If lGPEA011
+	lIncluir := .T.
+	lGPEA011 := .F.
+ElseIF IsInCallStack("GPEA011")
+	nOpcX := 4
+Endif
+
+Return(Pn160Atu(cAlias,nReg,nOpcX))
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³INTEGDEF  ºAutor  ³                     º Data ³ 23/01/2012 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Função para a interação com EAI                             º±±
+±±º          ³envio e recebimento                                         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function IntegDef( cXml, nType, cTypeMsg, cVersaoMsg )
+
+Local aRet := {}
+Local aCols := {}
+Local nX := 0
+Local bSeekWhile
+Local aNotFields	:= { "PF_FILIAL", "PF_MAT" }
+
+If Type("aColsInt") <> "A"
+
+	bSeekWhile	:= {|| SPF->PF_FILIAL + SPF->PF_MAT }
+	lExc160 := .F.
+	aColsINt := {}
+	aHeader := {}
+
+	Dbselectarea("SPF")
+	DbSetOrder(1)
+	DbSelectARea("SRA")
+	DbGoTop()
+
+	While SRA->(!Eof())
+
+		aCols := GdMontaCols(		@aHeader	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+									0			,;	//02 -> Numero de Campos em Uso
+									{}			,;	//03 -> [@]Array com os Campos Virtuais
+									{}			,;	//04 -> [@]Array com os Campos Visuais
+									"SPF"		,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+									aNotFields	,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+									{}			,;	//07 -> [@]Array unidimensional contendo os Recnos
+									"SPF"   	,;	//08 -> Alias do Arquivo Pai
+				SRA->RA_FILIAL + SRA->RA_MAT	,;	//09 -> Chave para o Posicionamento no Alias Filho
+									bSeekWhile 	,;	// NIL 10 -> Bloco para condicao de Loop While
+									NIL			,;	//11 -> Bloco para Skip no Loop While
+									.T.			,;	//12 -> Se Havera o Elemento de Delecao no aCols
+									.F.			,;	//13 -> Se cria variaveis Publicas
+									.T.			,;	//14 -> Se Sera considerado o Inicializador Padrao
+									NIL			,;	//15 -> Lado para o inicializador padrao
+									NIL			,;	//16 -> Opcional, Carregar Todos os Campos
+									NIL		 	,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+									{}			,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+									.F.			,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+									.F.			,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+									.F.			,;	//21 -> Carregar Coluna Fantasma
+									.F.			,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+									NIL			,;	//23 -> Verifica se Deve Checar se o campo eh usado
+									NIL			,;	//24 -> Verifica se Deve Checar o nivel do usuario
+									.T.			,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+									NIL			,;	//26 -> [@]Array que contera as chaves conforme recnos
+									.F.			,;	//27 -> [@]Se devera efetuar o Lock dos Registros
+									.F.			,;	//28 -> [@]Se devera obter a Exclusividade nas chaves dos registros
+									NIL			 ;	//29 -> Numero maximo de Locks a ser efetuado
+						)
+
+			for nX := 1 to len(aCols)
+				aColsInt := aClone(aCols[nX])
+				FwIntegdef("PONA160")
+			Next nX
+
+			SRA->(DbSkip())
+
+	EndDO
+	aREt := {.T. , ""}
+
+Else
+	aRet:= PONI160( cXml, nType, cTypeMsg, cVersaoMsg )
+EndIf
+
+Return aRet
+
+/*/{Protheus.doc} fBuscUltTurn
+Retorna o ultimo turno e regra de trabalho do usuário.
+@type function
+@author Eduardo
+@since 11/05/2018
+@version 1.0
+@param cMat  , String,cMat
+@param cFil  , String,cFil
+@param cTurno, String,cTurno passado por referência
+@param cRegra, String,Regra do Turno por referência
+/*/
+Function fBuscUltTurn(cMat,cFil,cTurno,cRegra)
+Local cAliasSPF:= GetNextAlias()
+Default cMat    := ""
+Default cFil    := ""
+Default cTurno  := ""
+Default cRegra  := ""
+
+BeginSql alias cAliasSPF
+    SELECT
+       PF_TURNOPA,
+       PF_REGRAPA,
+       PF_SEQUEPA
+    FROM
+        %table:SPF% SPF
+    WHERE
+        SPF.PF_MAT = (%exp: cMat%) AND
+        SPF.PF_FILIAL = (%exp: cFil%)
+        AND SPF.%notDel%
+    ORDER BY
+        R_E_C_N_O_ DESC
+EndSql
+//Posiciona no inicio do arquivo
+(cAliasSPF)->(dbGoTop())
+//Só há necessidade da primeira linha, por este motivo só será checado por condicional e não por laço
+If (cAliasSPF)->(!EOF())
+    cTurno:= (cAliasSPF)->PF_TURNOPA
+    cRegra:= (cAliasSPF)->PF_REGRAPA
+EndIf
+(cAliasSPF)->( dbCloseArea() )
+Return
+
+
+function PON160lot(aRotAuto)
+
+Local aNoLocks		:= {}
+Local bWhile		:= { |cWhile| &( cWhile ) }
+Local cFilSra		:= ""
+Local cMsg			:= ""
+Local cSraFilter	:= SRA->( dbFilter() )
+Local cTafKey		:= ""
+Local cTimeIni		:= Time()
+Local nRecno		:= SRA->( Recno() )
+Local aLogTransf	:= {}
+Local aLogXTransf	:= {}
+Local aErros		:= {}
+Local aLogSRATransf	:= {}
+Local aLogTitle		:= {}
+Local aUltTroca		:= array(3)
+Local lAtuSRA 		:= .F.
+Local nNumTrf		:= 0
+Local nY			:= 0
+Local nX			:= 0
+Local nz			:= 0
+Local cVersGPE		:= ""
+Local lContinua		:= .T.
+Local lAtuTaf		:= .F.
+Local l160PonapBloc := ExistBlock('PONAP160')
+
+Private aTpAlt 		:= {.F.,.F.} // indica o tipo de integracao com eSocial
+Private dPerIni		:= Ctod("//")
+Private dPerFim		:= Ctod("//")
+Private oPerFch		:= RHPERIODO():New()   // Objeto que contem os dados do ultimo Periodo Fechado PONTO (SRA)
+Private oPeriodo	:= RHPERIODO():New()
+
+Private lTSREP		:= SuperGetMv( "MV_TSREP" , NIL , .F. )
+Private oObjREP
+Private cDtIniTSREP   := ''
+Private cDtFimTSREP   := ''
+Private nOpTSREP      := 0
+Private cAuxDtIniTSREP:= ''
+Private cAuxDtFimTSREP:= ''
+Private cRegAntDtFim  := ''
+Private lDtsInferiores:= .F.
+
+Default aRotAuto := {}
+DEFAULT lCpoIntTaf	:= (ChkFile("SPF") .And. SPF->( ColumnPos("PF_INTGTAF") ) > 0)
+
+dDataTra:= aRotAuto[2,1]
+cTurno	:= aRotAuto[2,2]
+cSeqIni := aRotAuto[2,3]
+cRegra	:= aRotAuto[2,4]
+cObserv	:= aRotAuto[2,5]
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gera a numeracao sequencial do lote de transferencia                               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nNumTRF := Val(DTOS(Date())+SubStr(Time(),1,2)+SubStr(Time(),4,2)+SubStr(Time(),7,2))	// 99:99:99
+SPF->( dbSetOrder( RetOrdem( "SPF" , "PF_FILIAL+PF_TRFUNID" ) ) )
+While SPF->(dbSeek( xFilial("SPF") + Str(nNumTRF) ))
+	nNumTRF := Val(DTOS(Date())+SubStr(Time(),1,2)+SubStr(Time(),4,2)+StrZero(Val(SubStr(Time(),7,2))+1,2) )	// AAAAMMDDHHMMSS
+Enddo
+SPF->( dbSetOrder( RetOrdem( "SPF" , "PF_FILIAL+PF_MAT+DTOS(PF_DATA)" ) ) )
+
+SRA->(DBSETORDER(1))
+SRA->(DBGOTOP())
+FOR NY := 1 TO LEN(aRotAuto[1])
+	cFilSra := aRotAuto[1,NY]
+	
+	IF SRA->( dbSeek( cFilSra , .F. ) )
+		
+		Begin Transaction
+			If cPaisLoc != "BRA"
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄadminÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Carrega Ultimo Periodo Fechado Partir do SRA		   		   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				oPerFch:cProcesso := SRA->RA_PRCFCH
+				oPerFch:cPeriodo  := SRA->RA_PERFCH
+				oPerFch:cRoteiro  := SRA->RA_ROTFCH
+				oPerFch:cNumPagto := SRA->RA_NUPFCH
+				oPerFch:GetPer()
+				
+				oPeriodo:cProcesso := SRA->RA_PROCES
+				oPeriodo:PerSel()
+				
+				dPerFim :=oPeriodo:dDataFim
+				dPerIni :=oPeriodo:dDataIni
+			Else
+				GetPonMesDat( @dPerIni, @dPerFim, SRA->RA_FILIAL )
+			EndIf
+			
+			lAtuSRA := .F.
+			
+			// Verifica a troca de turno referente a data digitada para buscar as informacoes de origem
+			If PN161SPFQry(dDataTra,@aLogSRATransf,@aUltTroca)
+				
+				lDtsInferiores := .F.
+				dbSelectArea("SPF")
+				//removemos o trecho que excluia lançamentos futuros na SPF. Para deixar o funcionamento semelhante ao PONA160
+				
+				RecLock("SPF",.T.)
+				SPF->PF_FILIAL	:= SRA->RA_FILIAL
+				SPF->PF_MAT		:= SRA->RA_MAT
+				SPF->PF_DATA	:= dDataTra
+				SPF->PF_TURNODE	:= aUltTroca [ 1 ]
+				SPF->PF_SEQUEDE	:= aUltTroca [ 2 ]
+				SPF->PF_REGRADE	:= aUltTroca [ 3 ]
+				SPF->PF_TURNOPA	:= cTurno
+				SPF->PF_SEQUEPA	:= cSeqIni
+				SPF->PF_REGRAPA	:= cRegra
+				SPF->PF_TRFUNID	:= nNumTRF
+				SPF->PF_TRFOBS	:= cObserv
+				MsUnLock()
+				
+				If lTSREP
+					IntgTSA()
+				EndIF
+				
+				IF dDataTra <= dPerFim .Or. Empty(dPerFim) 
+					lAtuSRA := .T.
+					IF RecLock("SRA" , .F. )
+						SRA->RA_TNOTRAB	:= cTurno
+						SRA->RA_SEQTURN	:= cSeqIni
+						SRA->RA_REGRA	:= cRegra
+						SRA->( MsUnlock() )
+					EndIF
+				Endif
+				
+				If lTSREP .And. oObjREP <> Nil
+					FreeObj(oObjREP)
+					oObjREP := Nil
+				EndIf
+				aErros:= {}
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Executa Ponto de Entrada para a Emissao de Documento³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF ( l160PonapBloc )
+					ExecBlock('PONAP160' , .F., .F.)
+				EndIF
+				If (lIntTAF .Or. lMiddleware) .And. !lCpoIntTaf .And. dDataTra > DDATABASE
+					aAdd(aErros, "Não é permitida troca de turno futura.")
+					lAtuSRA	:= .F.
+				EndIf
+
+				If (lIntTAF .Or. lMiddleware) .And. lAtuSRA .And. dDataTra <= dDatabase
+					If lCpoIntTaf
+						cTafKey := Substr(FWUUId(SRA->RA_FILIAL + SRA->RA_MAT + dToS(dDataTra)), 1, 60)
+						If RecLock("SPF",.F.)
+							SPF->PF_INTGTAF	:= dDatabase
+							SPF->PF_TAFKEY	:= cTafKey
+							MsUnLock()
+						EndIf
+					EndIf
+					RegToMemory("SRA")
+					VerifAlt()
+					If aTpAlt[1]
+						aAdd(aErros, "O evento S-2200 não foi enviado para o TAF.")
+					ElseIf aTpAlt[2]
+						If FindFunction("fVersEsoc")
+							fVersEsoc( "S2206", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersEnvio, @cVersGPE )
+						EndIf
+						lAtuTaf:= fInt2206("SRA",,,"S2206",,,cTurno,cRegra,cSeqIni,,cVersEnvio,,dDataTra,,,aErros, Nil, .T., Nil, Nil, Nil, Nil, cTafKey)
+					Endif
+					lAtuSRA	:= lAtuTaf
+				Endif
+				aAdd(aLogTransf,SRA->RA_MAT+"-"+Padr(SRA->RA_NOME,30) + Space(2) + ;
+																			Padr(DTOC(SPF->PF_DATA),10) + Space(2) + ;
+																			Padr(SPF->PF_TURNODE,8) + Space(2) + ;
+																			Padr(SPF->PF_SEQUEDE,6) + Space(2) + ;
+																			Padr(SPF->PF_REGRADE,8) + Space(2) + ;
+																			Padr(SPF->PF_TURNOPA,10) + Space(2) + ;
+																			Padr(SPF->PF_SEQUEPA,8) + Space(2) + ;
+																			Padr(SPF->PF_REGRAPA,10) + Space(2) + ;
+																			Padr(If(lAtuSRA,STR0153,STR0154),14) + Space(2) + ;	// "Atualizado" ### "Não Atualizado"
+																			STR0155 )	// "Inclusao"
+				If lIntTAF .And. !lAtuTAF	.And. !lAtuSRA
+					For nX:= 1 To Len(aErros)
+						aAdd(aLogTransf, aErros[nX])
+					Next nX
+					DisarmTransaction()
+				Else
+					aLogTransf[Len(aLogTransf)]:= aLogTransf[Len(aLogTransf)]+ " Registro Integrado Com Sucesso"
+				Endif
+			Else
+
+				If Len(aLogSRATransf) > 0
+					For nz :=1 to Len(aLogSRATransf)
+						aAdd(aLogTransf, SRA->RA_MAT + "-" + SRA->RA_NOME + Space(2) + Padr( aLogSRATransf[ nz ] ,90) + STR0158 )	// "Inconsistencia"
+					Next nz
+				Endif
+			Endif
+		End Transaction
+	else
+		Exit
+	ENDIF
+	dbSelectArea("SRA")
+NEXT NY
+
+
+IF !Empty( aLogTransf )
+	
+	aAdd(aLogTitle, STR0157 ) // "Funcionario                            Data      Turno De  Seq De  Regra De  Turno Para  Seq Para  Regra Para  Cad.Funcion.    Tp.Atualiz."
+	
+	// "Transferencia - Data: 99/99/9999 - Turno: xxx - Seq.Turno: 99 - Regra: 99 - Id.Transf.: 99999999999999 - Observacao: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+	aAdd( aLogXTransf,  STR0159 + " - " + AllTrim(TITSX3("PF_DATA")[1])+ ": " + DTOC(dDataTra)+ " - " +;
+										   AllTrim(TITSX3("PF_TURNOPA")[1])+ ": " + cTurno + " - " +;
+										   AllTrim(TITSX3("PF_SEQUEPA")[1]) + ": " + cSeqIni  + " - " +;
+										   AllTrim(TITSX3("PF_REGRAPA")[1]) + ": " + cRegra  + " - " +;
+										   STR0129 + ": " + StrZero(nNumTrf,14) + " - " +;
+										   AllTrim(TITSX3("PF_TRFOBS")[1]) + ": " + cObserv  )
+	aEval( aLogTransf , {|x| aAdd(aLogXTransf,x) } )
+	
+	Conout(STR0157)
+	varinfo("Log - ", aLogTransf)
+	
+EndIF
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} fAlertRGE
+Função para exibição de alerta e link para o TDN com orientação sobre atualização da RGE
+@author Allyson Mesashi
+@since 16/04/2020
+@version 1
+/*/
+//-------------------------------------------------------------------
+Static Function fAlertRGE()
+Local oButton1
+Local oButton2
+Local oCheckBo1
+Local lCheckBo1 	:= .F.
+Local oGroup1
+Local oPanel1
+Local oSay1
+Local cSession		:= "AlertaPONA160_"
+Local lChkMsg 		:= fwGetProfString(cSession,"MSG_PONA160_" + cUserName,'',.T.) == ""
+Local oDlg
+
+If lChkMsg
+	DEFINE MSDIALOG oDlg TITLE OemToAnsi(STR0223) FROM 000, 000  TO 200, 500 COLORS 0, 16777215 PIXEL //"Atualização de dicionário"
+
+		@ 000, 000 MSPANEL oPanel1 SIZE 300, 150 OF oDlg COLORS 0, 16777215 RAISED
+		@ 005, 012 GROUP oGroup1 TO 055, 237 PROMPT OemToAnsi(STR0183) OF oPanel1 COLOR 0, 16777215 PIXEL //"Atenção"
+		@ 020, 017 SAY oSay1 PROMPT OemToAnsi(STR0224) SIZE 215, 035 OF oPanel1 COLORS 0, 16777215 PIXEL //'Ao habilitar o mnemônico P_LPPEATIV, é necessário a criação de alguns campos na tabela RGE. Clique em "Abrir Link" para consultar a documentação no TDN'
+		@ 080, 012 CHECKBOX oCheckBo1 VAR lCheckBo1 PROMPT OEMToAnsi(STR0225) SIZE 067, 008 OF oPanel1 COLORS 0, 16777215 PIXEL //"Não exibir novamente"
+		@ 070, 160 BUTTON oButton1 PROMPT STR0226 SIZE 037, 012 OF oPanel1 PIXEL//"Abrir Link"
+		@ 070, 200 BUTTON oButton2 PROMPT "OK" SIZE 037, 012 OF oPanel1 PIXEL
+
+		oButton1:bLClicked := {|| ShellExecute("open","https://tdn.totvs.com/x/UVKPI","","",1) }
+		oButton2:bLClicked := {|| oDlg:End() }
+
+	ACTIVATE MSDIALOG oDlg CENTERED
+
+	If lCheckBo1
+		fwWriteProfString(cSession, "MSG_PONA160_" + cUserName, 'CHECKED', .T.)
+	EndIf	
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} fAlertJob
+Função para exibição de alerta e link para o TDN com orientação sobre atualização do campo PF_INTTAF
+@author Allyson Mesashi
+@since 15/05/2020
+@version 1
+/*/
+//-------------------------------------------------------------------
+Static Function fAlertJob()
+Local oButton1
+Local oButton2
+Local oCheckBo1
+Local lCheckBo1 	:= .F.
+Local oGroup1
+Local oPanel1
+Local oSay1
+Local cSession		:= "AlertaPA160JOB_"
+Local lChkMsg 		:= fwGetProfString(cSession,"MSG_PA160JOB_" + cUserName,'',.T.) == ""
+Local oDlg
+
+If lChkMsg
+	DEFINE MSDIALOG oDlg TITLE OemToAnsi(STR0227) FROM 000, 000  TO 200, 500 COLORS 0, 16777215 PIXEL //"Troca de turno em data futura"
+
+		@ 000, 000 MSPANEL oPanel1 SIZE 300, 150 OF oDlg COLORS 0, 16777215 RAISED
+		@ 005, 012 GROUP oGroup1 TO 055, 237 PROMPT OemToAnsi(STR0183) OF oPanel1 COLOR 0, 16777215 PIXEL //"Atenção"
+		@ 020, 017 SAY oSay1 PROMPT OemToAnsi(STR0228) SIZE 215, 035 OF oPanel1 COLORS 0, 16777215 PIXEL //'Agora é possível efetuar o cadastro de troca de turno em data futura. O envio do evento S-2206 será efetuado posteriormente através do job GPEM026B. Clique em "Abrir Link" para consultar a documentação no TDN'
+		@ 080, 012 CHECKBOX oCheckBo1 VAR lCheckBo1 PROMPT OEMToAnsi(STR0225) SIZE 067, 008 OF oPanel1 COLORS 0, 16777215 PIXEL //"Não exibir novamente"
+		@ 070, 160 BUTTON oButton1 PROMPT STR0226 SIZE 037, 012 OF oPanel1 PIXEL//"Abrir Link"
+		@ 070, 200 BUTTON oButton2 PROMPT "OK" SIZE 037, 012 OF oPanel1 PIXEL
+
+		oButton1:bLClicked := {|| ShellExecute("open","https://tdn.totvs.com/x/PLvAI","","",1) }
+		oButton2:bLClicked := {|| oDlg:End() }
+
+	ACTIVATE MSDIALOG oDlg CENTERED
+
+	If lCheckBo1
+		fwWriteProfString(cSession, "MSG_PA160JOB_" + cUserName, 'CHECKED', .T.)
+	EndIf	
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Pn160VldEx
+Função para validar a exclusão de uma troca de turno 
+@author Marco Nakazawa
+@since 04/11/2020
+@version 1
+/*/
+//-------------------------------------------------------------------
+Function Pn160VldEx(nOrigem)
+Local cAlias		:= ""
+Local cFilSPO		:= xFilial("SPO",SRA->RA_FILIAL)
+Local cData			:= ""
+Local cQryPerPon	:= ""
+Local cQuery		:= ""
+Local cMsgInfo		:= ""
+Local lRet			:= .T.
+Local nLoops		:= 0
+Local nI			:= 0
+Local oStPerPon
+
+If !lExclTrn
+	If !Empty(nOrigem) .And. nOrigem == 2
+		nLoops := 1
+		cMsgInfo := STR0231 //"Não será possível excluir a linha selecionada porque o período do ponto já está fechado."
+		cMsgInfo += " " + STR0233 //"Verifique a configuração do parâmetro MV_DLTRTNO."
+	ElseIf Empty(nOrigem)
+		nLoops := Len(aCols)
+		cMsgInfo := STR0232 //"Não foi possível excluir as trocas de turno, porque existem trocas que foram realizadas em um período do ponto já fechado."
+		cMsgInfo += " " + STR0233 //"Verifique a configuração do parâmetro MV_DLTRTNO."
+	EndIf
+
+	cQryPerPon := "SELECT R_E_C_N_O_ FROM " + RetSqlName("SPO")
+	cQryPerPon += " WHERE PO_FILIAL = ? AND PO_DATAINI <= ? AND PO_DATAFIM >= ? AND"
+	cQryPerPon += " D_E_L_E_T_ = '' "
+
+	cQryPerPon := ChangeQuery(cQryPerPon)
+
+	oStPerPon := FWPreparedStatement():New()
+	oStPerPon:SetQuery(cQryPerPon)
+	
+	For nI := 1 To nLoops
+		If nOrigem == 2
+			cData := DToS(aCols[n,1])
+		Else
+			cData := DToS(aCols[nI,1])
+		EndIf
+
+		cAlias := GetNextAlias()
+		
+		oStPerPon:SetString(1,cFilSPO)
+		oStPerPon:SetString(2,cData)
+		oStPerPon:SetString(3,cData)
+		
+		cQuery := oStPerPon:getFixQuery()
+
+		dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAlias,.T.,.T.)
+		
+		//Só há necessidade da primeira linha, por este motivo só será checado por condicional e não por laço
+		If (cAlias)->(!EOF())
+			lRet := .F.
+			MsgInfo(cMsgInfo,STR0230)
+			Exit
+		EndIf
+
+		(cAlias)->(dbCloseArea())
+
+	Next
+EndIf
+
+Return lRet

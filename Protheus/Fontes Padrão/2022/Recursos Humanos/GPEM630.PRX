@@ -1,0 +1,3002 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "SCOPECNT.CH"
+#INCLUDE "GPEM630A.CH"
+
+Static lMudaProc	:= .T.
+Static lIntegDef	:= FindFunction("GETROTINTEG") .And. FindFunction("FWHASEAI")
+//Integração com o TAF
+Static lIntTaf		:= ((SuperGetMv("MV_RHTAF",, .F.) == .T.) .AND. Val(SuperGetMv("MV_FASESOC",/*lHelp*/,' ')) >= 1 )
+Static cEFDAviso  	:= If(cPaisLoc == 'BRA' .AND. Findfunction("fEFDAviso"), fEFDAviso(), "0")			//Se nao encontrar este parametro apenas emitira alertas
+//Memória de Cálculo
+Static __lMemCalc
+//Middleware
+Static lMiddleware	:= If( cPaisLoc == 'BRA' .AND. Findfunction("fVerMW"), fVerMW(), .F. )
+Static lConsig		:= GetMvRH("MV_CONSIG",, .F.)
+//Controle de versão do leiaute eSocial
+Static lVlEsocDif	:= If(!lMiddleware .And. lIntTaf .And. FindFunction("fDivergTaf") .And. fDivergTaf(), .T., .F.)
+Static lMvRHNG		:= SuperGetMv('MV_RHNG', .F., .F.)
+
+/*/{Protheus.doc} GPEM630
+Cálculo de Múltiplas Rescisões
+@author Leandro Drumond
+@since 14/01/2014
+@version 12
+@param aParam, Array, Array com o conteúdo das perguntas utilizadas no cálculo (Utilizado na automação de testes)
+@type function
+@history 20/08/2014, Emerson Campos, TQGBQ6 		- Inclusão da função fVldAccess na bDialogInit para validar de período bloqueado e ajustado a picture do campo nDiasAviso pois só estava permitino 1 digito.
+@history 19/03/2015, Flavio Correia, PCREQ-4163 	- Integração Mensagem Unica
+@history 24/06/2015, Allyson M	   , TSODJL 		- Ajuste na verificacao se ha pagamento do sabado e domingo quando rescisao ocorre na sexta p/ o calculo de provisao.
+@history 08/12/2015, Allyson M	   , TTTRYY			- Ajuste para que seja executada a função fIncRes após o preenchimento do tipo de rescisão.
+@history 18/02/2016, Claudinei S.  , TUCD45			- Incluído novo controle para o Aviso Prévio Trabalhado e Indenizado.
+@history 29/02/2016, Claudinei S.  , TUCD45			- Incluído tratamento para gravação do novo campo RG_DTPROAV.
+@history 07/11/2016, Allyson M	   , TVY532			- Ajuste para permitir a exclusão em lote.
+@history 23/11/2016, Jônatas A.T.  , 973095			- Excluído teste do campo RG_REPVAG por não existir no dicionário e não ter uso.
+@history 01/06/2017, Marcos Cout.  , DRHESOCP-320	- Realizar os ajustes necessários para geração do evento S-2299 - Desligamento (rescisão coletiva).
+@history 02/06/2017, Marcos Cout.  , DRHESOCP-331	- Ajustes para geração de LOG. Evento S-2299 - Desligamento Coletivo.
+@history 12/06/2017, Marcos Cout.  , DRHESOCP-396	- Subir no TFS o evento de desligamento S-2299 - Desligamento Coletivo.
+@history 14/06/2017, Marcos Cout.  , DRHESOCP-419	- Ajustes para exibição de alerta (help) e chamada da função persistência do STATUS.
+@history 04/09/2017, L. Samaniego  , DMICNS-163		- Se realiza declaracion de Variables para el pais Argentina cuando ejecuta GPEM042.
+@history 15/09/2017, Isabel N.	   , DRHPAG-4561	- Inicializa variáveis p/ ModFol modelo 2.
+@history 28/09/2017, Marcos Cout.  , DRHESOCP-1362	- Realizando a inclusão do campo RG_INDAV como preenchimento da TAG indCumprParc
+@history 28/09/2017, Eduardo K .   , MPRIMESP-11960	- Ajuste para não ocorrer error.log na função FDTSABDOM ao informar data de demissão (RA_DEMISSA) de estagiário.
+@history 08/01/2018, Cecília C .   , DRHESOCP-2682	- Ajuste para geração de contrato intermitente - evento S-2200.
+@history 04/12/2019, V. Flores     , DMINA-7850  	- Se realiza bifurcacion de la Variable P_DIASRES en la función FDTSABDOM-MEX.
+@history 09/06/2020, Alf. Medrano  , DMINA-9288  	- Se valida parametros Tipo Rescisión y Causa Baja en fun Gp630VldDat.
+@history 28/10/2020, Alf. Medrano  , DMINA-8758  	- En fun gpem630 se declara variable nNumEmp, se obtiene Causa Baja de la selección de Tipo Rescisión. En func VldCalResC() se asigna el número de empleados a procesar.
+/*/
+Function GPEM630( aParam, cParProc )
+	Local cFilMat 		:= space(99)
+	Local cFilDep 		:= space(99)
+	Local cFilCC  		:= space(99)
+	Local cFilLocPag 	:= space(99)
+	Local cRescrais 	:= ""
+	Local cAfasfgts 	:=""
+	Local Cod_Am    	:= "   "
+	Local  NPERCFGTS	:=0
+
+	Local lSetCentury	:= __SetCentury( "on" )	// Altero o estado de SetCentury
+	Local lShowDlgFil	:= .T.					// Visualizar a dialog de filtros
+
+	//Variaveis para montagem da Dialog
+	Local oDlg
+	Local aAdvSize		:= {}
+	Local aInfoAdvSize	:= {}
+	Local aObjSize		:= {}
+	Local aObjCoords	:= {}
+	Local aRetcoords	:= {}
+	Local aFilterExp	:=  {} 					//expressao do filtro
+
+	Local aArea			:= GetArea()
+	Local aPages		:= {}
+	Local aFolders		:= {}
+	Local aObjFolder	:= {}
+	Local aButtons		:= {}
+	Local aRetFiltro							//retorno do filtro
+	Local bNewFiltro							//bloco para inclusao de novos filtros
+	Local bAltFilter							//bloco para Alteracao do filtro selecionado
+	Local bFastFilter							//bloco para Filtro Rapido
+	Local bSet15
+	Local bSet24
+	Local bDialogInit
+
+	Local oIndAvsPrv
+	Local oProces
+	Local oFolders
+	Local oChkHabGrab
+	Local oChkHabTrace
+	Local oSabDom
+	Local oMesAtu
+	Local oBtnNewFil
+	Local oBtnAltFil
+	Local oBtnFastFil
+	Local oTipCalc
+	Local oTipIc
+	Local cConsRes		:= ""
+	Local nTamDesc		:= 25
+	Local cTabRes		:= ""
+	Local cDiaInde		:= Space(3)
+	Local cDiasCum		:= Space(3)
+
+	Local cTpResDesc	:= Space( 50 )
+
+	Private cVersEnvio	:= ""
+	Private cVersGPE	:= ""
+	Private lNT15		:= .F.
+
+	Private lIntegra 	:= .F.
+	Private aIndAvsPrv	:= ""
+	Private cIndAvPrv		:= ""
+	Private aFilter		:= {}
+	Private __aFormulas	:= {}
+	Private aSimNao		:= {STR0003,STR0004} //"Sim"#"Não"
+	Private aNaoSim		:= {STR0004,STR0003} //"Não"#"Sim"
+	Private aTipCalc	:= {STR0005,STR0006,STR0007,STR0072} //"Calcular"#"Simular"#"Efetivar"#"Excluir"
+	Private aIncRes		:= {}
+	Private cProcAux	:= Space( TamSX3( "RCJ_CODIGO" )[1] )
+	Private cRotAux 	:= Space( TamSX3( "RY_CALCULO" )[1] )
+	Private cPerAux		:= Space( TamSX3( "RCH_PER" )[1] )
+	Private cSemAux		:= Space( TamSX3( "RCH_NUMPAG" )[1] )
+	Private cProcDesc	:= Space( TamSX3( "RCJ_DESCRI" )[1] )
+	Private cRotDesc 	:= Space( TamSX3( "RY_DESC" )[1] )
+	Private cFilRCH		:= ""
+	Private cModFol 	:= GetMvRH( "MV_MODFOL", .F., "1" )
+	Private cSabDom		:= ""
+	Private cMesAtu		:= ""
+	Private cExpFiltro	:= ""//variavel com o retorno do filtro
+	Private nNumEmp		:= 0
+	Private cTipoRes	:= Space(2)
+	Private cTipCalc	:= ""
+	Private dDataIni	:= CtoD("//")
+	Private dDataFim	:= CtoD("//")
+	Private dDataKey	:= CtoD("//")
+	Private dDataRes	:= CtoD("//")
+	Private dDataHom	:= CtoD("//")
+	Private dDataGer	:= CtoD("//")
+	Private lItemClVl   := GetMvRH( "MV_ITMCLVL", .F., "2" ) $ "13"
+	Private lHabGrab	:= .F.
+	Private lGrid		:= .F.
+	Private lHabTrace	:= .F.
+	Private lColetiva	:= .T. //indica q eh ferias coletivas no calculo (Gpem022Processa)
+	Private lSabDom		:= .F.
+	Private lAbortPrint := .F.
+	Private nStatus		:= 1
+	Private oPeriodo	:= RHPERIODO():New()
+	Private lBlind		:= IsBlind()
+	Private lCpoFlagIC	:= SRG->( ColumnPos("RG_CONFIC") ) > 0
+	Private lEstab		:= SRG->( ColumnPos( "RG_DTESTAB") ) > 0
+	Private lGPEM040B	:= IsInCallStack("GPEM040B") .Or. FunName() == "GPEM040B"
+	Private lIndAv		:= Iif(cPaisLoc == 'BRA' .And. SRG->(ColumnPos( "RG_INDAV")) > 0, .T., .F.)
+	Private lModDataDem	:= GetMvRH("MV_MDDTDEM",NIL,"N") == "S"
+    Private lGestPubl := IIF(ExistFunc("fUsaGFP"),fUsaGFP(),.F.)
+    Private lRutAuto := isBlind() //variable utilizada para rutina automática
+    Private cProces 	:= ""
+    private cPeriodo 	:= ""
+    Private cNumPag		:= ""
+    Private cRoteiro	:= ""
+    Private cCauBaja	:= " "
+	Private cIntIc		:= ""
+   	Private nDiasCum 	:= 0
+   	Private nDiaInde 	:= 0
+
+	If Empty(cVersGPE)
+		cVersGPE := cVersEnvio
+	EndIf
+
+	If ExistFunc("fVersEsoc")
+		lIntegra := fVersEsoc( "S2299", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersEnvio, @cVersGPE, Nil, @lNT15 )
+	Endif
+
+	aIndAvsPrv := Iif( cVersGPE == "2.2", {STR0092, STR0093,STR0094} ,{"",STR0092, STR0093,STR0094,STR0095,STR0096}) //"Não se aplica"#"Cumprimento Total"#"Cump. parcial em razão de obtenção de novo emprego pelo empregado"#"Cumprimento parcial por iniciativa do empregador"#"Outras hipóteses de cumprimento parcial do aviso prévio"#"Aviso prévio indenizado ou não exigível"
+
+	//Memória de Cálculo
+	DEFAULT __lMemCalc := cPaisLoc == "BRA" .And. FindFunction("fMemCalc") .And. fMemCalc() // Memória de Cálculo
+	DEFAULT cParProc   := ""
+	DEFAULT aParam     := {}
+
+	// Verifica se existe alguma restrição de acesso para o usuário que impeça a execução da rotina.
+	If ! (fValidFun({"SQB", "SRJ", "RCO", "CTT", "RGC", "RCE", "SR6", "SR3", "SR7", "SRC", "RGB", "SRV", "SRK", "RCP", "RG7"}))
+		RestArea(aArea)
+		Return
+	EndIf
+
+	If lGPEM040B .And. Len(_MarcReg) < 1
+		Help(' ', 1, "NUMFUNC", , OemToAnsi(STR0089), 1, 0)
+		Return
+	EndIf
+
+	If cPaisLoc == "ARG"
+		cConsRes := "S12ARG"
+		cTabRes	 := "S012"
+		nTamDesc := 25
+	ElseIf cPaisLoc == "DOM"
+		cConsRes := "S10DOM"
+		cTabRes	 := "S010"
+		nTamDesc := 30
+	ElseIf cPaisLoc == "COS"
+		cConsRes := "S22COS"
+		cTabRes	 := "S022"
+		nTamDesc := 40
+	ElseIf cPaisLoc == "BRA"
+		cConsRes := "S43BRA"
+		cTabRes	 := "S043"
+		nTamDesc := 30
+	ElseIf cPaisLoc == "BOL"
+		cConsRes := "S13BOL"
+		cTabRes	 := "S013"
+		nTamDesc := 30
+	ElseIf cPaisLoc == "MEX"
+		cConsRes := "S25MEX"
+		cTabRes	 := "S025"
+		nTamDesc := 30
+	EndIf
+
+	If cPaisLoc <> 'BRA'
+		SetMnemonicos(NIL,NIL,.T.)
+	EndIf
+
+	Begin Sequence
+
+		nDiasAviso	:= 0.00
+		cDiasAviso	:= "   "
+		dDtAviso	:= CtoD("")
+
+		If cModFol == "2"
+			aAdd(aButtons, {'RELATORIO', {|| TelaLog()}, OemToAnsi(STR0008), OemToAnsi(STR0009)}) // "Consulta Logs de Calculo"##"Logs"
+
+			// Define o Bloco para a Inicializacao do Dialog
+			bDialogInit		:= { ||;
+										CursorWait()													,;
+										oProces:SetFocus()												,;
+										EnchoiceBar( oDlg , bSet15 , bSet24, NIL , aButtons )			,;
+										CursorArrow()													 ;
+								}
+		Else
+			aAdd(aButtons, {'INTEGRACAO', {|| fIntegRes() }, OemToAnsi(STR0010), OemToAnsi(STR0010)}) //"Integrações"
+
+			// Bloco de Inicialização da Janela
+			bDialogInit 	:= { || CursorWait(),;
+									Gpem020SetFil(@aFilterExp, "SRA"),;		// Setar as opcoes que filtrara o cadastro de Filtro
+									lShowDlgFil := .F.,;
+									Gpem020Filter( 	aFilterExp,;
+										 			"SRA",;
+										 			@cExpFiltro,;
+										 			lShowDlgFil ),;			// setar o ultimo filtro utilizado
+									lShowDlgFil := .T.,;
+									oProces:SetFocus(),;
+									EnchoiceBar( oDlg , bSet15 , bSet24, NIL , aButtons ),;
+									CursorArrow();
+								}
+		EndIf
+
+		aPages		:= If(cModFol == "2", Array( 02 ), Array( 01 ) )
+		aFolders	:= If(cModFol == "2", Array( 02 ), Array( 01 ) )
+		aObjFolder	:= If(cModFol == "2", Array( 02 ), Array( 01 ) )
+
+		// Define o Conteudo do aPages
+		aPages[ 01 ] := OemToAnsi( STR0011 )	//"Gerais"
+
+		// Define o Conteudo do aFolders
+		aFolders[ 01 ] := OemToAnsi( STR0011 )	//"Gerais"
+
+		// Define os Elementos para o Array do Objeto Folder
+		aObjFolder[ 01 ]	:= Array( 01 , 04 )
+
+		If cModFol == "2"
+			aPages[ 02 ] 	:= OemToAnsi( STR0012 )	//"Faixas"
+			aFolders[ 02 ] 	:= OemToAnsi( STR0012 )	//"Faixas"
+			aObjFolder[ 02 ]:= Array( 02 , 04 )
+		EndIf
+
+		// Em GRID havera uma Barra de processamento da LIB //
+		If cModFol == "2"
+			If cPaisLoc=="MEX"
+				bSet15			:= { || cProces := cProcAux, cRoteiro := cRotAux, cPeriodo :=cPerAux, cNumPag := cSemAux, If(fVldAccess( cFilAnt, dDataRes, cSemAux, .T., fGetCalcRot("4") ), (fGeraFilter( aFilter, cFilMat, cFilDep, , cFilCC, cFilLocPag), If( VldCalResC(), CalResCol(), .F. )), .F. )}
+			Else
+				bSet15			:= { || If(fVldAccess( cFilAnt, dDataRes, cSemAux, .T., fGetCalcRot("4") ), (fGeraFilter( aFilter, cFilMat, cFilDep, , cFilCC, cFilLocPag), If( VldCalculo(), CalResCol(), .F. )), .F. )}
+			EndIf
+		Else
+			bSet15			:= { || If(fVldAccess( cFilAnt, dDataRes, cSemAux, .T., fGetCalcRot("4") ), (If( Gp630VldCalc(), ( CalResCol(), oDlg:End() ), .F. )), .F.)}
+		EndIf
+		bSet24				:= { || oDlg:End() }
+
+		// Monta as Dimensoes dos Objetos
+		aAdvSize		:= MsAdvSize()
+		aInfoAdvSize	:= { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 0 , 0 }
+		aAdd( aObjCoords, { 000, 000, .T., .T. } )
+		aObjSize		:= MsObjSize( aInfoAdvSize , aObjCoords )
+
+		If !lBlind .and. (!lGPEM040B .or. Len(aParam) == 0 )
+			If lGPEM040B .and. !Empty(cParProc)
+				cProcAux := cParProc
+				Gpm630ProcVld()
+			EndIf
+			Define MsDialog oDlg Title OemToAnsi(STR0001) From aAdvSize[7],000 TO aAdvSize[6],aAdvSize[5] OF oMainWnd PIXEL // "Rescisao Coletiva"
+
+				oDlg:lEscClose := .F. // Nao permite sair ao se pressionar a tecla ESC.
+
+				// Carrega o Objeto Folder
+				oFolders := TFolder():New(	aObjSize[1,1]			,;
+											aObjSize[1,2]			,;
+											aFolders				,;
+											aPages					,;
+											oDlg					,;
+											NIL						,;
+											NIL						,;
+											NIL						,;
+											.T.						,;
+											.F.						,;
+											aObjSize[1,4]			,;
+											aObjSize[1,3]			 ;
+										 )
+
+				// Dados do folder - Gerais
+				aRetcoords := RetCoords(4,14,55,15,2,40,,oFolders:OWND:NTOP)
+				IIf(cPaisLoc=="MEX", cTipCalc := "1",)
+				@aRetcoords[1][1], aRetcoords[1][2] SAY STR0031 SIZE 040, 007 OF oFolders:aDialogs[01] PIXEL	//"Tipo de Calculo: "
+				@aRetcoords[2][1], aRetcoords[2][2] COMBOBOX oTipCalc VAR cTipCalc ITEMS aTipCalc SIZE 050, 007 OF oFolders:aDialogs[01] PIXEL WHEN IIf(cPaisLoc=="MEX", .F.,.T.)
+
+				If cPaisLoc == "BRA" .And. lConsig .And. lCpoFlagIC
+					@aRetcoords[3][1], aRetcoords[3][2] SAY   STR0119 SIZE 050,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Int. Inst. Cred?"
+					@aRetcoords[4][1], aRetcoords[4][2] COMBOBOX oTipIc VAR cIntIc ITEMS aSimNao SIZE 140,007	OF oFolders:aDialogs[ 01 ] PIXEL
+				EndIf
+
+				@aRetcoords[5][1], aRetcoords[5][2] SAY STR0013 SIZE 033, 007 OF oFolders:aDialogs[01] PIXEL	//"Processo: "
+				@aRetcoords[6][1], aRetcoords[6][2] MSGET oProces VAR cProcAux SIZE 040, 007 OF oFolders:aDialogs[01] PIXEL PICTURE ;
+																			PesqPict("RCJ","RCJ_CODIGO") F3 "RCHCOL" VALID Gpm630ProcVld() HASBUTTON WHEN (!lGPEM040B .or. Empty(cProcAux) )
+
+				@aRetcoords[7][1]	,aRetcoords[7][2] SAY   STR0014 SIZE 033,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Descricao: "
+				@aRetcoords[8][1]	,aRetcoords[8][2] MSGET cProcDesc SIZE 140,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F.
+
+
+				@aRetcoords[9][1]	,aRetcoords[9][2] SAY   STR0015 SIZE 033,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Roteiro: "
+				@aRetcoords[10][1]	,aRetcoords[10][2] MSGET cRotAux  SIZE 040,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F. PICTURE ;
+																			PesqPict("SRY","RY_CALCULO") HASBUTTON
+
+				@aRetcoords[11][1]  ,aRetcoords[11][2] SAY   STR0014 SIZE 033,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Descricao: "
+				@aRetcoords[12][1]  ,aRetcoords[12][2] MSGET cRotDesc SIZE 140,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F.
+
+
+				@aRetcoords[13][1]	,aRetcoords[13][2] SAY   STR0016 SIZE 033,007   OF oFolders:aDialogs[ 01 ] PIXEL	//"Periodo: "
+				@aRetcoords[14][1]	,aRetcoords[14][2] MSGET cPerAux SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F.
+
+				@aRetcoords[15][1]	,aRetcoords[15][2] SAY   STR0017 SIZE 038,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Nro Pagto: "
+				@aRetcoords[16][1]	,aRetcoords[16][2] MSGET cSemAux SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F.
+
+				@aRetcoords[17][1]	,aRetcoords[17][2] SAY   STR0018 SIZE 038,007  OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Inicio: "
+				@aRetcoords[18][1]	,aRetcoords[18][2] MSGET dDataIni SIZE 050,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F. HASBUTTON
+
+				@aRetcoords[19][1]	,aRetcoords[19][2] SAY   STR0019 SIZE 033,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Fim: "
+				@aRetcoords[20][1]	,aRetcoords[20][2] MSGET dDataFim SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F. HASBUTTON
+
+				If cModFol == "1"
+					@aRetcoords[21][1]	,aRetcoords[21][2] SAY   STR0020 SIZE 090,007  OF oFolders:aDialogs[ 01 ] PIXEL	//"Paga Sab. Dom.: "
+					@aRetcoords[22][1]	,aRetcoords[22][2] COMBOBOX oSabDom VAR cSabDom ITEMS aSimNao SIZE 040,007 PIXEL OF oFolders:aDialogs[ 01 ]
+					@aRetcoords[23][1]	,aRetcoords[23][2] SAY   STR0021 SIZE 083,007    OF oFolders:aDialogs[ 01 ] PIXEL //"Mês Atual para Média: "
+					@aRetcoords[24][1]	,aRetcoords[24][2] COMBOBOX oMesAtu VAR cMesAtu ITEMS aNaoSim SIZE 140,007 PIXEL OF oFolders:aDialogs[ 01 ] WHEN !Empty(cSabDom)
+					nPosTela := 25
+				Else
+					nPosTela := 21
+				EndIf
+
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0022 SIZE 040,007  OF oFolders:aDialogs[ 01 ] PIXEL //"Tipo Rescisao: "
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cTipoRes SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN ( !Empty(cProcAux) ) F3 cConsRes VALID iif(cPaisLoc == "MEX", Gp630VldDat(4), .T.) .AND.;
+																			(Iif( Empty(cTipoRes),cTpResDesc := "", ( fIncRes(SRA->RA_FILIAL,cTipoRes,@aIncRes,@nPercFgts,@cRescrais,@cAfasfgts,@Cod_Am), ;
+																			cTpResDesc:= fDescRCC(cTabRes,cTipoRes,1,2,3,nTamDesc),;
+																			cCauBaja := iif(cPaisLoc == "MEX", alltrim(fDescRCC(cTabRes,cTipoRes,1,2,36,2)),""), lRet := .T.)))   HASBUTTON
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0014 SIZE 033,007    OF oFolders:aDialogs[ 01 ] PIXEL	//"Descrição: "
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cTpResDesc SIZE 140,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN .F. //PICTURE
+
+
+				If cPaisLoc == "BRA"
+
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0030 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data do Aviso: "
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDtAviso SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN .T. HASBUTTON
+
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0029 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Dias Aviso: "
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cDiasAviso SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(cTipoRes) VALID (If(!Empty(cDiasAviso),(nDiasAviso := Val(cDiasAviso), GP40DiasAv(@dDtAviso,nDiasAviso,If(Len(aIncRes)>0,aIncRes[2],'')),.T.),.T.)) PICTURE "999" HASBUTTON
+
+					If cPaisLoc <> "BOL"
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0070 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Dias Av. Cump.: "
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cDiascum SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(cTipoRes) VALID (If(!Empty(cDiasAviso),(nDiasAviso := Val(cDiasAviso), nDiasCum := Val(cDiasCum), GP40DiasAv(@dDtAviso,nDiasAviso,If(Len(aIncRes)>0,aIncRes[2],''),@nDiasCum),.T.),.T.),nDiasCum := Val(cDiasCum),.T.) PICTURE "999" HASBUTTON
+
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0071 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Dias Av. Inde.: "
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cDiaInde SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(cTipoRes) VALID (If(!Empty(cDiasAviso),(nDiasAviso := Val(cDiasAviso), nDiaInde := Val(cDiaInde), GP40DiasAv(@dDtAviso,nDiasAviso,If(Len(aIncRes)>0,aIncRes[2],''),,@nDiaInde),.T.),.T.),nDiaInde := Val(cDiaInde),.T.) PICTURE "999" HASBUTTON
+					EndIf
+				Endif
+
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0023 SIZE 050,007  OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Rescisao: "
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDataRes SIZE 050,007 OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(cTipoRes) VALID Gp630VldDat(1) HASBUTTON
+
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0024 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Homolog: "
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDataHom SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(dDataRes) HASBUTTON
+
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0025 SIZE 050,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Geração: "
+				nPosTela++
+				@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDataGer SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(dDataHom) VALID Gp630VldDat(2) HASBUTTON
+
+				If ( cVersGPE >= "2.2" )
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0091 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Indic. de cumprimento de Aviso Prévio"
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] COMBOBOX oIndAvsPrv VAR cIndAvPrv ITEMS aIndAvsPrv SIZE 140,007	OF oFolders:aDialogs[ 01 ] PIXEL
+				EndIf
+
+				If cModFol == "2"
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0026 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data Pgto: "
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDataKey SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(dDataGer) HASBUTTON
+
+					If cPaisLoc == "MEX"
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0111  SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Causa Baja: "
+						nPosTela++
+						@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cCauBaja SIZE 050,007	OF oFolders:aDialogs[ 01 ]  PIXEL  F3 '27'  VALID Gp630VldDat(3)  HASBUTTON
+					EndIf
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] CHECKBOX oChkHabGrab  VAR lHabGrab PROMPT OemToAnsi(STR0027) SIZE 100,08 OF oFolders:aDialogs[ 01 ] PIXEL //"Habilitar Gravacao"
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] CHECKBOX oChkHabTrace VAR lHabTrace PROMPT OemToAnsi( STR0028 ) SIZE 100,08 OF oFolders:aDialogs[ 01 ] PIXEL //"Habilitar TRACE"
+				ElseIf cPaisLoc <> "BRA"
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0029 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Dias Aviso: "
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET cDiasAviso SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(dDataGer) VALID (If(!Empty(cDiasAviso),(nDiasAviso := Val(cDiasAviso), GP40DiasAv(@dDtAviso,nDiasAviso),.T.),.T.)) HASBUTTON
+
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] SAY   STR0030 SIZE 040,007 OF oFolders:aDialogs[ 01 ] PIXEL	//"Data do Aviso: "
+					nPosTela++
+					@aRetcoords[nPosTela][1]	,aRetcoords[nPosTela][2] MSGET dDtAviso SIZE 050,007	OF oFolders:aDialogs[ 01 ] PIXEL WHEN !Empty(dDataGer) HASBUTTON
+				EndIf
+
+				If cModFol == "1"
+					If ! lGPEM040B
+						nPosTela := Len(aRetCoords)
+
+						// Funcoes em GpFiltro  - Blocos de Execucao dos filtros
+						// GpFiltro - Chama a janela principal do cadastro de filtros
+						// GpFltAlsGet - Retorna a expressao para elaborar o filtro
+						bNewFiltro 		:= { || aRetFiltro := GpFiltro( aFilterExp ), cExpFiltro := GpFltAlsGet( aRetFiltro, "SRA" ) }
+						bAltFilter 		:= { || Gpem020Filter( aFilterExp, "SRA", @cExpFiltro, lShowDlgFil ) }
+						bFastFilter 	:= { || GpFltBldExp( "SRA", NIL, @cExpFiltro, NIL ) }
+
+						oBtnFastFil 	:= TButton():New( aRetcoords[nPosTela][1] + 20, 005, OemToAnsi(STR0032), NIL, bFastFilter, 040, 012, NIL, NIL, NIL, .T. )	// "Filtro Rapido"
+						oBtnAltFil  	:= TButton():New( aRetcoords[nPosTela][1] + 20, 047, OemToAnsi(STR0033), NIL, bAltFilter,  040, 012, NIL, NIL, NIL, .T. )	// "Alterar Filtro"
+						oBtnNewFil  	:= TButton():New( aRetcoords[nPosTela][1] + 20, 089, OemToAnsi(STR0034), NIL, bNewFiltro,  040, 012, NIL, NIL, NIL, .T. )	// "Incluir Filtro"
+					EndIf
+				Else
+					// Dados do folder - Filtros
+					iif(cPaisLoc == "MEX" .and. lGPEM040B, oFolders:aEnable(2, .F.),)
+					@aRetcoords[01][1], aRetcoords[01][2] SAY   STR0035 SIZE 045, 007 OF oFolders:aDialogs[02] PIXEL	//"Funcionarios: "
+					@aRetcoords[02][1], aRetcoords[02][2] MSGET cFilMat SIZE 200, 007 OF oFolders:aDialogs[02] PIXEL F3 "SRA" HASBUTTON
+
+					@aRetcoords[05][1], aRetcoords[05][2] SAY   STR0036 SIZE 045, 007 OF oFolders:aDialogs[02] PIXEL	//"Departamentos: "
+					@aRetcoords[06][1], aRetcoords[06][2] MSGET cFilDep SIZE 200, 007 OF oFolders:aDialogs[02] PIXEL F3 "SQB" HASBUTTON
+
+					@aRetcoords[09][1], aRetcoords[09][2] SAY   STR0037 SIZE 045, 007 OF oFolders:aDialogs[02] PIXEL	//"Centro de Custos: "
+					@aRetcoords[10][1], aRetcoords[10][2] MSGET cFilCC  SIZE 200, 007 OF oFolders:aDialogs[02] PIXEL F3 "CTT" HASBUTTON
+
+					@aRetcoords[13][1], aRetcoords[13][2] SAY   STR0038 SIZE 045, 007 OF oFolders:aDialogs[02] PIXEL	//"Local de Pagamento: "
+					@aRetcoords[14][1], aRetcoords[14][2] MSGET cFilLocPag SIZE 200, 007 OF oFolders:aDialogs[02] PIXEL F3 "S015" HASBUTTON
+
+				EndIf
+
+			ACTIVATE DIALOG oDlg ON INIT Eval( bDialogInit ) CENTERED
+		Else
+
+			SetMnemonicos(NIL,NIL,.T.)
+
+			cTipCalc	:= aParam[01]
+			cProcAux	:= aParam[02]
+			cRotAux		:= aParam[03]
+			cPerAux		:= aParam[04]
+			cSemAux		:= aParam[05]
+			dDataIni	:= aParam[06]
+			dDataFim	:= aParam[07]
+			cSabDom		:= aParam[08]
+			cMesAtu		:= aParam[09]
+			cTipoRes	:= aParam[10]
+			dDtAviso	:= aParam[11]
+			cDiasAviso	:= aParam[12]
+			if cPaisLoc == "MEX" .and. cModFol == "2"
+				dDataKey        := aParam[13]
+				cCauBaja        := aParam[14]
+				cProces         := cProcAux
+				cRoteiro        := cRotAux
+				cPeriodo        := cPerAux
+				cNumPag         := cSemAux
+				fGeraFilter( aFilter, " ", " ", , " ", " ")
+			Else
+				nDiascum	:= aParam[13]
+				nDiaInde	:= aParam[14]
+			Endif
+
+			dDataRes	:= aParam[15]
+			dDataHom	:= aParam[16]
+			dDataGer	:= aParam[17]
+
+			fIncRes(SRA->RA_FILIAL,cTipoRes,@aIncRes)
+
+			//Blindando erro em parametro não lançado
+			If ( len(aParam) > 17 )
+				If ( cVersGPE >= "2.2" )
+					cIndAvPrv := aParam[18]
+				EndIf
+			EndIf
+
+			If Len(aParam) >= 19
+				cExpFiltro	+= aParam[19]
+			EndIf
+
+			If Len(aParam) >= 20
+				cIntIc	:= aParam[20]
+			EndIf
+
+			If IIf(cPaisLoc == "MEX", VldCalResC(), Gp630VldCalc() )
+				CalResCol()
+			EndIf
+		EndIf
+
+	End Sequence
+
+	IF !( lSetCentury )
+		__SetCentury( "off" )
+	EndIF
+
+	lColetiva:= .F.
+
+Return Nil
+
+/*/{Protheus.doc} Gp630VldCalc
+Valida parametros da rescisao coletiva
+@author Leandro Drumond
+@since 14/01/2014
+/*/
+Static Function Gp630VldCalc()
+
+Local nI		:= 0
+Local lRet 		:= .T.
+Local cMotESOC 	:= fGP40TPRES( cTipoRes)
+Local lMotEsoc  := .F.
+Local cVersESoc	:= "2.2"
+Local NT15		:= .F.
+
+Begin Sequence
+
+	cTipCalc := AllTrim(STR(aScan( aTipCalc, {|x| x == cTipCalc} )))
+	cSabDom	 := AllTrim(STR(aScan( aSimNao, {|x| x == cSabDom} )))
+	cMesAtu  := AllTrim(STR(aScan( aNaoSim, {|x| x == cMesAtu} )))
+
+	If lGPEM040B
+		cExpFiltro := "(RA_FILIAL + RA_MAT) $ '"
+		For nI := 1 To Len(_MarcReg)
+			cExpFiltro += _MarcReg[nI] + "|"
+		Next
+		cExpFiltro += "'"
+	EndIf
+
+	If !lBlind .And. Empty(cExpFiltro)
+		If!( MsgYesNo( OemToAnsi( STR0067 ), OemToAnsi( STR0040 ) ) ) //"Atencao"###"Nenhum filtro foi definido. Processar a tabela inteira?"
+			lRet := .F.
+			Help(,,OemToAnsi(STR0040),,OemToAnsi(STR0068),1,0) //Filtro vazio.
+			Break
+		EndIf
+	EndIf
+
+	If cTipCalc == "3" //Efetivacao
+		If !Empty(cProcAux) .and. !Empty(cRotAux) .and. !Empty(cPerAux) .and. !Empty(cSemAux)
+			Break
+		EndIf
+	EndIf
+
+	If nDiasAviso >0 .and. Empty(dDtAviso)
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0044) , 1, 0 )//"Atenção"##"Digite a Data de Aviso Prévio"
+		lRet := .F.
+		Break
+	EndIf
+
+	If Empty(dDataRes) .or. dDataRes < dDataIni .or. dDataRes > dDataFim
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0041) , 1, 0 )//"Atenção"##"Data de Demissão deve pertencer ao período informado"
+		lRet := .F.
+		Break
+	EndIf
+
+	If Empty(dDataHom)
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0042) , 1, 0 )//"Atenção"##"Preencha a data de Homologação"
+		lRet := .F.
+		Break
+	EndIf
+
+	If Empty(dDataGer) .or. dDataGer < dDataIni .or. dDataGer > dDataFim
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0043) , 1, 0 )//"Atenção"##"Data de Geração deve pertencer ao período informado"
+		lRet := .F.
+		Break
+	EndIf
+
+	//Verifica se versão do eSocial e o preenchimento do cumprimento do aviso prévio (mv_par38)
+	If cPaisLoc == "BRA" .And. !Empty(cTipoRes) .And. (lIntTaf .Or. lMiddleware) .And. cTipCalc != "4"
+		If cEFDAviso <> "2"
+			lMotEsoc := cMotESOC $ ("02|03|04|07")
+
+			If ExistFunc("fVersEsoc")
+				fVersEsoc( "S2299", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersESoc, Nil, Nil, @NT15 )
+			Endif
+
+			If !NT15 .And. ( ( Empty(cIndAvPrv) .Or. cIndAvPrv == "9" ) .And. ( cVersESoc > '2.3' .OR. (lMotEsoc .And. cVersESoc == '2.3' )) )
+				//Atenção ### "Quando motivo de desligamento eSocial (ref. ao tipo de rescisão) for 02, 03, 04 ou 07, é obrigatório o preenchimento do campo 'Cump Aviso'." ### OK
+				If cEfdAviso == "1"
+					Help( ,, OemToAnsi(STR0040),, If(cVersESoc > '2.3', OemToAnsi(STR0099),OemToAnsi(STR0098)) , 1, 0 )
+					lRet := .F.
+					Break
+				ElseIf !IsBlind()
+					MsgAlert(If(cVersESoc > '2.3', OemToAnsi(STR0099),OemToAnsi(STR0098)), OemToAnsi(STR0040) )	// "Atenção ### "Quando motivo de desligamento eSocial (ref. ao tipo de rescisão) for 02, 03, 04 ou 07, é obrigatório o preenchimento do campo 'Cump Aviso'." ### OK "
+				Endif
+			EndIf
+
+			If Empty(cMotEsoc)
+				If cEfdAviso == "1"
+					Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0102) + CRLF + CRLF + OemToAnsi(STR0103), 1, 0 ) // "Atenção ### "O motivo da rescisão não foi informado e é obrigatório para o eSocial.""Para informar o motivo, preencha o campo Mot. eSocial da tabela S043 - Tipos de Rescisão."
+					lRet := .F.
+					Break
+				ElseIf !IsBlind()
+					MsgAlert(OemToAnsi(STR0102) + CRLF + OemToAnsi(STR0103), OemToAnsi(STR0040) )	// "Atenção ### "O motivo da rescisão não foi informado e é obrigatório para o eSocial.""Para informar o motivo, preencha o campo Mot. eSocial da tabela S043 - Tipos de Rescisão."
+				Endif
+			Endif
+		Endif
+	EndIf
+
+End Sequence
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CalResCol   ºAutor  ³Leandro Drumond   º Data ³  14/01/14   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Prepara o calculo da rescisao coletiva                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function CalResCol()
+
+Local aTabRES		:= {}
+Local aOfusca		:= If(FindFunction('ChkOfusca'), ChkOfusca(), { .T., .F. }) //[2]Ofuscamento
+Local aFldRel		:= Iif( aOfusca[2], FwProtectedDataUtil():UsrNoAccessFieldsInList( {"RA_NOME"} ), {} )
+Private lOfusca		:= Len(aFldRel) > 0
+Private aLogFile	:= {}
+Private aLogTitle	:= {}
+Private aFuncProc	:= {}
+
+Begin Sequence
+
+	If cTipCalc == "3"
+		If !lBlind
+			Proc2BarGauge({|lEnd| Gp630Efetiva()},,,, .T. , .T. , .F. , .F. )
+		Else
+			Gp630Efetiva()
+		EndIf
+		Break
+	EndIf
+
+	If cTipCalc == "4"
+		If !lBlind
+			Proc2BarGauge({|lEnd| Gp630Exclui()},,,, .T. , .T. , .F. , .F. )
+		Else
+			Gp630Exclui()
+		EndIf
+		Break
+	EndIf
+
+	If cPaisLoc == "VEN"
+		fRetTab(@aTabRES,"S005",,,dDataBase)
+		If Empty(aTabRES)
+			FMSGFORM( {33} , , 1 , , .F. , .F.)	//# "Tabela de Tipos de Rescisao sem dados."
+			Return .F.
+		EndIf
+	ElseIf cPaisLoc == "ANG"
+		fRetTab(@aTabRES,"S015",,,dDataBase)
+		If Empty(aTabRES)
+			FMSGFORM( {33} , , 1 , , .F. , .F.)	//# "Tabela de Tipos de Rescisao sem dados."
+			Return .F.
+		EndIf
+	Elseif cPaisLoc == "EQU"
+		fRetTab(@aTabRES,"S018",,,dDataBase)
+		If Empty(aTabRES)
+			FMSGFORM( {33} , , 1 , , .F. , .F.)	//# "Tabela de Tipos de Rescisao sem dados."
+			Return .F.
+		EndIf
+	EndIf
+
+	If cModFol == "2"
+		If !lBlind
+			Proc2BarGauge({|lEnd| Gpem022Processa()},,,, .T. , .T. , .F. , .F. )
+		Else
+			Gpem022Processa()
+		EndIf
+	Else
+		If !lBlind
+			Proc2BarGauge({|lEnd| Gpem630Processa()},,,, .T. , .T. , .F. , .F. )
+		Else
+			Gpem630Processa()
+		EndIf
+	EndIf
+
+End Sequence
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Geracao do Log de Ocorrencias                              ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If lGPEM040B
+	aAdd(aGpm040Log,aLogFile)
+	aAdd(aGpm040Log,aFuncProc)
+Else
+	aAdd( aLogTitle , STR0045 )	//"Foram Encontradas as Seguintes Inconsistencias no Calculo das Rescisoes:"
+	fMakeLog( { aLogFile } , aLogTitle , NIL , NIL , FunName() , STR0046 , , , , .f. ) //"Log de Ocorrências do Calculo da Rescisao"
+EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gpem630ProcessaºAutor  ³Leandro Drumondº Data ³  15/01/14   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Efetua calcull do modelo 1			                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function Gpem630Processa()
+
+Local aIndex		:= {}
+Local aRecsBarG		:= {}
+Local aBuscaAf		:= {}
+Local aTransf		:= {}
+Local aLogInit		:= {}
+Local aLog			:= {}
+Local aTitleLog		:= {}
+Local aErroAux		:= {}
+Local cFiltraSRA	:= ""
+Local cFilAux		:= ""
+Local cTimeIni 		:= Time()
+Local dDataAux		:= CtoD("")
+Local lAvisoBlq		:= .T.
+Local lRet			:= .T.
+Local nRecCount		:= 0
+Local nX			:= 0
+Local nRet			:= 0
+Local aDiasAux		:= {nDiasCum, nDiaInde } //Guarda os dias indenizados e os dias cumpridos antes de zerar os mnemonicos
+Local lAPInf		:= .F. // Indica se o Aviso Prévio foi informado
+Local cTpAviso		:= ""  //Tipo do Aviso Prévio
+
+P_lPPEAtiv		:= If( Type("P_lPPEAtiv") == "U", .F. , P_lPPEAtiv)
+P_PRJESTAB		:= If( Type("P_PRJESTAB") == "U", .F. , P_PRJESTAB)
+
+cFiltraSRA		:= ChkRh( FunName() , "SRA" , "1" )
+cFiltraSRA		+= If(!Empty(cFiltraSRA), " .and. " + "RA_PROCES" + " = '" + cProcAux + "'", "RA_PROCES" + " = '" + cProcAux + "'" )
+cFiltraSRA		+= If(!Empty(cFiltraSRA), If(Empty(cExpFiltro),""," .and. ") + cExpFiltro , cExpFiltro )
+
+If !Empty(cFilRCH)
+	cFiltraSRA += " .and. RA_FILIAL >= '" + SubStr(cFilRCH+Space(FWGETTAMFILIAL),1,FWGETTAMFILIAL) + "'"
+	cFiltraSRA += " .and. RA_FILIAL <= '" + SubStr(cFilRCH+Replicate("Z",FWGETTAMFILIAL),1,FWGETTAMFILIAL) + "'"
+EndIf
+
+//Não realiza integração com TAF se leiaute diferente:
+If lVlEsocDif
+	lIntTAF	:= .F.
+EndIf
+
+//Retorna valores definidos nos parametros.
+nDiasCum := aDiasAux[1]
+nDiaInde := aDiasAux[2]
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Cria Temporario para Calculo de Medias                       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !(cPaisLoc $ "ANG*EQU")
+	Cria_Trp()
+EndIf
+
+DbSelectArea("SRA")
+DbGoTop()
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Aplicar o filtro na tabela                                   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bFiltraBrw 	:= { || FilBrowse( "SRA", @aIndex , @cFiltraSRA ) }
+Eval( bFiltraBrw )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Obtenho o Numero de Registros a serem Processados            ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+CREATE SCOPE aRecsBarG FOR __ExecMacro( cFiltraSRA )
+
+If !lBlind
+	nRecCount := SRA->( ScopeCount( aRecsBarG ) )
+	BarGauge1Set( nRecCount )
+EndIf
+
+Begin Sequence
+
+	While SRA->(!Eof())
+
+	     /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Aborta o Processamento                            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If ( lAbortPrint )
+			aAdd( aLogFile , STR0047 ) //"Calculo Abortado Pelo Usuario"
+			Break
+		EndIf
+
+		If !lBlind
+			IncPrcG1Time( STR0051 + " " + SRA->RA_MAT + If(lOfusca, "", "-" + SRA->RA_NOME) , nRecCount , cTimeIni , .T. , 1 , 1 , .T. )
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Consiste Filiais e Acessos                                             ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !( SRA->RA_FILIAL $ fValidFil() )
+	      	SRA->( dbSkip() )
+	       	Loop
+		EndIf
+
+		If !( cFilAux == SRA->RA_FILIAL )
+			SetMnemonicos(SRA->RA_FILIAL,NIL,.T.)
+		EndIf
+
+		dDataDem1	:= dDataDem := dDataRes
+		nDiasAv	 	:= nDiasAviso
+		dDataAv	 	:= dDtAviso
+		cTipRes	 	:= cTipoRes
+		cProcesso	:= SRA->RA_PROCES
+		cRot	 	:= cRotAux
+		cTipoRot	:= fGetTipoRot(cRot)
+		cPeriodo 	:= cPerAux
+		cSemana  	:= cNumPag	 := cSemAux
+		lSabDom	 	:= cSabDom == "1"
+		lMesAtu	 	:= cMesAtu == "2"
+		nAnosCasa	:= 0
+		nDFerVen 	:= 0
+		nDFerAve 	:= 0
+		nDFerInd	:= 0
+		nFalAtuD	:= 0
+		aPerFerias  := {}
+		dDtEst936	:= CtoD("//")
+		nPerEst936	:= 0
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Carrega Matriz com os Codigos da Folha (aCodFol)           ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !( cFilAux == SRA->RA_FILIAL )
+			aPdv    := {}
+			aCodFol := {}
+			If !FP_CODFOL(@aCodFol,SRA->RA_FILIAL)
+				aAdd( aLogfile , STR0048 )	//"Sistema nao conseguiu carregar informacoes das Verbas"
+				Break
+			EndIf
+
+			fIncRes(SRA->RA_FILIAL,cTipoRes,@aIncRes,@nPercFgts,@cRescrais,@cAfasfgts,@Cod_Am)
+
+			cFilAux := SRA->RA_FILIAL
+		EndIf
+
+		If Empty(aIncRes)
+			aAdd( aLogfile , STR0039 )	//"Tipo de Rescisão inválido."
+			Break
+		EndIf
+
+		If cPaisLoc == "BRA" .And. !(cAfasfgts $ "H /J /") .And. P_lPPEAtiv
+			fEstab936(dDataAv, @dDtEst936, @nPerEst936)
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Aviso de Demissao durante a Estabilidade do Funcionario    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cPaisLoc == "BRA"
+			If (! Empty(SRA->RA_DTVTEST)) .And.  SRA->RA_DTVTEST >= dDataDem1
+				SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+										STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+										STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+										STR0052	+ Dtoc(SRA->RA_DTVTEST) ))	// "Funcionario esta com data de Estabilidade ate: "
+				dbSelectArea("SRA")
+		      	SRA->( dbSkip() )
+		       	Loop
+			EndIf
+		EndIf
+		If cPaisLoc == "BRA" .And. P_lPPEAtiv .And. Date() >= cToD("09/10/2020") .And. !Empty(dDtEst936) .And. dDtEst936 >= dDataDem1
+			If !lEstab .Or. Len(aCodFol) < 1853 .Or. Empty(aCodFol[1853,1])
+				SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+										STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+										STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+										STR0115	+ dToC(dDtEst936) ))		// "Funcionário está com data de estabilidade da MP 936/2020 até: "
+				aAdd( aLogFile, STR0116)//'Obs.: é necessário possuir o campo RG_DTESTAB no dicionário de dados e cadastro de verba para o Id de cálculo 1853.'
+				aAdd( aLogFile, STR0117)//'Verifique a documentação no TDN através do link: https://tdn.totvs.com/x/uVmVIQ'
+				dbSelectArea("SRA")
+		      	SRA->( dbSkip() )
+		       	Loop
+			Else
+				SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+										STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+										STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+										STR0115	+ dToC(dDtEst936) ))		// "Funcionário está com data de estabilidade da MP 936/2020 até: "
+				aAdd( aLogFile, STR0118)//'Verifique a documentação no TDN através do link: https://tdn.totvs.com/x/uVmVIQ com a explicação dos cálculos realizados'
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Nao Calcula Funcionario Ja Demitido                                    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If SRA->RA_SITFOLH == "D"
+			SRA->( dbSkip() )
+			Loop
+		EndIf
+
+		//?- Verifica se o calculo esta Liberado
+		If !fVldAccess( SRA->RA_FILIAL, dDataDem1, cSemana, lAvisoBlq, ,"2" )
+		   	lAvisoBlq := .F.
+			SRA->( dbSkip() )
+			Loop
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Procura dados na rotina de Aviso Previo                    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		lApInf := .F.
+		If cPaisLoc == "BRA"
+			dbSelectArea("RFY")
+			RFY->( dbSetOrder(1) )
+			If RFY->( dbSeek( SRA->RA_FILIAL + SRA->RA_MAT ) )
+				While RFY->( !EOF() ) .and. SRA->RA_FILIAL+SRA->RA_MAT == RFY->RFY_FILIAL+RFY->RFY_MAT
+					If Empty(RFY->RFY_DTCAP) .and. Empty(RFY->RFY_TPCAP)
+						lApInf := .T.
+						If dDataAv <> RFY->RFY_DTASVP .or. !ValTpRes(cTipRes)
+							SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+													STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+													STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+													STR0069 ))	// "Dados do Func. no Cad. Aviso Previo divergem dos informados em tela, verifique : Dt. Aviso, Dt. Rescisão ou Tipo Av. Prévio: "
+							dbSelectArea("SRA")
+							SRA->( dbSkip() )
+							Loop
+						Else
+							nDAvBkp 	:= nDiasAv
+							nDiasAv	:= RFY->RFY_DIASAV
+							dDataDem1	:= RFY->RFY_DTPJAV
+							dDataDem	:= RFY->RFY_DTPJAV
+							If RFY->(ColumnPos( "RFY_DAVCUM")) > 0
+								nDiascum	:= RFY->RFY_DAVCUM
+							Endif
+							nDiaInde	:= (nDiasAv - nDiasCum)
+					   		dDataAv 	:= RFY->RFY_DTASVP
+					   		dDtProje 	:= RFY->RFY_DTPJAV + nDiaInde
+						Endif
+					Endif
+					RFY->( dbSkip() )
+				EndDo
+			EndIf
+		Endif
+	     /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ PE para desprezar funcionario, caso retorne .t.   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If ExistBlock("GP630B")
+			If Execblock("GP630B",.F.,.F.)
+				SRA->( dbSkip() )
+				Loop
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se no arquivo SRF Existe Periodo de Ferias        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		dbSelectArea("SRF")
+		If !SRA->RA_CATFUNC $ "A*P"
+			If !dbSeek( SRA->RA_FILIAL + SRA->RA_MAT )
+				SRA->(	aAdd( aLogFile ,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	//"Funcionario:"
+											STR0050 + " " + RA_FILIAL + " " +								;	//"da Filial:"
+											STR0051 + " " + RA_MAT + ", "	+								;	//"Matricula:"
+											STR0053 ))							//"Nao possui Periodo de Ferias Cadastrado."
+				SRA->( dbSkip() )
+				Loop
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se a Rescisao Simulada ja foi Calculada e Deleta  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If SRG->( dbSeek( SRA->( RA_FILIAL + SRA->RA_MAT ) ) )
+			fDelSrr( SRA->( RA_FILIAL+RA_MAT ) )
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Demissao e Sexta Feira ou Sabado e Cons. Parametro³
+		³ Para Pagar Sabado e Domingo.                               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !lApInf
+			dDataDem := fDtSabDom()
+		Endif
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Tempo de Casa do Funcionario                               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !lApInf
+			nAnosCasa	:= fAnosCasa( Iif( cPaisLoc == "BRA" .And. P_PRJESTAB .And. dDtEst936 > dDataDem, dDtEst936, dDataDem), SRA->RA_ADMISSA )
+		Endif
+
+		lProJav 	:= aIncRes[17] == "S"
+		cTpoAviso	:= aIncRes[2]
+
+		//Se nao informou a data de aviso, calcula data e dias.
+		If Empty(dDataAv) .and. cPaisLoc == "BRA"
+			nDiasAv := fAvProj(dDatadem1,nAnosCasa,@dDatadem1,cTpoAviso,,@nDiasCum,@nDiaInde,,Iif( cPaisLoc == "BRA" .And. P_PRJESTAB, dDtEst936, Nil))
+		EndIf
+
+		dDataAux := dDataDem1
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se a Data de Demissao e' Valida                   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !fChkDtDem(dDataDem1,.F.,,,,@aErroAux)
+			SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+									STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+									STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+									If(Empty(aErroAux),STR0054,aErroAux[1])	))	// "Possui Afastamento informado no mesmo Periodo da Demissão."
+			dbSelectArea("SRA")
+			SRA->( dbSkip() )
+			Loop
+		EndIf
+
+		dDataDem1 := dDataAux //Retorna datadem1 original
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Demissao nao Pode ser Inferior a Admissao                  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If dDataDem < SRA->RA_ADMISSA
+			SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+									STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+									STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+									STR0055									))	// "Data de demissão anterior a admissão."
+			SRA->( dbSkip() )
+			Loop
+		EndIf
+
+		aBuscaAf := {}
+		dDataAux := dDataDem
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Carrega os Afastamentos do Funcionario                     ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If fChkAfas(SRA->RA_FILIAL,SRA->RA_MAT, dDataDem, @dDataAux)
+			fRetAfas(SRA->RA_ADMISSA , dDataAux,,,,,@aBuscaAf)
+		EndIf
+
+		If !Empty( aBuscaAf )
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Ordena o Array pelo Inicio do Afastamento                  ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			aSort( aBuscaAf,,,{ |x,y| x[3] < y[3] } )
+
+			lRet := .T.
+
+			For nX := 1 To Len( aBuscaAf )
+
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Data de Demissao nao Pode ser Inferior ao Inicio do Afast. ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				If dDataDem <= aBuscaAf[ nx , 3 ]
+					SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+											STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+											STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+											STR0056							))	// "Existe Afastamento Posterior à Data Informada"
+					lRet := .F.
+					Exit
+				EndIf
+
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Demissao nao pode ser Calculada com Funcionario Afastado   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				If ( Empty( aBuscaAf[ nX , 4 ] ) .or. aBuscaAf[ nX , 4 ] >= dDataDem )
+					SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+											STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+											STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+											STR0057				))	// "Demissao nao Pode ser Calculada com Funcionario Afastado"
+					lRet := .F.
+					Exit
+				EndIf
+			Next nX
+
+			If !lRet
+				SRA->( dbSkip() )
+				Loop
+			EndIf
+		EndIf
+
+		aTransf := {}
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se o Funcionario tem Transferencia                ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If fTransf(@aTransf,,,,,,,.T.)
+			lRet := .T.
+			For nX := 1 To Len( aTransf )
+				If dDataDem < aTransf[ nX , 7 ]
+					SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+											STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+											STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+											STR0058			))	// "Existe Transferência Posterior à Data de Demissão Informada"
+
+					lRet := .F.
+					Exit
+				EndIf
+			Next nX
+			If !lRet
+				SRA->( dbSkip() )
+				Loop
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Carrega Salario Minimo                                     ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !Sal_Min(@Val_SalMin,MesAno(dDataDem),SRA->RA_FILIAL)
+			aAdd( aLogfile , STR0059 )	//"Sistema nao consegui carregar informacoes da Tabela de Salario Minimo"
+			Break
+		EndIF
+
+		If !lApInf
+			IF nDiasAv = 0 .And. cPaisLoc == "BRA"
+				cTpIncRes := aIncRes[2]
+
+				If RCE->(ColumnPos( "RCE_PRJAVT")) > 0
+					If (fDesc( "RCE", SRA->RA_SINDICA, "RCE_PRJAVT" )) == "2"
+						lProj := .F.
+					Endif
+				Else
+					lProj := .T.
+				EndIf
+
+				nDiasCum:= (fDesc( "RCE", SRA->RA_SINDICA, "RCE_DIASAV" ))
+
+				If nDiasCum == 0
+					nDiasCum := 30
+				EndIf
+
+				If cPaisLoc == "BRA"
+					If	nDiasAv == 0 .or. !cTpIncRes $ "T*N*D"
+						nDiasAv := fAvProj(dDatadem1,nAnosCasa,,cTpIncRes,,@nDiasCum,nDiaInde)
+					EndIf
+				Else
+					If	nDiasAv == 0 .or. !cTpIncRes $ "T*N*D"
+						nDiasAv := fAvProj(dDatadem1,nAnosCasa,,cTpAviso)
+					EndIf
+				EndIf
+
+				If !(cTpIncRes $ "T*N*D")
+					nDiasCum := 0
+				EndIf
+
+				//Se foi informado a quantidade de dias trabalhados, recalcula
+				If aDiasAux[1] > 0
+					nDiasCum := aDiasAux[1]
+					If nDiasCum > nDiasAv
+						nDiasAv := nDiasCum
+					EndIf
+					fAtDCump(.F.,.F.,dDtAviso)
+					//Se os dias de aviso foram informados, a data de demissão deve ser a data do aviso + dias cumpridos.
+					dDataDem1 := dDtAviso + nDiasCum
+				EndIf
+
+				nDiaInde:= (nDiasAv - nDiasCum)
+			EndIF
+		Endif
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Ponto de Entrada Dias de Aviso                               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If ExistBlock("GPDAV040")
+			Execblock("GPDAV040",.F.,.F.)
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Ponto de Entrada - Adicionar Mensagem no Log                 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If ExistBlock("GPLOG040")
+			aLog := Execblock("GPLOG040",.F.,.F.)
+			If (!Empty(aLog) .and. ValType(aLog)=="A")
+				For nX:=1 to Len(aLog)
+					aAdd( aLogfile, aLog[nX])
+				Next nX
+			EndIf
+		EndIf
+
+		fSalario(@Salario,@SalHora,@SalDia,@SalMes,"A",AnoMes(dDataDe),cNumPag)
+
+		M->RG_PROCES	:= cProcesso
+		M->RG_ROTEIR	:= cRot
+		M->RG_PERIODO	:= cPeriodo
+		M->RG_SEMANA	:= cSemana
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Dias de Ferias do Funcionario               	     ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		fdFerRes()
+
+		cSvSetRot 		:= SetRotExec( cRot )
+		cSvSetPer 		:= SetPeriodCalc( cPeriodo )
+		cSvSetNumPago 	:= SetNumPgCalc( cNumPag )
+		cFilAnt			:= SRA->RA_FILIAL
+
+	 	/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Variaveis de D.S.R Hora Extra                              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nDsr_hrex := Dsr_hhex := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Variaveis de Medias                                        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nMedFerv := nMedFerp := nMed13o := nMed13oA := nMedAviso := nDesc13 := nMedDobra   := ndDobro := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Variavel Salario FAmilia                                   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nSal_fami := 0.00
+
+	        /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Variavel Contribuicao Sindical                              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nContri := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Variaveis Seguro de Vida                                    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nSeguro := nSegEmp := Seguro_B := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Inicializa Variavel de Provento                            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nValProv := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Inicializa Variavel de Desconto                            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		nValDesc := 0.00
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Carregando Variaveis de Memoria para Compatibilizar Roteiro³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		M->RG_DFERVEN	:= nDferven - nFaltasv
+		M->RG_DFERPRO	:= nDferave - nFaltasp
+		M->RG_DFERAVI  	:= nDferInd
+		M->RG_DATADEM	:= dDataDem1
+		M->RG_DTGERAR	:= dDataGer
+		M->RG_DATAHOM	:= dDataHom
+		M->RG_DTAVISO	:= dDataAv
+		M->RG_DAVISO	:= nDiasAv
+		If SRG->(ColumnPos( "RG_DAVCUM")) > 0
+			M->RG_DAVCUM	:= nDiascum
+			M->RG_DAVIND	:= nDiaInde
+			M->RG_DTPROAV := dDtProje
+		Endif
+		M->RG_SALMES	:= SalMes
+		M->RG_SALDIA	:= SalDia
+		M->RG_SALHORA  	:= SalHora
+		M->RG_MEDATU	:= Iif( lMesAtu , "S" , "N" )
+		M->RG_SABDOM   	:= Iif( lSabDom , "1" , "2" )
+		M->RG_TIPORES	:= cTipRes
+		If SRG->(ColumnPos( "RG_INDAV")) > 0
+			M->RG_INDAV	:= cIndAvPrv
+		EndIf
+		If cPaisLoc == "BRA" .And. SRA->RA_CATEFD == "721"
+			M->RG_TPDIR	:= aIncRes[18]
+		EndIf
+		If lEstab
+			M->RG_DTESTAB 	:= dDtEst936
+		EndIf
+		If cPaisLoc == "BRA" .And. cTipCalc == "1" .And. lConsig .And. lCpoFlagIC
+			M->RG_CONFIC := Iif(cIntIc == "Sim", "1", "4")
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Limpa Temprario para o Calculo das Medias                  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		dbSelectArea(cTBLXMED)
+		Zap
+
+		If cModFol == "1" .and. !(cPaisLoc $ "BRA*CHI*PAR")
+			If oSrr == Nil
+				oSrr := Nil
+				GetSRR( @oSrr, "1 = 0" )	// Expressao de filtro para criar um objeto em branco
+			EndIf
+			aPd	:= {}
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Executa as Formulas Roteiro das Ferias                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		nRet := ExecRot( SRA->RA_FILIAL , cRot )
+
+		If nRet < 0
+			lErrExecRot	:= .T.
+
+			aLogInit := LogExecRot()
+			For nX := 1 To Len( aLogInit )
+				If !Empty(aLogInit[ nX, 2 ])
+					If nX == 1
+						aAdd( aTitleLog, STR0060 ) //"Erro de Carga de Mnemonicos"
+					ElseIf nX == 2
+						aAdd( aTitleLog, STR0061 ) //"Erro de Carga de Formulas"
+					ElseIf nX == 3
+					aAdd( aTitleLog, STR0062 ) //"Ocorreu erro na compilacao ou Execucao do Roteiro"
+					ElseIf nX == 4
+						aAdd( aTitleLog, STR0063 ) //"Erros ocasionados durante o Calculo da Ferias"
+					EndIf
+					aAdd( aLog, aLogInit[nX, 2] )
+				EndIf
+			Next nX
+
+			If !Empty( aLog )
+				/*/
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Mostrar o Log                                                          ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				MsAguarde( { || fMakeLog( aLog , aTitleLog , "GPEM060" , NIL , FunName() , STR0046 ) } ,  STR0046 ) //"Log de Ocorrencias do Calculo de Rescisão"
+			EndIf
+
+			Break
+		ElseIf lGPEM040B
+			aAdd(aFuncProc, STR0051 + " " + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), SRA->RA_NOME) + " " + STR0023 + DtoC(dDataDem1))  //"Data Rescisao: "
+		EndIf
+
+		SetRotExec( cSvSetRot )
+		SetPeriodCalc( cSvSetPer )
+		SetNumPgCalc( cSvSetNumPago )
+		cFilAnt	:= SRA->RA_FILIAL
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Ordena aPD por Verba, Centro de Custo e Semana             ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !Empty( aPd )
+			aSort( aPd ,,, { |x,y| x[1] + x[2] + x[3] < y[1] + y[2] + y[3] } )
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Grava as Rescisoes                                         ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If Len(aPd) > 0 .Or.  (cModFol == "1" .and. !(cPaisLoc $ "BRA*CHI*PAR") .and. oSrr != Nil)
+			If !fGravaRes(@aLogFile)
+				Break
+			EndIf
+		EndIf
+
+		//Grava na tabela RJP - NG Quirons
+		If lMvRHNG .And. SRG->RG_EFETIVA == "S"
+			fRescToRJP("D")
+		EndIf
+
+		SRA->( dbSkip() )
+	EndDo
+
+End Sequence
+
+fDelTMPMED()
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Finalizando o Filtro                                                   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+EndFilBrw( "SRA", @aIndex )
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gp630EfetivaºAutor  ³Leandro Drumond   º Data ³  15/01/14   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Efetiva rescisoes simuladas			                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function Gp630Efetiva()
+
+Local aPostos
+Local cAliasMestra	:= "QUERYSRG"
+Local cFilter		:= ""
+Local cJoin			:= ""
+Local cExp			:= ""
+Local cFilAux		:= "!!"
+Local cTimeIni 		:= Time()
+Local nTotCal		:= 0
+Local nX			:= 0
+Local bEval			:= { |e| &(e) }
+
+
+SetMnemonicos(NIL,NIL,.T.)
+
+cFilter	+= "RG_PROCES = '" + cProcAux + "' AND "
+cFilter += "RG_ROTEIR = '" + cRotAux + "' AND "
+cFilter += "RG_PERIODO = '" + cPerAux + "' AND "
+cFilter += "RG_SEMANA = '" + cSemAux + "' AND "
+cFilter += "RG_EFETIVA <> 'S' AND "
+cFilter += "SRG.D_E_L_E_T_ = ' ' "
+
+cJoin := "% SRG.RG_FILIAL  = SRA.RA_FILIAL "
+cJoin += " AND SRG.RG_MAT = SRA.RA_MAT	%"
+
+cFilter := "(" + cFilter + ")"
+
+If cModFol == "2"
+	MakeStrExp(@aFilter)
+
+	cExp := "("
+	For nX := 1 To Len(aFilter)
+		If !Empty(aFilter[nX,3])
+			If Len(cExp) > 1
+				cExp += " and "
+			EndIf
+		    cExp += aFilter[nX,3]
+		EndIf
+	Next nX
+	cExp += ")"
+	If cExp <> "()"
+		cFilter += " AND " + cExp
+	EndIf
+EndIf
+
+cFilter := "%" + cFilter + "%"
+
+If Select(cAliasMestra) > 0
+	(cAliasMestra)->(DbCloseArea())
+EndIf
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Contagem de Registros para Barra de Movimentacao 	           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+BeginSql alias cAliasMestra
+	SELECT COUNT(*) TOTALREG
+	FROM %table:SRG% SRG
+	INNER JOIN  %table:SRA% SRA
+	ON 			%exp:cJoin%
+	WHERE %exp:cFilter%
+EndSql
+
+nTotCal	:= (cAliasMestra)->TOTALREG
+
+(cAliasMestra)->(DbCloseArea())
+
+BeginSql alias cAliasMestra
+	SELECT SRG.R_E_C_N_O_ RECNO
+	FROM %table:SRG% SRG
+	INNER JOIN  %table:SRA% SRA
+	ON 			%exp:cJoin%
+	WHERE %exp:cFilter%
+EndSql
+
+DbSelectArea("SRA")
+DbSetOrder(1)
+DbSelectArea("SRG")
+
+If !lBlind
+	BarGauge1Set( nTotCal )
+EndIf
+
+While (cAliasMestra)->( !Eof() )
+
+	If ( lAbortPrint )
+		Break
+	EndIf
+
+	SRG->(DbGoTo((cAliasMestra)->RECNO))
+
+	SRA->(DbSeek(SRG->RG_FILIAL+SRG->RG_MAT))
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Consiste Filtro                              ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If !Empty(cExpFiltro) .And. !( SRA->( Eval( bEval, cExpFiltro ) ))
+		(cAliasMestra)->( dbSkip() )
+		Loop
+	EndIf
+
+	If !( cFilAux == SRA->RA_FILIAL )
+		If !FP_CODFOL(@aCodFol,SRA->RA_FILIAL)
+			aAdd( aLogfile , STR0048 )	//"Sistema nao conseguiu carregar informacoes das Verbas"
+			Break
+		EndIf
+		cFilAux := SRA->RA_FILIAL
+	EndIf
+
+	If !lBlind
+		IncPrcG1Time( STR0051 + " " + SRA->RA_MAT + If(lOfusca, "", "-" + SRA->RA_NOME) , nTotCal , cTimeIni , .T. , 1 , 1 , .T. )
+	EndIf
+
+	RecLock("SRG",.F.)
+
+	SRG->RG_EFETIVA := If(cModFol == "2","2","S")
+	If cPaisLoc == "BRA" .And. lConsig .And. lCpoFlagIC
+		SRG->RG_CONFIC := Iif(cIntIc == "Sim", "1", "4")
+	EndIf
+
+	SRG->(MsUnLock())
+
+	fIncRes(SRA->RA_FILIAL,SRG->RG_TIPORES,@aIncRes,@nPercFgts,@cRescrais,@cAfasfgts,@Cod_Am)
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Deletar Fgts do "SRC" Caso Deseja Pagar Como Mes Anterior  ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If cPaisLoc == "BRA"
+		If aIncres[5] = "S"
+			dbSelectArea("SRC")
+			If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT + aCodFol[18,1] )
+				While !Eof() .And. SRC->RC_PD == aCodFol[18,1]
+					SRC->( RecLock("SRC",.F.,.T.) , dbDelete() , MsUnLock() )
+					SRC->( dbSkip() )
+				EndDo
+			EndIf
+		EndIf
+	EndIf
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Ponto de Entrada Antes de Efetivar a Rescisao                ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If ExistBlock("GPM040GR")
+		ExecBlock("GPM040GR",.F.,.F.)
+	EndIf
+
+	If cPaisLoc == "DOM" .And. aIncres[7] == "N"        //se nao for resc.final a data nao muda
+		dbSelectArea("SRF")
+		RecLock("SRF",.F.,.T.)
+		SRF->RF_DATABAS := SRA->RA_DTENTRA
+		SRF->( MsUnLock() )
+
+		dbSelectArea("SRA")
+		RecLock("SRA",.F.,.T.)
+		SRA->RA_DTENTRA  := SRG->RG_DATADEM+1
+		SRA->( MsUnLock() )
+	Else
+		dbSelectArea("SRA")
+		RecLock("SRA",.F.,.T.)
+		SRA->RA_SITFOLH  := "D"
+		SRA->RA_DEMISSA  := SRG->RG_DATADEM
+		SRA->RA_RESCRAI  := cRescRais
+		SRA->RA_AFASFGT  := cAfasFgts
+		SRA->( MsUnLock() )
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Retorna a Atual Situacao do Funcionario                      ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		RetSituacao()
+
+		If lIntegDef
+			SetRotInteg("GPEM040")
+			FwIntegDef("GPEM040")
+		EndIf
+
+	EndIf
+
+	If FindFunction("OrgXRescisao")
+		aPostos:= OrgXRescisao(SRA->RA_FILIAL, SRA->RA_MAT, SRA->RA_DEMISSA)
+
+		If Len(aPostos) > 0
+			DBSelectArea("RCL")
+			RCL->(DBSetOrder(2))
+
+			For nX := 1 To Len(aPostos)
+				RCL->(DBSeek(xFilial("RCL") + aPostos[nX]))
+
+				If RCL->RCL_STATUS == "1"
+					aAdd(aLogfile, StrTran(STR0064, "{1}", aPostos[nX])) //"O Posto {1} foi desocupado."
+				EndIf
+			Next
+		EndIf
+	EndIf
+
+	If lGPEM040B
+		aAdd(aFuncProc, STR0051 + " " + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), SRA->RA_NOME) + " " + STR0023 + DtoC(SRG->RG_DATADEM))  //"Data Rescisao: "
+	EndIf
+
+	(cAliasMestra)->( DbSkip() )
+
+EndDo
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gp630ExcluiºAutor  ³Allyson Mesashi   º Data ³  07/11/16   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Exclui rescisões calculadas			                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function Gp630Exclui()
+
+Local aErros		:= {}
+Local aPerAtual		:= {}
+Local cAliasMestra	:= "QUERYSRG"
+Local cFilter		:= ""
+Local cJoin			:= ""
+Local cExp			:= ""
+Local cFilAux		:= "!!"
+Local cPrcAux		:= "!!"
+Local cQuery		:= ""
+Local cTimeIni 		:= Time()
+Local cTrabVincu	:= fCatTrabEFD("TCV") //"101|102|103|104|105|106|111|301|302|303|306|307|309" //Trabalhador com vinculo
+Local nTotCal		:= 0
+Local nX			:= 0
+Local bEval			:= { |e| &(e) }
+Local cPerRes		:= ""
+Local dDtPerAt		:= CtoD("//")
+Local dDtPerIn		:= CtoD("//")
+Local lRet	 		:= .T.
+
+SetMnemonicos(NIL,NIL,.T.)
+
+cFilter	+= "RG_PROCES = '" + cProcAux + "' AND "
+cFilter += "RG_ROTEIR = '" + cRotAux + "' AND "
+cFilter += "RG_PERIODO = '" + cPerAux + "' AND "
+cFilter += "RG_SEMANA = '" + cSemAux + "' AND "
+cFilter += "SRG.D_E_L_E_T_ = ' ' "
+
+cJoin := "% SRG.RG_FILIAL  = SRA.RA_FILIAL "
+cJoin += " AND SRG.RG_MAT = SRA.RA_MAT	%"
+
+cFilter := "(" + cFilter + ")"
+
+If cModFol == "2"
+	MakeStrExp(@aFilter)
+
+	cExp := "("
+	For nX := 1 To Len(aFilter)
+		If !Empty(aFilter[nX,3])
+			If Len(cExp) > 1
+				cExp += " and "
+			EndIf
+		    cExp += aFilter[nX,3]
+		EndIf
+	Next nX
+	cExp += ")"
+	If cExp <> "()"
+		cFilter += " AND " + cExp
+	EndIf
+EndIf
+
+cFilter := "%" + cFilter + "%"
+
+If Select(cAliasMestra) > 0
+	(cAliasMestra)->(DbCloseArea())
+EndIf
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Contagem de Registros para Barra de Movimentacao 	           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+BeginSql alias cAliasMestra
+	SELECT COUNT(*) TOTALREG
+	FROM %table:SRG% SRG
+	INNER JOIN  %table:SRA% SRA
+	ON 			%exp:cJoin%
+	WHERE %exp:cFilter%
+EndSql
+
+nTotCal	:= (cAliasMestra)->TOTALREG
+
+(cAliasMestra)->(DbCloseArea())
+
+BeginSql alias cAliasMestra
+	SELECT SRG.R_E_C_N_O_ RECNO
+	FROM %table:SRG% SRG
+	INNER JOIN  %table:SRA% SRA
+	ON 			%exp:cJoin%
+	WHERE %exp:cFilter%
+EndSql
+
+DbSelectArea("SRA")
+DbSetOrder(1)
+DbSelectArea("SRG")
+
+If !lBlind
+	BarGauge1Set( nTotCal )
+EndIf
+
+While (cAliasMestra)->( !Eof() )
+	If ( lAbortPrint )
+		Break
+	EndIf
+
+	SRG->(DbGoTo((cAliasMestra)->RECNO))
+
+	SRA->(DbSeek(SRG->RG_FILIAL+SRG->RG_MAT))
+
+	If !lBlind
+		IncPrcG1Time( STR0051 + " " + SRA->RA_MAT + If(lOfusca, "", "-" + SRA->RA_NOME) , nTotCal , cTimeIni , .T. , 1 , 1 , .T. )
+	EndIf
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Consiste Filiais                                                       ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If !( SRA->RA_FILIAL $ fValidFil() )
+		(cAliasMestra)->( dbSkip() )
+		Loop
+	EndIf
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Consiste Filtro                              ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If !Empty(cExpFiltro) .And. !( SRA->( Eval( bEval, cExpFiltro ) ))
+		(cAliasMestra)->( dbSkip() )
+		Loop
+	EndIf
+
+	If cFilAux != SRA->RA_FILIAL .Or. cPrcAux != SRA->RA_PROCES
+		If fGetPerAtual( @aPerAtual, xFilial("RCH",SRA->RA_FILIAL), SRA->RA_PROCES, fGetCalcRot('4') )
+			cPerRes := aPerAtual[1,1]
+			dDtPerAt	:= aPerAtual[1,7]
+			dDtPerIn	:= aPerAtual[1,10]
+		EndIf
+		cFilAux := SRA->RA_FILIAL
+		cPrcAux := SRA->RA_PROCES
+
+		lBloqAb 	:= !fVldAccess( SRA->RA_FILIAL, dDataGer, cSemAux, .F., ,"2" )
+		lBloqDtDem	:= !fVldAccess( SRA->RA_FILIAL, dDataGer, cSemAux, .F., fGetCalcRot("4") )
+	EndIf
+
+	If lBloqAb .Or. lBloqDtDem
+		SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+								STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+								STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+								STR0073)) //"Exclusão bloqueada para o período."
+		(cAliasMestra)->( dbSkip() )
+		Loop
+	EndIf
+	If !Empty(dDtPerIn)
+		SRA->(	aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), RA_NOME ) + " " +;	// "Funcionario:"
+								STR0050 + " " + RA_FILIAL	+ " "	+							;	// "da Filial:"
+								STR0051 + " " + RA_MAT		+ ", "	+							;	// "Matricula:"
+								STR0074)) //"Periodo já foi integrado com a folha de pagamento."
+		(cAliasMestra)->( dbSkip() )
+		Loop
+	EndIf
+
+    /*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ PE para desprezar funcionario, caso retorne .t.   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF ExistBlock("GP630C")
+		If Execblock("GP630C",.F.,.F.)
+			(cAliasMestra)->( dbSkip() )
+			Loop
+		EndIf
+	EndIF
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Chave Para Exclusao Filial + Matricula + Data Geracao 	   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF lAchou := SRG->( dbSeek( SRA->( RA_FILIAL + RA_MAT ) + Dtos( dDataGer ) , .T. ) )
+		While SRG->( !Eof() .and. RG_FILIAL + RG_MAT == SRA->( RA_FILIAL + RA_MAT ) )
+			IF SRG->( RG_DTGERAR == dDataGer .And. RG_TIPORES == cTipoRes )
+				cEfetiva := SRG->RG_EFETIVA
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Nao Exclui Rescisoes Efetidas Fora do Periodo da Data Base   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF ( cEfetiva == "N" ) .Or. ( cEfetiva == "S" .And. ;
+				   ( MesAno(dDataGer) >= cPerRes .or. MesAno(SRG->RG_DATADEM) == cPerRes))
+					lRet := .T.
+					If (lIntTaf .Or. lMiddleware) .And. cEfetiva == "S"
+						If SRA->RA_CATEFD $ cTrabVincu
+							lRet := fInt2299( "", @aErros, "S2299", Nil, "2", Nil, dDataRes, nDiaInde, cVersEnvio, cIndAvPrv, Nil, Nil, 5, lNT15 )
+							If lRet
+								aAdd( aLogfile, OemToAnsi(STR0106) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-3000 - Exclusão foi gerado com sucesso para o funcionário: "
+								aAdd( aLogfile, "" ) //Quebra de Linha
+							Else
+								aAdd( aLogfile, OemToAnsi(STR0107) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-3000 - Exclusão não foi gerado para o funcionário: "
+								For nX := 1 To Len( aErros )
+									aAdd( aLogfile, STR0122 + cValToChar(nX) + ": " + aErros[ nX ] )
+								Next
+								aAdd( aLogfile, "" ) //Quebra de Linha
+							EndIf
+						Else
+							lRet := fInt2399New( "", @aErros, "S2399", Nil, "2", Nil, dDataRes, nDiaInde, cVersEnvio, 5 )
+							If lRet
+								aAdd( aLogfile, OemToAnsi(STR0106) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-3000 - Exclusão foi gerado com sucesso para o funcionário: "
+								aAdd( aLogfile, "" ) //Quebra de Linha
+							Else
+								aAdd( aLogfile, OemToAnsi(STR0107) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-3000 - Exclusão não foi gerado para o funcionário: "
+								For nX := 1 To Len( aErros )
+									aAdd( aLogfile, STR0122 + cValToChar(nX) + ": " + aErros[ nX ] )
+								Next
+								aAdd( aLogfile, "" ) //Quebra de Linha
+							EndIf
+						EndIf
+					EndIf
+
+					If lRet
+						IF lAchou := SRR->( dbSeek(SRA->(RA_FILIAL+RA_MAT)+"R"+ Dtos(SRG->RG_DTGERAR) ) )
+							dbSelectArea("SRR")
+							While SRR->( !Eof() .and. RR_FILIAL + RR_MAT == SRA->( RA_FILIAL + RA_MAT) )
+								IF SRR->( RR_DATA == SRG->RG_DTGERAR .and. RR_TIPO3 == "R" )
+									SRR->( RecLock("SRR",.F.,.T.) )
+									dbDelete()
+									MsUnLock()
+									If cPaisLoc == "BRA" .And. !Empty(P_ADIPGFE) .And. SRR->RR_PD $ P_ADIPGFE+"/"+P_ADIPGAB .And. SRR->RR_TIPO2 == "F"
+										//--Exclui registros existentes na SRC
+										cQuery := "UPDATE " + RetSqlName("SRD") + " "
+										cQuery += "SET RD_NUMID='' "
+										cQuery += "WHERE RD_FILIAL='" + SRA->RA_FILIAL + "' AND "
+										cQuery += "RD_MAT='" + SRA->RA_MAT + "' AND "
+										cQuery += "RD_NUMID='" + SRG->RG_PERIODO + SRG->RG_SEMANA + SRG->RG_ROTEIR + SRR->RR_PD + "'"
+
+										TcSqlExec( cQuery )
+
+										TcRefresh( InitSqlName("SRD") )
+									EndIf
+								EndIF
+								dbSelectArea("SRR")
+								SRR->( dbSkip() )
+							EndDo
+						EndIF
+
+						dbSelectArea("SRG")
+						RecLock("SRG",.F.,.T.)
+						SRG->( dbDelete() )
+						MsUnLock()
+						IF cEfetiva == "S"
+							If lIntegDef
+								lExcResCol := .T.
+								SetRotInteg("GPEM040")
+								FwIntegDef("GPEM040")
+							EndIf
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³ Retorna Funcionario Para Situacao de Ativo                   ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							dbSelectArea("SRA")
+							RecLock("SRA",.F.,.T.)
+							SRA->RA_DEMISSA  := Ctod('//')
+							SRA->RA_RESCRAI  := ""
+							If cPaisLoc == "DOM"
+								SRA->RA_DTENTRA := SRF->RF_DATABAS
+							Endif
+							SRA->( MsUnLock() )
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³Retorna a Atual Situacao do Funcionario                       ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							fRetSitRes()
+
+							OrgXDelRescisao(SRA->RA_FILIAL, SRA->RA_MAT)
+
+							/*
+							ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							³ Ponto de Entrada Apos a Exclusao da Rescisao.                ³
+							ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+							IF ExistBlock("GPM040EX")
+								ExecBlock("GPM040EX",.F.,.F.)
+							EndIF
+						EndIF
+						If lGPEM040B
+							aAdd(aFuncProc, STR0051 + " " + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), SRA->RA_NOME) )
+						EndIf
+					EndIF
+				EndIF
+			EndIF
+			dbSelectArea("SRG")
+			SRG->( dbSkip() )
+		EndDo
+	EndIF
+	(cAliasMestra)->( DbSkip() )
+EndDo
+
+Return .T.
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³fDelSrr   ³ Autor ³ Marinaldo de Jesus    ³ Data ³31/07/2000³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Deleta Valores Ja Calculados                                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³fDelSrr()		                                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³                                                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³Deletar Rescisoes Simuladas Ja Calculadas                   ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fDelSrr( cChave )
+
+Local cSvAlias	:= Alias()
+Local nSvOrder	:= IndexOrd()
+Local nSvRecno	:= Recno()
+
+cChave := IF( cChave == NIL , SRA->( RA_FILIAL + RA_MAT ) , cChave )
+
+Begin Transaction
+
+	dbSelectArea("SRG")
+	While SRG->( !Eof() .and. RG_FILIAL + RG_MAT == cChave )
+		IF AllTrim( Upper( SRG->RG_EFETIVA ) ) == "N"
+			IF SRR->( dbSeek( cChave + "R" ) )
+				dbSelectArea("SRR")
+				While SRR->(  !Eof() .and. RR_FILIAL + RR_MAT == cChave )
+					IF SRR->( RR_TIPO3 <> "R" .or. RR_DATA <> SRG->RG_DTGERAR )
+						SRR->( dbSkip() )
+						Loop
+					EndIF
+					SRR->( RecLock("SRR",.F.,.F.) , dbDelete() , MsUnLock() )
+					SRR->( dbSkip() )
+				Enddo
+			EndIF
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Exclui impostos reliquidados calculados                       ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			If cPaisLoc == "CHI" .And. Sx2ChkTable("RGV") // Reliquidacao (Chile)
+
+				dbSelectArea("RGV")
+				dbSetOrder(3)
+				cRefRlq := SRG->( MesAno(RG_DATADEM) + Dtos(RG_DTGERAR) )
+
+				IF RGV->( dbSeek( SRG->( RG_FILIAL + RG_MAT + cRefRlq ) ) )
+					While RGV->( !Eof() .And. SRG->( RG_FILIAL + RG_MAT + cRefRlq ) == RGV_FILIAL + RGV_MAT + RGV_ANOMES + Dtos(RGV_DTGERA) )
+						RecLock("RGV",.F.)
+						RGV->( dbDelete() )
+						RGV->( MsUnlock() )
+						RGV->( dbSkip() )
+					End While
+				EndIF
+		    EndIF
+
+			SRG->( RecLock("SRG",.F.,.F.) , dbDelete() , MsUnLock() )
+		EndIF
+		dbSelectArea("SRG")
+		SRG->( dbSkip() )
+	EndDo
+
+End Transaction
+
+dbSelectArea( cSvAlias ) ; dbSetOrder( nSvOrder ) ; dbGoto( nSvRecno )
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³fDtSabDom   ºAutor  ³Leandro Drumond   º Data ³  15/01/14   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Ajusta data de demissao conforme lSabDom                   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function fDtSabDom()
+
+Local aArea		:= GetArea()
+Local aAreaSRG 	:= SRG->( GetArea() )
+
+If Type("cModFol") == "U"
+	Private cModFol := GetMvRH( "MV_MODFOL", .F., "1" )
+EndIf
+
+If cModFol == "2"
+	If Type("dDataDem1")= "U" .Or. dDataDem1 = Nil
+		Private dDataDem1 := dDataBase
+	EndIf
+	If Type("nSabDom")= "U" .Or. nSabDom = Nil
+		Private nSabDom := 0
+	EndIf
+	If Type("lSabDom")= "U" .Or. lSabDom = Nil
+		Private lSabDom := If(GetMvRH("MV_SABDOM") == "S", .T., .F.)
+	EndIf
+
+EndIf
+
+nSabDom := IF( Dow( dDataDem1 ) == 6 , 2 , 1 )
+
+If IsInCallStack("GPEM070") .or. IsInCallStack("GPM070GRD")
+	SRG->( dbSetOrder(3) )
+	SRG->( dbSeek( (cTBLXPROV)->PR_FILIAL + (cTBLXPROV)->PR_MAT + dToS( (cTBLXPROV)->PR_DEMISSA ) ) )
+	lSabDom	:= ( SRG->RG_SABDOM == "1" )//1=Sim;2=Nao
+EndIf
+
+If lSabDom .and. ( Dow( dDataDem1 ) == 6 .or. Dow( dDataDem1 ) == 7 )
+	IF MesAno( dDataDem1 + nSabDom ) > MesAno( dDataDem1 )
+	 	SetMnemonicos(SRA->RA_FILIAL, NIL, .T., "P_DIASRES", .T.)
+		IF SRA->RA_CATFUNC$ "M*C" .and. Month(dDataDem1) # 2 .And. (cPaisLoc <> "BRA" .Or. (cPaisLoc == "BRA" .And. P_DIASRES == 2))
+			dDataDem := Ctod( "30/"+StrZero(Month(dDataDem1),2)+'/'+StrZero(Year(dDataDem1),4) , "DDMMYY" )
+		Else
+			dDataDem := Ctod(StrZero(f_Ultdia(dDataDem1),2)+'/'+StrZero(Month(dDataDem1),2)+'/'+StrZero(Year(dDataDem1),4) , "DDMMYY" )
+		EndIF
+		If dDataDem1 > dDataDem
+			dDataDem := dDataDem1
+		EndIf
+	Else
+		dDataDem := ( dDataDem1 + nSabDom )
+	EndIF
+Else
+	dDataDem := dDatadem1
+EndIf
+
+RestArea( aAreaSRG )
+RestArea( aArea )
+
+Return( dDataDem )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³fGravaRes   ºAutor  ³Leandro Drumond   º Data ³  15/01/14   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Grava rescisao coletiva - Modelo 1		                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function fGravaRes(aLogFile)
+Local aArea		:= GetArea()
+Local aSX3Area	:= SX3->(GetArea())
+Local aPd1		:= {}
+Local aPostos   := {}
+Local cX3Campo	:= ""
+Local cCampo	:= ""
+Local lAchou	:= .F.
+Local lGravou	:= .T.
+Local nCnt 		:= 0
+Local nLin		:= 0
+Local nPosLiq	:= 0
+Local nTetoDesc:= 0
+Local nI		:= 0.00
+Local nX		:= 0.00
+Local cTrabVincu:= fCatTrabEFD("TCV") //"101|102|103|104|105|106|111|301|302|303|306|307|309" //Trabalhador com vinculo
+Local cTpAvs	:= ""
+Local aErros	:= {}
+Local aErroRes := {}
+Local aTpAlt 	:= {.F.,.F.,.F.}
+Local cErro		:= ""
+Local nItem		:= 0
+Local cChave	:=""
+Local lGeraMat	:= SRA->(ColumnPos("RA_DESCEP")) > 0 .And. SRA->RA_DESCEP =="1"
+
+Private aInfoC	:= {}
+Private cTpInsc  	:= ""
+Private lAdmPubl 	:= .F.
+Private cNrInsc  	:= "0"
+Private cChaveMid	:= ""
+
+Private aPd_Aux	:= {}
+
+SX3->(DbSetorder(1))
+
+Begin Transaction
+
+	Aeval(aPD,{ |x| If ( x[5] < 0, nCnt++ ,"") })
+
+	If nCnt > 0
+		aAdd( aLogFile,	STR0049 + " " + If(lOfusca, Replicate('*',30), SRA->RA_NOME) + " " +;	//"Funcionario:"
+						STR0050 + " " + SRA->RA_FILIAL 	+ " " +								;	//"da Filial:"
+						STR0051 + " " + SRA->RA_MAT 	+ ", " +							;	//"Matricula:"
+						STR0065 )	//"Esta com valores negativos."
+	EndIf
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Cabecalho de Rescisoes (SRG)                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	lAchou := SRG->( dbSeek( SRA->( RA_FILIAL + RA_MAT ) + Dtos( dDataGer ) ) )
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Realiza a integracao com o TAF                             ³
+	³ lIntTaf - Verifica se parametro de Integracao esta ativo   ³
+	³ cTipCalc- Verifica se rescisao eh simulacao ou efetiva     ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If( (lIntTaf .Or. lMiddleware) .AND. cTipCalc == "1" )
+
+		aEval( aPd, { |x, y| If( x[16] == .T. , aAdd( aPd_Aux, {aPd[y,1], APD[y,7]} ), Nil )  }  )
+		//--------------------------------------
+		//| Recupera o tipo de rescisao eSocial
+		//| Realiza o De/Para do Tipo de Rescisao informada no
+		//| sistema para o tipo de rescisao que o eSocial reconhece
+		//-----------------------------------------------------------
+		cCdEFD := fGP40TPRES( cTipoRes, @cTpAvs )
+
+		//------------------------------------
+		//| Validacoes diversas para Rescisao
+		//| Realiza a validacao dos dados de Aviso Previo, Cert Óbito,
+		//-----------------------------------------------------------
+		lRet := fGP40VLRES( 	AllTrim( cTpAvs ),;			//Tipo Aviso
+									cCdEFD,;				//Tipo Rescisao eSocial
+									dDataRes,;				//Data de Demissao
+									"",;					//Certidao Obito (não tem esse codigo)
+									"2",;					//Rescisao Coletiva (1=Rescisao Simples / 2=Rescisao Coletiva)
+									cIndAvPrv,;				//
+									@aErroRes,;				//Erro na persistência dos dados da rescisao
+									.F.,;
+									cVersEnvio,;
+									Nil,;
+									lNT15)
+		If( !lRet )
+			//Se encontrou algum erro na validação acima, aborda o processo para o funcionario
+			lGravou := .F.
+		EndIf
+
+		//Verifica dados complementares do eSocial
+		If lGravou
+			If SRA->RA_CATEFD $ cTrabVincu
+				cCPF := AllTrim(SRA->RA_CIC) + ";" + ALLTRIM(SRA->RA_CODUNIC)
+			Else
+				If !lMiddleware
+					If cVersEnvio >= "9.0"
+						cCPF := AllTrim( SRA->RA_CIC ) + ";" + Iif(lGeraMat, SRA->RA_CODUNIC, "") + ";" + AllTrim( SRA->RA_CATEFD ) + ";" + DTOS( SRA->RA_ADMISSA )
+					Else
+						cCPF := AllTrim( SRA->RA_CIC ) + ";" + AllTrim( SRA->RA_CATEFD ) + ";" + DTOS( SRA->RA_ADMISSA )
+					EndIf
+				Else
+					cCPF := Iif( cVersEnvio >= "9.0" .And. lGeraMat, SRA->RA_CODUNIC, AllTrim( SRA->RA_CIC ) + AllTrim( SRA->RA_CATEFD ) + DTOS( SRA->RA_ADMISSA ) )
+				EndIf
+			EndIf
+
+			If !lIntegra
+				//##"Ambiente TAF desatualizado."##"Assim esta rotina não poderá ser utilizada."##"Entre em contato com o Administrador do Sistema."##"Atencao"
+				Aviso(OemToAnsi(STR0040), OemToAnsi(STR0075) + " " + OemToAnsi(STR0076 )+ " " + OemToAnsi(STR0077) )
+				lGravou := .F.
+			Else
+				//Verifica se o registro do funcionario existe e esta integrado com TAF com sucesso
+				cStatus0 := TAFGetStat( "S-2100", cCPF)
+
+				If SRA->RA_CATEFD $ cTrabVincu
+					If !lMiddleware
+						cStatus1 := TAFGetStat( "S-2200", cCPF)
+					Else
+						cStatus1 := "-1"
+						fPosFil( cEmpAnt, SRA->RA_FILIAL )
+						aInfoC   := fXMLInfos()
+						If LEN(aInfoC) >= 4
+							cTpInsc  := aInfoC[1]
+							lAdmPubl := aInfoC[4]
+							cNrInsc  := aInfoC[2]
+						Else
+							cTpInsc  := ""
+							lAdmPubl := .F.
+							cNrInsc  := "0"
+						EndIf
+						cChaveMid	:= cTpInsc + PADR( Iif( !lAdmPubl .And. cTpInsc == "1", SubStr(cNrInsc, 1, 8), cNrInsc), 14) + "S2200" + Padr(SRA->RA_CODUNIC, 40, " ")
+						cStatus1 	:= "-1"
+						//RJE_TPINSC+RJE_INSCR+RJE_EVENTO+RJE_KEY+RJE_INI
+						GetInfRJE( 2, cChaveMid, @cStatus1 )
+					EndIf
+				Else
+					If !lMiddleware
+						cStatus1 := TAFGetStat( "S-2300", cCPF)
+					Else
+						fPosFil( cEmpAnt, cFilAnt )
+						aInfoC   := fXMLInfos()
+						If LEN(aInfoC) >= 4
+							cTpInsc  := aInfoC[1]
+							lAdmPubl := aInfoC[4]
+							cNrInsc  := aInfoC[2]
+						Else
+							cTpInsc  := ""
+							lAdmPubl := .F.
+							cNrInsc  := "0"
+						EndIf
+						cChaveMid	:= cTpInsc + PADR( Iif( !lAdmPubl .And. cTpInsc == "1", SubStr(cNrInsc, 1, 8), cNrInsc), 14) + "S2300" + Padr(cCPF, 40, " ")
+						cStatus1 	:= "-1"
+						//RJE_TPINSC+RJE_INSCR+RJE_EVENTO+RJE_KEY+RJE_INI
+						GetInfRJE( 2, cChaveMid, @cStatus1 )
+					EndIf
+				EndIf
+
+				//Registro em transito para o TAF
+				If ( (cStatus0 == '2') .OR. (cStatus1 == '2') )
+					cErro := "2"
+				ElseIf( (cStatus0 == '3') .OR. (cStatus1 == '3') .OR. (cStatus0 == ' ') .OR. (cStatus1 == ' ') .OR. (cStatus0 == '1') .OR. (cStatus1 == '1') )
+					cErro := " |1|3"
+				ElseIf( (cStatus0 == '-1') .AND. (cStatus1 == '-1') )
+					cErro := "-1"
+				Else
+					fStatusTAF(@aTpAlt,cStatus0,cStatus1,/*cFuncaoPai*/, /*aContainer*/)
+				EndIf
+
+				If ( aTpAlt[3] )
+					//Realiza por fim a geracao do evento S-2299
+					If SRA->RA_CATEFD $ cTrabVincu
+						lRet := fInt2299( "", @aErros, "S2299", cCdEFD, "2", aPd, dDataRes, nDiaInde, cVersEnvio, cIndAvPrv, Nil, Nil, Nil, lNT15 )
+					Else
+						lRet := fInt2399New( "", @aErros, "S2399", cCdEFD, "2", aPd, dDataRes, nDiaInde, cVersEnvio )
+					EndIf
+
+					If( lRet )
+						//Não exibe popup de integração - Adiciona no LOG o registro
+						If SRA->RA_CATEFD $ cTrabVincu
+							aAdd( aLogfile, CRLF + OemToAnsi(STR0087) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-2299 - Desligamento foi gerado com sucesso para o funcionário: "
+						Else
+							aAdd( aLogfile, CRLF + OemToAnsi(STR0104) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-2399 - Desligamento foi gerado com sucesso para o funcionário: "
+						EndIf
+						For nX := 1 To Len( aErros )
+							aAdd( aLogfile, STR0120 + cValToChar(nX) + ": " + aErros[ nX ] )	//Aviso#
+							nI++
+						Next
+						If Len( aErroRes ) > 0
+							aAdd( aLogfile, STR0120 + cValToChar(nI+1) + ": " + aErroRes[1] )
+						EndIf
+						aAdd( aLogfile, "" ) //Quebra de Linha
+					Else
+						If SRA->RA_CATEFD $ cTrabVincu
+							aAdd( aLogfile, CRLF + OemToAnsi(STR0088) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-2299 - Desligamento não foi gerado para o funcionário: "
+						Else
+							aAdd( aLogfile, CRLF + OemToAnsi(STR0105) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim( SRA->RA_NOME)) ) //"O evento S-2399 - Desligamento não foi gerado para o funcionário: "
+						EndIf
+						For nX := 1 To Len( aErros )
+							aAdd( aLogfile, STR0122 + cValToChar(nX) + ": " + aErros[ nX ] )	//Erro#
+							nI++
+						Next
+						If Len( aErroRes ) > 0
+							aAdd( aLogfile, STR0122 + cValToChar(nI+1) + ": " + aErroRes[1] )
+						EndIf
+						aAdd( aLogfile, "" ) //Quebra de Linha
+
+						lGravou := .F.
+					EndIf
+
+				Else
+					If SRA->RA_CATEFD $ cTrabVincu
+						aAdd( aLogfile, CRLF + OemToAnsi(STR0088) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim(SRA->RA_NOME)) ) //"O evento S-2299 - Desligamento não foi gerado para o funcionário: "
+					Else
+						aAdd( aLogfile, CRLF + OemToAnsi(STR0105) + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim(SRA->RA_NOME)) ) //"O evento S-2399 - Desligamento não foi gerado para o funcionário: "
+					EndIf
+					If( cErro $ "2"  )
+						If !lMiddleware
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0079)  ) //"Registro de Admissão do Funcionário está em trânsito TAF x RET. Verifique no sistema TAF. A rescisão não será efetivada."
+						Else
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0108)  ) //"Registro de Admissão do Funcionário está em trânsito ao RET. Verifique no Middleware. A rescisão não será efetivada."
+						EndIf
+					ElseIf( cErro $ " |1|3" )
+						If !lMiddleware
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0081)  ) //"Registro de Admissão do Funcionário ainda não foi transmitido ao RET ou consta inconsistências.. Verifique no sistema TAF. A rescisão não será efetivada."
+						Else
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0109)  ) //"Registro de Admissão do Funcionário ainda não foi transmitido ao RET ou consta inconsistências.. Verifique no Middleware. A rescisão não será efetivada."
+						EndIf
+					ElseIf( cErro $ "-1" )
+						If !lMiddleware
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0086)  ) //"O funcionário ainda não possui integração com o TAF. Realize a sua integração para poder gerar a rescisão. A rescisão não será efetivada."
+						Else
+							aAdd( aLogfile, STR0121 + OemToAnsi(STR0110)  ) //"O funcionário ainda não possui integração com o Middleware. Realize a sua integração para poder gerar a rescisão. A rescisão não será efetivada."
+						EndIf
+					EndIf
+
+					aAdd( aLogfile, "" ) //Quebra de Linha
+
+					lGravou := .F.
+				EndIf
+			Endif
+		Else
+			aAdd( aLogfile, "Foram encontrados inconsistências para o funcionário: " + SRA->RA_MAT + " - " + If(lOfusca, Replicate('*',30), AllTrim(SRA->RA_NOME)) )
+			For nX := 1 To Len( aErroRes )
+				aAdd( aLogfile, STR0122 + cValToChar(nX) + ": " + aErroRes[ nX ] ) //Erro#
+				aAdd( aLogfile, "" ) //Quebra de Linha
+			Next
+			lGravou := .F.
+		EndIf
+	Endif
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Grava So Quando nao For Efetivacao.                        ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If ( lGravou )
+		dbSelectArea("SRG")
+
+		RecLock("SRG",!lAchou,.T.)
+
+		dbSelectArea("SX3")
+		dbSetOrder(1)
+
+		SX3->( dbSeek( "SRG") )
+		While !Eof() .and. (SX3->X3_ARQUIVO == "SRG")
+			If SX3->X3_CONTEXT = "V"
+				dbSelectArea("SX3")
+				SX3->( dbSkip() )
+				Loop
+			EndIf
+			cCampo 		:= "M->"+X3_CAMPO
+			cX3Campo 	:= "SRG->"+X3_CAMPO
+			dbSelectArea( "SRG" )
+			&cX3Campo := If( Type(cCampo) # "U", &cCampo, CriaVar( Upper( AllTrim( SX3->X3_CAMPO ) ) ) )
+			dbSelectArea("SX3")
+			SX3->( dbSkip() )
+		End While
+
+		SRG->RG_FILIAL	:= SRA->RA_FILIAL
+		SRG->RG_MAT		:= SRA->RA_MAT
+		SRG->RG_EFETIVA	:= If( cTipCalc == "1" , "S" , "N" )
+
+		If cPaisLoc == "BRA"
+			SRG->RG_TPAVISO 	:= aIncRes[02]
+		EndIf
+
+		SRG->( MsUnLock() )
+		SRG->( FKCOMMIT() )
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica condicao para gravacao dos impostos reliquidados. ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cPaisLoc == "CHI" .And. Sx2ChkTable("RGV")
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava as verbas de impostos reliquidados na tabela RGV       ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("RGV")
+			dbSetOrder(3)
+
+			If RGV->( dbSeek( SRG->( RG_FILIAL + RG_MAT + MesAno(RG_DATADEM) + Dtos(RG_DTGERAR) ) ) )
+				While RGV->( !Eof() .And. SRG->( RG_FILIAL + RG_MAT + MesAno(RG_DATADEM) + Dtos(RG_DTGERAR) ) == RGV_FILIAL + RGV_MAT + RGV_ANOMES + Dtos(RGV_DTGERA) )
+					RecLock( "RGV", .F., .T. )
+					RGV->RGV_EFETIV	:= If( cTipCalc == "1" , "C" , "N" )
+					RGV->( MsUnlock() )
+					RGV->( dbSkip() )
+				End While
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Grava Itens no SRR 							             ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cModFol == "1" .and. !(cPaisLoc $ "BRA*CHI*PAR")
+			fo_GoTop( @oSrr )
+			For nX := 1 To Len( oSrr:aCols )
+				If !fo_Deleted( @oSrr, nX )
+					nItem++
+					aadd(aPd,array(24))
+					aPd[ nItem , 1 ]	:= fo_GetVal( @oSrr, "RR_PD", nX )
+					aPd[ nItem , 2 ]	:= fo_GetVal( @oSrr, "RR_CC", nX )
+					aPd[ nItem , 3 ]	:= cSemana
+					aPd[ nItem , 4 ] 	:= If( fo_GetVal( @oSrr, "RR_TIPO1", nX )=="H", fConvHoras( fo_GetVal( @oSrr, "RR_HORAS", nX ),"1"), fo_GetVal( @oSrr, "RR_HORAS", nX ))
+					aPd[ nItem , 5 ] 	:= fo_GetVal( @oSrr, "RR_VALOR", nX )
+					aPd[ nItem , 6 ] 	:= fo_GetVal( @oSrr, "RR_TIPO1", nX )
+					aPd[ nItem , 7 ]  	:= fo_GetVal( @oSrr, "RR_TIPO2", nX )
+					aPd[ nItem , 11 ]	:= fo_GetVal( @oSrr, "RR_SEQ", nX )
+					If lItemClVl
+						aPd[ nItem , 13 ] 	:= SRA->RA_ITEM
+						aPd[ nItem , 14 ] 	:= SRA->RA_CLVL
+					Else
+						aPd[ nItem , 13 ] 	:= Space( TamSX3( "RA_ITEM" )[1] )
+						aPd[ nItem , 14 ] 	:= Space( TamSX3( "RA_CLVL" )[1] )
+
+					EndIf
+					aPd[ nItem , 15 ] 	:= fo_GetVal( @oSrr, "RR_NUMID", nX )
+					aPd[ nItem , 18 ] 	:= DDATAATE
+					aPd[ nItem , 20 ] 	:= fo_GetVal( @oSrr, "RR_VALORBA", nX )
+					aPd[ nItem , 21 ] 	:= fo_GetVal( @oSrr, "RR_CODB1T", nX )
+				EndIf
+			Next nX
+		EndIf
+		If ( Len( aPd ) ) > 0
+			//-- Tratamento para desconto do emprestimo consignado
+			If cPaisLoc == "BRA"
+				While( ( nLin := aScan( aPd, {|x| x[16] == .T.}, nLin+1 ) ) > 0 )
+					If ( nPosLiq := aScan( aPD,{|x| x[1] == aCodfol[126,1] } ) ) > 0//Saldo liquido
+						nTetoDesc 		:= ( 0.3 * aPd[nPosLiq,05] )//Teto de desconto eh ate 30% do saldo liquido
+						aPd[nLin,05] 	:= Min( aPd[nLin,05], nTetoDesc )//Limita desconto referente emprestimo consignado ao teto de desconto
+						aPd[nPosLiq,05] -= aPd[nLin,05]//Subtrai o valor do emprestimo no liquido
+					EndIf
+				EndDo
+			EndIf
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Cria array aPd1 auxiliar para totalizar verbas do aPd      ³
+			³ Chave: VERBA + C.CUSTO + SEMANA                            ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			For nX := 1 To Len( aPd )
+				nLin := Ascan( aPd1, { |x| ( x[ 01 ] + x[ 02 ] + x[ 03 ] + x[ 11 ] == aPd[ nX, 01 ] + aPd[ nX, 02 ] + aPd[ nX, 03 ] + aPd[ nX, 11 ] ) .And. x[ 09 ] # "D" })
+				If nLin == 0
+					aAdd( aPd1, aPd[ nX ])
+				ElseIf aPd[ nX, 9 ] # "D"
+					aPd1[ nLin, 05 ]	+= Round( aPd[ nX, 05 ], 2 )	//Valor
+					aPd1[ nLin, 04 ]	+= aPd[ nX, 04 ] 				//Horas
+					aPd1[ nLin, 07 ]	:= aPd[ nX, 07 ]				//Origem do Calculo
+				EndIf
+			Next
+
+			aPd := {}
+			aPd := aClone( aPd1 )
+		EndIf
+
+		dbSelectArea("SRR")
+		If cPaisLoc <> "BRA"
+			SRR->(dbSetOrder(RetOrder("SRR","RR_FILIAL+RR_MAT+RR_TIPO3+RR_PERIODO+RR_ROTEIR+RR_SEMANA+RR_PD+RR_CC+RR_ITEM+RR_CLVL+RR_SEQ+DTOS(RR_DATA)")))//
+		Else
+			dbOrderNickName("SRRSEQ")//RR_FILIAL+RR_MAT+RR_TIPO3+DTOS(RR_DATA)+RR_PD+RR_SEQ+RR_CC
+		EndIf
+		For nX := 1 To Len(aPd)
+			If cPaisLoc <> "BRA"
+				cChave := SRA->(RA_FILIAL+RA_MAT)+"R"+cPeriodo+cRot+aPd[nX,3]+aPd[nX,1]+ aPd[nX,2]+ aPd[nX,13]+ aPd[nX,14]+ aPd[nX,11] +Dtos(M->RG_DTGERAR)
+			Else
+				cChave := SRA->(RA_FILIAL+RA_MAT)+"R"+Dtos(M->RG_DTGERAR) + aPd[nX,1] + aPd[nX,11] + aPd[nX,2]
+			EndIf
+
+			lAchou := SRR->( dbSeek(cChave ) )
+
+			If aPd[ nX , 9 ] # "D" .and. aPd[ nX , 5 ] > 0 .And. aPd[nX,3] = cSemana
+				RecLock("SRR",!lAchou,.T.)
+				SRR->RR_FILIAL 	:= SRA->RA_FILIAL
+				SRR->RR_MAT    	:= SRA->RA_MAT
+				SRR->RR_DATA   	:= M->RG_DTGERAR
+				SRR->RR_PD     	:= aPd[ nX , 1 ]
+				SRR->RR_CC		:= aPd[ nX , 2 ]
+				SRR->RR_SEMANA	:= aPd[ nX , 3 ]
+				SRR->RR_HORAS	:= aPd[ nX , 4 ]
+				SRR->RR_VALOR	:= aPd[ nX , 5 ]
+				SRR->RR_TIPO1	:= aPd[ nX , 6 ]
+				SRR->RR_TIPO2	:= If( aPd[ nX , 7] $ " C", "R" , aPd[ nX , 7 ] )
+				SRR->RR_DATAPAG	:= dDataHom
+				SRR->RR_TIPO3	:= 'R'
+				SRR->RR_SEQ	    := aPd[ nX , 11 ]
+				SRR->RR_NUMID	:= aPd[ nX , 15 ]
+				SRR->RR_PROCES	:= cProcesso
+				SRR->RR_ROTEIR	:= cRot
+				SRR->RR_PERIODO	:= cPeriodo
+				SRR->RR_VALORBA := aPd[ nX , 20 ]
+				SRR->RR_CODB1T	:= aPd[ nX , 21 ]
+
+				If lItemClVl
+					SRR->RR_ITEM	:= aPd[nX,13]		// Item Contabil
+	 				SRR->RR_CLVL	:= aPd[nX,14]		// Classe de Valor
+				EndIf
+
+				SRR->RR_DTREF	:= aPd[nX,18]
+
+				SRR->( MsUnLock() )
+			Else
+				If lAchou
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Deletar verba se Valor Zero ou Deletada em aPd             ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					SRR->( RecLock("SRR",!lAchou,.T.) , dbDelete() , MsUnLock() )
+				EndIf
+			EndIf
+		Next Nx
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica condicao para gravacao dos impostos reliquidados. ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cPaisLoc == "CHI" .And. !Empty(aImpRlq)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava as verbas de impostos reliquidados na tabela RGV       ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("RGV")
+			dbSetOrder(3)
+
+			If RGV->( dbSeek( M->( RG_FILIAL + RG_MAT + MesAno(RG_DATADEM) ) ) )
+				While RGV->( !Eof() .And. M->( RG_FILIAL + RG_MAT + MesAno(RG_DATADEM) ) == RGV_FILIAL + RGV_MAT + RGV_ANOMES )
+					If Empty(RGV->RGV_DTGERA) .Or. RGV->RGV_DTGERA == M->RG_DTGERAR
+						RecLock( "RGV", .F., .T. )
+						RGV->( dbDelete() )
+						RGV->( MsUnlock() )
+					EndIf
+
+					RGV->( dbSkip() )
+				End While
+			EndIf
+
+			Aeval( aImpRlq , { |X| GrvReliq(X) } )
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Deletar Fgts do "SRC" Caso Deseja Pagar Como Mes Anterior  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cPaisLoc == "BRA"
+			If cTipCalc == "1"
+				If aIncres[5] = "S"
+					dbSelectArea("SRC")
+					If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT + aCodFol[18,1] )
+						While !Eof() .And. SRC->RC_PD == aCodFol[18,1]
+							SRC->( RecLock("SRC",.F.,.T.) , dbDelete() , MsUnLock() )
+							SRC->( dbSkip() )
+						EndDo
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Atualiza SRA so no Calculo Real e na Efetivacao            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If cTipCalc == "1"
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Ponto de Entrada Antes de Efetivar a Rescisao                ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			If ExistBlock("GPM040GR")
+				ExecBlock("GPM040GR",.F.,.F.)
+			EndIf
+
+			If cPaisLoc == "DOM" .And. aIncres[7] == "N"        //se nao for resc.final a data nao muda
+				dbSelectArea("SRF")
+				RecLock("SRF",.F.,.T.)
+				SRF->RF_DATABAS := SRA->RA_DTENTRA
+				SRF->( MsUnLock() )
+
+				dbSelectArea("SRA")
+				RecLock("SRA",.F.,.T.)
+				SRA->RA_DTENTRA  := M->RG_DATADEM+1
+				SRA->( MsUnLock() )
+			Else
+				dbSelectArea("SRA")
+				RecLock("SRA",.F.,.T.)
+				SRA->RA_SITFOLH  := "D"
+				SRA->RA_DEMISSA  := dDataDem
+				SRA->RA_RESCRAI  := cRescRais
+				SRA->RA_AFASFGT  := cAfasFgts
+				SRA->( MsUnLock() )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Retorna a Atual Situacao do Funcionario                      ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				RetSituacao()
+
+				If lIntegDef
+					SetRotInteg("GPEM040")
+					FwIntegDef("GPEM040")
+				EndIf
+
+			EndIf
+
+			If FindFunction("OrgXRescisao")
+				aPostos:= OrgXRescisao(SRA->RA_FILIAL, SRA->RA_MAT, SRA->RA_DEMISSA)
+
+				If Len(aPostos) > 0
+					DBSelectArea("RCL")
+					RCL->(DBSetOrder(2))
+
+					For nX := 1 To Len(aPostos)
+						RCL->(DBSeek(xFilial("RCL") + aPostos[nX]))
+
+						If RCL->RCL_STATUS == "1"
+							aAdd(aLogfile, StrTran(STR0064, "{1}", aPostos[nX])) //"O Posto {1} foi desocupado."
+						EndIf
+					Next
+				EndIf
+			EndIf
+
+			If cPaisLoc == "BRA" .And. !Empty( aRecResUt )
+				aAreaSRD := SRD->( GetArea() )
+				For nI := 1 To Len(aRecResUt)
+					SRD->( dbGoTo( aRecResUt[nI, 1] ) )
+					If RecLock("SRD", .F.)
+						SRD->RD_NUMID := aRecResUt[nI, 2]
+						SRD->(MsUnlock())
+					EndIf
+				Next nI
+				RestArea( aAreaSRD )
+			EndIf
+
+		Endif
+
+	EndIf
+
+End Transaction
+
+RestArea(aSX3Area)
+RestArea(aArea)
+
+Return(lGravou)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Gp630Retorno³ Autor ³ Leandro Drumond       ³ Data ³ 16/01/11 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorno da consulta padrao RCHCOL                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³GPEM630()                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Function Gp630Retorno()
+
+Local aArea := GetArea()
+
+cProcAux 	:= RCH->RCH_PROCES
+cProcDesc 	:= Posicione("RCJ",1,xFilial("RCJ")+cProcAux, "RCJ_DESCRI")
+cRotAux		:= RCH->RCH_ROTEIR
+cRotDesc	:= Posicione("SRY",1,xFilial("SRY")+cRotAux, "RY_DESC")
+cPerAux		:= RCH->RCH_PER
+cSemAux		:= RCH->RCH_NUMPAG
+dDataIni	:= RCH->RCH_DTINI
+dDataFim	:= RCH->RCH_DTFIM
+cFilRCH		:= AllTrim(RCH->RCH_FILIAL)
+
+lMudaProc := .F.
+
+DbSelectArea("SRA")
+DbSeek(cFilRCH)
+cFilAnt := SRA->RA_FILIAL
+
+RestArea(aArea)
+
+Return cProcAux
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Gpm630ProcVld()³ Autor ³ Leandro Drumond    ³ Data ³ 20/02/14 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorno da consulta padrao RCHCOL                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³GPEM630()                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Function Gpm630ProcVld()
+
+If lMudaProc
+	DbSelectArea("RCH")
+	DbSetOrder(RetOrder("RCH","RCH_FILIAL+RCH_PROCES+RCH_ROTEIR+RCH_PERSEL"))
+	If DbSeek(xFilial("RCH")+cProcAux+fGetCalcRot("4")+"1")
+		cProcDesc 	:= Posicione("RCJ",1,xFilial("RCJ")+cProcAux, "RCJ_DESCRI")
+		cRotAux		:= RCH->RCH_ROTEIR
+		cRotDesc	:= Posicione("SRY",1,xFilial("SRY")+cRotAux, "RY_DESC")
+		cPerAux		:= RCH->RCH_PER
+		cSemAux		:= RCH->RCH_NUMPAG
+		dDataIni	:= RCH->RCH_DTINI
+		dDataFim	:= RCH->RCH_DTFIM
+		cFilRCH		:= AllTrim(RCH->RCH_FILIAL)
+	Else
+		cProcDesc 	:= Space( TamSX3( "RCJ_DESCRI" )[1] )
+		cRotAux		:= SPace(3)
+		cRotDesc	:= Space( TamSX3( "RY_DESC" )[1] )
+		cPerAux		:= Space(6)
+		cSemAux		:= Space(2)
+		dDataIni	:= CtoD("")
+		dDataFim	:= CtoD("")
+	EndIf
+EndIf
+
+lMudaProc := .T.
+
+Return .T.
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Gp630Filtro ³ Autor ³ Leandro Drumond       ³ Data ³ 16/01/11 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Filtro da consulta padrao RCHCOL                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³GPEM630()                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Function Gp630Filtro()
+
+Local aArea	  := GetArea()
+Local cFiltro := ""
+Local cRoteiro := ""
+
+DbSelectArea("SRY")
+DbSetOrder(1)
+dbSeek(xFilial("SRY"))
+
+While (!Eof())
+	//Condicao para separar todos roteiros, que são do tipo estipulado no 2. parametro desta função
+	//usado na consulta padrao RCH11
+	If 	!Empty(SRY->RY_TIPO) .AND. 	(SRY->RY_TIPO == ("4"))
+		If Len(cFiltro) == 0
+			cFiltro += " ( ( RCH->RCH_ROTEIR == '" + SRY->RY_CALCULO + "' )"
+			cRoteiro := SRY->RY_CALCULO + "/"
+		ElseIf !(SRY->RY_CALCULO $ cRoteiro) //apenas acrescenta ao filtro , códigos de roteiro diferentes.
+			cFiltro += " .OR. ( RCH->RCH_ROTEIR == '" + SRY->RY_CALCULO + "' )"
+			cRoteiro += SRY->RY_CALCULO + "/"
+		EndIf
+	EndIf
+	dbSkip()
+EndDo
+
+If !Empty(cFiltro)
+	cFiltro += " ) "
+EndIf
+
+If cTipCalc != "4"
+	cFiltro += " .AND. ( Empty(RCH->RCH_DTFECH) ) "
+EndIf
+
+If IsInCallStack("GPEM040B") .AND. !EMPTY(cProcAux)
+	cFiltro += " .AND. ( RCH->RCH_PROCES == '" + cProcAux + "'  ) "
+EndIf
+
+cFiltro := "@#" + cFiltro + "@#"
+
+RestArea(aArea)
+
+Return cFiltro
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Gp630VldDat ³ Autor ³ Leandro Drumond       ³ Data ³ 19/09/14 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida data de demissao e geracao                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³GPEM630()                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Function Gp630VldDat(nOpcao)
+Local aArea	  := GetArea()
+Local lRet := .T.
+
+If nOpcao == 1
+
+	If Empty(dDataRes) .or. dDataRes < dDataIni .or. dDataRes > dDataFim
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0041) , 1, 0 )//"Atenção"##"Data de Demissão deve pertencer ao período informado"
+		lRet := .F.
+	EndIf
+ElseIf nOpcao == 2
+	If Empty(dDataGer) .or. dDataGer < dDataIni .or. dDataGer > dDataFim
+		Help( ,, OemToAnsi(STR0040),, OemToAnsi(STR0043) , 1, 0 )//"Atenção"##"Data de Geração deve pertencer ao período informado"
+		lRet := .F.
+	EndIf
+ElseIf nOpcao == 3
+	If Empty(cCauBaja)
+		Help( ,, OemToAnsi(STR0040),, STR0112 , 1, 0 )//"Atenção"##""Asigne la causa de baja."
+		lRet := .F.
+	Else
+		DbSelectArea("SX5")
+		SX5->(dbSetOrder(1))//X5_FILIAL+X5_TABELA+X5_CHAVE
+		If !SX5->(MsSeek(xFilial("SX5")+"27"+cCauBaja))
+			Help( ,, OemToAnsi(STR0040),, STR0114, 1, 0 )//"Causa Baja: El código informado no existe. "
+			lRet := .F.
+		EndIf
+	EndIf
+ElseIf nOpcao == 4
+	If !VALIDRCC("S025", cTipoRes,1,2)
+		lRet := .F.
+	EndIf
+EndIf
+RestArea(aArea)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MenuDef     ³ Autor ³ Leandro Drumond       ³ Data ³ 15/01/14 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Menu Funcional                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³MenuDef()                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Static Function MenuDef()
+
+	Local aRotina := {}
+	DEFAULT __lMemCalc := cPaisLoc == "BRA" .And. FindFunction("fMemCalc") .And. fMemCalc() // Memória de Cálculo
+
+	ADD OPTION aRotina Title OemToAnsi(STR0001) Action 'GPEM630()' OPERATION 6 ACCESS 0  // "Rescisão Coletiva"
+
+	If IsInCallStack("GPEM040")
+		ADD OPTION aRotina Title OemToAnsi(STR0123) Action 'GPEM019(Nil, Nil, 1)' OPERATION 7  ACCESS 0 //"Integração"
+	EndIf
+
+	ADD OPTION aRotina Title OemToAnsi(STR0002)	Action 'GPER140()' OPERATION 7 ACCESS 0  // "Impressao"
+	ADD OPTION aRotina Title OemToAnsi(STR0066) Action 'GPER630()' OPERATION 7  ACCESS 0 // "Rel. Valores Resc."
+
+	If IsInCallStack("GPEM040B")
+		ADD OPTION aRotina Title OemToAnsi(STR0090) Action 'Clear()' OPERATION 7  ACCESS 0 // Limpar marcações
+	EndIf
+
+	If __lMemCalc
+		ADD OPTION aRotina Title OemToAnsi(STR0100) Action 'GPEA091(2)' OPERATION 6 ACCESS 0 //'Consultar Memória de Cálculo'
+		ADD OPTION aRotina Title OemToAnsi(STR0101) Action 'GPER091()' OPERATION 6 ACCESS 0 //'Relatório Memória de Cálculo'
+	EndIf
+
+	If cPaisLoc == "BRA" .And. (lIntTaf .Or. lMiddleware) .And. FindFunction("fIntResLot") .And. !lVlEsocDif
+		ADD OPTION aRotina Title OemToAnsi(STR0113) Action 'fIntResLot()' OPERATION 6  ACCESS 0//"Integ. eSocial em lote"
+	EndIf
+
+Return aRotina
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ValTpRes()  ³ Autor ³ Marcia Moura        ³ Data ³ 04/05/2015 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida tipo de aviso previo na rescisao com cad av previo     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ValTpRes()                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+Static Function ValTpRes( cTipRes )
+Local aArea		:= GetArea()
+Local lRet		:= .F.
+Local cAvPrev   := ""
+local cRfyTpAv	:= ""
+
+
+cRfyTpAv	:= RFY->RFY_TPAVIS
+cAvPrev := aIncRes[2]
+
+If cRfyTpAv $ ("1*2*3*4")
+	If cAvPrev $ "I*T*N*D"
+		if ( (cRfyTpAv $ "1*2" .AND. cAvPrev == "T" .and. SubStr(cAfasFgts,1,1) == "I" ) .OR. (cRfyTpAv $ "4" .AND. cAvPrev $ "T" .and. SubStr(cAfasFgts,1,1) =="J"))
+			lRet := .T.
+		Else
+			lRet := .F.
+		Endif
+	Endif
+Endif
+RestArea( aArea )
+
+Return( lRet )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³fRetSitResºAutor  ³Microsiga           º Data ³  01/30/12   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Retorna a Situacao do funcionario                          º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function fRetSitRes(cFil,cMat)
+
+Local aSituacao := {}
+
+DEFAULT cFil 	:= SRA->RA_FILIAL
+DEFAULT cMat 	:= SRA->RA_MAT
+
+aSituacao := RetSituacao( cFil , cMat , .F. , NIL , .T. )
+
+If !( aSituacao[1] == "D" )
+		SRA->( RecLock( "SRA" , .F. , .T. ) )
+		SRA->RA_DEMISSA  := Ctod("//")
+		SRA->RA_RESCRAI  := "  "
+		SRA->( MsUnLock() )
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Retorna a Atual Situacao do Funcionario                       ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		RetSituacao(cFil , cMat , .T. , NIL , .T. )
+EndIf
+
+Return(.T.)
+
+/*/{Protheus.doc} RstGpM630
+Função para reinicializar as variáveis Static
+@author allyson.mesashi
+@since 23/01/2019
+@version P12.1.17
+/*/
+Function RstGpM630()
+
+lIntTaf 	:= ((SuperGetMv("MV_RHTAF",, .F.) == .T.) .AND. Val(SuperGetMv("MV_FASESOC",/*lHelp*/,' ')) >= 1 )
+cEFDAviso  	:= If(cPaisLoc == 'BRA' .AND. Findfunction("fEFDAviso"), fEFDAviso(), "0")			//Se nao encontrar este parametro apenas emitira alertas
+lMiddleware	:= If( cPaisLoc == 'BRA' .AND. Findfunction("fVerMW"), fVerMW(), .F. )
+lVlEsocDif	:= If(!lMiddleware .And. lIntTaf .And. FindFunction("fDivergTaf") .And. fDivergTaf(), .T., .F.)
+
+Return( NIL )
+
+/*/{Protheus.doc} GRSRG630
+Validaciones para el filtro cExpFiltro (filtro SQL SRA)
+@author Alfredo Medrano
+@since 23/03/2019
+@version 1.0
+/*/
+static Function VldCalResC()
+Local nI := 0
+Local lRet := .T.
+	If lGPEM040B .And. Len(_MarcReg) > 0
+		nNumEmp := Len(_MarcReg)
+		cExpFiltro := "RA_MAT IN("
+		For nI := 1 To nNumEmp
+			cExpFiltro += "'" + _MarcReg[nI] + "'"
+			If nI < nNumEmp
+				cExpFiltro += ","
+			EndIf
+		Next
+		cExpFiltro += ")"
+
+		If !lBlind .And. Empty(cExpFiltro)
+			If!( MsgYesNo( OemToAnsi( STR0067 ), OemToAnsi( STR0040 ) ) ) //"Atencao"###"Nenhum filtro foi definido. Processar a tabela inteira?"
+				lRet := .F.
+				Help(,,OemToAnsi(STR0040),,OemToAnsi(STR0068),1,0) //Filtro vazio.
+				Break
+			EndIf
+		EndIf
+	EndIf
+
+	If !VldCalculo()
+		lRet := .F.
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fIntegRes
+Chama rotina e integração filtrada pelo processo/periodo/semana selecionados
+@author Leandro Drumond
+@since 24/08/2022
+@version 1.0
+/*/
+Static Function fIntegRes()
+
+cProcesso :=  cProcAux
+cPeriodo  :=  cPerAux
+cSemana   :=  cSemAux
+
+GPEM019()
+
+Return Nil

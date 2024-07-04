@@ -1,0 +1,174 @@
+#Include "PanelOnLine.ch"
+#Include "PonPgOnL.ch"
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONPGOnl ³ Autor ³ MICROSIGA             ³ Data ³   /  /   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Definicao dos paineis on-line para modulo Ponto Eletronico ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ PONPGOnl                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ Nenhum                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ NIL                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ SIGAPON                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³             ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ FNC  ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Cecilia C.  ³21/05/14³TPQAN3³Incluido o fonte da 11 para a 12 e efetua-³±± 
+±±³            ³        ³      ³da a limpeza.                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+
+Function PONPGOnl(oPgOnLine)
+
+Local nTempo   	:= SuperGetMV("MV_PGORFSH", .F., 500)//Tempo para atualizacao do painel
+aToolBar		:= {}
+Aadd( aToolBar, { "S4WB016N","Help",{ || PONPGHLP("001") } } )
+
+ 
+PANELONLINE oPgOnLine 		;
+	ADDPANEL TITLE STR0001	; 	// "Quantidade de Horas no mês"
+		DESCR STR0002 		; 	// "Quantidade de Horas no mês por filial"
+		TYPE 2				   ;
+ 	    ONLOAD "PonOnl01"   ;
+ 	    REFRESH nTempo		; 	
+   	    DEFAULT 1			   ;
+	   	TOOLBAR aToolBar    ;
+	 	NAME	"PonOnl01"	  ;              
+ 	    TITLECOMBO STR0003 		// "Filial "	 	 
+
+     
+aToolBar	:={}
+
+Aadd( aToolBar, { "S4WB016N",STR0044 ,{ || PONPGHLP("002") } } )
+
+PANELONLINE oPgOnLine 		;
+	ADDPANEL TITLE STR0004	; 	// "Nível do Banco de Horas"
+		DESCR STR0005 		; 	// "Nível do Banco de Horas por filial"
+		TYPE 2				;
+ 	    ONLOAD "PonOnl02"   ;
+	    REFRESH nTempo		; 	
+   	    DEFAULT 1			;
+		TOOLBAR aToolBar    ;   	    
+	 	NAME	"PonOnl02"	;
+ 	    TITLECOMBO STR0003 		// "Filial "	 
+ 	    
+       
+aToolBar	:={}
+
+Aadd( aToolBar, { "S4WB016N",STR0044 ,{ || PONPGHLP("003") } } )  
+
+PANELONLINE oPgOnLine 		;
+	ADDPANEL TITLE STR0006	; 	// "Quantidade de Horas no Mês"
+		DESCR STR0007 		; 	// "Horas Previstas X Realizadas"
+		TYPE 2				;
+ 	    ONLOAD "PonOnl03"   ;
+        REFRESH nTempo		; 	
+   	    DEFAULT 1			;
+		TOOLBAR aToolBar    ;      	    
+	 	NAME	"PonOnl03"	;              
+ 	    TITLECOMBO STR0003 		// "Filial "	 	
+      
+    
+Return	
+                                
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ PONPGHLP ºAutor  ³MAURICIO MR         º Data ³  09/04/07   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Funcao de Help para os paineis de gestao.                  º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Paineis de Gestao                                          º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function PONPGHLP(cPainel)
+
+
+If cPainel == '001'
+
+	MsgInfo( STR0008+CHR(13)+CHR(10)+;  //"ESSE PAINEL DEMONSTRA INDICADORES BASEADOS NOS SEGUINTES IDENTIFICADORES:+CHR(13)+CHR(10)+;  //"
+			 STR0009+CHR(13)+CHR(10)+;  //"* HORAS TRABALHADAS"
+			 STR0010+CHR(13)+CHR(10)+;  //"001A	HORAS NORMAIS"
+			 STR0011+CHR(13)+CHR(10)+;  //"026A	HORAS NORMAIS NOTURNAS"
+			 STR0012+CHR(13)+CHR(10)+;  //"* HORAS NAO REALIZADAS"
+			 STR0013+CHR(13)+CHR(10)+;  //"005A	HORAS NORMAIS NAO REALIZADAS"
+			 STR0014+CHR(13)+CHR(10)+;  //"006A	HORAS NOTURNAS NAO REALIZADAS"
+			 STR0015+CHR(13)+CHR(10)+;  //"* FALTAS+CHR(13)+CHR(10)+;  //"
+			 STR0016+CHR(13)+CHR(10)+;  //"007N	FALTA 1/2 PERIODO NAO AUTORIZADA"
+			 STR0017+CHR(13)+CHR(10)+;  //"008A	FALTA 1/2 PERIODO AUTORIZADA"
+			 STR0018+CHR(13)+CHR(10)+;  //"009N	FALTA INTEGRAL NAO AUTORIZADA"
+			 STR0019+CHR(13)+CHR(10)+;  //"010A	FALTA INTEGRAL AUTORIZADA"
+			 STR0020+CHR(13)+CHR(10)+;  //"* ATRASOS"
+			 STR0021+CHR(13)+CHR(10)+;  //"011N	ATRASO NAO AUTORIZADO"
+			 STR0022+CHR(13)+CHR(10)+;  //"012A	ATRASO AUTORIZADO"
+			 STR0023+CHR(13)+CHR(10)+;  //"* SAIDAS"
+			 STR0024+CHR(13)+CHR(10)+;  //"013N	SAIDA ANTECIPADA NAO AUTORIZADA"
+			 STR0025+CHR(13)+CHR(10)+;  //"014A	SAIDA ANTECIPADA AUTORIZADA"
+			 STR0026+CHR(13)+CHR(10)+;  //"019N	SAIDA NO EXPEDIENTE NAO AUTORIZADO"
+			 STR0027+CHR(13)+CHR(10)+;  //"020A	SAIDA NO EXPEDIENTE AUTORIZADO" 
+			 STR0028+CHR(13)+CHR(10)+;  //"1) SÃO CONSIDERADAS APENAS AS HORAS APURADAS NO PERÍODO DE APONTAMENTO"
+		   	 STR0029+CHR(13)+CHR(10)+;  //"   ABERTO."    
+			 STR0030+CHR(13)+CHR(10)+;  //"2) SE A RELAÇÃO ENTRE IDENTIFICADORES E SEUS EVENTOS FOR MODIFICADA,+CHR(13)+CHR(10)+;  //"
+			 STR0031+CHR(13)+CHR(10)+;  //"   A ALTERAÇÃO SOMENTE SERA CONSIDERADA EM UM NOVO ACESSO AO SISTEMA"
+			 STR0032+CHR(13)+CHR(10)+;  //"4) AS HORAS EXTRAS SÃO IDENTIFICADAS CONFORME OS EVENTOS DA TABELA DE+CHR(13)+CHR(10)+;  //"
+			 STR0033+CHR(13)+CHR(10)+;  //"   HORAS EXTRAS."
+			 STR0034+CHR(13)+CHR(10)+;  //"5) O TOTAL DE FUNCIONÁRIOS CORRESPONDE AO TOTAL DE MATRÍCULAS QUE POSSUEM"
+			 STR0035+CHR(13)+CHR(10)+;  //"   LANÇAMENTOS PARA O PERÍODO DE APONTAMENTO ABERTO. SE UM TURNO NÃO FOI+CHR(13)+CHR(10)+;  //"
+			 STR0036+CHR(13)+CHR(10)+;  //"   APONTADO, OS FUNCIONÁRIOS CORRESPONDENTES NÃO ESTARÃO COMPUTADOS NESSE"
+			 STR0037+CHR(13)+CHR(10)+;  //"   INDICADOR."
+			 STR0038+CHR(13)+CHR(10)+;  //"6) OS EVENTOS ABONADOS E INFORMADOS NÃO SÃO CONSIDERADOS NOS CÁLCULOS DOS+CHR(13)+CHR(10)+;  //"
+			 STR0039+CHR(13)+CHR(10)+;  //"   INDICADORES, SOMENTE OS EVENTOS DE APONTAMENTO APURADOS PELO SISTEMA.+CHR(13)+CHR(10)+;  //"
+			 STR0040+CHR(13)+CHR(10)+;  //"7) O MODO COMO AS REGRAS DE APONTAMENTO FORAM DEFINIDAS INFLUENCIAM OS+CHR(13)+CHR(10)+;  //"
+			 STR0041+CHR(13)+CHR(10)+;  //"   VALORES DOS INDICADORES. POR EXEMPLO, SE EM PARTE DAS REGRAS ESTÁ+CHR(13)+CHR(10)+;  //"
+			 STR0042+CHR(13)+CHR(10)+;  //"   DETERMINADO A NÃO APURAÇÃO DE HORAS NORMAIS, ESSE INDICADOR APRESENTARÁ+CHR(13)+CHR(10)+;  //"
+			 STR0043+CHR(13)+CHR(10),;
+		     STR0044;  //"EXPLICAÇÃO"
+			)
+ElseIf cPainel == '002'
+	MsgInfo(; 
+			STR0045+CHR(13)+CHR(10)+;  // "SÃO DEMONSTRADOS NESSE PAINEL TODOS OS LANÇAMENTOS EM BANCO DE HORAS AINDA "
+			STR0046+CHR(13)+CHR(10)+;  // "NÃO BAIXADOS: "
+			STR0047+CHR(13)+CHR(10)+;  // "1) OS TOTAIS DE HORAS DE PROVENTOS E DESCONTOS NÃO VALORIZADOS."
+			STR0048+CHR(13)+CHR(10),;  // "2) OS TOTAIS DE HORAS DE PROVENTOS E DESCONTOS VALORIZADOS. "
+			STR0044;  //"EXPLICAÇÃO"
+			)
+
+ElseIf cPainel == '003'		
+	MsgInfo(; 
+			  STR0049+CHR(13)+CHR(10)+;  //"ESSE PAINEL DEMONSTRA OS SEGUINTES INDICADORES:+CHR(13)+CHR(10);  //"
+			  STR0050+CHR(13)+CHR(10)+;  //"* HORAS PREVISTAS"
+			  STR0051+CHR(13)+CHR(10)+;  //"  CORRESPONDEM AO TOTAL DE HORAS TRABALHADAS PREVISTAS PARA FUNCIONARIOS+CHR(13)+CHR(10);  //"
+			  STR0052+CHR(13)+CHR(10)+;  //"  ATIVOS CONFORME OS CALENDÁRIOS PADRÕES DE SEUS TURNOS.+CHR(13)+CHR(10);  //"
+			  STR0053+CHR(13)+CHR(10)+;  //"  NÃO SÃO CONSIDERADAS AS EXECEÇÕES DOS FUNCIONÁRIOS."
+			  STR0054+CHR(13)+CHR(10)+;  //"  AS HORAS PREVISTAS DE FUNCIONÁRIOS AFASTADOS OU EM FÉRIAS NÃO SÃO "
+			  STR0055+CHR(13)+CHR(10)+;  //"  CONSIDERADAS."
+			  STR0056+CHR(13)+CHR(10)+;  //"* HORAS EXTRAS" 
+			  STR0057+CHR(13)+CHR(10)+;  //"  CORRESPONDEM AO TOTAL DE HORAS DOS EVENTOS DEFINIDOS NA TABELA DE HORAS+CHR(13)+CHR(10);  //"
+			  STR0058+CHR(13)+CHR(10)+;  //"  EXTRAS (CONSIDERANDO TODOS OS EVENTOS AUTORIZADOS E NÃO AUTORIZADOS)."
+			  STR0059+CHR(13)+CHR(10)+;  //"* HORAS REALIZADAS"
+			  STR0060+CHR(13)+CHR(10)+;  //"  AS HORAS REALIZADAS CORRESPONDEM A DIFERENÇA ENTRE AS HORAS PREVISTAS E+CHR(13)+CHR(10);  //"
+			  STR0061+CHR(13)+CHR(10)+;  //"  AS HORAS NÃO REALIZADAS."
+			  STR0062+CHR(13)+CHR(10)+;  //"* HORAS NÃO REALIZADAS"
+			  STR0063+CHR(13)+CHR(10)+;  //"  AS HORAS REALIZADAS SÃO O RESULTADO DA SOMA DE HORAS DOS EVENTOS DEFINIDOS"
+			  STR0064+CHR(13)+CHR(10),;  //"  COMO DESCONTOS NA TABELA DE EVENTOS."
+		 	  STR0044;  //"EXPLICAÇÃO"
+		)							 	
+
+Endif
+
+Return

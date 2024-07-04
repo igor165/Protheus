@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Vehículos/Máquinas en stock vs. Bonos de venta disponibles"
+	#define STR0002 "Bonos de venta disponibles para el Vehículo/Máquina"
+	#define STR0003 "Finalizar"
+	#define STR0004 "Bono"
+	#define STR0005 "Fch.Inicial"
+	#define STR0006 "Fch.Final"
+	#define STR0007 "Cantidad"
+	#define STR0008 "Val.Neto"
+	#define STR0009 "Total de bonos de venta"
+	#define STR0010 "Rastreo del Vehículo/Máquina"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Vehicles/Machines in Stock x Available Sales Bonus"
+		#define STR0002 "Available Sales Bonus for the Vehicle/Machine"
+		#define STR0003 "Close"
+		#define STR0004 "Bonus"
+		#define STR0005 "Start Dt"
+		#define STR0006 "End Dt"
+		#define STR0007 "Quantity"
+		#define STR0008 "Net Value"
+		#define STR0009 "Total Sales Bonus"
+		#define STR0010 "Vehicle/Machine Tracking"
+	#else
+		#define STR0001 "Veículos/Máquinas Em Estoque x Bonus de Venda disponiveis"
+		#define STR0002 "Bonus de Venda disponiveis para o Veículo/Máquina"
+		#define STR0003 "Fechar"
+		#define STR0004 "Bonus"
+		#define STR0005 "Dt.Inicial"
+		#define STR0006 "Dt.Final"
+		#define STR0007 "Quantidade"
+		#define STR0008 "Vlr.Liquido"
+		#define STR0009 "Total de Bonus de Venda"
+		#define STR0010 "Rastreamento do Veiculo/Máquina"
+	#endif
+#endif

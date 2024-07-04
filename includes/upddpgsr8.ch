@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Realice la copia de seguridad de la base antes de ejecutar este proceso."
+	#define STR0002 "Herramienta para ajuste de los días pagados en la SR8."
+	#define STR0003 "UPDDPGSR8 - Actualiza días pagados empresa en la ausencia del empleado"
+	#define STR0004 "Al final del procesamiento los días pagados de la SR8 estarán corregidos."
+	#define STR0005 "Realizando actualización de la base..."
+	#define STR0006 "Espere mientras se ejecuta el procesamiento."
+	#define STR0007 "Ejecutando la actualización de los días pagados ..."
+	#define STR0008 "¿Se realizó la copia de seguridad de la base?"
+	#define STR0009 "Realice la copia de seguridad y ejecute la rutina nuevamente."
+	#define STR0010 "¡Final del procesamiento!"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Backup base before executing this process."
+		#define STR0002 "Tool to adjust of the days paid in the SR8."
+		#define STR0003 "UPDDPGSR8 - Days paid updated company in the employee absence"
+		#define STR0004 "At the end of the processing, the paid days of the SR8 are adjusted."
+		#define STR0005 "Base Updating..."
+		#define STR0006 "Await while processing is executed."
+		#define STR0007 "Running updating of paid days..."
+		#define STR0008 "Backup of base has already been executed?"
+		#define STR0009 "Backup and run the routine again."
+		#define STR0010 "Processing end"
+	#else
+		#define STR0001 "Realize o backup da base antes de executar esse processo."
+		#define STR0002 "Ferramenta para ajuste dos dias pagos na SR8."
+		#define STR0003 "UPDDPGSR8 - Atualizada dias pagos empresa na ausência do funcionário"
+		#define STR0004 "Ao final do processamento os dias pagos da SR8 estarão corrigidos."
+		#define STR0005 "Realizando atualização da base..."
+		#define STR0006 "Aguarde enquanto o processamento é executado."
+		#define STR0007 "Executando atualização dos dias pagos ..."
+		#define STR0008 "O backup da base já foi realizado?"
+		#define STR0009 "Realize o backup e execute a rotina novamente."
+		#define STR0010 "Fim do processamento!"
+	#endif
+#endif

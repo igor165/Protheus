@@ -1,0 +1,1273 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH" 
+#INCLUDE "FATA300.CH"   
+#INCLUDE "CRMDEF.CH"
+Static _cOldCont := ""
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300VldMdlAct
+
+Valida se o Model(MPFormModel) pode ser ativado.
+
+@sample		F300VldMdlAct(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel).
+	
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		27/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300VldMdlAct(oModel)
+
+Local nOperation	:= oModel:GetOperation() 
+Local lFt300Abr		:= ExistBlock("FT300ABR")    
+Local lRetorno		:= .T.
+Local uRetorno 		:= Nil
+
+If ( IsInCallStack("FATA320") .And. nOperation == MODEL_OPERATION_INSERT  )
+	If ADL->ADL_ENTIDA == "SA1"
+		SA1->( DBSetOrder(1) )
+		If ( SA1->(DBSeek(xFilial("SA1")+ ADL->ADL_CODENT + ADL->ADL_LOJENT)) .And. SA1->A1_MSBLQL == "1" )
+			Help("",,1,"FT300CLIBLQ",STR0397,2,,,,,,, {STR0400} )  //"O cliente está bloqueado para uso."#"Verifique a configuração do campo Status (A1_MSBLQL)."
+			lRetorno := .F.
+		EndIf
+	EndIf
+EndIf
+
+If ( lRetorno .And. ( nOperation == MODEL_OPERATION_UPDATE .Or. nOperation == MODEL_OPERATION_DELETE ) )
+	
+	If nOperation == MODEL_OPERATION_UPDATE
+		SA1->( DBSetOrder(1) )
+		If ( SA1->(DBSeek(xFilial("SA1")+ AD1->AD1_CODCLI + AD1->AD1_LOJCLI)) .And. SA1->A1_MSBLQL == "1" )
+			Help("",,1,"FT300CLIBLQ",STR0399,2,,,,,,, {STR0400} )  //"O cliente está bloqueado para uso."#"Verifique a configuração do campo Status (A1_MSBLQL)."
+			lRetorno := .F.
+		EndIf  
+	EndIf
+
+	If lRetorno 
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Valida o Status da Oportunidade de Venda. ³
+		//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lRetorno := Ft300VldStatus(nOperation)
+		
+		If ( lRetorno .And. nOperation == MODEL_OPERATION_DELETE )
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Valida se a Oportunidade de Venda poderá ser excluída. ³
+			//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			lRetorno := Ft300VldDel()
+		EndIf 
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Cria criterios de filtros para serem utilizados na 	³
+		//³ carga dos models (ModelField/ModelGrid). 		    ³
+		//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lRetorno
+			Ft300FilMdl(oModel)	
+		EndIf
+	
+	EndIf
+
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de Entrada para usuario validar tambem o Model ³
+//³da Oportunidade de Venda. 								³
+//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRetorno .AND. lFt300Abr
+	uRetorno := ExecBlock("FT300ABR",.F.,.F.,{oModel})
+	If ValType(uRetorno) == "L"
+		lRetorno := uRetorno
+	EndIf	
+EndIf  
+
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldStatus
+
+Valida o Status da Oportunidade de Venda antes de ativar o Model(MPFormModel).
+
+@sample		Ft300VldStatus(nOperation)
+
+@param		ExpN1 - Numero da Operacao (CRUD).
+	
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		27/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300VldStatus(nOperation)
+
+Local lRetorno := .T.
+
+If AD1->AD1_STATUS == "2"
+	lRetorno := .F.
+	If nOperation == MODEL_OPERATION_UPDATE
+		Help("",1,"FT300VLDSTATUS",,STR0311,1) //"Esta oportunidade não pode ser alterada pois está perdida."
+	Else
+		Help("",1,"FT300VLDSTATUS",,STR0312,1) //"Esta oportunidade não pode ser excluída pois está perdida."	
+	EndIf
+ElseIf AD1->AD1_STATUS == "9"
+	lRetorno := .F.
+	If nOperation == MODEL_OPERATION_UPDATE
+		Help("",1,"FT300VLDSTATUS",,STR0313,1) //"Esta oportunidade não pode ser alterada pois está encerrada."
+	Else
+		Help("",1,"FT300VLDSTATUS",,STR0314,1) //"Esta oportunidade não pode ser excluída pois está encerrada."
+	EndIf
+EndIf
+
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldDel
+
+Valida se a Oportunidade de Venda poderá ser excluída.
+
+@sample		Ft300VldDel()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		17/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Static Function Ft300VldDel()
+
+Local aArea    		:= GetArea()
+Local lFt300DOK 	:= ExistBlock("FT300DOK")  
+Local uRetorno		:= Nil
+Local lRetorno		:= .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Exclui o orcamento associado                                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		
+If !Empty(AD1->AD1_NUMORC)
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se permite a exclusao do orcamento. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea("SCJ") 
+	//CJ_FILIAL+CJ_NUM+CJ_CLIENTE+CJ_LOJA                                                                                                                              
+	SCJ->(DbSetOrder(1))
+	
+	If SCJ->(DbSeek(xFilial("SCJ")+AD1->AD1_NUMORC))
+		lRetorno := MaCanDelOrc("SCJ","SCK")
+		If !lRetorno
+			Help(" ",1,"FTDOVORCAM") // "Nao foi possivel excluir o orcamento associado!"		
+		EndIf 	
+	EndIf
+
+EndIf
+
+If lRetorno 
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existem agendamentos para a Oportunidade de Venda. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea("AD7")
+	//AD7_FILIAL+AD7_NROPOR
+	AD7->(DbSetOrder(6)) 
+	
+	If AD7->(DbSeek(xFilial("AD7")+AD1->AD1_NROPOR)) 
+		lRetorno := .F. 
+		Help(" ",1,"FTDOVAGEND") // "Nao e possivel excluir a oportunidade de venda pois existem agendamentos."	
+  	EndIf 
+
+EndIf 
+
+If lRetorno 
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existem apontamentos para a Oportunidade de Venda. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	DbSelectArea("AD5")
+	//AD5_FILIAL+AD5_NROPOR 
+	AD5->(DbSetOrder(2)) 
+	
+	If AD5->(DbSeek(xFilial("AD5")+AD1->AD1_NROPOR)) 
+		lRetorno := .F. 
+		Help(" ",1,"FTDOVAPONT") // "Nao e possivel excluir a oportunidade de venda pois existem apontamentos."
+	EndIf
+   
+EndIf 
+
+If lRetorno 
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existe Proposta comercial para a Oportunidade de Venda. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea("SCJ")
+	//CJ_FILIAL+CJ_NROPOR+CJ_REVISA  
+	SCJ->(DbSetOrder(5)) 
+
+	If SCJ->(DbSeek(xFilial("SCJ")+AD1->AD1_NROPOR+AD1->AD1_REVISA))		
+		lRetorno := .F. 
+		Help(" ",1,"FTDOVPROP") // "Nao e possivel excluir a Oportunidade de Venda pois existe Proposta Comercial ou Orcamento."
+	EndIf 
+
+EndIf 
+        
+If lRetorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Exclusao de Anotações    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		                                                                        
+	If nModulo == 73 
+		CRMA090Del("AD1",AD1->(Recno()))
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada de validacao da exclusão da Oportunidade de Venda. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRetorno .AND. lFt300DOK
+	uRetorno := ExecBlock("FT300DOK",.F.,.F.) 			
+	If ValType(uRetorno) == "L"
+		lRetorno := uRetorno
+	EndIf 	
+EndIf
+
+RestArea(aArea)
+
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300MdlAct
+
+Realiza validações e alterações no Model(MPFormModel) da 
+Oportunidade de Venda após a sua ativação.  
+
+@sample		F300MdlAct(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel).
+	
+@return		Nenhum
+
+@author		Anderson Silva
+@since		27/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300MdlAct(oModel)
+
+Local nOperation	:= oModel:GetOperation()
+Local lFt300Ini		:= ExistBlock("FT300INI")
+
+If nOperation == MODEL_OPERATION_INSERT
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o grid do Evolução da Venda conforme o estagio selecionado. ³
+	//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Ft300AtAIJ(oModel)
+EndIf	
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa os campos virtuais e reais do cabeçalho da Oportunidade de Venda(AD1). ³
+//ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+F300IniAD1(oModel)
+			 
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para usuario validar suas regras de negocios depois da ativacao do Model. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFt300Ini
+	ExecBlock("FT300INI",.F.,.F.,{oModel})
+EndIf  
+ 
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300MdlPVal
+
+Pos-Validadao do Model(MPFormModel) da Oportunidade de Venda.  
+
+@sample	F300MdlPVal(oModel)
+
+@param		ExpO1 - Model da Oportunidade de Venda (MPFormModel).
+	
+@return	ExpL - Verdadeiro / Falso
+
+@author	Anderson Silva
+@since		25/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300MdlPVal(oModel)
+
+Local aArea			:= GetArea()
+Local oMdlAD1	 	:= oModel:GetModel("AD1MASTER")
+Local oMdlAD2	 	:= oModel:GetModel("AD2DETAIL")
+Local oMdlAD9	 	:= oModel:GetModel("AD9DETAIL")
+Local lFt300Vld		:= ExistBlock("FT300VLD")
+Local lRetorno		:= .T.
+Local uRetorno		:= Nil
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pos-validacao do ModelField da Oportunidade de Venda. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+lRetorno := F300AD1PVal(oMdlAD1)
+
+If lRetorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida a regra do Time de Vendas se o campo Percetual estiver usado ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ( X3Uso(GetSx3Cache("AD2_PERC","X3_USADO")) )
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Valida o ModelGrid Time de Vendas ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lRetorno := F300AD2PVal(oMdlAD2)
+	EndIf
+EndIf
+
+If lRetorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida o ModelGrid de Contatos ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+	lRetorno := F300AD9PVal(oMdlAD9)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de Entrada para usuario validar suas regras de negocios ao confirmar ³ 
+//³operacao de CRUD da Oportunidade de Venda.										 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+If lRetorno .AND. lFt300Vld
+	uRetorno := ExecBlock("FT300VLD",.F.,.F.,{oModel})
+	If ValType(uRetorno) == "L"
+		lRetorno := uRetorno	
+	EndIf
+EndIf
+
+//Apresenta mensagem de Pendência Financeira
+If lRetorno .And. !IsBlind()
+	Ft300PendF()			
+EndIf
+
+RestArea(aArea)
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300AD1PVal
+
+Pos-validacao do ModelField da Oportunidade de Venda.
+
+@sample		F300AD1PVal(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		31/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function F300AD1PVal(oMdlAD1)
+
+Local lRetorno := .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Valida se os campos de cliente ou prospects estão	³
+//³ preenchidos.										³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lRetorno := Ft300VldCP(oMdlAD1)
+
+If lRetorno 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Obriga o preenchimento dos campos (AD1_ENCERR / AD1_MTVENC) ³
+	//³ quando a Oportunidade de Venda for Perdida ou Suspensa.		 ³
+	//³ Ignorar esta regra para Transferencia de Contas.				 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !IsInCallStack("CRMA20AOPORT")
+		lRetorno := Ft300ObrMEnc(oMdlAD1)
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Validacao para nao permitir o encerramento da Oportunidade de Venda sem	³
+//³ ter importado algum item obrigatorio presente na Vistoria Técnica.		³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+If lRetorno
+	lRetorno := Ft300ItObr(oMdlAD1)
+EndIf
+
+If lRetorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida se os dados da assinatura da proposta foram informados.	³		
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	lRetorno := Ft300VldAssProp(oMdlAD1)
+EndIf
+
+If lRetorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Verifica se existe pelo menos uma proposta com status A.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	lRetorno := Ft300VProp()
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300ObrMEnc
+
+Obriga o preenchimento dos campos (AD1_ENCERR / AD1_MTVENC) quando a Oportunidade
+de Venda for Perdida ou Suspensa.
+
+@sample		Ft300ObrMEnc(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		07/042014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300ObrMEnc(oMdlAD1)
+
+Local cStatus	 := oMdlAD1:GetValue("AD1_STATUS")
+Local cCodEnc	 := oMdlAD1:GetValue("AD1_ENCERR")
+Local cMtvEnc	 := oMdlAD1:GetValue("AD1_MTVENC")
+Local lRetorno	 := .T.                                   
+
+If cStatus $ "2|3" 
+	If Empty(cCodEnc) 
+		lRetorno := .F.
+		Help("",1,"FT300OBRMENC",,STR0317,1) //"Por favor, informe um tipo de encerramento.",
+	ElseIf Empty(cMtvEnc)  
+		lRetorno := .F.
+		Help("",1,"FT300OBRMENC",,STR0318,1) //"Por favor, descreva o motivo do encerramento desta Oportunidade de Venda."
+	EndIf
+EndIf                       
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldCP
+
+Valida se os campos de cliente ou prospects estão preenchidos.
+
+@sample		Ft300VldCP(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		31/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300VldCP(oMdlAD1)
+
+Local cCodCli	 := oMdlAD1:GetValue("AD1_CODCLI")
+Local cLojCli	 := oMdlAD1:GetValue("AD1_LOJCLI")
+Local cCodPro	 := oMdlAD1:GetValue("AD1_PROSPE")
+Local cLojPro	 := oMdlAD1:GetValue("AD1_LOJPRO")
+Local lRetorno	 := .T.                                   
+
+If Empty(cCodPro) .AND. Empty(cCodCli)
+	lRetorno := .F.
+	Help("",1,"FT300VLDCP",,STR0085,1) // "É obrigatório a seleção de um cliente ou prospect, antes de gravar a oportunidade de venda"
+EndIf                       
+
+lRetorno := lRetorno .AND. Ft300Bloq(oMdlAD1)
+
+If lRetorno .AND. Empty(cLojPro) .AND. Empty(cLojCli)
+	If !Empty(cCodPro) 
+		lRetorno := ExistCpo("SUS",cCodPro+cLojPro,1)	
+	    If !lRetorno 
+			Help("",1,"FT300VLDCP",,STR0097,1) // "Preencher o campo Loja do Prospect."
+	    EndIf		
+	ElseIf !Empty(cCodCli)
+		lRetorno := ExistCpo("SA1",cCodCli+cLojCli,1)		 
+	    If !lRetorno
+			Help("",1,"FT300VLDCP",,STR0098,1) // "Preencher o campo Loja do Cliente."  
+	    EndIf				
+    EndIf            
+EndIf
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Prosp
+
+Validacao da digitacao do prospect.
+
+@sample		Ft300Prosp()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		21/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Prosp()
+
+Local oModel	 	:= FwModelActive()
+Local oMdlAD1	 	:= oModel:GetModel("AD1MASTER")
+Local cCampo    	:= ReadVar()
+Local cConteudo		:= oMdlAD1:GetValue(SubStr(cCampo,4,Len(cCampo)))  
+Local lRetorno		:= .T.
+
+If cCampo == "M->AD1_PROSPE"
+
+	If Empty(cConteudo)
+
+		oMdlAD1:SetValue("AD1_LOJPRO",Space(TamSX3("AD1_LOJPRO")[01]))
+		oMdlAD1:SetValue("AD1_NOMPRO",Space(TamSX3("AD1_NOMPRO")[01]))
+
+	Else
+
+		//SIGACRM - Regra de permissionamento do registro da tabela AD1
+		If nModulo == 73 
+			lRetorno := CRMXLibReg("SUS",cConteudo,1)
+		EndIf
+		If lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_LOJPRO")) 
+			oMdlAD1:SetValue("AD1_NOMPRO",Posicione("SUS",1,xFilial("SUS")+cConteudo+oMdlAD1:GetValue("AD1_LOJPRO"),"US_NOME")) 
+		EndIf
+	EndIf	
+
+ElseIf cCampo == "M->AD1_LOJPRO" .AND. !Empty(cConteudo)
+	If lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_PROSPE"))
+		FtRetCodPr(lRetorno,oMdlAD1)
+	EndIf
+
+	lRetorno := ExistCpo("SUS",oMdlAD1:GetValue("AD1_PROSPE")+cConteudo,1)
+	
+	If !lRetorno .AND. Empty(oMdlAD1:GetValue("AD1_PROSPE"))
+		FtRetCodPr(lRetorno,oMdlAD1)
+		lRetorno := ExistCpo("SUS",oMdlAD1:GetValue("AD1_PROSPE")+cConteudo,1)
+	EndIf
+
+	//SIGACRM - Regra de permissionamento do registro da tabela AD1
+	If lRetorno .AND. nModulo == 73 
+		lRetorno := CRMXLibReg("SUS",oMdlAD1:GetValue("AD1_PROSPE")+cConteudo,1)
+	EndIf	
+	 
+	If lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_PROSPE")) 
+		oMdlAD1:SetValue("AD1_NOMPRO",Posicione("SUS",1,xFilial("SUS")+oMdlAD1:GetValue("AD1_PROSPE")+cConteudo,"US_NOME")) 
+	EndIf	
+
+EndIf 
+
+If lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_PROSPE")) .AND. !Empty(oMdlAD1:GetValue("AD1_LOJPRO"))
+	
+	//-------------------------------------------------------------------
+	// Se for prospect que virou cliente, preenche os campos do cliente.
+	//-------------------------------------------------------------------
+	DbSelectArea("SUS")
+	//US_FILIAL+US_COD+US_LOJA  
+	SUS->(DbSetOrder(1))
+	If SUS->(DbSeek(xFilial("SUS")+oMdlAD1:GetValue("AD1_PROSPE")+oMdlAD1:GetValue("AD1_LOJPRO")))
+		If SUS->US_STATUS == "6" .And. !Empty(SUS->US_CODCLI) //Status 6 = Cliente
+		 	oMdlAD1:SetValue("AD1_CODCLI",SUS->US_CODCLI)
+		 	oMdlAD1:SetValue("AD1_LOJCLI",SUS->US_LOJA)
+		 	oMdlAD1:SetValue("AD1_NOMCLI",Posicione("SA1",1,xFilial("SA1")+SUS->US_CODCLI+SUS->US_LOJA,"A1_NOME"))
+		 	oMdlAD1:SetValue("AD1_PROSPE",CriaVar("AD1_PROSPE",.F.)) 
+	     	oMdlAD1:SetValue("AD1_LOJPRO",CriaVar("AD1_LOJPRO",.F.))
+	     	oMdlAD1:SetValue("AD1_NOMPRO",CriaVar("AD1_NOMPRO",.F.)) 		
+	    EndIf
+	EndIf
+
+EndIf	
+
+Return(lRetorno) 
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Cli
+
+Validacao da digitacao do cliente.
+
+@sample		Ft300Cli()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		24/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Cli()
+
+Local aArea		:= GetArea()
+Local aAreaSA1		:= SA1->(GetArea())
+Local oModel		:= FwModelActive()
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")
+Local cCampo    	:= ReadVar()
+Local cConteudo		:= oMdlAD1:GetValue(SubStr(cCampo,4,Len(cCampo)))  
+Local lRetorno		:= .T. 
+
+If cCampo == "M->AD1_CODCLI"
+
+	If Empty(cConteudo)
+
+		oMdlAD1:SetValue("AD1_LOJCLI",Space(TamSX3("AD1_LOJCLI")[01]))
+		oMdlAD1:SetValue("AD1_NOMCLI",Space(TamSX3("AD1_NOMCLI")[01]))
+
+	Else
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Valida o codigo do cliente                                             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		DbSelectArea("SA1")
+		//A1_FILIAL+A1_COD+A1_LOJA 
+		SA1->(DbSetOrder(1))
+		If Empty(oMdlAD1:GetValue("AD1_LOJCLI"))
+	
+			If SA1->(DbSeek(xFilial("SA1")+cConteudo))
+			
+				//SIGACRM - Regra de permissionamento do registro da tabela AD1
+				If nModulo == 73 .And. !Empty(M->AD1_LOJCLI)
+					lRetorno := CRMXLibReg("SA1",cConteudo,1)
+				EndIf
+			
+				If lRetorno
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Valida a loja do cliente                                               ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If SA1->A1_MSBLQL <> "1"
+						//SIGACRM - Regra de permissionamento do registro da tabela AD1
+						If lRetorno .AND. nModulo == 73 .And. !Empty(M->AD1_LOJCLI)
+							lRetorno := CRMXLibReg("SA1",oMdlAD1:GetValue("AD1_CODCLI")+SA1->A1_LOJA,1)
+						EndIf
+					
+						If lRetorno .And. !Empty(M->AD1_LOJCLI)
+							oMdlAD1:LoadValue("AD1_LOJCLI",SA1->A1_LOJA)
+							oMdlAD1:SetValue("AD1_NOMCLI",Posicione("SA1",1,xFilial("SA1")+oMdlAD1:GetValue("AD1_CODCLI")+SA1->A1_LOJA,"A1_NOME"))  
+							lRetorno := RegistroOk("SA1")
+						EndIf
+					EndIf			
+				EndIf
+		  	Else
+		  		lRetorno := .F.
+				Help(" ",1,"REGNOIS")
+		  	EndIf
+	  	
+		Else 
+	
+			// Faz validação caso o cliente seja selecionado via F3
+			If SA1->(DbSeek(xFilial("SA1")+cConteudo+oMdlAD1:GetValue("AD1_LOJCLI")))
+		
+				//SIGACRM - Regra de permissionamento do registro da tabela AD1
+				If lRetorno .AND. nModulo == 73
+					lRetorno := CRMXLibReg("SA1",cConteudo+oMdlAD1:GetValue("AD1_LOJCLI"),1)
+				EndIf
+			
+				If lRetorno
+					oMdlAD1:SetValue("AD1_NOMCLI",Posicione("SA1",1,xFilial("SA1")+cConteudo+oMdlAD1:GetValue("AD1_LOJCLI"),"A1_NOME"))  
+					lRetorno := RegistroOk("SA1")
+				EndIf	
+		
+			Else
+				lRetorno := .F.
+				Help(" ",1,"REGNOIS")   
+			EndIf
+			
+		EndIf 					
+
+	EndIf
+
+ElseIf cCampo == "M->AD1_LOJCLI" .AND. !Empty(cConteudo)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Retorna codigo do cliente quando o MVC falhar                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If Empty(oMdlAD1:GetValue("AD1_CODCLI"))
+		FtRetCodCl(lRetorno,oMdlAD1)
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida a loja do cliente                                               ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	SA1->(DbSetOrder(1))
+	If SA1->(DbSeek(xFilial("SA1")+oMdlAD1:GetValue("AD1_CODCLI")+cConteudo)) 
+		
+		If SA1->A1_MSBLQL <> "1"		
+			//SIGACRM - Regra de permissionamento do registro da tabela AD1
+			If lRetorno .AND. nModulo == 73
+				lRetorno := CRMXLibReg("SA1",oMdlAD1:GetValue("AD1_CODCLI")+cConteudo,1)
+			EndIf
+		
+			If lRetorno
+				oMdlAD1:SetValue("AD1_NOMCLI",Posicione("SA1",1,xFilial("SA1")+oMdlAD1:GetValue("AD1_CODCLI")+cConteudo,"A1_NOME"))  
+				lRetorno := RegistroOk("SA1")
+			EndIf
+		Else
+			lRetorno := .F.
+			FtRetCodCl(lRetorno,oMdlAD1)
+			Help(" ",1,"REGBLOQ")
+		EndIf	
+			
+	Else
+		lRetorno := .F.
+		Help(" ",1,"REGNOIS")  
+	EndIf 					
+
+EndIf                            
+
+RestArea(aAreaSA1)
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldAssProp
+
+Valida se os dados da assinatura da proposta foram informados.
+
+@sample		Ft300VldCP(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		31/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function Ft300VldAssProp(oMdlAD1)
+
+Local lRetorno := .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se os dados da assinatura da proposta foram informados³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If oMdlAD1:GetValue("AD1_STATUS") == "9"
+
+	ADY->(DbSetOrder(2))	//ADY_FILIAL+ADY_OPORTU+ADY_REVISA+ADY_PROPOS
+	If ADY->(DbSeek(xFilial("ADY")+oMdlAD1:GetValue("AD1_NROPOR")+oMdlAD1:GetValue("AD1_REVISA")))
+		If Empty(oMdlAD1:GetValue("AD1_DTASSI"))
+			Help(" ",1,"FT300ASS")
+	   		lRetorno := .F.	
+		ElseIf Empty(oMdlAD1:GetValue("AD1_CNTPRO"))
+			Help(" ",1,"FT300CNT")
+	   		lRetorno := .F.	
+		EndIf
+	Endif	
+
+Endif
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300DtVld
+
+Consiste a digitacao das datas da Oportunidade de Venda.
+
+@sample		Ft300DtVld()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300DtVld() 
+
+Local cReadVar	 := AllTrim(ReadVar()) 
+Local oModel	 := FwModelActive()
+Local oMdlAD1	 := oModel:GetModel("AD1MASTER")
+Local lRetorno	 := .T. 
+
+If cReadVar == "M->AD1_DTINI" 
+	If !Empty(oMdlAD1:GetValue("AD1_DTFIM")) 	
+		lRetorno := (oMdlAD1:GetValue("AD1_DTFIM") >= oMdlAD1:GetValue("AD1_DTINI")) 
+	EndIf 		
+ElseIf cReadVar == "M->AD1_DTFIM" 
+	lRetorno := (oMdlAD1:GetValue("AD1_DTFIM") >= oMdlAD1:GetValue("AD1_DTINI")) 
+EndIf 
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ A data de termino dave ser igual ou superior a data de inicio          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !lRetorno 
+	Help("",1,"FT300DTVLD") // "A data de termino dave ser igual ou superior a data de inicio" 
+EndIf 
+
+Return(lRetorno) 
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300OpEnc
+
+Função para validar se a oportunidade passou por todos os estágios da evolução da venda
+no momento do encerramento 
+
+@sample		Ft300OpEnc()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		22/04/2014
+@version	P12                
+/*/
+//------------------------------------------------------------------------------
+Function Ft300OpEnc()
+
+Local oModel	 	:= FwModelActive()
+Local oMdlAD1	 	:= oModel:GetModel("AD1MASTER")
+Local cAviso 		:= STR0259 + chr(10) //É necessário avançar o(s) seguinte(s) estágio(s) para encerrar a oportunidade:
+Local nEstagio	:= 0
+Local cEstagio	:= ""
+Local lRetorno	:= .T.
+Local lAIJAvan	:= .F.				// Controla o avanço automático ou não do estágio de venda sem exibir notificação
+Local cFilAC2		:= xFilial("AC2")
+
+If	AC1->(ColumnPos("AC1_STAUTO")) > 0
+	// Quanto o campo AC1_STAUTO existir no dicionário de dados, leva em consideração a regra de sua aplicação
+	lAIJAvan := Posicione("AC1", 1, xFilial("AC1")+oMdlAD1:GetValue("AD1_PROVEN"), "AC1_STAUTO")
+EndIf
+
+If (oMdlAD1:GetValue("AD1_STATUS") == "9") //Status Encerrado
+
+	AC2->(DbSetOrder(1))	//AC2_FILIAL+AC2_PROVEN+AC2_STAGE
+
+	nEstagio := Val(oMdlAD1:GetValue("AD1_STAGE")) + 1 //Seleciona o estágio atual e adiciona 1 para pegar o proximo estágio
+	cEstagio := StrZero(nEstagio,TAMSX3("AC2_STAGE")[1]) //Transforma o estágio em texto
+
+	If AC2->(DbSeek(cFilAC2+oMdlAD1:GetValue("AD1_PROVEN")+cEstagio)) //Pesquisa pelo processo e próximo estágio da oportunidade
+
+		//Enquanto houver estágios posteriores ao estágio selecionado
+		While AC2->(!Eof()) .AND. AC2->AC2_FILIAL == cFilAC2 .AND. AC2->AC2_PROVEN == oMdlAD1:GetValue("AD1_PROVEN")
+			If !lAIJAvan
+				//Guarda quais são os estágios posteriores
+				lRetorno := .F.
+				cAviso +=  AC2->AC2_DESCRI + chr(10)
+			Else
+				//Seleciona o último estágio
+				M->AD1_STAGE := AC2->AC2_STAGE
+			EndIf
+			AC2->(DbSkip())
+		EndDo
+
+	EndIf
+
+EndIf
+
+If !lAIJAvan
+	If !lRetorno
+		Aviso(STR0260,cAviso,{STR0228},2) 	//Encerramento da Oportunidade###OK
+	EndIf
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AFinCta
+
+Avaliacao financeira para as contas (Prospect / Cliente) associada a 
+Oportunidade de Venda.  
+
+@sample 	Ft300AFinCta
+
+@param		Nenhum
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		04/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300AFinCta()
+
+Local oModel		:= FwModelActive()
+Local oMdlAD1		:= oModel:GetModel("AD1MASTER")		
+Local cNrOpor		:= oMdlAD1:GetValue("AD1_NROPOR")
+Local cRevisa		:= oMdlAD1:GetValue("AD1_REVISA")
+Local cCodCli		:= oMdlAD1:GetValue("AD1_CODCLI")
+Local cLojCli		:= oMdlAD1:GetValue("AD1_LOJCLI")	
+Local cCodPro		:= oMdlAD1:GetValue("AD1_PROSPE")
+Local cLojPro		:= oMdlAD1:GetValue("AD1_LOJPRO")
+Local cProVen		:= oMdlAD1:GetValue("AD1_PROVEN")
+Local cStage		:= oMdlAD1:GetValue("AD1_STAGE")
+Local aGrupos		:= {}
+Local aSocios		:= {}
+Local cCodGpo		:= ""
+Local lAvlFinanc	:= .T.
+Local lRetorno 		:= .T.
+
+DbSelectArea("AC2")
+//AC2_FILIAL+AC2_PROVEN+AC2_STAGE
+AC2->(DbSetOrder(1))
+
+If AC2->(DbSeek(xFilial("AC2")+cProVen+cStage))
+
+	If AC2->AC2_AVFIN == "1" .AND. !Empty(cCodCli) .AND. !Empty(cLojCli) 
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se o cliente faz parte de um grupo societario  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aGrupos := Ft300BGpo(cCodCli,cLojCli) //Traz os grupos pertencente ao cliente
+				
+		If Len(aGrupos) == 1
+			aSocios :=	Ft300BSoc(aGrupos[1][2])
+		ElseIf Len(aGrupos) > 1
+			Ft300Grupo(cCodCli,cLojCli,aGrupos,@aSocios,/*lRateio*/,lAvlFinanc,@cCodGpo)
+			aSocios :=	Ft300BSoc(cCodGpo)
+		Else
+			aAdd(aSocios,{.T.,cCodCli,cLojCli,Posicione("SA1",1,xFilial("SA1")+cCodCli+cLojCli,"A1_NOME")})
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Tela de selecao de proposta para avaliacao financeira para o Cliente. ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		Ft300SelP(cNrOpor,cRevisa,"SA1",aSocios)
+
+	ElseIf AC2->AC2_AVLPRO == "1" .AND. !Empty(cCodPro) .AND. !Empty(cLojPro)
+	
+		DbSelectArea("SUS")     
+		//US_FILIAL+US_COD+US_LOJA                                  
+		SUS->(DbSetOrder(1))
+		
+		If SUS->(DbSeek(xFilial("SUS")+oMdlAD1:GetValue("AD1_PROSPE")))
+			If !(SUS->US_STATUS == '6' .AND. !Empty(SUS->US_CODCLI) .AND. !Empty(SUS->US_LOJACLI) .AND. !Empty(SUS->US_DTCONV))
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Tela de selecao de proposta para avaliacao financeira para o Prospect. ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Ft300SelP(cNrOpor,cRevisa,"SUS",/*aSocios*/)
+			Else
+				lRetorno := .F.
+				Help("",1,"FT300CRDCTA",,STR0322,1) //"Avaliação financeira é realizada somente para Prospects não qualificado."	
+			EndIf
+		Else
+			lRetorno := .F.
+			Help("",1,"FT300CRDCTA",,STR0323,1) 	//"Problemas para localizar o Prospect associado a esta Oportunidade de Venda."		 
+		EndIf
+		
+	Else
+		lRetorno := .F.
+		Help("",1,"FT300CRDCTA",,STR0324,1) 		//"Avaliação financeira não foi configurada para este Processo / Estágio de Venda associado a esta Oportunidade de Venda."	
+	EndIf
+	FATPDLogUser("FT300AFINC")
+EndIf
+
+Return Nil
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300ValGpo
+
+Valida se o grupo foi selecionado.  
+
+@sample 	Ft300ValGpo(aGpoSel,aSocios,lRateio,lAvlFinanc,cCodGpo)
+
+@param		ExpA1 - Grupos societario.
+			ExpA2 - Retorna os socios do grupo societario.
+			ExpL3 - Retorna se o Pedido de Venda foi rateado.
+			ExpL4 - Flag para informar se há pendencia financeira para o Grupo Societario.
+			ExpC5 - Codigo do Grupo Societario. 
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		03/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300ValGpo(aGpoSel,aSocios,lRateio,lAvlFinanc,cCodGpo) 
+
+Local lRetorno := .F.
+
+AEval(aGpoSel,{|x| IIF(x[1] == .T.,(cCodGpo := x[2],lRetorno := .T.),lRetorno)})
+
+If lRetorno
+	If !lAvlFinanc
+		Ft300RPed(cCodGpo,@aSocios,@lRateio)
+	EndIf
+Else
+	MsgAlert(STR0144,STR0136) //"Nenhum grupo foi selecionado!"#Atencao!	
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300ValRat
+
+Validacao do rateio entre os socios do Grupo Societario.
+
+@sample 	Ft300ValRat(aSocios)
+
+@param		ExpA1 - Socios do Grupo Societario
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300ValRat(aSocios)
+
+Local nPercTotal	:= 0   //SubTotal do rateado
+Local lRetorno 		:= .T. //Retorno da validacao
+
+aEval(aSocios,{|x| nPercTotal += x[5]})
+
+If nPercTotal > 100
+	lRetorno := .F. 
+	MsgAlert(STR0153,STR0136)  //#"Rateio superior a 100%"#Atencao!
+ElseIf nPercTotal < 100 
+	lRetorno := .F.
+	MsgAlert(STR0154,STR0136)  //##"Rateio nao atingiu 100%"#Atencao!#
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Error
+
+Tratamento de erro para funcao do usuario. 
+
+@sample		Ft300Error(oError)
+
+@param		ExpO1 - Objeto com ErrorStack (Pilha de Erros).
+
+@return		Nenhum
+
+@author		Anderson Silva
+@since		15/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300Error(oError)
+
+Local cAcao			:= AC2->AC2_ACAO    																	   								    				//Acao
+Local cProcesso		:= Capital(Posicione("AC1",1,xFilial("AC1")+AC2->AC2_PROVEN,"AC1_DESCRI")) 			   								   			//Processo
+Local cStage		:= Capital(Posicione("AC2",1,xFilial("AC2")+AC2->AC2_PROVEN+AC2->AC2_STAGE,"AC2_DESCRI"))										//Estagio    
+Local cMsgUsr 		:= STR0164+chr(10)+STR0165+cProcesso+chr(10)+STR0166+cStage+chr(10)+STR0167+cAcao+chr(10)+chr(10)+STR0168+chr(10)+chr(10) 	//Mensagem do Usuario
+Local cInfAdd 		:= STR0169+chr(10)                                                                                                            			//Informacoes adicionais
+Local cError 		:= cMsgUsr+cInfAdd+oError:ErrorStack                                                                                                	//Mensagem de erro
+
+/*
+"Ao executar a ação do processo de venda foi encontrado um problema na funcão de usuario e terá que ser finalizado."
+"Processo: ZZZZZZ"
+"Estágio: XXXXXX"
+"Açao: YYYYYY "
+"Contate o administrador do sistema"
+"Abaixo as informações adicionais." 
+Error Stack
+*/
+
+Aviso(STR0136,cError,{STR0161},3)
+
+Return Nil
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300ROk
+
+Validacao do array das revisoes para comparacao.
+
+@sample		Ft300ROk(aRevisoes,aCmp)
+
+@param		ExpA1 - Revisoes da Oportunidade de Venda.
+			ExpA2 - Comparacao das revisoes da Oportunidade de Venda.
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		16/04/2014
+@version	P12          
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300ROk(aRevisoes,aCmp)
+
+Local lRetorno   := .T.
+
+Default aCmp     := {}
+
+aEval(aRevisoes,{|x| If(x[1],aAdd(aCmp,{x[Len(x)-1],x[Len(x)]}),)})
+
+If Len(aCmp) < 2
+	Aviso( STR0033,STR0034,{STR0014}, 2 ) //"Atenção!"###"É necessária a escolha de 2 revisões para comparação."###"Ok"
+	lRetorno := .F.	
+	aCmp := {}
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldFC
+
+Função para validar se o Fator Critico de Sucesso ou Insucesso foi informado
+corretamente, conforme a situacao da Oportunidade de Venda informada pelo campo
+AD1_STATUS. 
+
+@sample		Ft300VldFC()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		30/04/2014
+@version	P12                
+/*/
+//------------------------------------------------------------------------------
+Function Ft300VldFC()
+
+Local oModel	 := FwModelActive()
+Local oMdlAD1	 := oModel:GetModel("AD1MASTER")
+Local lRetorno	 := .T.
+
+If oMdlAD1:GetValue("AD1_STATUS") $ "2|3"
+	If !Empty(oMdlAD1:GetValue("AD1_FCS"))
+		lRetorno := .F.
+		Help("",1,"Ft300VLDFC",,STR0345,1) //"Por favor informe um Fator Crítico de Insucesso."
+	EndIf
+ElseIf oMdlAD1:GetValue("AD1_STATUS") == "9"
+	If !Empty(oMdlAD1:GetValue("AD1_FCI"))
+		lRetorno := .F.
+		Help("",1,"Ft300VLDFC",,STR0346,1) //"Por favor informe um Fator Crítico de Sucesso."
+	EndIf
+EndIf
+	
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Bloq
+Valida se prospect está bloqueado na pos-Validacao
+@sample		Ft300Bloq()
+@param		Nenhum
+@return		ExpL - Verdadeiro / Falso
+@author		Serviços CRM/FAT
+@since
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Bloq(oMdlAD1)
+
+Local aArea		:= {}
+Local aAreaSUS	:= {}
+Local cCodPro	:= oMdlAD1:GetValue("AD1_PROSPE")
+Local cLojPro	:= oMdlAD1:GetValue("AD1_LOJPRO")
+Local lRetorno 	:= .T.
+	
+If !Empty(cCodPro) .AND. !Empty(cLojPro)
+	aArea 		:= GetArea()
+	aAreaSUS	:= SUS->(GetArea())
+	SUS->(DBSetOrder(1))
+	If SUS->(DBSeek(xFilial("SUS")+cCodPro+cLojPro)) .AND. SUS->US_MSBLQL == "1"
+		lRetorno := .F.
+		Help(" ",1,"REGBLOQ")
+	EndIf
+	RestArea(aAreaSUS)
+	RestArea(aArea)
+EndIf
+Return (lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FtRetCodCl
+Retorna o conteúdo do código do cliente quando o F3 do MVC falhar.
+@sample		FtRetCodCl()
+@param		Nenhum
+@return		ExpL - Verdadeiro / Falso
+@author		Serviços CRM/FAT
+@since
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function FtRetCodCl(lRetorno,oMdlAD1)
+Default lRetorno := .F.
+
+If !lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_CODCLI"))
+	_cOldCont := oMdlAD1:GetValue("AD1_CODCLI")
+ElseIf lRetorno .AND. Empty(oMdlAD1:GetValue("AD1_CODCLI"))
+	oMdlAD1:LoadValue("AD1_CODCLI", _cOldCont)
+EndIf
+Return (lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FtRetCodPr
+Retorna o conteúdo do código do Prospect quando o F3 do MVC falhar.
+@sample		FtRetCodPr()
+@param		Nenhum
+@return		ExpL - Verdadeiro / Falso
+@author		Serviços CRM/FAT
+@since
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function FtRetCodPr(lRetorno,oMdlAD1)
+Default lRetorno := .F.
+
+If lRetorno .AND. !Empty(oMdlAD1:GetValue("AD1_PROSPE"))
+	_cOldCont := oMdlAD1:GetValue("AD1_PROSPE")
+ElseIf !lRetorno .AND. Empty(oMdlAD1:GetValue("AD1_PROSPE"))
+	oMdlAD1:LoadValue("AD1_PROSPE", _cOldCont)
+EndIf
+Return (lRetorno)
+
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLogUser
+    @description
+    Realiza o log dos dados acessados, de acordo com as informações enviadas, 
+    quando a regra de auditoria de rotinas com campos sensíveis ou pessoais estiver habilitada
+	Remover essa função quando não houver releases menor que 12.1.27
+
+   @type  Function
+    @sample FATPDLogUser(cFunction, nOpc)
+    @author Squad CRM & Faturamento
+    @since 06/01/2020
+    @version P12
+    @param cFunction, Caracter, Rotina que será utilizada no log das tabelas
+    @param nOpc, Numerico, Opção atribuída a função em execução - Default=0
+
+    @return lRet, Logico, Retorna se o log dos dados foi executado. 
+    Caso o log esteja desligado ou a melhoria não esteja aplicada, também retorna falso.
+
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDLogUser(cFunction, nOpc)
+
+	Local lRet := .F.
+
+	If FATPDActive()
+		lRet := FTPDLogUser(cFunction, nOpc)
+	EndIf 
+
+Return lRet  
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDActive
+    @description
+    Função que verifica se a melhoria de Dados Protegidos existe.
+
+    @type  Function
+    @sample FATPDActive()
+    @author Squad CRM & Faturamento
+    @since 17/12/2019
+    @version P12    
+    @return lRet, Logico, Indica se o sistema trabalha com Dados Protegidos
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDActive()
+
+    Static _lFTPDActive := Nil
+  
+    If _lFTPDActive == Nil
+        _lFTPDActive := ( GetRpoRelease() >= "12.1.027" .Or. !Empty(GetApoInfo("FATCRMPD.PRW")) )  
+    Endif
+
+Return _lFTPDActive  

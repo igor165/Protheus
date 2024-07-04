@@ -1,0 +1,1938 @@
+#INCLUDE "MATA190.CH"
+#INCLUDE "PROTHEUS.CH"
+
+#DEFINE _ENTER CHR(13)+CHR(10)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ MATA190  ³ Autor ³ Claudinei M. Benzi    ³ Data ³ 04.03.93   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Recalcula o custo de entrada.                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGACOM e SIGAEST                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ ATUALIZACOES SOFRIDAS DESDE A CONSTRUCAO INICIAL.                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ PROGRAMADOR  ³ DATA   ³ BOPS ³  MOTIVO DA ALTERACAO                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Marcos Simidu³26/02/98³XXXXXX³ Tratamento do campo F4_AGREG.            ³±±
+±±³ Viviani      ³11/01/99³Melhor³ Inclusao da FormBatch                    ³±±
+±±³ Cesar Valadao³28/07/99³15085A³ Acerto no Recalculo de Produtos Que      ³±±
+±±³              ³        ³      ³ Passaram pelo CQ.                        ³±±
+±±³ Cesar Valadao³17/01/00³  1780³ Acerto no Recalculo de Notas de Poder 3  ³±±
+±±³              ³        ³      ³ TES=Devolucao                            ³±±
+±±³ Fernando     ³14/02/00³Melhor³ Na rotina do Recalculo do Custo Entrada  ³±±
+±±³      Dourado ³        ³      ³ foi feita a Localizacao para os paises   ³±±
+±±³              ³        ³      ³ dif. do Brasil na funcao GeraCusto()     ³±±
+±±³Patricia Sal. ³01/03/00³XXXXXX³Util. os campos D7_PRODUTO+D7_DOC+D7_SERIE³±±
+±±³              ³        ³      ³+D7_FORNECE+D7_LOJA ao inves do D7_CHAVE  ³±±
+±±³Bruno Sobieski³08/05/00³Melhor³ Acertar incidencia de impostos para loca-³±±
+±±³              ³        ³      ³ lizaçoes, e considerar custo do remito.  ³±±
+±±³Sergio F.     |10/06/02³015706³Ajuste para nao considerar o Custo de uma ³±±
+±±³              |        ³      ³Entrada por Devolucao.                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATA190(lBat)
+
+Local nOpca      := 0
+Local aSays      := {}
+Local aButtons   := {}
+Local cPerg      := "MTA190"
+Local cTexto     := ""
+Local bProcess   := { |oSelf|A190Exec(lBat,oSelf) }
+Local lUsaNewPrc := If(!IsBlind(),UsaNewPrc(),.F.)
+Local oTProces
+
+TCInternal(5,"*OFF")   // Desliga Refresh no Lock do Top
+
+PRIVATE nIcmsCompl :=0
+PRIVATE lUsaPed
+PRIVATE cTipCM
+PRIVATE lUsaCm
+
+lBat := IIf(lBat == NIL,.F.,lBat)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Variaveis utilizadas para parametros                         ³
+//³                                                              ³
+//³ mv_par01            // Atualiza Preco                        ³
+//³ mv_par02            // De  Nota Fiscal De Entrada            ³
+//³ mv_par03            // Ate Nota Fiscal de Entrada            ³
+//³ mv_par04            // De  Data Digitacao da NFE             ³
+//³ mv_par05            // Ate Data Digitacao da NFE             ³
+//³ mv_par06            // Atualiza Ult. Data Compra             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Pergunte( cPerg,.F. )
+
+If lBat .And. !IsBlind()
+	nOpca := 1
+Else
+	nOpca := 0
+	PRIVATE cCadastro := OemToAnsi(STR0001)		//"Custo de Entrada"
+	If IsBlind()
+		BatchProcess(cCadastro,OemToAnsi(STR0002)+OemToAnsi(STR0003),cPerg,Processa({|lEnd| FA190Processa(.T.)}))
+	Else
+		If (lUsaNewPrc)
+			cTexto := STR0002 +_ENTER	//"Este programa tem como objetivo recalcular o custo de Entrada    "
+			cTexto += STR0003      		//"das mercadorias digitadas no recebimento de materiais.           "
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Sintaxe da tNewProcess():New( cFunction, cTitle, bProcess, cDescription, cPerg, aInfoCustom ) |
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			oTProces := tNewProcess():New( "MATA190",OemToAnsi(STR0001),bProcess,cTexto,cPerg )	 //"Custo de Entrada"
+		Else
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Nova forma de criar dialogos para processos Batch            ³
+			//³ COMPATIVEL COM PROTHEUS (BOF)                                ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			AADD(aSays,OemToAnsi(STR0002))
+			AADD(aSays,OemToAnsi(STR0003))
+
+			AADD(aButtons, { 5,.T.,{|| Pergunte(cPerg,.T.) } } )
+			AADD(aButtons, { 1,.T.,{|o| nOpca:= 1,If(ca190OK(@nOpca),o:oWnd:End(),o:oWnd:End()) } } )
+			AADD(aButtons, { 2,.T.,{|o| o:oWnd:End() }} )
+
+			ProcLogIni(aButtons)
+
+			FormBatch( cCadastro, aSays, aButtons,,200,405 )
+		EndIf
+	EndIf
+EndIf
+If (nOpca==1) .And. (oTProces==Nil)
+	A190Exec(lBat,oTProces)
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ A190Exec   ³ Autor ³ Ricardo Berti	      ³ Data ³17/12/07³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Inicializa o processamento do Custo de Entrada             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A190Exec(ExpL1,ExpO1)			                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpL1 = indica execucao em modo Batch	                  ³±±
+±±³          ³ ExpO1 = Objeto tNewProcess()                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A190Exec(lBat,oTProces)
+Local lRet       := .T.
+Local lUsaNewPrc := If(!IsBlind(),UsaNewPrc(),.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("INICIO")
+ProcLogAtu("MENSAGEM",STR0028+cFilAnt,STR0012+cFilAnt) // "Inicio Filial: "
+
+If !lBat .And. !IsBlind() .And. (oTProces <> Nil)
+	lRet := ca190OK()
+EndIf
+
+If lRet .And. Getmv("MV_CUSTEXC") == "N"
+	If !lBat .And. !IsBlind()
+		cMens := OemToAnsi(STR0004)+chr(13)		//"Esta rotina ser  executada em modo"
+		cMens += OemToAnsi(STR0005)+chr(13)		//"compartilhado , conforme indicado"
+		cMens += OemToAnsi(STR0006)+chr(13)		//"pelo parƒmetro MV_CUSTEXC."
+		cMens += OemToAnsi(STR0007)+chr(13)		//"As movimenta‡”es que ocorrerem durante"
+		cMens += OemToAnsi(STR0008)+chr(13)		//"o processo podem influir no c lculo."
+		If !MsgYesNo(cMens,OemToAnsi(STR0009))	//"Aten‡„o"
+			lRet := .F.
+		EndIf
+	EndIf
+EndIf
+If lRet
+	If (lUsaNewPrc)
+		oTProces:SaveLog(OemToAnsi(STR0026))
+	EndIf
+	If cPaisLoc <> "BRA" .And. !lBat .And. !IsBlind()
+		cTipCM   := MsgRemi(@lUsaCM,@lUsaPed)
+	EndIf
+	If lBat
+		FA190Processa(lBat)
+	ElseIf (oTProces<>Nil) //-- Release 1.1
+		FA190Processa(lBat,oTProces)
+	Else
+		Processa({|lEnd| FA190Processa(lBat)})
+	EndIf
+
+	If (lUsaNewPrc)
+		oTProces:SaveLog(OemToAnsi(STR0027))
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("MENSAGEM",STR0029+cFilAnt,STR0013+cFilAnt) //"Final Filial: "
+ProcLogAtu("FIM")
+
+Return Nil
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³FA190Proce³ Autor ³ Claudinei M. Benzi    ³ Data ³ 04.03.93   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³FA190Processa(ExpL1,ExpO1)	   		                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpL1 = indica execucao em modo Batch 	                 	³±±
+±±³          ³ ExpO1 = Objeto tNewProcess()                               	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Recalcula o custo de entrada.                                ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function FA190Processa(lBatch,oTProces)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atraves do parametro MV_CUSTEXC, verifica se a abertura de   ³
+//³ arquivos e' exclusiva ou compartilhada.                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lArqExcl := IIf(GetMV("MV_CUSTEXC")!="N",.T.,.F.)
+
+Private lBat := lBatch
+
+If lArqExcl
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Abre todos os arquivos de forma exclusiva                    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ! (MA280FLock("SD1") .And. MA280FLock("SF1") .And. MA280FLock("SF4") .And. MA280FLock("SD3") .And. MA280FLock("SE2"))
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Fecha todos os arquivos e reabre-os de forma compartilhada   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		DbCloseAll()
+		OpenFile(SubStr(cNumEmp,1,2))
+	EndIf
+	OpenIndx("SD1")
+	OpenIndx("SD3")
+	OpenIndx("SE2")
+	OpenIndx("SF4")
+	OpenIndx("SF1")
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Funcao que recalcula custo de entrada.                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Recalc(oTProces)
+
+// limpeza da variavel
+__cQryDupl := NIL
+__cQrySD1Custo := NIL
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Fecha todos os arquivos e reabre-os de forma compartilhada,  ³
+//³ se o parametro MV_CUSTEXC estiver p/ abertura exclusiva.     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lArqExcl
+	DbCloseAll()
+	OpenFile(SubStr(cNumEmp,1,2))
+EndIf
+
+Return
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Recalc   ³ Autor ³ Claudinei M. Benzi    ³ Data ³ 04.03.93 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Recalcula o custo de entrada.                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Recalc(ExpO1)			   		                       	  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpO1 = Objeto tNewProcess()                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Recalc(oTProces)
+
+Local dDtMax     := MVUlmes()
+Local lMt190Fil  := ExistBlock("MT190FIL")
+Local cSeekD7    := ''
+Local aCM        := {}
+Local aCustoEnt  := {}
+Local aAreaSD1   := {}
+Local aAreaSD3   := {}
+Local aTotCompra := {0,0,0,0,0}
+Local aCustoOri  := {0,0,0,0,0}
+Local aCustoSD3  := {0,0,0,0,0}
+Local aAreaSF1   := {}
+Local aAreaI     := {}
+Local lGravaDif  := .F.
+Local aDecCusD3  := {TamSX3('D3_CUSTO1')[2], TamSX3('D3_CUSTO2')[2], TamSX3('D3_CUSTO3')[2], TamSX3('D3_CUSTO4')[2], TamSX3('D3_CUSTO5')[2]}
+Local cNumCQ     := ''
+Local cProduto   := ''
+Local cNFAtu     := ''
+Local cNFOri     := ''
+Local cSerOri    := ''
+Local cSerAtu    := ''
+Local cFornece   := ''
+Local cLoja      := ''
+Local cItOri     := ''
+Local cNumSeqSD1 := ''
+Local cNumSeqSD3 := ''
+Local cSeekAgreg := ''
+Local cCQ		 := GetMvNNR('MV_CQ','98')
+Local cCodFil	 := ''
+Local nItens     := 0
+Local nQtdMovCQ  := 0
+Local nTargRec   := 0
+Local nQuantOri  := 0
+Local lMta190D1  := Existblock("MTA190D1")
+Local lCustPad   := .T.
+Local cLibera    := ' '
+Local aRelImp    := MaFisRelImp("MT100",{"SD1"})
+Local lUtilRef   := .F.
+Local aCustoNew
+Local lEofSD3
+Local lRemito    := .F.
+Local cSeek
+Local nReg
+Local nX
+Local nZ
+Local nY
+Local i
+Local nPcoCompra:= 0
+Local nOpcUCom	:= 2
+Local lUpdUCom	:= .F.
+Local lFound	:= .F.
+Local oSx1		:= ESTFwSX1Util():New()
+Local lMt103Upc	:= ExistBlock("MT103UPC")
+Local lCustron  := SuperGetMV("MV_CUSTRON",.F.,.T.)
+Local lUsaFilTrf:= UsaFilTrf()
+Local cCGCCli   := ""
+Local cCodCli   := ""
+Local cLojaCli  := ""
+Local aFilTrf   := {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Parametro MV_A190REF - Ativa o calculo do custo de entrada      ³
+//³ atraves das referencias da MATXFIS (mesmas funcoes do MATA103)  |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lUtilRef := SuperGetMV("MV_A190REF",.F.,.F.)
+
+oSx1:xAddGroup( "MTA190" )
+oSx1:xSearchGroup()
+
+//Verifica se o Parametro Mv_Par06 Esta Criado na Base de Dados e Utiliza o Valor Informado pelo Usuario
+//ou Define como 2 para Continuar Atualizando pela Data de Emissão
+
+lUpdUCom	:= Len( oSx1:oObjSx1:aGrupo[ 1 ][ 2 ] ) >= 6
+nOpcUCom	:= IIf( lUpdUCom, &( AllTrim( oSx1:oObjSx1:aGrupo[ 1 ][ 2 ][ 6 ]:cX1_Var01 ) ), 2 )
+cCGCCli 	:= FWSM0Util():GetSM0Data(cEmpAnt,cFilAnt, { "M0_CGC" })[1][2]
+
+dbSelectArea("SD1")
+dbSetOrder(1)
+
+
+dbSelectArea("SF1")
+cFilSF1 := "DTOS(F1_DTDIGIT) > '"+dTos(dDtMax)+"'.And. F1_DOC >= '"+MV_PAR02+"'.And. F1_DOC <='"+MV_PAR03+"'"
+If lMt190Fil
+	cFilSF1 := Execblock("MT190FIL",.F.,.F.,{cFilSF1})			// Permite algum tipo de continuidade no filtro
+EndIf
+MsFilter(cFilSF1)
+
+dbSetOrder(1)
+dbSeek(xFilial("SF1"))
+If !lBat .And. !IsBlind()
+	If (oTProces<>Nil)
+		oTProces:SetRegua2( SF1->(RecCount()) )
+	Else
+		ProcRegua(SF1->(RecCount())*5)
+	EndIf
+EndIf
+
+While !Eof() .And. xFilial() == SF1->F1_FILIAL
+
+	If !lBat .And. !IsBlind()
+		If (oTProces<>Nil)
+			oTProces:IncRegua2(STR0023) //"Calculando Custo de Entrada"
+		Else
+			IncProc()
+		EndIf
+	EndIf
+
+	If SF1->F1_DTDIGIT <= dDtMax
+		dbSkip()
+		Loop
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Executa a selecao dos registros validos segundo os parametros da pergunte. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If (SF1->F1_DOC < mv_par02 .Or. SF1->F1_DOC > mv_par03) .Or. (SF1->F1_DTDIGIT < mv_par04 .Or. SF1->F1_DTDIGIT > mv_par05)
+		dbSkip()
+		Loop
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Nao recalcula o custo de NFs ainda nao classificadas                       ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If Empty(SF1->F1_STATUS)
+		dbSkip()
+		Loop
+	EndIf
+
+	cSeek := xFilial("SD1")+SF1->F1_DOC+SF1->F1_SERIE+SF1->F1_FORNECE+SF1->F1_LOJA
+	dbSelectArea("SD1")
+	dbSetOrder(1)
+	dbSeek(cSeek)
+	nReg:=Recno()
+	aCustoEnt  := {}
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Posiciona o arquivo de TES ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	SF4->(dbSelectArea("SF4"))
+	SF4->(dbSeek(xFilial("SF4")+SD1->D1_TES))
+
+	If SF1->F1_IMPORT <> "S"
+		If !Empty(nReg)
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Nao considerar o custo de uma entrada por devolucao ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If SD1->D1_TIPO == "D" .And. SF4->F4_DEVZERO == "2"
+				aCustoEnt := {{0,0,0,0,0}}
+			ElseIf SF4->F4_TRANFIL == '1' .And. lCustron .and. SD1->D1_TIPO == "N" //-- Para transferencia entre filiais, obtem o custo da origem
+				aCustoEnt := {}
+				cCodCli := ""
+				cLojaCli:= ""
+				SA2->(dbSetOrder(1))
+				SA2->(MsSeek(xFilial("SA2")+SD1->(D1_FORNECE+D1_LOJA)))
+				If lUsaFilTrf //-- Procura pelo campo
+					cCodFil := SA2->A2_FILTRF
+				Else //-- Procura pelo CNPJ
+					aSM0 := FWLoadSM0(.T.,,.T.)
+					nX := aScan(aSM0,{|x| x[SM0_CGC] == SA2->A2_CGC})
+					cCodFil := aSM0[nX,SM0_CODFIL]
+				EndIf
+
+				//Procura pelo código e loja do cliente
+				nY := aScan(aFilTrf, {|x| x[1] == cCodFil})
+				If nY == 0
+					SA1->(DbSetOrder(3))
+					SA1->(MsSeek(xFilial("SA1",cCodFil)+cCGCCli))
+					CliForOrig("SA1",@cCodCli,@cLojaCli,lUsaFilTrf)
+					AAdd(aFilTrf,{cCodFil,cCodCli,cLojaCli})
+					nY := Len(aFilTrf)
+				EndIf
+
+				If (nY > 0) .And. !Empty(aFilTrf[nY][2]+aFilTrf[nY][3])
+
+					BeginSQL Alias "TMPSD2"
+						SELECT D2_CUSTO1, D2_CUSTO2, D2_CUSTO3, D2_CUSTO4, D2_CUSTO5
+						FROM %Table:SD2%
+						WHERE %NotDel% AND
+							D2_FILIAL = %Exp:xFilial("SD2",cCodFil)% AND
+							D2_DOC = %Exp:SD1->D1_DOC% AND
+							D2_SERIE = %Exp:SD1->D1_SERIE% AND
+							D2_CLIENTE = %Exp:aFilTrf[nY][2]% AND
+							D2_LOJA = %Exp:aFilTrf[nY][3]%
+							ORDER BY D2_FILIAL, D2_DOC, D2_SERIE, D2_CLIENTE, D2_LOJA, D2_COD, D2_ITEM
+					EndSQL
+
+					If TMPSD2->(!Eof())
+						TMPSD2->(dbEval({|| aAdd(aCustoEnt,{D2_CUSTO1,D2_CUSTO2,D2_CUSTO3,D2_CUSTO4,D2_CUSTO5})}))
+					EndIf
+					TMPSD2->(dbCloseArea())
+				EndIf
+			EndIf
+
+			If Empty(aCustoEnt)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Verifica se Remito tem nota de factura,			  	³
+				//³ para considerar o custo da nota de factura  		³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If IsRemito(1,"SF1->F1_TIPODOC")
+					cNFOri  := SD1->D1_DOC
+					cSerOri := SD1->D1_SERIE
+					cFornece:= SD1->D1_FORNECE
+					cLoja   := SD1->D1_LOJA
+					cItOri  := SD1->D1_ITEM
+					SD1->(DbSetOrder(10))
+					If SD1->(MSSeek(xFilial("SD1")+cFornece+cLoja+cSerOri+cNFOri+cItOri))
+						aAreaSF1:=	SF1->(GetArea())
+						aAreaI	:=	SD1->(GetArea())
+
+						lRemito := .T.
+					EndIf
+				EndIf
+
+				If !lRemito
+					// Calculo COM integracao com a MATXFIS
+					If cPaisLoc=="BRA" .And. lUtilRef
+						aCustoEnt := GeraCusto2(oTProces)
+					// Calculo SEM integracao com a MATXFIS
+					Else
+						aCustoEnt := GeraCusto(cSeek,aRelImp,,oTProces)
+					EndIf
+				Else
+					cSeek 	:= xFilial("SD1")+SD1->D1_DOC+SD1->D1_SERIE+SD1->D1_FORNECE+SF1->F1_LOJA
+					aCustoEnt := GeraCusto(cSeek,aRelImp,,oTProces)
+
+					RestArea(aAreaSF1)
+					RestArea(aAreaI)
+					lRemito :=.F.
+				EndIf
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Este ponto de entrada permite algum tratamento especifico para ³
+			//³ alguma nota de entrada em relacao ao custo da entrada          ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lMta190D1
+				aCustoPE := aclone(aCustoEnt)
+				If Len(aCustoPE)>0
+					aAreaSD1 := SD1->(GetArea())
+					SD1->(dbgotop())
+					SD1->(dbSeek(cSeek))
+					i:=0
+					while SD1->(!EOF() .and. cSeek = xFilial("SD1")+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA)
+						i:=i+1
+						If i <= Len(aCustoPE)
+							aadd(aCustoPE[i],{SD1->D1_DOC,SD1->D1_SERIE,SD1->D1_ITEM})
+						EndIf
+						SD1->(dbskip())
+					End
+					RestArea(aAreaSD1)
+				EndIf
+				aCustoNew := Execblock("MTA190D1",.F.,.F.,{aCustoEnt, aCustoPE } )
+				If Valtype(aCustoNew) == "A" .And. Len(aCustoNew)>0
+					For nX := 1 To Len(aCustoNew)
+						For nZ:=1 To 5
+							If Valtype(aCustoNew[nX,nZ]) != "N"	//Uso o array original se retorno nao for numerico
+								lCustPad := .F.
+								Exit
+							EndIf
+						Next nZ
+					Next nX
+					If lCustPad
+						aCustoEnt := aClone(aCustoNew)
+					EndIf
+				EndIf
+			EndIf
+
+			dbSelectArea("SD1")
+			dbGoTo(nReg)
+			For i:=1 To Len(aCustoEnt)
+				If !lBat .And. !IsBlind() .And. (oTProces==Nil)
+					IncProc()
+				EndIf
+				dbSelectArea("SF4")
+				If dbSeek(xFilial()+SD1->D1_TES,.F.) .And. SF4->F4_PODER3 = "D"
+					aCustoEnt[i]:=A330PegaSB6("SD1", .F.)
+				EndIf
+				RecLock("SD1",.F.)
+				SD1->D1_CUSTO  := aCustoEnt[i][1]
+				SD1->D1_CUSTO2 := aCustoEnt[i][2]
+				SD1->D1_CUSTO3 := aCustoEnt[i][3]
+				SD1->D1_CUSTO4 := aCustoEnt[i][4]
+				SD1->D1_CUSTO5 := aCustoEnt[i][5]
+				MsUnlock()
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Ajusta o Rateio por Centro de Custos - Tabela SDE            ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SDE")
+				dbSetOrder(1)
+				If dbSeek(cSeek:=xFilial("SDE")+SD1->D1_DOC+SD1->D1_SERIE+SD1->D1_FORNECE+SD1->D1_LOJA+SD1->D1_ITEM)
+					Do While !Eof() .And. cSeek == xFilial("SDE")+SDE->DE_DOC+SDE->DE_SERIE+SDE->DE_FORNECE+SDE->DE_LOJA+SDE->DE_ITEMNF
+						RecLock("SDE",.F.)
+						Replace DE_CUSTO1 With aCustoEnt[i,1]*(SDE->DE_PERC/100)
+						Replace DE_CUSTO2 With aCustoEnt[i,2]*(SDE->DE_PERC/100)
+						Replace DE_CUSTO3 With aCustoEnt[i,3]*(SDE->DE_PERC/100)
+						Replace DE_CUSTO4 With aCustoEnt[i,4]*(SDE->DE_PERC/100)
+						Replace DE_CUSTO5 With aCustoEnt[i,5]*(SDE->DE_PERC/100)
+						MsUnLock()
+						dbSkip()
+					EndDo
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Grava Custo Vinculado a Nota Fiscal na RE5 (Custo direto na Op)³
+				//³ Procura RE5 Vinculado a Nota Fiscal (Custo direto na Op)       ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SD3")
+				dbSetOrder(4)
+				dbSeek(xFilial()+SD1->D1_NUMSEQ)
+				While !Eof() .And. SD3->D3_CF # "RE5" .And. SD3->D3_NUMSEQ == SD1->D1_NUMSEQ .And. SD3->D3_COD != SD1->D1_COD .And. SD3->D3_OP != SD1->D1_OP
+					dbSkip()
+				End
+				lEofSD3 := IIf(SD1->D1_OP # SD3->D3_OP .Or. SD1->D1_NUMSEQ # SD3->D3_NUMSEQ .Or. SD3->(EOF()),.T.,.F.)
+				// Atualiza o custo dos movimentos do armazem em transito
+				If cPaisLoc == "BRA" .And. SF4->F4_TRANSIT == 'S' .And. "E6" $ SD3->D3_CF
+					While !Eof() .And. SD3->D3_NUMSEQ == SD1->D1_NUMSEQ
+						RecLock("SD3",.F.)
+						SD3->D3_CUSTO1 := aCustoEnt[i][1]
+						SD3->D3_CUSTO2 := aCustoEnt[i][2]
+						SD3->D3_CUSTO3 := aCustoEnt[i][3]
+						SD3->D3_CUSTO4 := aCustoEnt[i][4]
+						SD3->D3_CUSTO5 := aCustoEnt[i][5]
+						MsUnlock()
+						SD3->(dbSkip())
+					End
+				Else
+					If !lEofSD3
+						RecLock("SD3",.F.)
+						SD3->D3_CUSTO1 := aCustoEnt[i][1]
+						SD3->D3_CUSTO2 := aCustoEnt[i][2]
+						SD3->D3_CUSTO3 := aCustoEnt[i][3]
+						SD3->D3_CUSTO4 := aCustoEnt[i][4]
+						SD3->D3_CUSTO5 := aCustoEnt[i][5]
+						MsUnlock()
+					EndIf
+				EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Custeio de NF de Controle de Qualidade - CQ.                   ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !Empty(SD1->D1_NUMCQ)
+					cSeekD7:=SD1->D1_NUMCQ+SD1->D1_COD+SD1->D1_LOCAL
+
+					If !(SD1->D1_TIPO=='C') .And. QtdComp(SD1->D1_QUANT)>QtdComp(0)
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Nota fiscal de entrada.          ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						aCM := PegaCMD1()
+
+						dbSelectArea("SD7")
+						dbSetOrder(1)
+						dbSeek(xFilial()+cSeekD7,.F.)
+						While !Eof() .And. xFilial()+cSeekD7==D7_FILIAL+D7_NUMERO+D7_PRODUTO+D7_LOCAL
+							If D7_TIPO != 0
+								dbSelectArea("SD3")
+								dbSetOrder(2)
+								dbSeek(xFilial()+SD7->D7_NUMERO+SD7->D7_PRODUTO)
+								While !Eof() .And. xFilial()+SD7->D7_NUMERO+SD7->D7_PRODUTO == D3_FILIAL+D3_DOC+D3_COD
+									If (D3_NUMSEQ == SD7->D7_NUMSEQ) .And. QtdComp(SD3->D3_QUANT) # QtdComp(0)
+										RecLock("SD3",.F.)
+										SD3->D3_CUSTO1 := aCM[1] * SD3->D3_QUANT
+										SD3->D3_CUSTO2 := aCM[2] * SD3->D3_QUANT
+										SD3->D3_CUSTO3 := aCM[3] * SD3->D3_QUANT
+										SD3->D3_CUSTO4 := aCM[4] * SD3->D3_QUANT
+										SD3->D3_CUSTO5 := aCM[5] * SD3->D3_QUANT
+										MsUnLock()
+									EndIf
+									dbSkip()
+								End
+							EndIf
+
+							dbSelectArea("SD7")
+							dbSkip()
+						EndDo
+
+					ElseIf SD1->D1_TIPO=='C' .And. QtdComp(SD1->D1_QUANT)==QtdComp(0)
+						aAreaSD1   := SD1->(GetArea())
+						aAreaSD3   := {}
+						aCusto     := {0,0,0,0,0}
+						aCustoOri  := {0,0,0,0,0}
+						aValDesp   := {0,0,0,0,0}
+						aTotCompra := {0,0,0,0,0}
+						cNumCQ     := SD1->D1_NUMCQ
+						cProduto   := SD1->D1_COD
+						cNFAtu     := SD1->D1_DOC
+						cNFOri     := SD1->D1_NFORI
+						cSerOri    := SD1->D1_SERIORI
+						cSerAtu    := SD1->D1_SERIE
+						cFornece   := SD1->D1_FORNECE
+						cLoja      := SD1->D1_LOJA
+						cNumSeqSD1 := SD1->D1_NUMSEQ
+						cNumSeqSD3 := ''
+						cSeekAgreg := ''
+						nQtdMovCQ  := 0
+						nQuantOri  := 0
+
+						//-- Obtem Dados da Movimenta‡ao Original no CQ
+						SD7->(dbSetOrder(1))
+						If SD7->(dbSeek(xFilial('SD7')+cNumCQ+cProduto+cCQ+'001', .F.))
+							If Empty(cNFOri+cSerOri)
+								cNFOri  := SD7->D7_DOC
+								cSerOri := SD7->D7_SERIE
+							EndIf
+							nQuantOri := SD7->D7_SALDO
+							cLibera   := SD7->D7_LIBERA
+						EndIf
+
+						//-- Pega o Custo Total do Produto na NF de Despesa Agregada
+						aValDesp   := {0,0,0,0,0}
+						dbSelectArea('SD1')
+						cSeekAgreg := xFilial('SD1')+cProduto+cNFAtu+cSerAtu+cFornece+cLoja
+						dbSetOrder(2)
+						If dbSeek(cSeekAgreg, .F.)
+							Do While !Eof() .And. cSeekAgreg==D1_FILIAL+D1_COD+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA
+								If cNumCQ == D1_NUMCQ
+									aValDesp[1] += D1_CUSTO
+									aValDesp[2] += D1_CUSTO2
+									aValDesp[3] += D1_CUSTO3
+									aValDesp[4] += D1_CUSTO4
+									aValDesp[5] += D1_CUSTO5
+								EndIf
+								dbSkip()
+							EndDo
+						EndIf
+
+						//-- Pega o Custo Total do Produto na NF de Compra
+						aTotCompra := {0,0,0,0,0}
+						nItens     := 0
+						cSeekAgreg := xFilial('SD1')+cProduto+cNFOri+cSerOri+cFornece+cLoja
+						If dbSeek(cSeekAgreg, .F.)
+							nTargRec := Recno()
+							Do While !Eof() .And. cSeekAgreg == D1_FILIAL+D1_COD+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA
+								If cNumCQ == D1_NUMCQ
+									nItens ++
+									aTotCompra[1] += D1_CUSTO
+									aTotCompra[2] += D1_CUSTO2
+									aTotCompra[3] += D1_CUSTO3
+									aTotCompra[4] += D1_CUSTO4
+									aTotCompra[5] += D1_CUSTO5
+								EndIf
+								dbSkip()
+							EndDo
+						EndIf
+
+						//-- Obtem o Custo Individual do Item
+						aCusto[1] := aValDesp[1]
+						aCusto[2] := aValDesp[2]
+						aCusto[3] := aValDesp[3]
+						aCusto[4] := aValDesp[4]
+						aCusto[5] := aValDesp[5]
+						If nItens > 1
+							dbGoto(nTargRec)
+							Do While !Eof() .And. cSeekAgreg == D1_FILIAL+D1_COD+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA
+								If cNumCQ == D1_NUMCQ
+									aCusto[1] := Round(aValDesp[1]*D1_CUSTO /aTotCompra[1], aDecCusD3[1])
+									aCusto[2] := Round(aValDesp[2]*D1_CUSTO2/aTotCompra[2], aDecCusD3[2])
+									aCusto[3] := Round(aValDesp[3]*D1_CUSTO3/aTotCompra[3], aDecCusD3[3])
+									aCusto[4] := Round(aValDesp[4]*D1_CUSTO4/aTotCompra[4], aDecCusD3[4])
+									aCusto[5] := Round(aValDesp[5]*D1_CUSTO5/aTotCompra[5], aDecCusD3[5])
+									Exit
+								EndIf
+								dbSkip()
+							EndDo
+						EndIf
+						RestArea(aAreaSD1)
+
+						aCustoOri := aClone(aCusto)
+
+						//-- Processa o Arquivo de Movimenta‡oes Internas
+						dbSelectArea('SD3')
+						dbSetOrder(2)
+						If dbSeek(cSeekAgreg:=xFilial('SD3')+cNumCQ+cProduto, .F.)
+							cNumSeqSD3 := Replicate('ú', Len(D3_NUMSEQ))
+							nQtdMovCQ  := 0
+							aCustoSD3  := {0,0,0,0,0}
+							Do While !Eof() .And. cSeekAgreg == D3_FILIAL+D3_DOC+D3_COD
+								//-- Somente Mov. geradas pela NF de Despesa Agregada
+								If cNumSeqSD1==D3_IDENT .And. QtdComp(D3_QUANT)==QtdComp(0) .And. Empty(D3_ESTORNO)
+									//-- Pesquisa a Quantidade do Movimento Original
+									aAreaSD3   := GetArea()
+									If !(D3_NUMSEQ==cNumSeqSD3)
+										aAreaSD3   := GetArea()
+										cNumSeqSD3 := D3_NUMSEQ
+										nQtdMovCQ  := 0
+										dbSetOrder(4)
+										If dbSeek(xFilial('SD3')+cNumSeqSD3+'E0'+cProduto, .F.)
+											Do While !Eof() .And. xFilial('SD3')+cNumSeqSD3+cProduto==D3_FILIAL+D3_NUMSEQ+D3_COD
+												If QtdComp(D3_QUANT)>QtdComp(0) .And. Empty(D3_ESTORNO)
+													nQtdMovCQ := D3_QUANT
+													Exit
+												EndIf
+												dbSkip()
+											EndDo
+										EndIf
+										RestArea(aAreaSD3)
+									EndIf
+									If Substr(D3_CF,1,2) == "RE"	.And. cLibera == "S"
+										dbSkip(2)
+										If cSeekAgreg != D3_FILIAL+D3_DOC+D3_COD
+											lGravaDif := .T.
+										EndIf
+									EndIf
+									RestArea(aAreaSD3)
+									//-- Obtem o Custo Percentual … Quantidade Total
+									If Substr(D3_CF,1,2) == "RE"
+										If !lGravaDif
+											aCusto[1] := Round(aCustoOri[1]*(nQtdMovCQ/nQuantOri), aDecCusD3[1])
+											aCusto[2] := Round(aCustoOri[2]*(nQtdMovCQ/nQuantOri), aDecCusD3[2])
+											aCusto[3] := Round(aCustoOri[3]*(nQtdMovCQ/nQuantOri), aDecCusD3[3])
+											aCusto[4] := Round(aCustoOri[4]*(nQtdMovCQ/nQuantOri), aDecCusD3[4])
+											aCusto[5] := Round(aCustoOri[5]*(nQtdMovCQ/nQuantOri), aDecCusD3[5])
+										Else
+											// Gravar no Ultimo Apontamento a Diferenca entre o Custo Original e a Somatoria dos Custos Anteriores
+											// Isto foi feito por problemas com arredondamento
+											aCusto[1] := aCustoOri[1]-aCustoSD3[1]
+											aCusto[2] := aCustoOri[2]-aCustoSD3[2]
+											aCusto[3] := aCustoOri[3]-aCustoSD3[3]
+											aCusto[4] := aCustoOri[4]-aCustoSD3[4]
+											aCusto[5] := aCustoOri[5]-aCustoSD3[5]
+											If D3_CF == "RE5"
+												aCusto := ACLONE(aCustoOri)
+											EndIf
+										EndIf
+									EndIf
+									GravaCusD3(aCusto,.T.)
+									lGravaDif := .F.
+									If Substr(D3_CF,1,2) = "RE"
+										aCustoSD3[1] += SD3->D3_CUSTO1
+										aCustoSD3[2] += SD3->D3_CUSTO2
+										aCustoSD3[3] += SD3->D3_CUSTO3
+										aCustoSD3[4] += SD3->D3_CUSTO4
+										aCustoSD3[5] += SD3->D3_CUSTO5
+									EndIf
+								EndIf
+								dbSkip()
+							EndDo
+						EndIf
+					EndIf
+				EndIf
+				//-> Inicio Ajuste p/ Atualizacao de Ultima Compra e Ultimo Preco
+				If (mv_par01 == 1) .And. (SF1->F1_TIPO == "N")
+					dbSelectArea("SB1")
+					If ((SB1->B1_COD==SD1->D1_COD).Or.dbSeek(xFilial()+SD1->D1_COD,.F.))
+						//nOpcUCom = 1 -> Data de Recebimento
+						//nOpcUCom = 2 -> Data de Emissao
+						lFound := IIf( nOpcUCom == 1, SD1->D1_DTDIGIT , SD1->D1_EMISSAO ) >= RetFldProd( SB1->B1_COD, "B1_UCOM" )
+						If lFound
+							dbSelectArea("SF4")
+							If ((SF4->F4_CODIGO == SD1->D1_TES) ;
+							.Or. dbSeek(xFilial()+SD1->D1_TES,.F.))
+								If (SF4->F4_UPRC $ "S ")
+									If RetArqProd(SB1->B1_COD)
+										RecLock( "SB1",.F. )
+										SB1->B1_UCOM := IIf( nOpcUCom == 1, SD1->D1_DTDIGIT, SD1->D1_EMISSAO )
+
+										//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										//³ PE: MT103UPC - Permite customizar gravacao do ultimo preco de compra   |
+										//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+										If lMt103Upc
+											nPcoCompra := ExecBlock("MT103UPC",.F.,.F.)
+											If ValType( nPcoCompra ) == "N"
+												SB1->B1_UPRC := nPcoCompra
+											endif
+										Else
+											Replace B1_UPRC With xMoeda(SD1->D1_VUNIT,SF1->F1_MOEDA,1,SF1->F1_EMISSAO,,SF1->F1_TXMOEDA)
+										EndIf
+
+									Else
+										RecLock( "SBZ",.F. )
+										SBZ->BZ_UCOM := IIf( nOpcUCom == 1, SD1->D1_DTDIGIT, SD1->D1_EMISSAO )
+
+										//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										//³ PE: MT103UPC - Permite customizar gravacao do ultimo preco de compra   |
+										//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+										If lMt103Upc
+											nPcoCompra := ExecBlock("MT103UPC",.F.,.F.)
+											If ValType( nPcoCompra ) == "N"
+												SBZ->BZ_UPRC := nPcoCompra
+											endif
+										Else
+											Replace BZ_UPRC With xMoeda(SD1->D1_VUNIT,SF1->F1_MOEDA,1,SF1->F1_EMISSAO,,SF1->F1_TXMOEDA)
+										EndIf
+
+										dbSelectArea("SB1")
+									EndIf
+									RecLock( "SB1",.F. )
+									Replace B1_UMOEC With SF1->F1_MOEDA
+									Replace B1_UVLRC With SD1->D1_VUNIT
+								EndIf
+							EndIf
+						EndIf
+
+
+					EndIf
+				EndIf
+				//-> Fim do Ajuste p/ Atualizacao Ultima Compra e Ultimo Preco
+				MsUnLockAll()
+
+				If IsRemito(1,"SF1->F1_TIPODOC")
+					aCusto     := {0,0,0,0,0}
+					aCusto[1] := GetCM(SD1->D1_COD,SD1->D1_LOCAL,SD1->D1_EMISSAO,SD1->D1_PEDIDO,SD1->D1_ITEM)
+					If SF1->F1_MOEDA > 1
+						aCusto[1] := xMoeda(aCusto[1],SF1->F1_MOEDA,1,,msDecimais(SF1->F1_MOEDA)+1,SF1->F1_TXMOEDA)
+					EndIf
+				ElseIf !Empty(SD1->D1_REMITO)
+					aCusto	:=	{SD1->D1_CUSTO/SD1->D1_QUANT,SD1->D1_CUSTO2/SD1->D1_QUANT,SD1->D1_CUSTO3/SD1->D1_QUANT,SD1->D1_CUSTO4/SD1->D1_QUANT,SD1->D1_CUSTO5/SD1->D1_QUANT}
+					aAreaSF1:=	SF1->(GetArea())
+					aAreaI	:=	SD1->(GetArea())
+					nQuant	:=	SD1->D1_QUANT
+					SD1->(DbSetOrder(1))
+					If SD1->(MSSeek(xFilial("SD1")+SD1->D1_REMITO+SD1->D1_SERIREM+SD1->D1_FORNECE+SD1->D1_LOJA+SD1->D1_COD+SD1->D1_ITEMREM))
+						AtuDifCusREM(aCusto,nQuant,1,"SF1")
+					EndIf
+					RestArea(aAreaSF1)
+					RestArea(aAreaI)
+				EndIf
+				dbSelectArea("SD1")
+				dbSkip()
+			Next
+		EndIf
+	Else
+		dbSelectArea("SD1")
+		While !Eof() .And. cSeek==xFilial()+SD1->D1_DOC+SD1->D1_SERIE+SD1->D1_FORNECE+SD1->D1_LOJA
+
+			EicCusto(SD1->D1_DOC,SD1->D1_SERIE,SD1->D1_TEC,SD1->D1_FORNECE,SD1->D1_LOJA)
+
+			dbSelectArea("SD1")
+			dbSkip()
+		EndDo
+	EndIf
+	dbSelectArea("SF1")
+	dbSkip()
+EndDo
+
+dbSelectArea("SF1")
+RetIndex("SF1")
+dbClearFilter()
+dbSetOrder(1)
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ GeraCusto³ Autor ³ Claudinei M. Benzi    ³ Data ³ 04.11.91 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ C lc. de Impostos, Custos, Rateio do Frete e Acum. de Dupl.³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ GeraCusto(ExpC1,ExpA1,ExpL1,ExpO1)                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = expr. chave p/ pesquisa em SD1                     ³±±
+±±³          ³ ExpA1 = array do MaFisRelImp                               ³±±
+±±³          ³ ExpL1 = indica custo Fifo	                              ³±±
+±±³          ³ ExpO1 = Objeto tNewProcess()                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function GeraCusto(cSeek,aRelImp,lCusFifo,oTProces)
+
+Local nTotItem    := 0
+Local nValIcm     := 0
+Local nValIpi     := 0
+Local nPeso       := 0
+Local nDesc       := 0
+Local nICMSRet    := 0
+Local nRatFrete   := 0
+Local nRatDesp    := 0
+Local nVIpiAtac   := 0
+Local nRatSeguro  := 0
+
+Local cCfo        := ''
+Local cLocal      := space(len(SD1->D1_LOCAL))
+
+Local aCusto      := {}
+Local aCusMed     := {}
+Local aCustoRet   := {}
+Local aDupl       := {}
+Local aTes        := {}
+Local aTesBonif   := {}
+Local aArea       := GetArea()
+Local aAreaSD1    := SD1->(GetArea())
+
+Local cProduto    := Space(15)
+
+Local nAcRatDesp  := 0
+Local nAcRatFret  := 0
+Local nAcRatSeguro:= 0
+Local nImpInc     := 0
+Local nValAnti 	  := 0
+Local nValPisPas  := 0
+Local nValCOF     := 0
+Local nValCMaj    := 0
+Local nValPMaj    := 0
+Local nValEstIcm  := 0
+Local nValSN      := 0
+Local nValCPreSC  := 0
+Local nValCPrePR  := 0
+Local nValInsLei  := 0
+Local nValNCalc   := 0
+
+Local lAgrPIS     := .F.
+Local lAgrCOF     := .F.
+
+Local nScanPis    := 0
+Local nPosPis     := 0
+Local nScanCOF    := 0
+Local nPosCOF     := 0
+Local nLoop       := 0
+Local nLoop2      := 0
+Local nFatorPS2   := 1
+Local nFatorCF2   := 1
+Local nValFEEF    := 0
+
+Local lF1_MOEDA	:= .F.
+
+Local lCredICM    := SuperGetMV("MV_CREDICM", .F., .F.) // parametro que indica o abatimento do credito de ICMS no custo do item, ao utilizar o campo F4_AGREG = "I"
+Local lDECICMA	  := SuperGetMV("MV_DEDICMA", .F., .F.)	// Efetua deducao do ICMS anterior nao calculado pelo sistema
+Local lDedIcmAnt  := .F.
+Local nCusto	  := 0
+Local cAliasTMP as character
+Local aBindParam as array
+
+Default lCusFifo  := .F.
+
+Static __cQrySD1Custo
+
+If ValType( aRelImp ) <> "A"
+	aRelImp := {}
+EndIf
+
+lF1_MOEDA := SF1->(ColumnPos("F1_TXMOEDA") > 0)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Obtem a posicao do campo PIS / PASEP                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !Empty( aRelImp )
+	If !Empty( nScanPis := aScan(aRelImp,{|x| x[1]=="SD1" .And. x[3]=="IT_VALPS2"} ) )
+		nPosPis := SD1->(FieldPos(aRelImp[nScanPis, 2]))
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Obtem a posicao do campo COFINS                              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !Empty( aRelImp )
+	If !Empty( nScanCOF := aScan(aRelImp,{|x| x[1]=="SD1" .And. x[3]=="IT_VALCF2"} ) )
+		nPosCOF := SD1->(FieldPos(aRelImp[nScanCOF,2]))
+	EndIf
+EndIf
+
+nRatFrete := SF1->F1_FRETE
+nRatSeguro:= SF1->F1_SEGURO
+nRatDesp  := SF1->F1_DESPESA
+
+dbSelectArea("SA1")
+dbSetOrder(1)
+dbSeek(xFilial()+SF1->F1_FORNECE+SF1->F1_LOJA)
+
+dbSelectArea("SA2")
+dbSetOrder(1)
+dbSeek(xFilial()+SF1->F1_FORNECE+SF1->F1_LOJA)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa Variaveis para calculo de Impostos                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nTotIcm  := 0
+nTotIpi  := 0
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa Variaveis para acumuladora das bases              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nBaseDup := 0
+
+dbSelectArea("SD1")
+
+If !lBat .And. !IsBlind() .And. (oTProces<>Nil)
+	oTProces:SetRegua1( SD1->(RecCount()) )
+EndIf
+
+If __cQrySD1Custo == NIL
+	__cQrySD1Custo := "SELECT R_E_C_N_O_ RECNOSD1 "
+	__cQrySD1Custo += "FROM " +RetSQlName("SD1")+ " SD1 "
+
+	__cQrySD1Custo += "WHERE SD1.D1_FILIAL = ? "
+	__cQrySD1Custo += "AND SD1.D1_DOC = ? "
+	__cQrySD1Custo += "AND SD1.D1_SERIE = ? "
+	__cQrySD1Custo += "AND SD1.D1_FORNECE = ? "
+	__cQrySD1Custo += "AND SD1.D1_LOJA = ? "
+	__cQrySD1Custo += "AND SD1.D1_FORMUL = ? "
+	__cQrySD1Custo += "AND ("
+	__cQrySD1Custo += "(SD1.D1_ORIGLAN not in ('TR','LF')) "
+	__cQrySD1Custo += " OR (SD1.D1_ORIGLAN in ('TR','LF') AND ? = 'S') "
+	__cQrySD1Custo += " ) "
+	__cQrySD1Custo += "AND SD1.D_E_L_E_T_ = ' ' "
+	__cQrySD1Custo += "ORDER BY D1_FILIAL, D1_DOC, D1_SERIE, D1_FORNECE, D1_LOJA, D1_COD, D1_ITEM "
+	__cQrySD1Custo := ChangeQuery(__cQrySD1Custo)
+EndIf
+aBindParam := {xFilial("SD1"),SF1->F1_DOC,SF1->F1_SERIE,SF1->F1_FORNECE,SF1->F1_LOJA,SF1->F1_FORMUL,SF1->F1_IMPORT}
+//cAliasTMP := MPSysOpenQuery(__cQrySD1Custo,/*cAlias*/,/*aSetField*/,/*cDriver*/,aBindParam)
+cAliasTMP := GetNextAlias()
+DBUseArea(.T., "TOPCONN", TCGenQry2(NIL,NIL,__cQrySD1Custo, aBindParam ), cAliasTMP , .F., .T. )
+
+If !Empty(cAliasTMP)
+	dbSelectArea("SD1")
+	While (cAliasTMP)->(!Eof())
+
+		dbGoto((cAliasTMP)->RECNOSD1)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Foi condicionado devido a necessidade da utiliza‡ao dessa ³
+		//³ fun‡ao no SigaLoja, Loja020 (Troca). Dessa forma a fun‡ao ³
+		//³ pode ser utilizada sem a atualiza‡ao da tela.             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cModulo <> "LOJ"
+			If !lBat .And. !IsBlind()
+				If (oTProces<>Nil)
+					oTProces:IncRegua1(STR0024) //"Processando documentos de entrada..."
+				Else
+					IncProc()
+				EndIf
+			EndIf
+		EndIf
+
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Inicializa Variaveis para calculo dos Itens          ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		nValIcm   := 0
+		nValIpi   := 0
+		nIcmsCompl:= 0
+		nICMSRet  := 0
+		nImpInc   := 0
+		nValEstIcm:= 0
+		nValSN    := 0
+		nValCPreSC:= 0
+		nValCPrePR:= 0
+		nValInsLei:= 0
+		nValAnti  := 0
+		nValNCalc := 0
+		nValFEEF  := 0
+		If cPaisLoc == "RUS"
+			nCusto	  := 0
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona Ponteiro dos Arquivos a serem utilizados   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SF4")
+		dbSeek(xFilial()+SD1->D1_TES)
+
+		nFatorPS2  := 1
+		nFatorCF2  := 1
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Calcula o percentual para credito do PIS / COFINS   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty( SF4->F4_BCRDPIS )
+			nFatorPS2 := SF4->F4_BCRDPIS / 100
+		EndIf
+
+		If !Empty( SF4->F4_BCRDCOF )
+			nFatorCF2 := SF4->F4_BCRDCOF / 100
+		EndIf
+
+		nTotItem := SD1->D1_TOTAL
+		nICMSRet := SD1->D1_ICMSRET
+		nPeso    := SD1->D1_PESO
+		cCfo     := SD1->D1_CF
+		If SD1->D1_DESC > 0 .and. SD1->D1_VALDESC == 0
+			nDesc := SD1->D1_DESC
+		Else
+			nDesc := (SD1->D1_VALDESC/nTotItem)*100
+		EndIf
+		cProduto := SD1->D1_COD
+		cLocal   := SD1->D1_LOCAL
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Obtem o valor do PIS / Pasep                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If Empty( nPosPis )
+			nValPisPas := 0
+		Else
+			nValPisPas := SD1->( FieldGet( nPosPis ) )
+			If cPaisLoc == "BRA"
+				nValPMaj := SD1->D1_VALPMAJ
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Obtem o valor do COFINS                              ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If Empty( nPosCOF )
+			nValCOF := 0
+		Else
+			nValCOF := SD1->( FieldGet( nPosCOF ) )
+			If cPaisLoc == "BRA"
+				nValCMaj := SD1->D1_VALCMAJ
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Tratamento para NF's Geradas pelo EIC ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF4->F4_AGREG $ "I|B" .And. SD1->D1_TIPO <> "I" //Regra contida na MATXFIS - Funcao MaFisVTot()
+			nTotItem += SD1->D1_VALICM
+			If SF4->F4_CREDICM == 'S' .And. SD1->D1_TIPO <> "I" .And. cPaisLoc == "BRA"
+				If !SD1->D1_CRPRSIM > 0 .And. SF4->F4_ICM <> 'S'
+					nTotItem -= SD1->D1_VALICM      // Tratamento do SIGACUSA nValTot - ( IIf(lCredSN,0,nValIcm) - nValEstIcm )
+				EndIf
+			EndIf
+			If cPaisLoc == "BRA"
+				nTotItem += IIf(SF4->F4_AGRPIS == "1" .And. SF4->F4_PSCFST  <> "1" , nValPisPas , 0 )
+				nTotItem += IIf(SF4->F4_AGRCOF == "1" .And. SF4->F4_PSCFST  <> "1" , nValCOF    , 0 )
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se agrega o valor do PIS / Pasep ao total do item ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPaisLoc == "BRA"
+			lAgrPIS := ( SF4->F4_AGRPIS == "1" .Or. ( (SF4->F4_INTBSIC $ "1|3" .And. SF4->F4_AGRPIS == "P") ) )
+		Else
+			lAgrPIS := .F.
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se agrega o valor do COFINS ao total do item      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPaisLoc == "BRA"
+			lAgrCOF := ( SF4->F4_AGRCOF == "1" .Or. ( (SF4->F4_INTBSIC $ "2|3" .And. SF4->F4_AGRCOF == "C") ) )
+		Else
+			lAgrCOF := .F.
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Rateia valor do frete para calculo de impostos/custos³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If Empty(SF1->F1_RECBMTO)
+			nRatFrete := NoRound(SF1->F1_FRETE * (nTotItem / SF1->F1_VALMERC),2,@nAcRatFret,10)
+			If NoRound(nAcRatFret,2) >= 0.01
+				nRatFrete += NoRound(nAcRatFret,2)
+				nAcRatFret-= NoRound(nAcRatFret,2)
+			EndIf
+		Else
+			nRatFrete := SD1->D1_VALFRE
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Rateia valor do seguro para calculo de impostos/custos³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If Empty(SF1->F1_RECBMTO)
+			nRatSeguro:= NoRound(SF1->F1_SEGURO * (nTotItem / SF1->F1_VALMERC),2,@nAcRatSeguro,10)
+			If NoRound(nAcRatSeguro,2) >= 0.01
+				nRatSeguro  += NoRound(nAcRatSeguro,2)
+				nAcRatSeguro-= NoRound(nAcRatSeguro,2)
+			EndIf
+		Else
+			nRatSeguro := SD1->D1_SEGURO
+		EndIf
+		If Empty(SF1->F1_RECBMTO)
+			nRatDesp := NoRound(SF1->F1_DESPESA * (nTotItem / SF1->F1_VALMERC),2,@nAcRatDesp,10)
+			If NoRound(nAcRatDesp,2) >= 0.01
+				nRatDesp  += NoRound(nAcRatDesp,2)
+				nAcRatDesp-= NoRound(nAcRatDesp,2)
+			EndIf
+		Else
+			nRatDesp := SD1->D1_DESPESA
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³          C lculo    do    IPI                        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF4->F4_AGREG $ "B|C"
+			nValIPI :=  SD1->D1_VALIPI
+		EndIf
+
+		If SF4->F4_IPI == "S"
+			nValIpi   := SD1->D1_VALIPI
+		EndIf
+
+		nVIpiAtac :=0
+
+		If SF4->F4_IPI == "R" .And. SD1->D1_TIPO != "P"
+			nVIpiAtac := SD1->D1_VALIPI   // Considera o valor calculado originalmente pela MatxFis
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³          C lculo    do    ICMS                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF4->F4_AGREG $ "B|C"
+			nValIcm := SD1->D1_VALICM
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³      C lculo Estorno de Credito do ICMS              ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		nValEstIcm := SD1->D1_ESTCRED
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ C lculo Credito presumido do Simples Nacional        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPaisLoc == "BRA" .And. SD1->D1_CRPRSIM > 0
+			nValSN := SD1->D1_CRPRSIM
+		Else
+			nValSN := 0
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ C lculo Credito presumido do Simples Nacional        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPaisLoc == "BRA" .And. SD1->D1_VALANTI > 0
+			nValAnti := SD1->D1_VALANTI
+		Else
+			nValAnti := 0
+		EndIf
+
+		If cPaisLoc == "BRA"
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³      C lculo Credito presumido Santa Catarina        ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			nValCPreSC := SD1->D1_CRPRESC
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³      C lculo Credito presumido Parana			     ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			nValCPrePR := SD1->D1_CRPREPR
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³  Insentivo a producao de Industrializacao do Leite   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If SD1->D1_VLINCMG > 0
+				nValInsLei := SD1->D1_VLINCMG
+			EndIf
+
+		EndIf
+
+		If SF4->F4_ICM != 'N'
+
+			nValIcm   := SD1->D1_VALICM
+
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ ICMS COMPLEMENTAR                                            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		nIcmsCompl := SD1->D1_ICMSCOM
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Valor do ICMS anterior nao calculado pelo sistema    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF4->(ColumnPos("F4_CRDICMA")) > 0 .And. !Empty(SF4->F4_CRDICMA)
+			lDedIcmAnt := SF4->F4_CRDICMA == '1'
+		Else
+			lDedIcmAnt := lDECICMA
+		EndIf
+		If lDedIcmAnt
+			nValNCalc := SD1->D1_ICMNDES
+		EndIf
+
+		If cPaisLoc == "BRA"
+			// Issue DMANMAT01-21311 - Apropriação do imposto FEEF ao custo de entrada
+			nValFEEF := SD1->D1_VALFEEF
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³           C lculo  do  Custo  de Entrada             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF1->F1_TIPO == "D" .And. !lCusFifo
+			aCusMed:=PegaCmDev(.T.,SD1->D1_NFORI,SD1->D1_SERIORI,SD1->D1_COD,SD1->D1_LOCAL,SD1->D1_QUANT)
+			AADD(aCustoRet, { aCusMed[1],aCusMed[2],aCusMed[3],aCusMed[4],aCusMed[5] } )
+		Else
+
+			If SF4->F4_PODER3!="D"
+
+				If cPaisLoc <> "BRA"
+					cSSS := "   "
+					cImp1:= "   "
+					SFB->(DbSetOrder(1))
+					SFC->(DbSeek(xFilial()+SD1->D1_TES))
+					While !SFC->(EOF())  .And. SD1->D1_TES == SFC->FC_TES
+						If SFB->(DbSeek(xFilial()+SFC->FC_IMPOSTO))
+							If (SFC->FC_INCNOTA=="S" .And. SFC->FC_CREDITA == "N") .Or. SFC->FC_CREDITA=="1"
+								If cPaisLoc == "RUS" .And. SF1->F1_MOEDA <> 1
+									nImpInc  += SD1->D1_VLIMP1M
+								Else
+									nImpInc  += SD1->&("D1_VALIMP"+SFB->FB_CPOLVRO)
+								EndIf
+							ElseIf (SFC->FC_INCNOTA=="N" .And. SFC->FC_CREDITA == "S") .Or. SFC->FC_CREDITA=="2"
+								If cPaisLoc == "RUS" .And. SF1->F1_MOEDA <> 1
+									nImpInc  -= SD1->D1_VLIMP1M
+								Else
+									nImpInc  -= SD1->&("D1_VALIMP"+SFB->FB_CPOLVRO)
+								EndIf
+							EndIf
+						EndIf
+						SFC->(DbSkip())
+					EndDo
+					If cPaisLoc == "RUS" .And. SF1->F1_MOEDA <> 1
+						nCusto := nImpInc + SD1->D1_TOTALM *(1-nDesc/100) + xMoeda(nRatFrete + nRatDesp + nRatSeguro,SF1->F1_MOEDA,1,SF1->F1_DTDIGIT,TAMSX3("M2_MOEDA1")[2],SF1->F1_TXMOEDA)
+					Else
+						nCusto := IIf(lF1_MOEDA .And.SF1->F1_MOEDA > 1,;
+									xMoeda(nTotItem*(1-nDesc/100) + nRatFrete + nRatDesp + nRatSeguro + nImpInc,SF1->F1_MOEDA,1,SF1->F1_DTDIGIT,TAMSX3("M2_MOEDA1")[2],SF1->F1_TXMOEDA),;
+									nTotItem*(1-nDesc/100) + nRatFrete + nRatDesp + nRatSeguro + nImpInc)
+					EndIf
+
+					aAdd(aCusto,{ 	nCusto ,;
+									nValIpi 		,;
+									nValIcm 		,;
+									SF4->F4_CREDIPI ,;
+									SF4->F4_CREDICM ,;
+									SD1->D1_NFORI	,;
+									SD1->D1_SERIORI	,;
+									SD1->D1_COD		,;
+									SD1->D1_LOCAL	,;
+									SD1->D1_QTDEDEV	,;
+									nVipiAtac 		})
+
+				Else
+
+					aAdd(aTes, { SF4->F4_AGREG } )
+					// Tratamento para TES de bonificacao - nao afeta o custo do item
+
+					aAdd(aTesBonif, { (SF4->F4_BONIF == 'S') })
+
+					aAdd(aCusto,{	If( SF4->F4_AGREG <> "N",(nTotItem*(1-nDesc/100)),0 ) + nRatFrete + nRatDesp + nRatSeguro - IF(SF4->F4_AGREG=='D',SD1->D1_DESCICM,0) + If((SF4->F4_CIAP=="S" .And. SF4->F4_CREDICM=="S") .Or. (SF4->F4_ANTICMS=="1"),0,nIcmsCompl) + If(SF4->F4_ICM=="S" .And. SF4->F4_AGREG$"A|C",nValIcm,0) + If(lAgrPIS,nValPisPas,0) + If(lAgrCOF,nValCOF,0) - If(SF4->F4_INCSOL $ "A|D",nICMSRet,0) - nValCPreSC  - nValCPrePR + nValInsLei - IIf(lCredICM .And. SF4->F4_AGREG$"I|B",nValIcm,0) - nValNCalc,;
+									nValIpi					,;
+									nValIcm 				,;
+									SF4->F4_CREDIPI 		,;
+									SF4->F4_CREDICM 		,;
+									" "						,;
+									" "						,;
+									" "						,;
+									" "						,;
+									0						,;
+									nVipiAtac				,;
+									SF4->F4_CREDST			,;
+									nIcmsRet				,;
+									{}						,;
+									SF4->F4_PISCOF			,;
+									SF4->F4_PISCRED			,;
+									(nValPisPas * nFatorPS2) - IIf(nValPMaj>0,nValPMaj,0),;
+									(nValCOF    * nFatorCF2) - IIf(nValCMaj>0,nValCMaj,0),;
+									nValEstIcm				,;
+									nValSN					,;
+									nValAnti				,;
+									""						,;
+									nValFEEF                 ; // Issue DMANMAT01-21311 - Apropriação do imposto FEEF ao custo de entrada
+								})
+
+					// *** Parametros do array aCusto ***
+					// 1§ Elemento -> Valor Total do Item, j  com rateio do frete
+					// 2§ Elemento -> Valor IPI  do Item.
+					// 3§ Elemento -> Valor ICMS do Item.
+					// 4§ Elemento -> Informacao do TES de Credita ou não do IPI.
+					// 5§ Elemento -> Informacao do TES de Credita ou não do ICMS.
+					// 11.Elemento -> IPI atacadista
+					//--> Tratamento para Credito do ICMS Solid. ( Incluido 11/05/2000)
+					// 12§ Elemento -> Informacao do TES se Credita ou nao o ICMS Solid.(Default:Nao)
+					// 13§ Elemento -> Valor do ICMS Solidario
+					// 14§ Elemento -> Utilizado por impostos variaveis
+					// 15§ Elemento -> Calcula PIS/Cofins
+					// 16§ Elemento -> Credita PIS/Cofins
+					// 17§ Elemento -> Valor do PIS/Pasep
+					// 18§ Elemento -> Valor do Cofins
+					// 19§ Elemento -> Valor do Estorno de ICMS (F4_ESTCRED)
+					// 20§ Elemento -> Valor do Credito presumido do simples nacional - Estado SC
+					// 21§ Elemento -> Valor da antecipacao de ICMS.
+					// 22§ Elemento -> Item de origem
+					// 23$ Elemento -> Valor FEEF
+				EndIf
+
+			Else
+
+				aAdd(aTes, { SF4->F4_AGREG } )
+				aAdd(aCustoRet, A330PegaSB6("SD1", .F.))
+				aAdd(aCusto,{	aCustoRet[Len(aCustoRet), 1]	,;
+								nValIpi							,;
+								nValIcm							,;
+								SF4->F4_CREDIPI					,;
+								SF4->F4_CREDICM					,;
+								" "								,;
+								" "								,;
+								" "								,;
+								" "								,;
+								0								,;
+								nVipiAtac						,;
+								SF4->F4_CREDST					,;
+								nIcmsRet						,;
+								{}								,;
+								SF4->F4_PISCOF					,;
+								SF4->F4_PISCRED					,;
+								(nValPisPas * nFatorPS2) - IIf(nValPMaj>0,nValPMaj,0),;
+								(nValCOF * nFatorCF2) - IIf(nValCMaj>0,nValCMaj,0),;
+								nValEstIcm						,;
+								0								,;
+								0								,;
+								" "								,;
+								nValFEEF						 ; // Issue DMANMAT01-21311 - Apropriação do imposto FEEF ao custo de entrada
+							} )
+			EndIf
+
+		EndIf
+
+		//	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//	³  Descricao das variaveis utilizadas para os Calculos acima ³
+		//	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//	nTotItem		   .valor total do item
+		//	nValIpi			.valor do ipi do item
+		//	nValIcm			.valor do icm do item
+		//	nRatFrete      .rateio do frete para este item
+		//	nRatDesp       .rateio do Despesasa Fin. para este item
+		//	cCfo			   .c¢digo fiscal do item
+		//	SF4->F4_ICM		.se credita icms ou nao
+		//	SF4->F4_DUPLIC	.se o tipo de entr. deste item gera duplicata
+		//	SM0->M0_EQUIP  .se o usuario e' equiparado.
+
+		nTotIpi += nValIpi
+		nTotIcm += nValIcm
+
+		dbSelectArea("SD1")
+		(cAliasTMP)->(dbSkip())
+	EndDo
+	(cAliasTMP)->(dbCloseArea())
+
+ENDIF
+
+If SF1->F1_TIPO != "D"
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Monta array com as duplicatas                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aDupl := A190Dupl(oTProces)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Monta Variaveis para gravacao do Custo de Entrada ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aCustoRet := RetCusEnt( aDupl, aCusto, SF1->F1_TIPO )
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Tratamento para evitar valor negativo quando agrega = N e credita ICMS ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	For nLoop := 1 To Len( aTes )
+		If aTes[ nLoop, 1 ] == "N"
+			For nLoop2 := 1 To Len(aCustoRet[nLoop])
+				aCustoRet[nLoop][nLoop2] := If(aCustoRet[nLoop][nLoop2]>0,aCustoRet[nLoop][nLoop2],0)
+			Next nLoop2
+		EndIf
+	Next nLoop
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Tratamento para TES de bonificacao - Nao afeta o custo do item         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	For nLoop := 1 To Len( aTesBonif )
+		If aTesBonif[ nLoop, 1 ]
+			aCustoRet[nLoop] := {0,0,0,0,0}
+		EndIf
+	Next nLoop
+EndIf
+
+RestArea(aAreaSD1)
+RestArea(aArea)
+
+Return (aCustoRet)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ A190Dupl ³ Autor ³ Claudinei M. Benzi    ³ Data ³ 24.06.91 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Monta Array com duplicatas para c lculo do custo de entrada³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A190Dupl(ExpO1)	                                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpO1 = Objeto tNewProcess()                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function A190Dupl(oTProces)
+Local aDupl  := {}
+Local cAlias := Alias()
+Local cAliasTMP as Character
+Local aBindParam as array
+
+Static __cQryDupl
+
+If __cQryDupl == NIL
+	__cQryDupl := "SELECT E2_VENCTO, E2_VALOR "
+	__cQryDupl += "FROM " +RetSQlName("SE2")+ " "
+	__cQryDupl += "WHERE E2_FILIAL = ? "
+	__cQryDupl += "AND E2_FORNECE = ? "
+	__cQryDupl += "AND E2_LOJA = ? "
+	__cQryDupl += "AND E2_PREFIXO = ? "
+	__cQryDupl += "AND E2_NUM = ? "
+	__cQryDupl += "AND D_E_L_E_T_ = ' ' "
+	__cQryDupl := ChangeQuery( __cQryDupl)
+EndIf
+aBindParam := {xFilial("SE2"),SF1->F1_FORNECE,SF1->F1_LOJA,SF1->F1_SERIE,SF1->F1_DOC}
+//cAliasTMP := MPSysOpenQuery(__cQryDupl,,/*cAlias*/,{{"E2_VENCTO","D",8,0},{"E2_VALOR","N",12,2}},/*cDriver*/,aBindParam)
+cAliasTMP := GetNextAlias()
+DBUseArea(.T., "TOPCONN", TCGenQry2(NIL,NIL,__cQryDupl, aBindParam ), cAliasTMP , .F., .T. )
+TcSetField( cAliasTMP, "E2_VENCTO", "D", 8, 0 )
+TcSetField( cAliasTMP, "E2_VALOR", "N", 12, 2 )
+
+If !Empty(cAliasTMP)
+	If !lBat .And. !IsBlind() .And. (oTProces<>Nil)
+		oTProces:SetRegua1( SE2->(LastRec()) )
+	EndIf
+
+	While (cAliasTMP)->(!Eof())
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Foi condicionado devido a necessidade da utiliza‡ao dessa ³
+		//³ fun‡ao no SigaLoja, Loja020 (Troca). Dessa forma a fun‡ao ³
+		//³ pode ser utilizada sem a atualiza‡ao da tela.             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cModulo <> "LOJ"
+			If !lBat .And. !IsBlind()
+				If (oTProces<>Nil)
+					oTProces:IncRegua1(STR0025) //"Processando contas a pagar..."
+				Else
+					IncProc()
+				EndIf
+			EndIf
+		EndIf
+
+		AADD( aDupl, Space(15) + dtoc((cAliasTMP)->E2_VENCTO) + Space(02) + Transform( (cAliasTMP)->E2_VALOR,"@E 999,999,999,999.99") )
+		(cAliasTMP)->(dbSkip())
+	End
+	(cAliasTMP)->(dbCloseArea())
+EndIF
+
+If Empty(aDupl)
+	aDupl:={ Space(15) + dtoc(SF1->F1_DTDIGIT) + Space(02) + Transform( 100,"@E 999,999,999,999.99") }
+EndIf
+
+dbSelectArea(cAlias)
+
+Return aDupl
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ CA190Ok  ³ Autor ³ Claudinei M. Benzi    ³ Data ³ 24.06.91 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Chama funcao MsgYesNo.                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ca190Ok(nOpca)
+If !IsBlind()
+	nOpca := If(MsgYesNo(OemToAnsi(STR0010),OemToAnsi(STR0009)),1,0)	//"Confirma Acerto Custo de Entrada ?"###"Aten‡„o"
+Else
+	nOpca := 1
+EndIf
+Return (nOpca == 1)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ GetUPRC  ³ Autor ³ Bruno Sobieski        ³ Data ³ 20.04.00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Pega o £ltimo preco de compra numa data.                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetCM(cProduto,cLocal,dData,cPedido,cItem)
+Local aArea    := GetArea()
+Local aAreaSD1 := SD1->(GetArea())
+Local aSaldo   := {}
+Local nCM      := 0
+Local dDataSD1 := CtoD("01/01/80","ddmmyy")
+
+If cTipCM  == "CM" //Se ‚ para pegar o Custo medio
+	aSaldo:= CalcEst( cProduto,cLocal,dData )
+	nCM   := aSaldo[2]/aSaldo[1]
+ElseIf	cTipCM  == "CD"
+	nCM   := xMoeda(SD1->D1_TOTAL/SD1->D1_QUANT,SF1->F1_MOEDA,1,SD1->D1_DTDIGIT,,SF1->F1_TXMOEDA)
+Else
+	DbSelectArea("SD1")
+	DbSetOrder(7)
+	DbSeek(xFilial()+cProduto+cLocal+Dtos(dData),.T.)
+	//Procuro uma nota normal.
+
+	If !Found() .Or. D1_TIPO <> "N" .Or. IsRemito(1,"D1_TIPODOC")
+		DbSkip(-1)
+		While !BOF() .And. D1_TIPO <> "N"
+			DbSkip(-1)
+		EndDo
+	EndIf
+
+	If xFilial()+cProduto+cLocal == D1_FILIAL+D1_COD+D1_LOCAL
+		If cTipCM  == "CE"    //Pego o ultimo custo de entrada
+			nCM      := SD1->D1_CUSTO / SD1->D1_QUANT
+			dDataSD1 := SD1->D1_DTDIGIT
+		Else                   //Pego o ultimo Preco decompra
+			nCM      := xMoeda(SD1->D1_VUNIT,SF1->F1_MOEDA,1,SD1->D1_DTDIGIT,,SF1->F1_TXMOEDA)
+		EndIf
+	EndIf
+
+	If cTipCM  == "CE"
+		DbSelectArea("SD3")
+		DbSetOrder(7)
+		DbSeek(xFilial()+cProduto+cLocal+Dtos(dData),.T.)
+		//Procuro uma nota normal.
+
+		If !Found()
+			dbSkip(-1)
+		EndIf
+
+		If xFilial()+cProduto+cLocal == D3_FILIAL+D3_COD+D3_LOCAL .And. dDataSD1 <  D3_EMISSAO
+			nCM   := SD3->D3_CUSTO1 /SD3->D3_QUANT
+		EndIf
+	EndIf
+EndIf
+If nCM   == 0  .And. lUsaCM
+	aSaldo:= CalcEst( cProduto,cLocal,dData )
+	nCM   := aSaldo[2]/aSaldo[1]
+EndIf
+If nCM   == 0 .And. lUsaPed .And. !Empty(cPedido + cItem )
+	SC7->(DbSetOrder(4))
+	SC7->(DbSeek(xFilial()+cProduto+cPedido+cItem))
+	If SC7->(FOUND())
+		nCM   := xMoeda(SC7->C7_PRECO,SC7->C7_MOEDA,1,SC7->C7_EMISSAO,,SC7->C7_TXMOEDA)
+	EndIf
+EndIf
+RestArea(aAreaSD1)
+RestArea(aArea)
+
+Return(nCM)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ MSGCM    ³ Autor ³ Bruno Sobieski        ³ Data ³ 20.04.00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Pergunta o tipo de custo a pegar para o remito.            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MSGRemi(lUsaCM,lUsaPed)
+Local oTipo,oChk0,oDlg,oChk1
+Local bBloco   := { || IF(nTipo == 3, lChk0  := .F. ,lChk0   := .T.),.T.}
+Local lChk0    := .T.
+Local lVar0    := .F.
+Local lVar1    := .F.
+Local nTipo    := 1
+Local cRet
+
+DEFINE MSDIALOG oDlg FROM   15,1 TO 210,272 TITLE OemToAnsi(GetDescRem()) PIXEL //"M‚todo de costo para Remitos."
+	@ 6 , 11 TO 61, 110 OF oDlg   PIXEL
+	@ 11, 13 RADIO oTipo VAR nTipo ;
+				PROMPT OemToAnsi(STR0012),OemToAnsi(STR0013),OemToAnsi(STR0014),OemToAnsi(STR0021); //"Ultimo precio de compra"##"Ultimo costo de entrada"##"Costo Medio"##"Usa custo Digitado"
+				OF oDlg PIXEL SIZE 80,12;
+				ON CHANGE EVAL(bBloco)
+
+	@ 66, 11 CHECKBOX oChk0 VAR lVar0 PROMPT OemToAnsi(STR0015) SIZE 95, 12 OF oDlg PIXEL When lChk0 //"Usar CM si no encontrado."
+	@ 78, 11 CHECKBOX oChk1 VAR lVar1 PROMPT OemToAnsi(STR0016) SIZE 95, 12 OF oDlg PIXEL            //"Usar precio de pedido"
+	@ 90, 19 SAY OemToAnsi(STR0017) SIZE 95,12 Of oDlg PIXEL //"como £ltima instancia."
+
+	DEFINE SBUTTON FROM 78, 100 TYPE 1 ACTION oDlg:End() ENABLE OF oDlg //11,132
+ACTIVATE MSDIALOG oDlg CENTERED
+
+If nTipo == 1
+	cRet  := "UC"
+ElseIf nTipo == 2
+	cRet  := "CE"
+ElseIf nTipo == 3
+	cRet  := "CM"
+ElseIf nTipo == 4
+	cRet  := "CD"
+EndIf
+lUsaCM   := IIf(nTipo <> 3,lVar0,.F.)
+lUsaPed  := lVar1
+
+Return cRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ EicCusto ³ Autor ³ Microsiga             ³ Data ³ 20.04.00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Grava custo de notas de importacao.                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function EicCusto(cDoc,cSerie,cNBM,cFornece,cLoja)
+
+Local aArea     := GetArea()
+Local cAliasOld := Alias()
+Local aCusto    := {}
+Local aCustoEnt := {}
+Local aImpostos	:= {}
+Local nPosSWN   := 0
+Local cSeek     := ""
+Local aRegSD3   := {}
+Local lEIC      := IntegEIC(cDoc,cSerie,cFornece,cLoja)
+Local nY        := 0
+
+dbSelectArea("SWN")
+dbSetOrder(1)
+dbSeek(xFilial("SWN")+cDoc+cSerie+cNBM)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Grava o Custo e as DE6 / RE6 para os Itens da NBM.           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+While !Eof() .And. WN_FILIAL==xFilial("SWN") .And. WN_DOC==cDoc .And. WN_SERIE==cSerie .And. (WN_TEC+WN_EX_NCM+WN_EX_NBM) == cNBM
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Posicionar os arquivos TES e PRODUTOS                           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	SF4->(dbSeek(xFilial()+SD1->D1_TES))
+	If SF4->F4_ESTOQUE == "S"                 // se considera Estoque p/ itens Impor.
+		SB1->(dbSeek(xFilial()+SWN->WN_PRODUTO))
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Grava Array dos Itens da NBM p/ tratamento do Custo  de Entrada ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aCusto := {}
+		If cPaisLoc == "BRA"
+			AADD(aCusto,{WN_VALOR+WN_VALICM,WN_VALIPI,WN_VALICM,SF4->F4_CREDIPI,SF4->F4_CREDICM,"","",WN_PRODUTO,RetFldProd(SB1->B1_COD,"B1_LOCPAD"),WN_QUANT})
+		Else
+			AADD(aCusto,{WN_VALOR,{},0,"N","N","","",WN_PRODUTO,RetFldProd(SB1->B1_COD,"B1_LOCPAD"),WN_QUANT})
+			aImpostos:=TesImpInf(SD1->D1_TES) //O tes é o mesmo para todos os itens do SWN
+
+			For nY:=1 to Len(aImpostos)
+				nPosSWN :=SWN->(FieldPos("WN_"+Substr(aImpostos[nY][2],4)))
+				If nPosSWN > 0
+					If ( aImpostos[nY][3]+aImpostos[nY][5] == "SN" )
+						aCusto[1][1]+= SWN->(FieldGet(nPosSWN))
+					ElseIf ( aImpostos[nY][3]+aImpostos[nY][5] == "NS" )
+						aCusto[1][1]-= SWN->(FieldGet(nPosSWN))
+					EndIf
+				EndIf
+			Next
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Calcula o Custo de Entrada de Cada Item NBM                     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aCustoEnt := {}
+		aCustoEnt := RetCusEnt(,aCusto)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o custo do SD3                                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea('SD3')
+		dbSetOrder(4)
+		If dbSeek(cSeek:=xFilial('SD3')+SD1->D1_NUMSEQ+'E9', .F.)
+			While !Eof() .And. cSeek==D3_FILIAL+D3_NUMSEQ+D3_CHAVE
+				If D3_ESTORNO=='S' .Or. !(D3_QUANT==SWN->WN_QUANT) .Or. !(D3_DOC==SD1->D1_DOC) .Or. SWN->WN_PRODUTO<>SD3->D3_COD
+					dbSkip()
+					Loop
+				EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Tenta encontrar o Registro Correto no SD3 com base no SWN    ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If Rastro(SD3->D3_COD) .And. !Empty(SWN->WN_LOTECTL)
+					If !(SWN->WN_LOTECTL==D3_LOTECTL)
+						dbSkip()
+						Loop
+					EndIf
+				Else
+					If lEIC
+						If !Empty(D3_DOC+D3_ITEMSWN)
+							If (SWN->WN_DOC+SWN->WN_ITEM # D3_DOC+D3_ITEMSWN)
+								dbSkip()
+								Loop
+							EndIf
+						EndIf
+					Else
+						If !Empty(D3_IDENT)
+							If !(AllTrim(SWN->WN_ITEM)==AllTrim(D3_IDENT))
+								dbSkip()
+								Loop
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+				If ascan(aRegSD3,SD3->(Recno()))==0
+					RecLock('SD3',.F.)
+					SD3->D3_CUSTO1 := aCustoEnt[1][1]
+					SD3->D3_CUSTO2 := aCustoEnt[1][2]
+					SD3->D3_CUSTO3 := aCustoEnt[1][3]
+					SD3->D3_CUSTO4 := aCustoEnt[1][4]
+					SD3->D3_CUSTO5 := aCustoEnt[1][5]
+					MsUnLock()
+					aadd(aRegSD3,SD3->(Recno()))
+					Exit
+				EndIf
+				SD3->(DbSkip())
+			EndDo
+		EndIf
+	EndIf
+	dbSelectArea("SWN")
+	dbSkip()
+EndDo
+dbSelectArea(cAliasOld)
+RestArea(aArea)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ GeraCusto2³ Autor ³ TOTVS S.A.           ³ Data ³ 21/01/15 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Calculo de Custo com base nas referencias Fiscais da       ³±±
+±±³          ³ MATXFIS - Somente cPaisLoc = BRA                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ GeraCusto2(ExpO1)                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpO1 = Objeto tNewProcess()                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA190                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function GeraCusto2(cSeek,oTProces)
+Local aCustoRet := {}
+Local aRecSD1   := {}
+Local aRet      := {}
+Local aAreaSA2  := SA2->(GetArea())
+Local bWhileSD1	:= { || .T. }
+Local lContinua := .T.
+Local nItem     := 0
+
+Private aHeader	  := {}
+Private aCols	  := {}
+Private aBackSD1  := {} // Utilizado na chamada MONTAACOLS(MATA103.PRW)
+Private aDupl     := {}
+Private l103Visual:= .T.
+Private l103Class := .F.
+Private cCondicao := SF1->F1_COND
+Private cTipo     := SF1->F1_TIPO
+Private INCLUI    := .F. //Variavel utilizada no inicializador dos campos SF1/SD1
+Private ALTERA    := .F. //Variavel utilizada no inicializador dos campos SF1/SD1
+Private n         := 1
+
+//Chave para montagem do aCols com base na SF1->SD1
+bWhileSD1 := { ||	( !Eof() .And. lContinua .And. ;
+					(cAliasSD1)->D1_FILIAL  == xFilial("SD1")  .And. ;
+					(cAliasSD1)->D1_DOC     == SF1->F1_DOC     .And. ;
+					(cAliasSD1)->D1_SERIE   == SF1->F1_SERIE   .And. ;
+					(cAliasSD1)->D1_FORNECE == SF1->F1_FORNECE .And. ;
+					(cAliasSD1)->D1_LOJA    == SF1->F1_LOJA ) }
+
+// Carregar a MATXFIS
+SA2->(DbSeek(xFilial("SA2") + SF1->F1_FORNECE+SF1->F1_LOJA))
+MaFisIni(SF1->F1_FORNECE,SF1->F1_LOJA,IIf(SF1->F1_TIPO$'DB',"C","F"),SF1->F1_TIPO,SA2->A2_TIPO,MaFisRelImp("MT100",{"SF1","SD1"}),,.T.,,,,,,,,,,,,,,,,,SF1->F1_EMISSAO)
+RestArea(aAreaSA2)
+
+FillGetDados(4,"SD1",1,/*cSeek*/,/*{|| &cWhile }*/,{||.T.},/*aNoFields*/,/*aYesFields*/,/*lOnlyYes*/,,{|| MontaaCols(bWhileSD1,.F.,.F.,.F.,.F.,,,'SD1','SB1',@aRecSD1,{0,0,0},,,,,,,@aHeader,@aCols,.F.,,,lContinua) },.F.,/*aHeaderAux*/,/*aColsAux*/,/*bAfterCols*/,/*bbeforeCols*/,/*bAfterHeader*/,/*cAliasQry*/)
+
+// Chamar a funcao A103CUSTO para processar o calculo de custo dos itens da SD1
+For nItem := 1 To Len(aCols)
+	SD1->(Dbgoto(aCols[nItem,aScan(aHeader,{|x| x[2]=="D1_REC_WT"} )]))
+	aRet := A103Custo(nItem)
+	If Valtype(aRet)=='A' .And. Len(aRet)>1
+		aAdd(aCustoRet,aRet)
+	EndIf
+Next nItem
+
+// Finaliza os arrays fiscais
+MaFisEnd(.F.)
+
+Return (aCustoRet)

@@ -1,0 +1,706 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH" 
+#INCLUDE "FATA300.CH"   
+#INCLUDE "CRMDEF.CH"
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300AltTV
+
+Valida a alteracao dos campos do Time de Vendas. ( Esta validação é chamada tambem
+no X3_VALID dos campos AD1_VEND e AD2_VEND )
+
+@sample		Ft300AltTV(cAction)
+
+@param		ExpC1 - Acao executada na linha do grid Time de Vendas. 
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300AltTV(cAction)
+
+Local aArea			:= GetArea()
+Local aAreaAD1		:= AD1->(GetArea())
+Local oModel	 	:= FwModelActive()
+Local oMdlAD1 		:= oModel:GetModel("AD1MASTER")
+Local oMdlAD2 		:= oModel:GetModel("AD2DETAIL") 
+Local nVldTime		:= SuperGetMv("MV_FATVTIM",,1)	//1-Nao bloqueia, 2-Bloqueia vend. time, mas mexe no seu; 3-Somente vendedor cabeçalho altera oportunidade
+Local cVendAtu		:= ""
+Local lVndResp		:= .F.
+Local lRetorno		:= .T. 
+Local cReadVar		:= AllTrim( ReadVar() )
+
+Default cAction		:= ""
+                                                                                            
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Se estiver na workarea, recupera o vendeADMINdor posicionado.                    ³
+//³Se estiver direto na oportunidade sem a workarea, pega o vendedor do sistema³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If IsInCallStack("FATA320") 
+	cVendAtu := AllTrim(Upper(Ft320RpSel()))
+Else
+	cVendAtu := AllTrim(Upper(Ft300Vend(.T.)))
+EndIf
+
+If cReadVar == "M->AD1_VEND" 
+	
+	If ( nVldTime == 2 .Or. nVldTime == 3 )
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Valida alteracao do vendedor no cabecalho³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		AD1->(DbSetOrder(1))
+		AD1->( DbSeek(xFilial("AD1")+oMdlAD1:GetValue("AD1_NROPOR")+oMdlAD1:GetValue("AD1_REVISA")) )
+		If ( AD1->( !Eof() )                                     .And.;
+		   ( oMdlAD1:GetValue("AD1_NROPOR") == AD1->AD1_NROPOR ) .And.;
+		   ( oMdlAD1:GetValue("AD1_REVISA") == AD1->AD1_REVISA ) )
+			lVndResp := ( !Empty(cVendAtu) .And. ( (cVendAtu == AllTrim(Upper(AD1->AD1_VEND))) .Or. Ft300InGrp(cVendAtu,AD1->AD1_VEND) ) )
+			If !lVndResp .And. (oMdlAD1:GetValue("AD1_VEND") <> AD1->AD1_VEND)
+				lRetorno := .F.
+			EndIf
+		EndIf
+		 
+	EndIf
+	
+ElseIf ( cReadVar == "M->AD2_VEND" .Or. cAction $ "DELETE|UNDELETE" )
+	
+	If nVldTime == 2 
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Valida alteracoes na linha do vendedor (time de vendas)³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lVndResp := ( !Empty(cVendAtu) .And. ( cVendAtu == AllTrim(Upper(oMdlAD1:GetValue("AD1_VEND"))) .Or. Ft300InGrp(cVendAtu,AD1->AD1_VEND) )	)
+		If !lVndResp .And. ( !Empty(cVendAtu) .And. ( AllTrim(Upper(oMdlAD2:GetValue("AD2_VEND"))) <> cVendAtu ) )
+			lRetorno := .F. 
+		EndIf
+	ElseIf nVldTime == 3
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Valida alteracoes na linha do vendedor (time de vendas)³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+		lVndResp := ( !Empty(cVendAtu) .And. ( cVendAtu == AllTrim(Upper(oMdlAD1:GetValue("AD1_VEND"))) .Or. Ft300InGrp(cVendAtu,AD1->AD1_VEND) ) )
+		If !lVndResp
+			lRetorno := .F.
+		EndIf	
+	EndIf
+	
+EndIf
+ 
+If !lRetorno
+	Help("",1,"FT300ALTTV",,STR0081,1)  	
+EndIf
+
+RestArea(aAreaAD1)
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300VdAllPTV
+
+Valida o percentual de todo Time de Vendas da Oportunidade de Venda.
+
+@sample		F300VdAllPTV(oMdlAD2)
+
+@param		ExpO1 - ModelGrid do Time de Vendas. 
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		25/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function F300VdAllPTV(oMdlAD2)
+
+Local nX		:= 0
+
+Local lRetorno	:= .T.
+Local aPapeis	:= {}
+Local nPosPap	:= 0
+Local nContas	:= 0
+Local cMsgErro	:= ""
+
+For nX := 1 To oMdlAD2:Length()
+	oMdlAD2:GoLine(nX)
+
+	If !oMdlAD2:IsDeleted() .AND. !Empty(oMdlAD2:GetValue("AD2_VEND"))
+		
+		If oMdlAD2:GetValue("AD2_PERC") <> 0
+			
+			nPosPap := aScan(aPapeis,{|x| x[1] == oMdlAD2:GetValue("AD2_CODPAP")})
+			
+			If nPosPap == 0
+				aAdd(aPapeis,{oMdlAD2:GetValue("AD2_CODPAP"),0})
+				nPosPap := Len(aPapeis)
+			EndIf
+			
+			aPapeis[nPosPap,2] += oMdlAD2:GetValue("AD2_PERC")
+			
+		Else
+			lRetorno := .F.
+			Help("",1,"F300VDALLPTV",,STR0276+Capital(oMdlAD2:GetValue("AD2_NOMVEN"))+".", 1 )	// "Por favor, defina um percentual de participação para o vendedor "
+			Exit
+		EndIf
+	EndIf
+Next nX
+
+nContas := 0
+
+If lRetorno
+
+	For nx := 1 To len(aPapeis)
+	
+		If aPapeis[nx,2] <> 100
+		
+			cMsgErro += "'"+aPapeis[nx,1]+"'"
+			
+			If Len(aPapeis) > 1
+				If nx == Len(aPapeis)-1 
+					cMsgErro += STR0377 //" e "
+				ElseIf nx <> Len(aPapeis)
+					cMsgErro += ", "
+				EndIf
+			EndIf
+			
+			nContas++
+			lRetorno := .F.
+		EndIf
+
+	Next nx
+
+EndIf
+
+If !lRetorno
+
+	If nContas > 1
+		cMsgErro := STR0378+cMsgErro+STR0379 //"O percentual total dos papeis " # " difere de 100%. Por favor verifique."
+	Else
+		cMsgErro := STR0380+cMsgErro+STR0379 //"O percentual total do papel "   # " difere de 100%. Por favor verifique."
+	EndIf	
+		
+	Help("",1,"F300VDALLPTV",,cMsgErro, 1 )	
+	
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VlPap
+
+Valida o código do papel do vendedor no time de vendas.
+
+@sample		Ft300VlPap(cCodPapel)
+
+@param 		ExpC1 - Código do Papel
+
+@return		ExpL  - Verdadeiro ou Falso 
+
+@author		Anderson Silva
+@since		22/04/2014
+@version	P12              
+/*/
+//-----------------------------------------------------------------------------
+Function Ft300VlPap(cCodPapel)
+
+Local lRetorno := .F. //Retorno da função
+	  
+If !Empty(cCodPapel)	
+	
+	If ExistCpo("SUM",cCodPapel,1) 	
+		
+		If !Empty(SuperGetMv("MV_PAPEL",,"")) 
+			
+			If cCodPapel $ SuperGetMv("MV_PAPEL",,"") //Verifica se a opcao informada esta contida nos valores do parametro
+				lRetorno := .T.
+			Else
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³   Problema: Não existe registro relacionado a este código.					³
+				//³																						³
+				//³   Solucao: 1) Informe um código que exista no cadastro.                  ³
+				//³                                                                          ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Help(" ",1,"FT300PAPEL")		
+			EndIf	
+					
+		Else
+		 	lRetorno := .T.
+	 	EndIf
+	 		 	
+	EndIf
+
+Else
+	lRetorno:= .T. 
+EndIf 
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VldPTV
+
+Valida o percentual de participacao no time de venda e valida a alteração do campo
+pela funcao Ft300AltTV().
+
+@sample		Ft300VldPTV()
+
+@param		Nenhum 
+			
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		25/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300VldPTV()
+
+Local lRetorno		:= .T.
+Local oModel		:= FwModelActive()
+Local oMdlAD2		:= oModel:GetModel("AD2DETAIL")
+Local nPercent		:= oMdlAD2:GetValue("AD2_PERC")
+
+If !( nPercent >= 0 .AND. nPercent <= 100 )
+	lRetorno := .F.
+	Help("",1,"FT300VLDPTV",,STR0319,1) //"Percentual informado está inválido. Por favor informe um percentual de 1% a 100%."
+EndIf
+
+If lRetorno
+	lRetorno := Ft300AltTV()
+EndIf                                              
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300AD2LPre
+
+Valida a pre-validacao da linha para o ModelGrid do Time de Vendas.  
+
+@sample	F300AD2LPre(oMdlAD2,nLine,cAction,cField)
+
+@param		ExpO1 - ModelGrid do Time de Vendas. 
+			ExpN2 - Linha posicionada no grid Time de Vendas.
+			ExpC3 - Acao executada na linha do grid Time de Vendas.
+			ExpC4 - Campo que está sendo avalidado
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300AD2LPre(oMdlAD2,nLine,cAction,cField)
+
+Local aArea		:= GetArea()
+Local lRetorno	:= .T.
+
+// Valida deleção da linha para time de vendas.
+If cAction $ "DELETE|UNDELETE" 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida a regra do Time de Vendas se o campo Percetual estiver usado ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ( X3Uso(GetSx3Cache("AD2_PERC","X3_USADO")) )
+		lRetorno := Ft300AltTV(cAction)
+	EndIf
+EndIf
+
+RestArea(aArea)
+Return(lRetorno)   
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300AD2PVal
+
+Pos-validacao do ModelGrid do Time de Vendas.
+
+@sample		F300AD2PVal(oMdlAD2)
+
+@param		ExpO1 - ModelGrid de Time de Vendas. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		25/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300AD2PVal(oMdlAD2)
+
+Local lRetorno := .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Adiciona o vendedor no time de vendas com participacao ³
+//³ de 100% quando nao há nenhum vendedor informado. 	   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lRetorno := F300AddVendTV(oMdlAD2)
+
+If lRetorno 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Valida a alteracao dos campos do Time de Vendas. ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	lRetorno := F300VdAllPTV(oMdlAD2)
+EndIf
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300VlSU5
+
+Valida se o contato informado esta relacionado a entidade (SUS - Prospect / SA1 - Cliente)
+utilizada na Oportunidade de Venda. 
+
+@sample		Ft300VlSU5()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300VlSU5()
+
+Local aArea			:= GetArea()  
+Local oModel	 	:= FwModelActive()
+Local oMdlAD1	 	:= oModel:GetModel("AD1MASTER")
+Local oMdlAD9		:= oModel:GetModel("AD9DETAIL")
+Local cAd1Cont		:= oMdlAD1:GetValue("AD1_CNTPRO")
+Local cCodCont		:= oMdlAD9:GetValue("AD9_CODCON")
+Local cEntidade		:= ""
+Local cCodEnt		:= ""
+Local cEnt			:= ""
+Local lRetorno		:= .T.
+
+If !Empty(cCodCont) .Or. !Empty(cAd1Cont)
+	
+	lRetorno := ExistCpo("SU5",IIf(!Empty(cCodCont),cCodCont,cAd1Cont),1)
+
+	If lRetorno
+	 
+		If !Empty(oMdlAD1:GetValue("AD1_CODCLI"))   
+			cEntidade 	:= "SA1"
+			cEnt		:= STR0122	//"Cliente"
+			cCodEnt	:= oMdlAD1:GetValue("AD1_CODCLI")+oMdlAD1:GetValue("AD1_LOJCLI") 
+		ElseiF !Empty(oMdlAD1:GetValue("AD1_PROSPE"))   
+			cEntidade 	:= "SUS"
+			cEnt		:= STR0123	//"Prospect"
+			cCodEnt	:= oMdlAD1:GetValue("AD1_PROSPE")+oMdlAD1:GetValue("AD1_LOJPRO") 
+		EndIf
+		
+		DbSelectArea("AC8")
+		//AC8_FILIAL+AC8_CODCON+AC8_ENTIDA+AC8_FILENT+AC8_CODENT
+		AC8->(DbSetOrder(1)) 
+		
+		lRetorno := AC8->(DbSeek(xFilial("AC8")+IIf(!Empty(cCodCont),cCodCont,cAd1Cont)+cEntidade+xFilial(cEntidade)+cCodEnt))
+		
+		If !lRetorno
+			Help("",1,"FT300VLSU5",,STR0121 + cEnt + ".",1) //"O contato selecionado não está relacionado a este "		
+		EndIf  
+	
+	Else
+		Help("",1,"FT300VLSU5",,STR0121 + cEnt + ".",1) //"O contato selecionado não está relacionado a este "
+	EndIf
+
+EndIf
+
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300AD9PVal
+
+Pos-validacao do ModelGrid de Contatos.
+
+@sample		F300AD9PVal(oMdlAD9)
+
+@param		ExpO1 - ModelGrid de Contatos. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function F300AD9PVal(oMdlAD9)
+
+Local lRetorno := .F.
+
+lRetorno := F300VU5All(oMdlAD9)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} F300VU5All
+
+Valida se todos os contatos informados no ModelGrid de Contatos esta relacionado
+a entidade (SUS - Prospect / SA1 - Cliente), utilizada na oportunidade de venda.
+
+@sample		F300VU5All()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		20/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Static Function F300VU5All(oMdlAD9)
+
+Local oModel	 		:= oMdlAD9:GetModel()
+Local oMdlAD1	 		:= oModel:GetModel("AD1MASTER")
+Local nX				:= 0
+Local cEntidade		:= ""
+Local cEnt				:= ""
+Local cCodEnt			:= ""
+Local cCodCont		:= ""
+Local lRetorno		:= .T.
+Local cFilAC8			:= xFilial("AC8")
+Local cFilSU5			:= xFilial("SU5")
+
+If ! Empty(oMdlAD1:GetValue("AD1_CODCLI"))
+	cEntidade 	:= "SA1"
+	cEnt		:= STR0122	//"cliente"
+	cCodEnt	:= oMdlAD1:GetValue("AD1_CODCLI")+oMdlAD1:GetValue("AD1_LOJCLI")
+ElseiF !Empty(oMdlAD1:GetValue("AD1_PROSPE"))
+	cEntidade 	:= "SUS"
+	cEnt		:= STR0123	//"prospect"
+	cCodEnt	:= oMdlAD1:GetValue("AD1_PROSPE")+oMdlAD1:GetValue("AD1_LOJPRO")
+EndIf
+
+AC8->(DbSetOrder(1))	//AC8_FILIAL+AC8_CODCON+AC8_ENTIDA+AC8_FILENT+AC8_CODENT
+For nX := 1 To oMdlAD9:Length()
+	oMdlAD9:GoLine(nX)
+	cCodCont := oMdlAD9:GetValue("AD9_CODCON")
+	If ! Empty(cCodCont)
+		lRetorno := AC8->(DbSeek(cFilAC8 + cCodCont + cEntidade + xFilial(cEntidade) + cCodEnt))
+		If !lRetorno
+			Help("",1,"F300VU5ALL",,STR0320 + cCodCont + " - " + Capital(AllTrim(FATPDObfuscate(Posicione("SU5",1,cFilSU5+cCodCont,"U5_CONTAT"),"U5_CONTAT",,.T.))) + STR0321 + cEnt + ".", 1 ) //"O contato "###" não está relacionado a este "
+			FATPDLogUser("F300VU5All")
+			Exit
+		EndIf
+	EndIf
+Next nX
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Prod
+
+Validacao do produto informado. E preenche a aba de parceiros caso o produto 
+possua um parceiro vinculado.
+
+@sample	Ft300Prod()
+
+@param		Nenhum
+			
+@return	ExpL - Verdadeiro / Falso
+
+@author	Anderson Silva
+@since		24/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Prod()
+
+Local aArea			:= GetArea()								// Armazena o posicionamento atual
+Local aAreaSB1		:= SB1->(GetArea())						// Armazena o posicionamento do SB1
+Local oModel			:= FwModelActive()						// Model ativo da oportunidade de venda.
+Local oMdlAD1			:= oModel:GetModel("AD1MASTER")			// ModelField Oportunidade de Venda.
+Local oMdlAD4			:= oModel:GetModel("AD4DETAIL")			// ModelGrid de Parceiros.
+Local oMdlADJ			:= oModel:GetModel("ADJDETAIL")			// ModelGrid de Produtos.
+Local lRetorno		:= .T.										// Retorno da funcao
+Local nLinAtu			:= 0										// Ultima linha do ModelGrid de Parceiros
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Valida o produto informado quanto a existencia do produto e³
+//³duplicidade de dados na base                               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lRetorno := ExistCpo("SB1",oMdlADJ:GetValue("ADJ_PROD"),1)
+
+If lRetorno
+
+	DbSelectArea("SB1")
+	//B1_FILIAL+B1_COD
+	SB1->(DbSetOrder(1))
+	
+	If SB1->(DbSeek(xFilial("SB1")+oMdlADJ:GetValue("ADJ_PROD")))     
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se o produto escolhido tem parceiro associado.          ³
+		//³Se possuir, verifica se o aCols de parceiros ja possui o parceiro³
+		//³cadastrado no produto. Se nao existir, inclui.                   ³
+		//³Verifica se o aCols esta em branco ou preenchido, criando uma    ³
+		//³nova linha, se necessario                                        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty(SB1->B1_PARCEI)
+			
+			If !oMdlAD4:SeekLine({{"AD4_PARTNE",SB1->B1_PARCEI}})
+				
+				nLinAtu = oMdlAD4:Length()
+				oMdlAD4:GoLine(nLinAtu)
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Cria nova linha, se necessario³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !Empty(oMdlAD4:GetValue("AD4_PARTNE"))
+					nLinAtu := oMdlAD4:AddLine()
+					oMdlAD4:GoLine(nLinAtu)
+				EndIf 
+				
+				oMdlAD4:SetValue("AD4_PARTNE",SB1->B1_PARCEI) 
+				oMdlAD4:SetValue("AD4_NOMPAR",Posicione("AC4",1,xFilial("AC4")+SB1->B1_PARCEI,"AC4_NOME"))	
+				
+				oMdlAD4:GoLine(1)
+				
+			EndIf
+			
+		EndIf
+		
+	EndIf
+	
+EndIf
+
+RestArea(aAreaSB1)
+RestArea(aArea)
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ft300Gat	 
+Função para executar o inicializador padrão do campo ADJ_PROD
+@sample	Ft300Gat()
+@param		Nenhum
+@return	ExpC - Descrição do produto
+@author	Serviços
+@since		12/08/2016
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300Gat(cDom, cCDom)
+
+Local cRet			:= ""
+Local cArea		:= ""
+Local cKey			:= ""
+Local cGetField	:= ""
+Local aAreaOld	:= {}
+
+Do Case
+	Case	cCDom == "ADJ_DPROD"
+		cArea		:= "SB1"
+		cKey		:= &("ADJ->" + cDom)
+		cGetField	:= "B1_DESC"
+	Case	cCDom == "ADJ_DCATEG"
+		cArea		:= "ACU"
+		cKey		:= &("ADJ->" + cDom)
+		cGetField	:= "ACU_DESC"
+	Case	cCDom == "ADJ_RESUMO"
+		cArea		:= "AOL"
+		cKey		:= &("ADJ->" + cDom)
+		cGetField	:= "AOL_RESUMO"
+	Case	cCDom == "ADJ_DSCNIV"
+		cArea		:= "AOM"
+		cKey		:= ADJ->ADJ_CODAGR + &("ADJ->" + cDom)
+		cGetField	:= "AOM_DESCRI"
+EndCase
+
+If	!( Empty(cDom) )
+	If INCLUI .OR. Empty( &("ADJ->" + cDom) )
+		cRet	:= Space(GetSx3Cache(cCDom,"X3_TAMANHO"))
+	Else
+		If	Empty(cKey) .OR. ADJ->ADJ_NROPOR <> AD1->AD1_NROPOR
+			cRet		:= Space(GetSx3Cache(cCDom,"X3_TAMANHO"))
+		Else
+			aAreaOld	:= &(cArea)->(GetArea())
+			cKey		:= xFilial(cArea) + cKey
+			cRet		:= Posicione(cArea, 1, cKey, cGetField)
+			RestArea(aAreaOld)
+		EndIf
+	EndIf
+EndIf
+Return cRet
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDObfuscate
+    @description
+    Realiza ofuscamento de uma variavel ou de um campo protegido.
+	Remover essa função quando não houver releases menor que 12.1.27
+
+    @type  Function
+    @sample FATPDObfuscate("999999999","U5_CEL")
+    @author Squad CRM & Faturamento
+    @since 04/12/2019
+    @version P12
+    @param xValue, (caracter,numerico,data), Valor que sera ofuscado.
+    @param cField, caracter , Campo que sera verificado.
+    @param cSource, Caractere, Nome do recurso que buscar dados protegidos.
+    @param lLoad, Logico, Efetua a carga automatica do campo informado
+
+    @return xValue, retorna o valor ofuscado.
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDObfuscate(xValue, cField, cSource, lLoad)
+    
+    If FATPDActive()
+		xValue := FTPDObfuscate(xValue, cField, cSource, lLoad)
+    EndIf
+
+Return xValue   
+
+
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLogUser
+    @description
+    Realiza o log dos dados acessados, de acordo com as informações enviadas, 
+    quando a regra de auditoria de rotinas com campos sensíveis ou pessoais estiver habilitada
+	Remover essa função quando não houver releases menor que 12.1.27
+
+   @type  Function
+    @sample FATPDLogUser(cFunction, nOpc)
+    @author Squad CRM & Faturamento
+    @since 06/01/2020
+    @version P12
+    @param cFunction, Caracter, Rotina que será utilizada no log das tabelas
+    @param nOpc, Numerico, Opção atribuída a função em execução - Default=0
+
+    @return lRet, Logico, Retorna se o log dos dados foi executado. 
+    Caso o log esteja desligado ou a melhoria não esteja aplicada, também retorna falso.
+
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDLogUser(cFunction, nOpc)
+
+	Local lRet := .F.
+
+	If FATPDActive()
+		lRet := FTPDLogUser(cFunction, nOpc)
+	EndIf 
+
+Return lRet  
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDActive
+    @description
+    Função que verifica se a melhoria de Dados Protegidos existe.
+
+    @type  Function
+    @sample FATPDActive()
+    @author Squad CRM & Faturamento
+    @since 17/12/2019
+    @version P12    
+    @return lRet, Logico, Indica se o sistema trabalha com Dados Protegidos
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDActive()
+
+    Static _lFTPDActive := Nil
+  
+    If _lFTPDActive == Nil
+        _lFTPDActive := ( GetRpoRelease() >= "12.1.027" .Or. !Empty(GetApoInfo("FATCRMPD.PRW")) )  
+    Endif
+
+Return _lFTPDActive  

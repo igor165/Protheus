@@ -1,0 +1,543 @@
+<%If __ECMEVENT == 1%>
+function beforeTaskSave(colleagueId,nextSequenceId,userList){
+
+if (getValue("WKCompletTask")){
+
+	log.info('Info 1 - Entrada no evento')
+	var err = {message:''};
+	var serviceMVC = getServiceMVC(err);
+
+	if (!serviceMVC){
+		throw err.message;
+		return;
+	}
+
+	var currState = getTask();
+	log.info('Info - Atividade corrente:' + currState);
+	
+	if (currState > 0){
+		var c1 = DatasetFactory.createConstraint("processStatePK.processId", getValue("WKDef"), getValue("WKDef"), ConstraintType.MUST);
+		var c2 = DatasetFactory.createConstraint("processStatePK.sequence", currState, currState, ConstraintType.MUST);
+		var c3 = DatasetFactory.createConstraint("processStatePK.companyId", getValue("WKCompany"), getValue("WKCompany"), ConstraintType.MUST);
+		var c4 = DatasetFactory.createConstraint("processStatePK.version", getValue("WKVersDef"), getValue("WKVersDef"), ConstraintType.MUST);
+		var constraints = new Array(c1, c2, c3, c4);
+		var dataset = DatasetFactory.getDataset("processState", null, constraints, null);
+		
+		// verifica se não é atividade conjunta
+		if (dataset.rowsCount > 0){
+		 	if (dataset.getValue(0, "joint") == 1){
+				log.info('Info - Atividade conjunta');
+			} else{
+				sendTask(currState,serviceMVC);
+			}
+		}
+	}
+}
+}
+
+<%ElseIf __ECMEVENT == 2%>
+function calculateAgreement(currentState, agreementData) {
+var currState = getTask();
+var currPercentage = agreementData.get("currentPercentage");
+
+log.info("Info 1 - Consenso Atual: " + agreementData.get("currentPercentage"));
+
+if (currPercentage < 100) {
+	var c1 = DatasetFactory.createConstraint("sequence", currState, currState, ConstraintType.MUST);
+	var c2 = DatasetFactory.createConstraint("version", 1, getValue("WKVersDef"), ConstraintType.SHOULD);
+	var constraints = new Array(c1, c2);
+	var rowsCount = 0;
+	var dataset;
+
+	try {
+		dataset = DatasetFactory.getDataset(getValue("WKDef") + "_STATE", null, constraints, null);
+		rowsCount = dataset.rowsCount;
+	}
+	catch (e){
+	}
+
+	log.info("Consenso dataset.rowsCount");
+	log.info(rowsCount);
+
+	if (rowsCount > 0 && dataset.getValue(dataset.rowsCount - 1, "agreementPercentage") == 0) {
+		currPercentage = 100;
+		agreementData.put("currentPercentage", 100);
+		agreementData.put("currentDestState", getValue("WKNextState"));
+		
+		log.info("Info 2 - Consenso Alterado:" + currPercentage);
+	}
+}
+
+if (currPercentage == 100){
+	var err = {message:''};
+	var serviceMVC = getServiceMVC(err);
+
+	if (!serviceMVC){
+		throw err.message;
+		return;
+	}
+	sendTask(currState,serviceMVC);
+}
+log.info('Info 3 - Consenso Fim');
+}
+<%EndIf%>
+
+function getTask(){
+var currState = 1;
+
+if (getValue("WKNumState") > 1){
+	var c1 = DatasetFactory.createConstraint("processTaskPK.processInstanceId", getValue("WKNumProces"), getValue("WKNumProces"), ConstraintType.MUST);
+	var c2 = DatasetFactory.createConstraint("processTaskPK.movementSequence", getValue("WKNumState") - 1, getValue("WKNumState") - 1, ConstraintType.MUST);
+	var c3 = DatasetFactory.createConstraint("processTaskPK.companyId", getValue("WKCompany"), getValue("WKCompany"), ConstraintType.MUST);
+	var constraints = new Array(c1, c2, c3);
+	var dataset = DatasetFactory.getDataset("processTask", null, constraints, null);
+	
+	if (dataset.rowsCount > 0){
+		currState = dataset.getValue(0,"choosedSequence");
+	} else{
+		currState = 0;
+	}
+}
+return currState;
+}
+
+function sendTask(numState,serviceMVC){
+var ret,xml,FWMODEL,FWRETURN;
+var err = {message:''};
+var xmlStr;
+var cardData = hAPI.getCardData(getValue('WKNumProces'));
+var cfx = hAPI.getAdvancedProperty('FWMVCDATASERVICE').indexOf('FLUIG') > 0;
+
+	FWMODEL  = hAPI.getAdvancedProperty('FWMODEL');
+	FWRETURN = hAPI.getAdvancedProperty('FWRETURN');
+	log.info('Info 2 - Chamada do servico')
+	try{
+		if (cfx)
+			ret = serviceMVC.getxmldataex([],FWMODEL,true,true) // MVC
+		else
+			ret = serviceMVC.GETXMLDATAEX([],FWMODEL,true,true); // MVC
+
+		// remove tag de enconding do XML e decodifica o UTF8 do XML para realizar o parser
+		xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+		xml = new XML(xml);
+		
+		log.info('Info 3 - Retorno do xml')
+	} catch(e){
+		throw 'Ocorreu um erro na comunicação com o serviço do TOTVS Microsiga Protheus, verifique os dados do formulário ('+e.message+')';
+		return;
+	}
+
+	log.info('Info 4 - Verificações do formulário')
+	ret = updateXMLFields(xml,err,false,cardData); // atualiza XML do MODEL com valores do formulário
+	if (err.message.length > 0){
+		throw err.message
+	}
+	else if (ret){
+		throw 'Preencha os dados do formulário'
+	}
+	else{
+		log.info('Info 5 - Inicio do processo de atualizacao')
+		if (numState=='1'){
+			xml.@Operation = 3; // define como operação de inclusão no XML
+		}
+		else {
+			xml.@Operation = 4;
+		}
+		
+		cst1 = DatasetFactory.createConstraint("colleaguePK.colleagueId", getValue('WKUser'), getValue('WKUser'), ConstraintType.MUST);
+     
+    	constraints = new Array(cst1);
+     
+    	ds = DatasetFactory.getDataset("colleague", null, constraints, null);
+	
+		xml.@WKDef = getValue('WKDef');
+		xml.@WKVersDef = getValue('WKVersDef');
+		xml.@WKNumProces = getValue('WKNumProces');
+		xml.@WKNumState = numState;
+		xml.@WKCurrentState = getValue('WKCurrentState');
+		xml.@WKCompany = getValue('WKCompany');
+		xml.@WKUser = getValue('WKUser');
+		xml.@WKUserEmail = ds.getValue(0,'mail');
+		xml.@WKCompletTask = getValue('WKCompletTask');
+		xml.@WKNextState = getValue('WKNextState');
+		xml.@WKCardId = getValue('WKCardId');
+		xml.@WKFormId = getValue('WKFormId');
+		
+		try{
+			log.info('Info 6 - Chamada do WS de atualizacao')
+			// retorna tag de encoding e codifica string com UTF-8
+			xmlStr = '<?xml version="1.0" encoding="UTF-8"?>'+xml.toXMLString();
+			log.info('Info 7 - XML enviado: - '+xmlStr)
+			
+			if (cfx)
+				ret = serviceMVC.putxmldataex([],FWMODEL,new java.lang.String(xmlStr).getBytes("UTF-8"),true,true)
+			else
+				ret = serviceMVC.PUTXMLDATAEX([],FWMODEL,new java.lang.String(xmlStr).getBytes("UTF-8"),true,true);
+			
+			log.info('Info 8 - Retorno do WS de atualizacao e chamada da volta do formulario')
+			
+			if (FWRETURN=='1'){
+				//Volta do Formulário
+				xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+				log.info('***********XML DE RETORNO*********** - '+xml)
+				xml = new XML(xml);
+			
+				ret = updateXMLFields(xml,err,true,cardData); // atualiza XML do MODEL com valores do formulário
+				
+				log.info('Info 9 - Atualizado campos do formulario')
+			}
+			
+		} catch(e){
+			throw 'Ocorreu um erro na comunicação com o serviço do TOTVS Microsiga Protheus, verifique os dados do formulário ('+e.message+')';
+		}
+	}
+}
+
+function updateXMLFields(node,err,upd,cardData){
+var list = node.children();
+var isEmpty = true;
+var isFieldsEmpty = true;
+var optional = (node.@optional == '1');
+var name,value,msg = '';
+var obrigat = {message:''};
+
+log.info('Info A - updateXMLFields');
+for (var i=0;i<list.length();i++){
+	switch (Trim(list[i].@modeltype.toString())){
+		case 'FIELDS':
+			if (!updateXMLFields(list[i],err,upd,cardData))
+				isEmpty = false;
+			break;
+		case 'GRID':
+			if (!updateXMLGrid(list[i],err,upd,cardData))
+				isEmpty = false;
+			break;
+		default:
+			name = list[i].name().localName; // nome do campo
+
+			if (cardData.containsKey(name)){
+				log.info('Antes do upd '+String(upd));
+				if (upd){
+					log.info('Info A - Entrou no set value');
+					log.info('Info B - Name: '+name);
+					log.info('Info C - Value: '+list[i].value);
+					hAPI.setCardValue(name, convertFluigValue(list[i], list[i].value));
+				} else {
+					value = cardData.get(name);
+
+					// valida se campo é obrigatorio
+					if(checkObrigat(list[i],list[i],value,obrigat)){
+						if (optional || obrigat.message.length == 0){
+							msg = obrigat.message;
+							continue;				
+						}
+						else{
+							err.message = obrigat.message;
+							break;
+						}
+					}
+
+					isFieldsEmpty = false;
+					list[i].value = convertValue(name,list[i],value,err); // converte valor para padrao ADVPL
+				}
+			}
+			break;
+	}
+	if (err.message.length > 0)
+		break;
+}
+if (optional && !isFieldsEmpty && msg.length > 0)
+	err.message = msg;
+return isEmpty && isFieldsEmpty;
+}
+
+function updateXMLGrid(node,err,upd,cardData){
+var i,j,it,name;
+var list, data, item;
+var obrigat = {message:''};
+var optional = (node.@optional == '1');
+var isEmpty = true;
+var isGridEmpty = true;
+var inputName = node.name().localName+'_DATA';
+
+if (!cardData.containsKey(inputName))
+	return false;
+
+// atualiza grid
+if (upd){
+	list = node.items.children();
+	if (list.length() > 0) {
+		data = Array(list.length());
+		for (i = 0; i < list.length(); i++){
+
+			item = list[i];
+
+			data[i] = {};
+			data[i]["_id_"] = item.@id.toString();
+			data[i]["deleted"] = item.@deleted.toString();
+			
+			it = item.children();
+			for (j = 0; j < it.length(); j++)
+			{
+				name = it[j].name().localName;
+				data[i][name] = convertFluigValue(node.struct.child(name),it[j])
+			}
+		}
+		hAPI.setCardValue(inputName, JSON.stringify(data));
+	}
+	else {
+		hAPI.setCardValue(inputName, '');	
+	}
+	return false;
+}
+
+// atualiza XML
+
+data = cardData.get(inputName);
+
+// verifica se grid esta vazio e se é opcional
+if (!data || data.trim().isEmpty()){
+	if (!optional)
+		err.message = 'Preencha pelo menos uma linha das grades';
+	return true;
+}
+
+item = node.items.item.copy();
+
+delete node.items.item;
+
+// linhas do grid sao guardadas no input hidden do formulario
+data = JSON.parse(new String(data));
+for (i=0;i<data.length;i++){
+	
+	if (data[i].deleted == '0'){ // linha nao deletada
+		it = item.copy();
+		list = it.children();
+		
+		for (j=0;j<list.length();j++){
+			name = list[j].name().localName;
+			value = data[i][name];
+			
+			if (value)
+				value = new java.lang.String(value.toString());
+			
+			// valida se campo é obrigatorio
+			obrigat.message = '';
+			if(checkObrigat(list[j],node.struct.child(name),value,obrigat)){
+				if (optional || obrigat.message.length == 0){
+					msg = obrigat.message;
+					continue;				
+				}
+				else{
+					err.message = obrigat.message;
+					break;
+				}
+			}
+			
+			isGridEmpty = false;
+			it.replace(name,convertValue(name,node.struct.child(name),value,err)); // converte valor para padrao ADVPL
+			
+			if (err.message.length > 0)
+				break;
+		}
+		
+		if (err.message.length > 0)
+			break;
+		it.@id = i+1;
+		node.items.appendChild(it);
+	}
+}
+
+if (optional && !isGridEmpty && msg.length > 0)
+	err.message = msg;
+
+if (err.message.length == 0){
+	list = node.children();
+	for (i=0;i<list.length();i++){
+		switch (Trim(list[i].@modeltype.toString())){
+			case 'FIELDS':
+				if (!updateXMLFields(list[i],err,upd,cardData))
+					isEmpty = false;
+				break;
+			case 'GRID':
+				if (!updateXMLGrid(list[i],err,upd,cardData))
+					isEmpty = false;
+				break;
+		}
+		if (err.message.length > 0)
+			break;
+	}
+}
+return isEmpty && isGridEmpty;
+}
+
+function checkObrigat(child,struct,value,err){
+err.message = '';
+if (!value || value.trim().isEmpty() || (child.@datatype.toString() == 'D' && value.replace('/','').trim().isEmpty())){
+	if(struct.@obrigat == '1')
+		err.message = 'O campo '+struct.@info+' ('+child.name().localName+') não foi preenchido';
+	return true;
+}
+return false;
+}
+
+var setYear,setDate,yCount;
+
+function getDateFormat(){
+if (!setDate){
+	setYear = new Date().getFullYear().toString().substring(0,2);
+	setDate = hAPI.getAdvancedProperty('FWSETDATE');
+	yCount = setDate.match(/yyyy/) ? 4 : 2;
+}
+}
+
+function convertValue(name,struct,value,err){
+var y,m,d,len,str,reg,hasErr;
+
+getDateFormat()
+
+value = value.trim();
+
+switch (struct.@datatype.toString()){
+case 'C':
+	break;
+case 'D':
+	hasErr = false;
+	len = value.length();
+			
+	d = setDate.indexOf('d');
+	m = setDate.indexOf('m');
+	y = setDate.indexOf('y');
+
+	if (d + 2 > len || m + 2 > len || y + yCount > len){
+		hasErr = true;
+	}
+	else{
+		str = value.substr(m,2) + value.substr(d,2);
+		if (yCount == 4)
+			str = value.substr(y,4) + str;
+		else
+			str = setYear + value.substr(y,2) + str;
+
+		if (str.match(/((((19|20)(([02468][048])|([13579][26]))0229))|((19|20)[0-9][0-9])((((0[1-9])|(1[0-2]))((0[1-9])|(1\d)|(2[0-8])))|((((0[13578])|(1[02]))31)|(((0[1,3-9])|(1[0-2]))(29|30)))))/g))
+			value = new java.lang.String(str);
+		else
+			hasErr = true;
+	}
+			
+	if (hasErr)
+		err.message = 'O campo '+struct.@info+' ('+name+') contém uma data inválida';
+	break;
+case 'N':
+	len = struct.@len.toString().split(',');
+	if (len[1] == '0'){
+		reg = new RegExp('^[0-9]{1,'+len[0]+'}$');
+		str = value.replace(',','');
+		if(!reg.test(str)){
+			str = value.replace('.','');
+			if(!reg.test(str)){
+				err.message = 'O campo '+struct.@info+' ('+name+') contém um número (valor ou tamanho) inválido'
+				break;
+			}
+		}
+		value = new java.lang.String(str);
+	}
+	else{
+		reg = new RegExp('^0$|^0\.[0-9]{1,'+len[1]+'}$|^[0-9]{0,'+len[0]+'}(\.[0-9]{1,'+len[1]+'})?$');
+		str = value.replace('.','').replace(',','.');
+		if(!reg.test(str)){
+			str = value.replace(',','');
+			if(!reg.test(str)){
+				err.message = 'O campo '+struct.@info+' ('+name+') contém um número (valor ou tamanho) inválido'
+				break;
+			}
+		}
+		value = new java.lang.String(str);
+	}
+	break;
+}
+return value;
+}
+
+function convertFluigValue(struct,xmlValue){
+var format, start, len;
+var value = '';
+
+getDateFormat();
+
+switch (struct.@datatype.toString()){
+case 'D':
+	format = setDate.split('/');
+
+	for (var i = 0; i < format.length; i++){
+		
+		if (format[i] == 'dd'){
+			start = 6;
+			len = 2
+		}
+		else if (format[i] == 'mm'){
+			start = 4;
+			len = 2
+		}
+		else if (format[i] == 'yyyy'){
+			start = 0;
+			len = 4;
+		}
+		else if (format[i] == 'yy'){
+			start = 2;
+			len = 2;
+		}
+		else{
+			start = -1;
+		}
+
+		if (start >= 0){
+			if (i == 0)
+				value = xmlValue.substr(start, len);
+			else
+				value += '/' + xmlValue.substr(start, len);
+		}
+	}
+	break;
+default:
+	value = xmlValue.toString().trim();
+	break;
+}
+return value;
+}
+
+function Trim(str){return str.replace(/^\s+|\s+$/g,"");}
+
+function getServiceMVC(err){
+var dataService = hAPI.getAdvancedProperty('FWMVCDATASERVICE');
+var fwService = ServiceManager.getService(dataService);
+var serviceHelper,serviceLocator,service;
+
+if (!fwService){
+	err.message = 'O serviço do TOTVS Microsiga Protheus não foi registrado no ECM. Execute novamente a manutenção de processos do TOTVS Microsiga Protheus.'
+	return null;
+}
+try{
+	serviceHelper = fwService.getBean();
+	if (dataService.indexOf('FLUIG') < 0)
+		serviceLocator = serviceHelper.instantiate('br.com.totvs.webservices.fwwsmodel_apw.FWWSMODELLocator');
+	else
+		serviceLocator = serviceHelper.instantiate('br.com.totvs.webservices.fwwsmodel_apw.FWWSMODEL');
+	service = serviceLocator.getFWWSMODELSOAP();
+
+	var outInterceptor = new org.apache.cxf.interceptor.LoggingOutInterceptor();
+	var inInterceptor = new org.apache.cxf.interceptor.LoggingInInterceptor();
+	var client = org.apache.cxf.frontend.ClientProxy.getClient(service);
+	client.getOutInterceptors().add(outInterceptor);
+	client.getInInterceptors().add(inInterceptor);
+	var http = client.getConduit();
+	var httpClientPolicy = new org.apache.cxf.transports.http.configuration.HTTPClientPolicy();
+	httpClientPolicy.setAllowChunking(false);
+	http.setClient(httpClientPolicy);
+}
+catch(e){
+	err.message = 'Ocorreu erro no serviço do TOTVS Microsiga Protheus ('+e.message+'). Verifique a configuração no ECM ou execute novamente a manutenção de processos do TOTVS Microsiga Protheus.'
+	return null;
+}
+return service;
+}

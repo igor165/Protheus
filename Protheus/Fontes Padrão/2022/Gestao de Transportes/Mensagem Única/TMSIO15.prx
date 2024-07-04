@@ -1,0 +1,207 @@
+#INCLUDE "PROTHEUS.CH"                
+#INCLUDE "FWADAPTEREAI.CH" 
+#INCLUDE "TMSAO15.CH"
+
+//-------------------------------------------------------------------
+/*TMSIO15 - Tratamento da mensagem única - GeographicReference
+
+@author  Caio Murakami
+@since   18/06/2012
+@version 1.0      
+*/
+//-------------------------------------------------------------------
+
+Function TMSIO15(cXML, nTypeTrans, cTypeMessage)
+
+Local cXMLRet  	:= ""
+Local cError	:= ""
+Local cWarning 	:= ""
+Local cEvent    := "upsert" 
+Local cAliasEnt	:= "" 
+Local cEntidade	:= ""
+Local cLogErro 	:= ""
+Local cCodEnt	:= "" 
+Local cLatitu	:= ""
+Local cLongit	:= ""  
+Local cFilEnt	:= ""
+Local cMarca	:= ""
+
+Local nCount    := 0
+Local nOpcx		:= 0  
+Local nPos		:= 0
+
+Local lRet     	:= .T. 
+Local lExecAuto	:= .T.
+ 
+Local aCab		:= {}
+Local aErroAuto	:= {}
+//-- Array com Entidade X Alias  
+Local aEntidade	:= {}    
+
+Local aArea		:= GetArea()
+Local aAreaDAR	:= DAR->( GetArea() )
+
+Private oXmlO15		  	:= Nil
+Private nCountO10	 	:= 0
+Private lMsErroAuto    	:= .F.
+Private lAutoErrNoFile 	:= .T.   
+
+If Type("Inclui") == "U"
+	Inclui := .T.
+EndIf
+
+If Type("Altera") == "U"
+	Altera := .F.
+EndIf
+
+Aadd( aEntidade , {"CITY","CC2"})
+
+If nTypeTrans == TRANS_RECEIVE
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+		oXmlO15 := XmlParser(cXml, "_", @cError, @cWarning)
+		
+		If oXmlO15 <> Nil .And. Empty(cError) .And. Empty(cWarning)			
+			
+			If Type("oXmlO15:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U" 					
+				cMarca :=  oXmlO15:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+			
+			//-- Verifica licenca para uso da integração com Open Tech.
+			If "OPENTECH" $ Upper(cMarca)
+				//-- TOTVS Torre de Controle Rastreada  - SLOT 3119
+				lRet := FWLSEnable(3119)
+				If !lRet
+					cXMLRet 	:= STR0007 //-- "Sem licença de uso para a Integração Open Tech" 
+				EndIf
+			EndIf
+			
+			If lRet  
+			
+				If Type("oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Entity:Text") <> "U"
+					cEntidade	 := Upper(AllTrim(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Entity:Text))
+					nPos 			 := Ascan(aEntidade, {|x| x[1] == cEntidade})
+					If nPos > 0
+				  		cAliasEnt  	:= PadR(aEntidade[nPos,2], TamSX3("DAR_ENTIDA")[1])
+				  		cFilEnt		:= xFilial(cAliasEnt) 
+				 	Else
+				 		cAliasEnt 	:= PadR(cEntidade , TamSX3("DAR_ENTIDA")[1])
+				 		cFilEnt		:= xFilial("DAR")
+				 	EndIf  
+				 	Aadd( aCab, { "DAR_FILIAL", xFilial("DAR"), Nil})	
+				 	Aadd( aCab, { "DAR_FILENT", cFilEnt 		, Nil })
+					Aadd( aCab, { "DAR_ENTIDA", cAliasEnt 		, Nil })				
+				EndIf 
+				 
+				If Type("oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EntityInternalID:Text") <> "U"
+					cCodEnt := PadR(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EntityInternalID:Text, TamSX3("DAR_CODENT")[1])				
+					Aadd( aCab, { "DAR_CODENT", cCodEnt , Nil })
+				EndIf 
+				
+				If Type("oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Latitude:Text") <> "U"
+					cLatitu := Padr( oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Latitude:Text ,TamSX3("DAR_LATITU")[1])
+					Aadd( aCab, { "DAR_LATITU", cLatitu, Nil })
+				EndIf   
+				
+				If Type("oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Longitude:Text") <> "U"  
+					cLongit	:= PadR(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Longitude:Text, TamSX3("DAR_LONGIT")[1])
+					Aadd( aCab, { "DAR_LONGIT",  cLongit , Nil })
+				EndIf       
+				
+				If Type("oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ReferencePoint:Text") <> "U"
+					If DAR->(FieldPos("DAR_PTOREF")) > 0   
+				  		Aadd( aCab, { "DAR_PTOREF", oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ReferencePoint:Text , Nil })
+				 	EndIf
+				EndIf 
+	
+				DAR->( dbSetOrder(1) ) // -- DAR_FILIAL + DAR_FILENT + DAR_ENTIDA + DAR_CODENT + DAR_LATITU + DAR_LONGIT
+				If DAR->( MsSeek( xFilial("DAR") + xFilial(cAliasEnt) + Padr(cAliasEnt, TamSX3("DAR_ENTIDA")[1]) + ;
+					Padr(cCodEnt, TamSX3("DAR_CODENT")[1]) + Padr(cLatitu, TamSX3("DAR_LATITU")[1]) + Padr( cLongit , TamSX3("DAR_LONGIT")[1])))
+					
+					If Upper(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+				  		nOpcx 	:= 4			                 
+					ElseIf Upper(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE"
+						nOpcx		:= 5
+					EndIf
+								
+				Else
+				
+					If Upper(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+				  		nOpcx 	:= 3			                 
+					ElseIf Upper(oXmlO15:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE"
+						nOpcx			:= 5	
+						lExecAuto 	:= .F.
+					EndIf    
+					
+				EndIf	
+	
+				If lExecAuto
+					MSExecAuto({|x,y| TMSAO15(x,y)},aCab,nOpcx)
+				EndIf		
+	
+				If lMsErroAuto
+					aErroAuto := GetAutoGRLog()
+					For nCount := 1 To Len(aErroAuto)
+						TMSLogMsg("ERROR",aErroAuto[nCount])
+						cLogErro += StrTran(StrTran(aErroAuto[nCount],"<",""),"-","") + (" ")
+					Next nCount
+					// Monta XML de Erro de execução da rotina automatica.
+					lRet := .F.
+					cXMLRet := EncodeUTF8(cLogErro)
+				Else
+					// Monta xml com status do processamento da rotina autmotica OK.				
+					cXMLRet := "<OriginInternalID>"+DAR->DAR_CODENT +"</OriginInternalID>   
+				EndIf 
+				
+			EndIf
+				
+		Else
+			// "Falha ao gerar o objeto XML"
+			lRet := .F.
+			cXMLRet := "Falha ao manipular o XML"
+		EndIf
+
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		cXMLRet := '<TAGX>TESTE DE RECEPCAO RESPONSE MESSAGE</TAGX>'
+	ElseIf   cTypeMessage == EAI_MESSAGE_WHOIS
+		cXMLRet := '1.000'
+	EndIf
+	
+ElseIf nTypeTrans == TRANS_SEND
+
+  	If !Inclui .And. !Altera
+		cEvent := 'delete'		
+	EndIf
+                                                             
+   cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>GeographicReference</Entity>'
+	cXMLRet +=     '<Event>' + cEvent + '</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="InternalID">'  + DAR->DAR_FILIAL +'|'+ AllTrim(DAR->DAR_CODENT) +  '</key>'       
+	cXMLRet +=     '</Identification>'	
+	cXMLRet += '</BusinessEvent>'  
+	
+	cXMLRet += '<BusinessContent>'
+	
+	cAliasEnt	 := DAR->DAR_ENTIDA
+	nPos 			 := Ascan(aEntidade, {|x| x[2] == cAliasEnt})
+	If nPos > 0
+		cEntidade    := aEntidade[nPos,1] 
+	Else
+		cEntidade 	 := cAliasEnt
+	EndIf
+
+	cXMLRet +=	  '<Entity>'     			+ AllTrim(cEntidade)  	     + '</Entity>'                                           
+	cXMLRet +=    '<EntityInternalID>'  + AllTrim(DAR->DAR_CODENT)   + '</EntityInternalID>' 
+	cXMLRet +=    '<Latitude>'  			+ AllTrim(DAR->DAR_LATITU)   + '</Latitude>' 
+	cXMLRet +=    '<Longitude>'  			+ AllTrim(DAR->DAR_LONGIT)   + '</Longitude>' 
+	If DAR->( FieldPos("DAR_PTOREF")) > 0
+  		cXMLRet +=    '<ReferencePoint>' + AllTrim(DAR->DAR_PTOREF)   + '</ReferencePoint>'  
+ 	EndIf
+	cXMLRet += '</BusinessContent>'      
+	    
+EndIf
+
+RestArea( aArea )
+RestArea( aAreaDAR )  
+
+Return { lRet, cXMLRet }   

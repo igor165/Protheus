@@ -1,0 +1,358 @@
+#include "MATA256.CH"
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE 'FWMVCDEF.CH'
+
+Static cScape := ""
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ModelDef
+Definição do modelo de Dados
+
+@author alexandre.gimenez
+
+@since 23/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function ModelDef()
+Local oModel
+Local oStr1:= FWFormStruct(1,'SGA',{|cCampo| AllTrim(cCampo)  $ "GA_GROPC|GA_DESCGRP|GA_OBG" })
+Local oStr2:= FWFormStruct(1,'SGA',{|cCampo| !AllTrim(cCampo) $ "GA_GROPC|GA_DESCGRP|GA_OBG" })
+Local oStr3:= FWFormStruct(1,'SGT')
+
+oModel := MPFormModel():New('MATA256', /*Pre-Validacao*/,/*Pos-Validacao*/,/*Commit*/,/*Cancel*/)
+
+oModel:addFields('GA_MASTER',,oStr1)
+oModel:addGrid('GA_DETAILS','GA_MASTER',oStr2)
+oModel:GetModel('GA_DETAILS'):SetUniqueLine( { 'GA_OPC' } )
+
+oModel:GetModel('GA_DETAILS'):SetMaxLine(9999)
+
+oModel:addGrid('GT_DETAILS','GA_DETAILS',oStr3, {|oModelGrid,  nLine,cAction,  cField|PreValGT(oModelGrid, nLine, cAction, cField)}, /*bPosValidacao*/, /*bCarga*/ )
+oModel:GetModel('GT_DETAILS'):SetUniqueLine( { 'GT_OPCCONC' } )
+
+oModel:GetModel('GA_DETAILS'):SetMaxLine(9999)
+/*
+	Alterada relação entre os modelos, para que a atualização dos campos GA_DESCGRP e GA_OBG seja realizada
+	em todos os registros filhos.
+*/
+//oModel:SetRelation('GA_DETAILS', { { 'GA_FILIAL', 'XFilial("SGA")' }, { 'GA_GROPC', 'GA_GROPC' } }, SGA->(IndexKey(1)) )
+oModel:SetRelation('GA_DETAILS', { { 'GA_FILIAL', 'XFilial("SGA")' }, { 'GA_GROPC', 'GA_GROPC'}, { 'GA_DESCGRP', 'GA_DESCGRP' }, { 'GA_OBG', 'GA_OBG' } } , SGA->(IndexKey(1)) )
+oModel:SetRelation('GT_DETAILS', { { 'GT_FILIAL', 'XFilial("SGT")' }, { 'GT_GROPC', 'GA_GROPC' }, { STR0001, 'GA_OPC' } }, SGT->(IndexKey(1)) )//'GT_OPC'
+
+
+oModel:SetDescription(STR0002)//'Cadastro de Opcionais'
+oModel:getModel('GA_MASTER'):SetDescription(STR0003)//'Grupo de Opcionais'
+oModel:getModel('GA_DETAILS'):SetDescription(STR0004)//'Opcionais'
+oModel:getModel('GT_DETAILS'):SetDescription(STR0005)//'Opcionais Concorrentes'
+
+oModel:GetModel( 'GT_DETAILS' ):SetOptional(.T.)
+oModel:SetPrimaryKey({})
+
+
+Return oModel
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef
+Definição do interface
+
+@author alexandre.gimenez
+
+@since 23/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function ViewDef()
+Local oView
+Local oModel := FWLoadModel( 'MATA256' )
+Local oStr1	:= FWFormStruct(2, 'SGA', {|cCampo| AllTrim(cCampo) $ "GA_GROPC|GA_DESCGRP|GA_OBG" })
+Local oStr2	:= FWFormStruct(2, 'SGA', {|cCampo| !AllTrim(cCampo) $ "GA_GROPC, GA_DESCGRP, GA_OBG" })
+Local oStr3	:= FWFormStruct(2, 'SGT', {|cCampo| !AllTrim(cCampo) $ "GT_OPC, GT_GROPC"} )
+Local lMultOpc:= SuperGetMv("MV_MULTOPC",.F.,.F.)
+local nPerct	:= IF(lMultOpc,50,100)
+
+
+oView := FWFormView():New()
+
+oView:SetModel(oModel)
+oView:AddField('MASTER_GA' , oStr1,'GA_MASTER')
+oView:AddGrid('DETAILS_GA' , oStr2,'GA_DETAILS')
+ 
+oStr1:RemoveField( 'GA_PRCVEN' )
+oView:CreateHorizontalBox( 'BOXFORM1', 120,,.T.)
+oView:CreateHorizontalBox( 'BOXFORM3', nPerct)
+
+oView:SetOwnerView('MASTER_GA','BOXFORM1')
+oView:SetOwnerView('DETAILS_GA','BOXFORM3')
+
+oView:EnableTitleView('MASTER_GA' , STR0006 )//'Grupo de Opcionais'
+oView:EnableTitleView('DETAILS_GA' , STR0007 )//'Opcionais'
+
+If lMultOpc
+	oView:AddGrid('DETAILS_GT' , oStr3,'GT_DETAILS')
+	oView:CreateHorizontalBox( 'BOXFORM5', 50)
+	oView:SetOwnerView('DETAILS_GT','BOXFORM5')
+	oView:EnableTitleView('DETAILS_GT' , STR0008 )//'Opcionais Concorrentes'
+EndIf
+
+Return oView
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MATA256
+Cadastro de Grupo de opcionais
+
+@author alexandre.gimenez
+
+@since 23/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Function MATA256()
+Local oBrowse
+
+oBrowse := FWMBrowse():New()
+oBrowse:SetAlias('SGA')
+oBrowse:SetDescription(STR0009)//'Cadastro de Grupo de Opcionais'
+oBrowse:Activate()
+
+Return NIL
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+Definição do Menu
+
+@author alexandre.gimenez
+
+@since 23/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function MenuDef()
+Local aRotina := {}
+
+ADD OPTION aRotina TITLE STR0010 ACTION 'VIEWDEF.MATA256' OPERATION 2 ACCESS 0//'Visualizar'
+ADD OPTION aRotina TITLE STR0011    ACTION 'VIEWDEF.MATA256' OPERATION 3 ACCESS 0//'Incluir'
+ADD OPTION aRotina TITLE STR0012    ACTION 'VIEWDEF.MATA256' OPERATION 4 ACCESS 0//'Alterar'
+ADD OPTION aRotina TITLE STR0013    ACTION 'VIEWDEF.MATA256' OPERATION 5 ACCESS 0//'Excluir'
+ADD OPTION aRotina TITLE STR0014   ACTION 'VIEWDEF.MATA256' OPERATION 8 ACCESS 0//'Imprimir'
+//ADD OPTION aRotina TITLE STR0015     ACTION 'VIEWDEF.MATA256' OPERATION 9 ACCESS 0//'Copiar'
+Return aRotina
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A256VldCom
+Função para validar Opcional concorrente
+
+@author alexandre.gimenez
+
+@since 24/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Function A256VldCom(oModelGT,cField,cConteud,nLinha)
+Local oModel 		:= FWModelActive()
+Local oModOpc		:= oModel:GetModel("GA_DETAILS")
+Local aSaveLines 	:= FWSaveRows()
+Local nX			:= 0
+Local lRet 		:= .F.
+
+If cConteud == oModOpc:GetValue('GA_OPC')
+	Help(' ', 1,'A256ITSELF',,STR0016,1,0)//'O Opcional concorrente não pode concorrer com ele mesmo.'
+ElseIf !Empty(cConteud) .And. ExistCpo("SGA",FwFldGet("GA_GROPC")+FwFldGet("GT_OPCCONC"))
+//Validar Banco
+	lRet := .T.
+Else
+//Validar se conteudo existe no modelo
+	For nX := 1 to oModOpc:length()
+		oModOpc:GoLine(nX)
+		If cConteud == oModopc:GetValue('GA_OPC')
+			lRet := .T.
+			Exit
+		EndIf
+	Next Nx
+EndIf
+
+FWRestRows(aSaveLines)
+
+Return lRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A256GTGati
+Simula Gatilho Modelo GT
+
+@author alexandre.gimenez
+
+@since 24/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Function A256GTGati(cId)
+Local oModel 		:= FWModelActive()
+Local oModOpc		:= oModel:GetModel("GA_DETAILS")
+Local oModCon		:= oModel:GetModel("GT_DETAILS")
+Local aSaveLines 	:= FWSaveRows()
+Local nX			:= 0
+Local cRet			:= ""
+
+Default cId		:= oModCon:GetValue("GT_OPCCONC")
+
+For nX := 1 to oModOpc:length()
+	oModOpc:GoLine(nX)
+	If cId == oModOpc:GetValue('GA_OPC')
+		cRet := oModOpc:GetValue('GA_DESCOPC')
+		Exit
+	EndIf
+Next Nx
+
+FWRestRows(aSaveLines)
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} A256Replic
+Função para inserir ou excluir uma replica de opcionais concorrentes
+EX: se azul é concorrente de amarelo, amarelo é concorente de azul
+
+@author alexandre.gimenez
+@param cConcOri - Valor que origina a replica
+@param cConcRep - Valor que recebe a replica
+@param nAcao - (1)Incluir, (2)Excluir
+@since 24/09/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Function A256Replic(cConcOri,cConcRep,nAcao)
+Local oModel 		:= FWModelActive()
+Local oModOpc		:= oModel:GetModel("GA_DETAILS")
+Local oModCon		:= oModel:GetModel("GT_DETAILS")
+Local aSaveLines 	:= FWSaveRows()
+Local nX			:= 0
+Local nY			:= 0
+Local lNotFound	:= .T.
+
+If nAcao == 1 // Incluir
+	For nX := 1 to oModOpc:length()
+		oModOpc:GoLine(nX)
+		If oModOpc:GetValue("GA_OPC") == cConcRep
+			For nY:= 1 to oModCon:Length()
+				oModCon:GoLine(nY)
+				If oModCon:GetValue("GT_OPCCONC") == cConcOri
+					lNotFound := .F.
+					If oModCon:IsDeleted()
+						oModCon:UnDeleteLine()
+					EndIf
+					Exit
+				EndIf
+			Next nY
+			If lNotFound
+				If !Empty(oModCon:GetValue("GT_OPCCONC"))
+					oModCon:AddLine()
+				EndIf
+				oModCon:SetValue("GT_OPCCONC", cConcOri )
+			EndIf
+			Exit
+		EndIf 
+	Next nX	
+ElseIf nAcao == 2 // Excluir
+	For nX := 1 to oModOpc:length()
+		oModOpc:GoLine(nX)
+		If oModOpc:GetValue("GA_OPC") == cConcRep
+			For nY:= 1 to oModCon:Length()
+				oModCon:GoLine(nY)
+				If oModCon:GetValue("GT_OPCCONC") == cConcOri
+					If !oModCon:IsDeleted()
+						oModCon:DeleteLine()						
+					EndIf
+					Exit
+				EndIf
+			Next nY
+			Exit
+		EndIf 
+	Next nX
+EndIf
+
+FWRestRows(aSaveLines)
+cScape := ""
+Return Nil
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PreValGT(oModelGrid, nLinha, cAcao, cCampo)
+Rotina de Pre validação do modelo CP4(Solicitações)
+
+@author alexandre.gimenez
+@param oModelGrid Modelo
+@param nLinha Linha corrente
+@param cAcao  Ação ("DELETE", "SETVALUE", e etc)
+@param cCampo Campo atualizado
+@return lRet
+@since 24/09/2013
+@version 1.0
+/*/
+//------------------------------------------------------------------
+Static Function PreValGT(oModelGrid, nLinha, cAcao, cCampo)
+Local oModel 		:= FWModelActive()
+Local oModOpc		:= oModel:GetModel("GA_DETAILS")
+Local lRet			:= .T.
+
+If cAcao == "SETVALUE"
+	// verificar se inserindo primeira vez.
+	If Empty(oModelGrid:GetValue("GT_DESCONC")) .and. cCampo == "GT_DESCONC"
+		A256Replic(oModOpc:GetValue("GA_OPC"),oModelGrid:GetValue("GT_OPCCONC"),1)
+		
+	//Verifica se é alteração
+	ElseIf cCampo == "GT_DESCONC" .And. POSICIONE('SGA', 1, xFilial('SGA')+FwFldGet("GT_GROPC")+FwFldGet("GT_OPCCONC"),'GA_DESCOPC') <> oModelGrid:GetValue("GT_DESCONC")                                                   
+		//Exclui valor antigo	
+		A256Replic(oModOpc:GetValue("GA_OPC"),MTSeekMVC(oModOpc,oModelGrid:GetValue("GT_DESCONC"),'GA_DESCOPC',"GA_OPC"),2)
+		// Inseri novo valor
+		A256Replic(oModOpc:GetValue("GA_OPC"),oModelGrid:GetValue("GT_OPCCONC"),1)
+	EndIf
+End
+
+If cAcao == "DELETE"
+ 	If Empty(cScape) 
+		cScape := oModOpc:GetValue("GA_OPC") 
+		A256Replic(oModOpc:GetValue("GA_OPC"),oModelGrid:GetValue("GT_OPCCONC"),2)
+	EndIf	
+EndIf
+
+If cAcao == "UNDELETE"
+	If Empty(cScape) 
+		cScape := oModOpc:GetValue("GA_OPC") 
+		A256Replic(oModOpc:GetValue("GA_OPC"),oModelGrid:GetValue("GT_OPCCONC"),1)
+	EndIf
+EndIf
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MTSeekMVC(oModel,cValor,cCampo,cRetorno)
+
+
+@author alexandre.gimenez
+
+@return cRet
+@since 24/09/2013
+@version 1.0
+/*/
+//------------------------------------------------------------------
+Static Function MTSeekMVC(oModel,cValor,cCampo,cRetorno)
+Local aSaveLines 	:= FWSaveRows()
+Local nX			:= 0
+Local cRet			:= ""
+
+For nX:= 1 to oModel:length()
+	oModel:GoLine(nX)
+	If oModel:GetValue(cCampo) == cValor
+		cRet := oModel:GetValue(cRetorno)
+		Exit
+	EndIf
+Next nX
+
+FWRestRows(aSaveLines)
+Return cRet

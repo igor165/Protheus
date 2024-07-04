@@ -1,0 +1,227 @@
+#INCLUDE "PROTHEUS.CH"                
+#INCLUDE "FWADAPTEREAI.CH" 
+#INCLUDE "TMSAO10.CH"
+
+//-------------------------------------------------------------------
+/*TMSIO10 - Tratamento da mensagem única - Position
+
+@author  Caio Murakami
+@since   08/05/12
+@version 1.0      
+*/
+//-------------------------------------------------------------------
+
+Function TMSIO10(cXML, nTypeTrans, cTypeMessage)
+
+Local cXMLRet  	:= ""
+Local cError		:= ""
+Local cWarning 	:= ""
+Local cEvent      := "upsert" 
+Local cAlias      := "DAV" 
+Local cLogErro 	:= ""
+Local cMsg			:= "" 
+Local cDataAtu  	:= ""
+Local cDateTime	:= "" 
+Local cTypeMess	:= ""  
+Local cCodMac		:= ""
+Local cMarca		:= ""
+
+Local nCount      := 0
+Local nItem   		:= 0 
+Local nOpcx			:= 0  
+
+Local dDataAtu		
+
+Local lRet     	:= .T. 
+
+Local aCab			:= {}
+Local aItens		:= {}
+Local aErroAuto	:= {}  
+Local aArea			:= GetArea()
+Local aAreaDAV		:= DAV->( GetArea() )
+
+Private oXmlO10		  := Nil
+Private nCountO10	 	  := 0
+Private lMsErroAuto    := .F.
+Private lAutoErrNoFile := .T.
+
+If Type("Inclui") == "U"
+	Inclui := .T.
+EndIf
+
+If Type("Altera") == "U"
+	Altera := .F.
+EndIf
+
+If nTypeTrans == TRANS_RECEIVE
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+		oXmlO10 := XmlParser(cXml, "_", @cError, @cWarning)
+		
+		If oXmlO10 <> Nil .And. Empty(cError) .And. Empty(cWarning)    
+		
+			If Upper(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+			  	nOpcx := 3			                 
+			EndIf
+			
+			If Type("oXmlO10:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U" 					
+				cMarca :=  oXmlO10:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+			
+			//-- Verifica licenca para uso da integração com Open Tech.
+			If "OPENTECH" $ Upper(cMarca) 
+				//-- TOTVS Torre de Controle Rastreada  - SLOT 3119
+				lRet := FWLSEnable(3119)
+				If !lRet
+					cXMLRet 	:= STR0029 //-- "Sem licença de uso para a Integração Open Tech." 
+				EndIf  				
+			EndIf
+			
+			If lRet
+			
+				If nOpcx <> 5 
+		
+					If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_VehicleNumberPlate:Text") <> "U"
+						cPlacaID := PadR( oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_VehicleNumberPlate:Text,  Len(DA3->DA3_PLACA) )
+							
+						//-- DA3_FILIAL+DA3_PLACA
+						DA3->( dbSetOrder(3) )
+						If DA3->( dbSeek( xFilial("DA3") + cPlacaID ) )
+							Aadd( aCab, { "DAV_CODVEI", DA3->DA3_COD , Nil })
+						EndIf
+						
+					EndIf 
+					
+					If  ValType(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem) <> "A"
+					 	XmlNode2Arr(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem, "_TrackingItem")
+					EndIf     
+					
+					For nItem := 1 To Len(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem) 
+					
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_TypeMessage:Text") <> "U"
+						   
+							//-- Mensagem de macro = '2'
+						   If AllTrim(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_TypeMessage:Text) == '2'
+						
+								If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_MacroCode:Text") <> "U"
+									Aadd( aCab, { "DAV_CODMAC", oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_MacroCode:Text, Nil })
+								EndIf   
+								
+						   EndIf
+						EndIf
+						 
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Message:Text") <> "U"
+							Aadd( aCab, { "DAV_DETMSG" , oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Message:Text, Nil }) 
+						EndIf
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Date:Text") <> "U"
+							cDataAtu := oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Date:Text
+					  		dDataAtu  := STOD(StrTran(Substr(cDataAtu,1,10),'-',''))
+							Aadd( aCab, { "DAV_DATPOS", dDataAtu  , Nil } )
+						EndIf  
+			
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Time:Text") <> "U"
+							cHoraAtu  := oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Time:Text
+					  		cHoraAtu  := StrTran(cHoraAtu,':','')
+							Aadd( aCab, { "DAV_HORPOS", SubStr(cHoraAtu,1,TamSx3("DAV_HORPOS")[1] )    , Nil } )
+						EndIf  
+		
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Speed:Text") <> "U"
+							Aadd( aCab, { "DAV_VELOCI", Val(oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Speed:Text), Nil })
+						EndIf 
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_IgnitionStatus:Text") <> "U"
+							Aadd( aCab, { "DAV_IGNICA", oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_IgnitionStatus:Text, Nil })
+						EndIf  
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Latitude:Text") <> "U"
+							Aadd( aCab, { "DAV_LATITU", oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Latitude:Text, Nil })
+						EndIf 
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_Longitude:Text") <> "U"
+							Aadd( aCab, { "DAV_LONGIT", oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_Longitude:Text, Nil })
+						EndIf 					
+						If Type("oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem["+STR(nItem) +"]:_PositionType:Text") <> "U"
+							Aadd( aCab, { "DAV_TIPPOS", oXmlO10:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfTrackingItens:_TrackingItem[nItem]:_PositionType:Text, Nil })
+						EndIf 
+						
+					Next nItem
+				EndIf
+	
+				If lRet
+					MSExecAuto({|x,y| TMSAO10(x,y)},aCab,nOpcx)
+				EndIf		
+	
+				If lMsErroAuto
+					aErroAuto := GetAutoGRLog()
+					For nCount := 1 To Len(aErroAuto)  
+						cLogErro += StrTran(StrTran(aErroAuto[nCount],"<",""),"-","") + (" ")
+					Next nCount
+					// Monta XML de Erro de execução da rotina automatica.
+					lRet := .F.
+					cXMLRet := EncodeUTF8(cLogErro)
+				Else
+					// Monta xml com status do processamento da rotina autmotica OK.				
+					cXMLRet := "<OriginInternalID>"		+DAV->DAV_FILIAL+"|"+DAV->DAV_CODVEI+"|"+ DAV->DAV_VIAGEM +"</OriginInternalID>   
+					cXMLRet += "<DestinationInternalID>"+DAV->DAV_FILIAL+"|"+DAV->DAV_CODVEI+"|"+ DAV->DAV_VIAGEM +"</DestinationInternalID>"
+				EndIf 
+				
+			EndIf
+				
+		Else
+			// "Falha ao gerar o objeto XML"
+			lRet := .F.
+			cXMLRet := "Falha ao manipular o XML"
+		EndIf
+
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		cXMLRet := '<TAGX>TESTE DE RECEPCAO RESPONSE MESSAGE</TAGX>'
+	ElseIf   cTypeMessage == EAI_MESSAGE_WHOIS
+		cXMLRet := '1.000'
+	EndIf
+	
+ElseIf nTypeTrans == TRANS_SEND
+
+  	If !Inclui .And. !Altera
+		cEvent := 'delete'		
+	EndIf
+                                                             
+   cDataAtu := Transform(dToS(DAV->DAV_DATPOS),"@R 9999-99-99")
+   cHoraAtu := Transform(DAV->DAV_HORPOS, "@R 99:99:99")
+   
+	cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>Position</Entity>'
+	cXMLRet +=     '<Event>' + cEvent + '</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="InternalID">'  + DAV->DAV_FILIAL +'|'+ AllTrim(DAV->DAV_CODVEI) + '|'+ AllTrim(DAV->DAV_VIAGEM)+  '</key>'       
+	cXMLRet +=     '</Identification>'	
+	cXMLRet += '</BusinessEvent>'  
+	
+	cXMLRet += '<BusinessContent>'
+	cXMLRet +=	  '<VehicleCode>'    	 	 + AllTrim(DAV->DAV_CODVEI)+ '</VehicleCode>'                                           
+	cXMLRet +=    '<VehicleNumberPlate>' 	 + AllTrim(POSICIONE("DA3",1,xFilial("DA3")+DAV->DAV_CODVEI,"DA3_PLACA"))+ '</VehicleNumberPlate>' 
+	cXMLRet += 		'<ListOfTrackingItens>' 
+	cXMLRet += 			'<TrackingItem>'
+	
+	If !Empty(DAV->DAV_CODMAC)
+		cCodMac	 := DAV->DAV_CODMAC 
+		cTypeMess := '2' //-- Mensagem de macro
+  	Else
+  		cTypeMess := '1' //-- Posicionamento	
+  	EndIf 
+  	
+  	cXMLRet +=				'<TypeMessage>'	+cTypeMess+'</TypeMessage>' 
+  	cXMLRet +=				'<MacroCode>'		+cCodMac+'</MacroCode>'  	
+	cXMLRet +=				'<Message>'			+DAV->DAV_DETMSG+'</Message>'
+	cXMLRet +=				'<Date>'				+cDataAtu+'</Date>'
+	cXMLRet +=				'<Time>'				+cHoraAtu+'</Time>'
+	cXMLRet +=				'<Speed>'			+cValToChar(DAV->DAV_VELOCI)+'</Speed>'
+	cXMLRet +=				'<IgnitionStatus>'+DAV->DAV_IGNICA+'</IgnitionStatus>'
+	cXMLRet += 				'<PositionType>'	+DAV->DAV_TIPPOS+'</PositionType>'
+	cXMLRet +=				'<Latitude>'		+AllTrim(DAV->DAV_LATITU)+'</Latitude>'
+	cXMLRet +=				'<Longitude>'		+AllTrim(DAV->DAV_LONGIT)+'</Longitude>'
+	cXMLRet += 			'</TrackingItem>'                                 
+	cXMLRet += 		'</ListOfTrackingItens>'	
+	cXMLRet += '</BusinessContent>'                               	
+	
+EndIf
+
+RestArea( aArea )
+RestArea( aAreaDAV )  
+
+Return { lRet, cXMLRet }   

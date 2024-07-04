@@ -1,0 +1,610 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FINI010I.CH"
+
+Static cMessage   := "FinancialNature"
+
+/*/{Protheus.doc} FINI010I
+Adapter de mensagem única FinancialNature (natureza financeira).
+
+@author  Wilson P. Godoi
+@version Protheus 12
+@since   28/03/2012
+@obs     O nome saiu do "padrão" porque estava sendo utilizado pelo RM Classis x Protheus.
+/*/
+Function FINI010I(cXML, cTypeTrans, cTypeMsg, cVersion, cTransac)
+
+Local lRet       := .T.
+Local cXMLRet    := ""
+Local cError     := ""
+Local cWarning   := ""
+Local aRet     	 := {}
+
+Private oXmlFIN010		:= Nil
+Private lMsErroAuto		:= .F.
+Private lAutoErrNoFile	:= .T.
+
+If EMPTY(cVersion)
+	lRet    := .F.
+	cXmlRet := STR0001 // "Versão não informada no cadastro do adapter."
+
+ElseIf cTypeTrans == TRANS_RECEIVE
+	If cTypeMsg == EAI_MESSAGE_BUSINESS .or. cTypeMsg == EAI_MESSAGE_RESPONSE
+		oXmlFIN010 := XmlParser(cXml, "_", @cError, @cWarning)
+		If oXmlFIN010 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+			If cVersion = "1"
+				aRet := v1000(cXml, cTypeTrans, cTypeMsg, cVersion)
+			Elseif cVersion = "2"
+				aRet := v2000(cXml, cTypeTrans, cTypeMsg, cVersion)
+			Endif
+		Else
+			lRet    := .F.
+			cXMLRet := STR0002 // "Falha ao gerar o objeto XML"
+		Endif
+	ElseIf cTypeMsg == EAI_MESSAGE_WHOIS
+	   	cXMLRet := '1.000|2.000|2.001'
+	EndIf
+
+ElseIf cTypeTrans == TRANS_SEND
+	If cVersion = "1"
+		aRet := v1000(cXml, cTypeTrans, cTypeMsg, cVersion)
+	Elseif cVersion = "2"
+		aRet := v2000(cXml, cTypeTrans, cTypeMsg, cVersion)
+	Endif
+EndIf
+
+If Len(aRet) == 0
+	cXmlRet := EncodeUTF8(cXmlRet)
+Else
+	lRet    := aRet[1]
+	cXmlRet := EncodeUTF8(aRet[2])
+Endif
+
+Return {lRet, cXMLRet, cMessage}
+
+
+/*/{Protheus.doc} v1000
+Versão 1.x da mensagem (recebimento e envio).
+
+@author  Wilson P. Godoi
+@version Protheus 12
+@since   28/03/2012
+/*/
+Static Function v1000(cXml, cTypeTrans, cTypeMsg, cVersion)
+
+Local lRet			:= .T.
+Local cXMLRet		:= ""
+Local cValInt		:= ""
+Local cValExt		:= ""
+Local cError		:= ""
+Local cWarning 	:= ""
+Local cLogErro 	:= ""
+Local cMarca		:= ""
+Local cNaturez	:= ""
+Local cEvent		:= "upsert"
+Local cAlias		:= "SED"
+Local cField		:= "ED_CODIGO"
+Local aArea		:= GetArea()
+Local aAreaSED	:= {}
+Local aErroAuto	:= {}
+Local aCab			:= {}
+Local aValInt		:= {}
+Local nOpcexec	:= 3
+Local nCount		:= 0
+
+dbSelectArea("SED")
+aAreaSED := SED->(GetArea())
+SED->(DbSetOrder(1))
+
+If cTypeTrans == TRANS_RECEIVE
+
+	If cTypeMsg == EAI_MESSAGE_BUSINESS
+
+		oXmlFIN010 := XmlParser(cXml, "_", @cError, @cWarning)
+
+		If oXmlFIN010 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+
+			If Type("oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U"
+				cMarca := oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+
+		   	If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Identification:_key:Text") <> "U"
+		   	    cValExt := oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Identification:_key:Text
+		   	EndIf
+
+   			aValInt := F10GetInt(cValExt,cMarca)
+   			If aValInt[1]
+   				cValInt := aValInt[3]
+   			Endif
+
+			If Upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+				If !Empty(cValInt)
+					SED->(dbSeek(aValInt[2][2]+aValInt[2][3]))
+					nOpcExec:= 4
+				Else
+					nOpcExec:= 3
+				EndIf
+			Else
+				SED->(dbSeek(aValInt[2][2]+aValInt[2][3]))
+				nOpcExec := 5
+			EndIf
+
+			If !Empty(cValInt)
+				cNaturez := aValInt[2][3]
+			ElseIf nOpcExec== 3
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") <> "U"
+					cNaturez := Padr(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text,tamSx3("ED_CODIGO")[1])
+				Endif
+
+				While .T.
+					If SED->(DbSeek(xFilial("SED")+cNaturez))
+						cNaturez := GetSXENum("SED","ED_CODIGO")
+						ConfirmSX8()
+					Else
+						Exit
+					Endif
+				EndDo
+			Endif
+
+			If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_BranchId:Text") <> "U"
+				Aadd(aCab,{"ED_FILIAL"	,xFilial("SED")	,Nil})
+			EndIf
+
+			If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") <> "U"
+				Aadd(aCab,{"ED_CODIGO"	,cNaturez			,Nil })
+			EndIf
+
+			If nOpcExec <> 5
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Description:Text") <> "U"
+					Aadd(aCab,{"ED_DESCRIC",oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Description:Text, Nil})
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text") <> "U"
+					If upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text) = "SYNTHETIC"
+						Aadd(aCab,{"ED_TIPO", "1", Nil})
+					ElseIf upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text) = "ANALYTICAL"
+						Aadd(aCab,{"ED_TIPO", "2", Nil})
+					Endif
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text") <> "U"
+					If oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text = "Payable"
+						Aadd(aCab,{"ED_COND", "D", Nil})
+					ElseIf oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text = "Receivable"
+						Aadd(aCab,{"ED_COND", "R", Nil})
+					Endif
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text") <> "U"
+					If oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text = "0"
+						Aadd(aCab,{"ED_MSBLQL", "2", Nil})
+					ElseIf oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text = "1"
+						Aadd(aCab,{"ED_MSBLQL", "1", Nil})
+					Endif
+				EndIf
+			EndIf
+
+			MSExecAuto({|x, y| FINA010(x, y)}, aCab, nOpcExec)
+
+			If lMsErroAuto
+				aErroAuto := GetAutoGRLog()
+				For nCount := 1 To Len(aErroAuto)
+					cLogErro += '<Message type="ERROR" code="c2">' + _NoTags(RTrim(aErroAuto[nCount])) + '</Message>'
+				Next nCount
+				lRet    := .F.
+				cXMLRet	:= cLogErro
+			Else
+				If Empty(cValInt)
+					cValInt := F10MontInt(,cNaturez)
+				Endif
+				If nOpcExec <> 5 .And. !Empty(cValExt)	.And.!Empty(cValInt)
+					If CFGA070Mnt(cMarca,cAlias,cField,cValExt,cValInt)
+						cXMLRet += "<DestinationInternalID>" + cValInt + "</DestinationInternalID>"
+						cXMLRet += "<OriginInternalID>" + cValExt + "</OriginInternalID>"
+					EndIf
+				EndIf
+
+				If nOpcExec == 5
+	  		    	If !Empty(cValInt)
+				   		CFGA070Mnt(,cAlias,cField,,cValInt,.T.)
+             		Endif
+        		Endif
+			EndIf
+		Endif
+
+	ElseIf cTypeMsg == EAI_MESSAGE_RESPONSE
+
+		oXmlFIN010 := XmlParser(cXml, "_", @cError, @cWarning)
+
+		If oXmlFIN010 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+
+			If Type("oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U"
+				cMarca :=  oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+		   	If Type("oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_OriginInternalID:Text") <> "U"
+		   		cValInt := oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_OriginInternalID:Text
+		   	EndIf
+		   	If Type("oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DestinationInternalID:Text") <> "U"
+		   	    cValExt := oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DestinationInternalID:Text
+		   	EndIf
+
+			If !Empty(cValExt) .And. !Empty(cValInt)
+			    //Inclui ou Altera a Devolução do Envio para Outro ERP
+			    If !CFGA070Mnt(cMarca,cAlias,cField,cValExt,cValInt)
+					lRet    := .F.
+				Else
+					lRet    := .T.
+				Endif
+			Else
+			    If Upper(oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_Event:Text) == "UPSERT"
+					lRet    := .F.
+				Else
+					lRet    := .T.
+			    Endif
+			Endif
+		EndIf
+	Endif
+
+ElseIf cTypeTrans == TRANS_SEND
+
+	cValInt := F10MontInt(SED->ED_FILIAL,SED->ED_CODIGO)
+
+	If !Inclui .And. !Altera
+		cEvent := "delete"
+		If !Empty(cValInt)
+	   		CFGA070Mnt(,cAlias,cField,,cValInt,.T.)  // Deleta o XXF
+	    Endif
+	EndIf
+
+	cXMLRet :=	'<BusinessEvent>'
+	cXMLRet +=		'<Entity>' + cMessage + '</Entity>'
+	cXMLRet +=		'<Event>' + cEvent + '</Event>'
+	cXMLRet +=		'<Identification>'
+	cXMLRet +=			'<key name="InternalId">' + cValInt + '</key>'
+	cXMLRet +=		'</Identification>'
+	cXMLRet +=	'</BusinessEvent>'
+	cXMLRet +=	'<BusinessContent>'
+	cXMLRet +=		'<CompanyId>' + _NoTags(cEmpAnt) + '</CompanyId>'
+	cXMLRet +=		'<BranchId>' + _NoTags(cFilAnt) + '</BranchId>'
+	cXMLRet +=		'<Code>' + _NoTags(RTrim(SED->ED_CODIGO)) + '</Code>'
+	cXMLRet +=		'<Description>' + _NoTags(RTrim(SED->ED_DESCRIC)) + '</Description>'
+	If SED->ED_TIPO == '1'
+		cXMLRet +=		'<NatureType>Synthetic</NatureType>'
+	ElseIf SED->ED_TIPO == '2'
+		cXMLRet +=		'<NatureType>Analytical</NatureType>'
+	Else
+		cXMLRet +=		'<NatureType/>'
+	Endif
+	If SED->ED_COND == 'D'
+		cXMLRet +=		'<UseCategory>Payable</UseCategory>'
+	ElseIf SED->ED_COND == 'R'
+		cXMLRet +=		'<UseCategory>Receivable</UseCategory>'
+	Else
+		cXMLRet +=		'<UseCategory/>'
+	Endif
+	cXMLRet +=		'<Blocked>' + If(SED->ED_MSBLQL == '1', '1', '0') + '</Blocked>'
+	cXMLRet +=	'</BusinessContent>'
+Endif
+
+RestArea(aAreaSED)
+RestArea(aArea)
+
+Return {lRet, cXMLRet}
+
+
+/*/{Protheus.doc} v2000
+Versão 2.x da mensagem (recebimento e envio).
+
+@author  Wilson P. Godoi
+@version Protheus 12
+@since   28/03/2012
+/*/
+Static Function v2000(cXml, cTypeTrans, cTypeMsg, cVersion)
+
+Local lRet			:= .T.
+Local cXMLRet		:= ""
+Local cValInt		:= ""
+Local cValExt		:= ""
+Local cError		:= ""
+Local cWarning		:= ""
+Local cLogErro		:= ""
+Local cMarca		:= ""
+Local cNaturez		:= ""
+Local cEvent		:= "upsert"
+Local cAlias		:= "SED"
+Local cField		:= "ED_CODIGO"
+Local aNatPai		:= {}
+Local aArea			:= GetArea()
+Local aAreaSED		:= {}
+Local aErroAuto		:= {}
+Local aCab			:= {}
+Local aValInt		:= {}
+Local nOpcexec		:= 3
+Local nCount		:= 0
+
+dbSelectArea("SED")
+aAreaSED := SED->(GetArea())
+SED->(DbSetOrder(1))
+
+If cTypeTrans == TRANS_RECEIVE
+
+	If cTypeMsg == EAI_MESSAGE_BUSINESS
+		oXmlFIN010 := XmlParser(cXml, "_", @cError, @cWarning)
+
+		If oXmlFIN010 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+
+			// Recebe Nome do Produto (ex: RM ou PROTHEUS) e guarda na variavel cMarca
+			If Type("oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U"
+				cMarca := oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+			// Recebe o codigo da Conta no Cadastro externo e guarda na variavel cValExt
+		   	If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Identification:_key:Text") <> "U"
+		   	    cValExt := oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Identification:_key:Text
+		   	EndIf
+
+			//----------------------------------------------------------------------------------------
+			//-- procura a Marca,Alias,Codigo na Tabela XXF de De/Para para ver se Existe o Código
+			//----------------------------------------------------------------------------------------
+   			aValInt := F10GetInt(cValExt,cMarca)
+   			If aValInt[1]
+   				cValInt := aValInt[3]
+   			Endif
+
+			If Upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+				If !Empty(cValInt)
+					SED->(dbSeek(aValInt[2][2]+aValInt[2][3]))
+					nOpcExec:= 4
+				Else
+					nOpcExec:= 3
+				EndIf
+			Else
+				SED->(dbSeek(aValInt[2][2]+aValInt[2][3]))
+				nOpcExec := 5
+			EndIf
+
+			If !Empty(cValInt)
+				cNaturez := aValInt[2][3]
+			ElseIf nOpcExec== 3
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") <> "U"
+					cNaturez := Padr(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text,tamSx3("ED_CODIGO")[1])
+				Endif
+
+				While .T.
+					If SED->(DbSeek(xFilial("SED")+cNaturez))
+						cNaturez := GetSXENum("SED","ED_CODIGO")
+						ConfirmSX8()
+					Else
+						Exit
+					Endif
+				EndDo
+			Endif
+
+			If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_BranchId:Text") <> "U"
+				Aadd(aCab,{"ED_FILIAL"	,xFilial("SED")	,Nil})
+			EndIf
+
+			If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") <> "U"
+				Aadd(aCab,{"ED_CODIGO"	,cNaturez			,Nil })
+			EndIf
+
+			If nOpcExec <> 5
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Description:Text") <> "U"
+					Aadd(aCab,{"ED_DESCRIC",oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Description:Text, Nil})
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text") <> "U"
+					If upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text) = "SYNTHETIC"
+						Aadd(aCab,{"ED_TIPO", "1", Nil})
+					ElseIf upper(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_NatureType:Text) = "ANALYTICAL"
+						Aadd(aCab,{"ED_TIPO", "2", Nil})
+					Endif
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text") <> "U"
+					If oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text = "Payable"
+						Aadd(aCab,{"ED_COND", "D", Nil})
+					ElseIf oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UseCategory:Text = "Receivable"
+						Aadd(aCab,{"ED_COND", "R", Nil})
+					Endif
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text") <> "U"
+					If oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text = "0"
+						Aadd(aCab,{"ED_MSBLQL", "2", Nil})
+					ElseIf oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Blocked:Text = "1"
+						Aadd(aCab,{"ED_MSBLQL", "1", Nil})
+					Endif
+				EndIf
+
+				If Type("oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TopCodeInternalId:Text") <> "U"
+					If empty(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TopCodeInternalId:Text)
+						aAdd(aCab,{"ED_PAI", "", Nil})
+					Else
+						aNatPai := F10GetInt(oXmlFIN010:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TopCodeInternalId:Text, cMarca)
+						If aNatPai[1] .and. aNatPai[2, 1] == cEmpAnt .and. aNatPai[2, 2] == xFilial("SED")
+							aAdd(aCab,{"ED_PAI", aNatPai[2, 3], Nil})
+						Else
+							aAdd(aCab,{"ED_PAI", "", Nil})
+						Endif
+					Endif
+				EndIf
+			EndIf
+
+			MSExecAuto({|x, y| FINA010(x, y)}, aCab, nOpcExec)
+
+			If lMsErroAuto
+				aErroAuto := GetAutoGRLog()
+				For nCount := 1 To Len(aErroAuto)
+					cLogErro += '<Message type="ERROR" code="c2">' + _NoTags(RTrim(aErroAuto[nCount])) + '</Message>'
+				Next nCount
+				lRet    := .F.
+				cXMLRet	:= cLogErro
+			Else
+				If Empty(cValInt)
+					cValInt := F10MontInt(,cNaturez)
+				Endif
+				If nOpcExec <> 5 .And. !Empty(cValExt)	.And.!Empty(cValInt)
+					If CFGA070Mnt(cMarca,cAlias,cField,cValExt,cValInt)
+						// Monta o XML de retorno
+			       	cXMLRet := "<ListOfInternalId>"
+			          	cXMLRet +=     "<InternalId>"
+			          	cXMLRet +=         "<Name>" + cMessage + "</Name>"
+			          	cXMLRet +=         "<Origin>" + cValExt + "</Origin>"
+			          	cXMLRet +=         "<Destination>" + cValInt + "</Destination>"
+			          	cXMLRet +=     "</InternalId>"
+			          	cXMLRet += "</ListOfInternalId>"
+					EndIf
+				EndIf
+				If nOpcExec == 5
+	  		    	If !Empty(cValInt)
+				   		CFGA070Mnt(,cAlias,cField,,cValInt,.T.)
+             		Endif
+        		Endif
+			EndIf
+		Endif
+
+	ElseIf cTypeMsg == EAI_MESSAGE_RESPONSE
+
+		oXmlFIN010 := XmlParser(cXml, "_", @cError, @cWarning)
+
+		If oXmlFIN010 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+
+			If Type("oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text") <> "U"
+				cMarca := oXmlFIN010:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			EndIf
+
+			cEvent := Type("oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId")
+           	If cEvent <> "U" .And. cEvent <> "A"
+       	     	XmlNode2Arr(oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId, "_InternalId")
+
+           		// Verifica se o código interno foi informado
+           		If Type("oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Origin:Text") != "U" ;
+           				.And. !Empty(oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Origin:Text)
+					cValInt := oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Origin:Text
+           		EndIf
+
+           		// Verifica se o código externo foi informado
+           		If Type("oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Destination:Text") != "U" ;
+           				.And. !Empty(oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Destination:Text)
+					cValExt := oXmlFIN010:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[1]:_Destination:Text
+           		EndIf
+
+       			If !Empty(cMarca) .And. !Empty(cValInt) .And. !Empty(cValExt)
+					If !CFGA070Mnt(cMarca,cAlias,cField,cValExt,cValInt)
+						lRet := .F.
+					Else
+						lRet := .T.
+					Endif
+				Else
+					lRet := .F.
+				Endif
+			Endif
+		EndIf
+	Endif
+ElseIf cTypeTrans == TRANS_SEND
+
+	If !Inclui .And. !Altera
+		cEvent := "delete"
+		If !Empty(cValInt)
+	   		CFGA070Mnt(,cAlias,cField,,cValInt,.T.)  // Deleta o XXF
+	    Endif
+	EndIf
+	cValInt := F10MontInt(SED->ED_FILIAL, SED->ED_CODIGO)
+	cXMLRet :=	'<BusinessEvent>'
+	cXMLRet +=		'<Entity>' + cMessage + '</Entity>'
+	cXMLRet +=		'<Event>' + cEvent + '</Event>'
+	cXMLRet +=		'<Identification>'
+	cXMLRet +=			'<key name="InternalId">' + cValInt + '</key>'
+	cXMLRet +=		'</Identification>'
+	cXMLRet +=	'</BusinessEvent>'
+	cXMLRet +=	'<BusinessContent>'
+	cXMLRet +=		'<CompanyId>' + _NoTags(cEmpAnt) + '</CompanyId>'
+	cXMLRet +=		'<BranchId>' + _NoTags(cFilAnt) + '</BranchId>'
+	cXMLRet +=		'<CompanyInternalId>' + _NoTags(cEmpAnt + "|" + cFilAnt) + '</CompanyInternalId>'
+	cXMLRet +=		'<InternalId>' + cValInt + '</InternalId>'
+	cXMLRet +=		'<Code>' + _NoTags(RTrim(SED->ED_CODIGO)) + '</Code>'
+	cXMLRet +=		'<Description>' + _NoTags(RTrim(SED->ED_DESCRIC)) + '</Description>'
+	If SED->ED_TIPO == '1'
+		cXMLRet +=		'<NatureType>Synthetic</NatureType>'
+	ElseIf SED->ED_TIPO == '2'
+		cXMLRet +=		'<NatureType>Analytical</NatureType>'
+	Else
+		cXMLRet +=		'<NatureType/>'
+	Endif
+	If SED->ED_COND == 'D'
+		cXMLRet +=		'<UseCategory>Payable</UseCategory>'
+	ElseIf SED->ED_COND == 'R'
+		cXMLRet +=		'<UseCategory>Receivable</UseCategory>'
+	Else
+		cXMLRet +=		'<UseCategory/>'
+	Endif
+	cXMLRet +=		'<Blocked>' + If(SED->ED_MSBLQL == '1', '1', '0') + '</Blocked>'
+	If cVersion >= '2.001'
+		cXMLRet +=		'<TopCodeInternalId>' + If(empty(SED->ED_PAI), "", F10MontInt(SED->ED_FILIAL, SED->ED_PAI)) + '</TopCodeInternalId>'
+	Endif
+	cXMLRet +=	'</BusinessContent>'
+Endif
+
+RestArea(aAreaSED)
+RestArea(aArea)
+
+Return {lRet, cXMLRet}
+
+
+/*{Protheus.doc} F100MontInt
+Recebe um registro no Protheus e gera o InternalId deste registro
+
+@param	cFil	Filial do Registro
+@Param	cCod	Codigo da Natureza
+
+
+@author  Jandir Deodato
+@version P11.8
+@since   30/04/13
+@return  cRetorno - Retorna o InternalId do registro
+
+@sample  exemplo de retorno - {'Empresa'|'xFilial'|'codigo'}}
+*/
+Function F10MontInt(cFil, cCod)
+Local cRetCode := cEmpAnt + '|' + xFilial("SED", cFil) + '|' + RTrim(cCod)
+Return cRetCode
+
+
+/*{Protheus.doc} F10GetInt
+Recebe um codigo, busca seu internalId e faz a quebra da chave
+
+@param   cCode		 InternalID recebido na mensagem.
+@param   cMarca      Produto que enviou a mensagem
+
+
+@author  Jandir Deodato
+@version P11.8
+@since   30/04/13
+@return  aRetorno Array contendo os campos da chave primaria da natureza e o seu internalid.
+
+@sample  exemplo de retorno - {.T., {'Empresa', 'xFilial', 'Codigo'}, InternalId}
+*/
+Function F10GetInt(cCode, cMarca)
+
+Local cValInt:=''
+Local aRetorno:={}
+Local aAux:={}
+Local nX:=0
+Local aCampos:={cEmpAnt,'ED_FILIAL','ED_CODIGO'}
+
+cValInt:= CFGA070Int(cMarca, 'SED', 'ED_CODIGO', cCode)
+
+If !Empty(cValInt)
+	aadd(aRetorno,.T.)
+	aAux:=Separa(cValInt,'|')
+	aadd(aRetorno,aAux)
+	aadd(aRetorno,cValInt)
+	aRetorno[2][1]:=Padr(aRetorno[2][1],Len(cEmpAnt))
+	For nx:=2 to len (aRetorno[2])//corrigindo  o tamanho dos campos
+		aRetorno[2][nX]:=Padr(aRetorno[2][nX],TamSX3(aCampos[nx])[1])
+	Next
+Else
+	aadd(aRetorno,.F.)
+Endif
+
+Return aRetorno

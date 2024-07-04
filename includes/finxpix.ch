@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Información identificada en el QR Code"
+	#define STR0002 "Beneficiario:"
+	#define STR0003 "Valor:"
+	#define STR0004 "Moneda:"
+	#define STR0005 "CP:"
+	#define STR0006 "Ciudad:"
+	#define STR0007 "País:"
+	#define STR0008 "¡Debe informarse el E-mail pix!"
+	#define STR0009 "¡E-mail pix no válido!"
+	#define STR0010 "El e-mail debe contener '@', así como '.' Ejemplo: seumail@empresa.com.br"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Information identified in the QR Code"
+		#define STR0002 "Beneficiary:"
+		#define STR0003 "Value:"
+		#define STR0004 "Currency:"
+		#define STR0005 "Postal Code:"
+		#define STR0006 "City:"
+		#define STR0007 "Country :"
+		#define STR0008 "Enter Pix e-mail."
+		#define STR0009 "PIX e-mail not valid."
+		#define STR0010 "Enter field PIX e-mail"
+	#else
+		#define STR0001 "Informações Identificadas no QR Code"
+		#define STR0002 "Beneficiário : "
+		#define STR0003 "Valor : "
+		#define STR0004 "Moeda : "
+		#define STR0005 "CEP : "
+		#define STR0006 "Cidade : "
+		#define STR0007 "País : "
+		#define STR0008 "O E-mail pix deve ser informado!"
+		#define STR0009 "E-mail pix inválido!"
+		#define STR0010 "O e-mail deve conter '@', assim como '.' Exemplo : seumail@empresa.com.br"
+	#endif
+#endif

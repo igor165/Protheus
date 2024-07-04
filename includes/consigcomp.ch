@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Aviso de integración"
+	#define STR0002 "No fue posible realizar la consulta de operadoras disponibles para el TOTVS Consignado. Servicio no disponible o datos para conexión no válidos."
+	#define STR0003 "Error al consultar operadoras."
+	#define STR0004 "Consulta de operadoras"
+	#define STR0005 "Seleccione a continuación, la operadora que se utilizará:"
+	#define STR0006 "Campos obligatorios no informados."
+	#define STR0007 "La sucursal seleccionada debe estar de acuerdo con el modo de uso compartido de la tabla RCC."
+	#define STR0008 "Existen campos obligatorios repetidos."
+	#define STR0009 "Error en la grabación"
+	#define STR0010 "Informe una sucursal válida o deje el campo en blanco."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Integration Notice"
+		#define STR0002 "Unable to query carriers available for TOTVS Consigned. Service unavailable or connection data not valid."
+		#define STR0003 "Error in Carriers query."
+		#define STR0004 "Carriers Query"
+		#define STR0005 "Choose below which carrier to use:"
+		#define STR0006 "Some required fields are not filled out."
+		#define STR0007 "The branch selected must agree with the sharing mode of RCC table."
+		#define STR0008 "Required fields repeated."
+		#define STR0009 "Recording Error"
+		#define STR0010 "Enter a valid branch or leave the field blank."
+	#else
+		#define STR0001 "Aviso Integração"
+		#define STR0002 "Não foi possível realizar a consulta de operadoras disponíveis para o TOTVS Consignado. Serviço indisponível ou dados para conexão inválidos."
+		#define STR0003 "Erro ao consultar Operadoras."
+		#define STR0004 "Consulta de Operadoras"
+		#define STR0005 "Escolha abaixo qual operadora será utilizada:"
+		#define STR0006 "Há campos obrigatórios não preenchidos."
+		#define STR0007 "A filial selecionada deve estar de acordo com o modo de compartilhamento da tabela RCC."
+		#define STR0008 "Há campos obrigatórios repetidos."
+		#define STR0009 "Erro na Gravação"
+		#define STR0010 "Informe uma filial válida ou deixe o campo em branco."
+	#endif
+#endif

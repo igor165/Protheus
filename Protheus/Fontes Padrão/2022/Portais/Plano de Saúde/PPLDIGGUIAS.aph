@@ -1,0 +1,864 @@
+<%
+#DEFINE nTamTab "920"
+#DEFINE nTamFs  "890"
+#DEFINE nLarBrw "890"
+#DEFINE nAltBrw "210"	
+#DEFINE cBrwGrid "BrwGrid"
+
+LOCAL oHtml 	:= WCHtml():New() 
+LOCAL aStatG	:= {"1=Em Digitação","3=Finalizada","2=Em Conferência (Divergências)"}
+httpSession->lMosGui := .T.
+httpSession->lBloqGui := .T.
+
+%>
+<%=oHtml:getDType(,.T.) %> 
+
+<script language="JavaScript">
+<!--
+
+cCODUS			= "";
+cCRDA			= "";
+cBENE			= "";
+var cTipoGuia 	= "";
+var oGuias;
+var cBrwGrid 	= <%="'"+cBrwGrid+"'"%>;
+var lCallBackOp = false;
+var cRecnoAlteracao = "";
+var cDataLimit = "";
+var cRecnoBD5 = ""
+var cMatricGlobal = "";
+var cCodRdaGlobal = "";
+var cCodLocGlogal = "";
+var cNumeTot	  = "";
+
+document.onkeydown = blockEsc; /* Bloqueia a tecla ESC */
+
+/* --------------------------------- INÍCIO LOAD GRID DAS GUIAS --------------------------------- */
+function fExibGui() { 
+	var dDatIni  	= (isEmpty(getField('Field_DTINICIAL'))	? "" : getField('Field_DTINICIAL'));       
+	var dDatFin 	= (isEmpty(getField('Field_DTFINAL')) 	? "" : getField('Field_DTFINAL'));
+	var cNumGui  	= (isEmpty(getField('Field_NUMGUI'))  	? "" : getField('Field_NUMGUI'));
+	var cTipoGuia	= (isEmpty(getField('Field_CTIPOS')) 	? "" : getField('Field_CTIPOS'));	
+	var cStatus		= (isEmpty(getField('Field_STATUSDIG'))	? "" : getField('Field_STATUSDIG'));	
+	var cPrest		= (isEmpty(getField('Field_PREST'))		? "" : getField('Field_PREST'));	
+
+	var cWhere	= "Field_PREST="+cPrest+"|Field_CTIPOS="+cTipoGuia+"|Field_DTINICIAL="+dDatIni+"|Field_DTFINAL="+dDatFin+"|Field_NUMGUI="+cNumGui+"|Field_STATUSDIG="+cStatus;
+
+	if (isEmpty(cPrest) || isEmpty(cTipoGuia) || isEmpty(cStatus) ){
+		putAlertMsg("alertWarningMsgs", "warningMsgAlert", "Preencha pelo menos os seguintes campos: Prestador, Tipo de Guia e Status Digitação!");
+		return;
+	}
+
+	var cBuscaTReg = getGridCall(cBrwGrid,'fExibGui');
+
+	Ajax.open("W_PPLGETDGRI.APW?cFunName=PLSRETDIGG&nPagina=" + getField(cBrwGrid+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg , {
+				callback: carregaGridGuias, 
+				error: exibeErroAlert} );	
+
+//Vou armazenar localmente os dados inseridos para pesquisa, para sempre recuperar ao voltar a página. Caso feche o navegador ou passe o tempo de 10 minutos, a sessão é apagada.	
+sessionStorage.setItem("cItens", cPrest + '-' + cTipoGuia + '-' + dDatIni + '-' + dDatFin + '-' + cNumGui + '-' + cStatus);
+sessionStorage.setItem("acesso", Date.now());
+
+}    
+
+function putAlertMsg(cIdAlert, cIdSpan, cMsg){
+	document.getElementById(cIdSpan).innerHTML = "";
+	document.getElementById(cIdSpan).innerHTML = cMsg;
+	$("#"+cIdAlert).show("slow"); 		
+	setTimeout(function() { $("#"+cIdAlert).hide("slow"); }, 5000);
+}                  
+
+function carregaGridGuias(v) { 
+	var aResult 	= v.split("|");
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+	var nRegPagina 	= aResult[3];
+    var aHeader 	= eval(aResult[4]);
+	var lContinua	= eval(aResult[7]);
+	var nPagAtual	= aResult[8];
+    var aPesquisa	= aResult[9].split("&");
+	var aBtnFunc 	= "[{info:'Excluir',img:'004.gif',funcao:'excluirGuia'},{info:'Editar',img:'lapis.gif',funcao:'alterarGuia'},{info:'Outras Despesas',img:'items.png',funcao:'incluirOutrasDespesas'},{info:'Listar Críticas',img:'message.png',funcao:'listasCriticas'}]";
+	var cMsg 		= aResult[6];
+	var cCodOff		= eval(<%=httpSession->cCodOff%>);
+	var nPosicLcDig = 0
+	
+	var aDadProt 	= (lContinua) ? eval(aResult[5]) : aDadProt;	
+	
+	if (lContinua) {
+		//Alimenta hidden com o tipo das guias selecionado para posterior utilização na função de retornar fase da guia para digitação
+		document.getElementById('Field_cTipoGuia').value = (isEmpty(getField('Field_CTIPOS')) ? "" : getField('Field_CTIPOS'));	
+
+		//Alimenta hidden com informações do prestador para possível inserção de outras despesas
+		document.getElementById('Field_comboPrest').value = (isEmpty(getField('Field_PREST')) ? "" : getField('Field_PREST'));
+
+		oGuias = new gridData(cBrwGrid,<%=nLarBrw%>,<%=nAltBrw%>);
+		
+		//Checar local de Digitação
+		for (var nFor=0;nFor<aDadProt.length;nFor++)
+		{ 
+			if (aDadProt[nFor][nPosicLcDig].value == cCodOff)
+			{
+				aDadProt[nFor][nPosicLcDig].value = "<img src='imagens-pls/bt_preto.gif'>";//"Dig. de Guias";
+			} else {
+				aDadProt[nFor][nPosicLcDig].value = "<img src='imagens-pls/bt_azul.gif'>";//"Atendimento"
+			}			
+			// ajuste temporario para nomes com apostrofos
+            if (aDadProt[nFor][7].field == "BD5_NOMUSR" && aDadProt[nFor][7].value.indexOf("%") > -1 ){
+                aDadProt[nFor][7].value = aDadProt[nFor][7].value.replace(/%/g, "'");
+            }
+			if (aDadProt[nFor][7].field == "BE4_NOMUSR" && aDadProt[nFor][7].value.indexOf("%") > -1 ){
+                aDadProt[nFor][7].value = aDadProt[nFor][7].value.replace(/%/g, "'");
+            }
+		}
+
+		//Agora, o usuário pode excluir guia em qualquer etapa, bem como editar em qualquer situação da guia
+		oGuias.load({	fFunName:'fExibGui',
+						nRegPagina:nRegPagina,
+						nQtdReg:nQtdReg,
+						nQtdPag:nQtdPag,
+						lOverflow:true,						
+						aBtnFunc:aBtnFunc,
+						lChkBox:true,
+						lShowLineNumber:true,						
+						aHeader:aHeader,
+						aCols:aDadProt,
+						cColLeg:'STATUS',
+						aCorLeg:"[{valor:'1',imgcor:'icon-yellow'},{valor:'3',imgcor:'icon-green'},{valor:'2',imgcor:'icon-red'}]"}); 
+
+		//Tratamento para exibição do botão "Incluir Outras Despesas" somente se as guias exibidas foram SADT ou Resumo de Internação.
+		var OutrasDesp = (getField('Field_cTipoGuia') != "2" && getField('Field_cTipoGuia') != "5") ? true : false;
+
+		if(oGuias.aCols.length > 0 ) { 
+			updGridSchemeColor();
+			var z = 0;
+			var w = 0;
+			var imgOutDesp = null;
+			var oCell = null;
+			var oTable = oGuias.getObjCols();
+
+			while (z < oTable.rows.length){
+				for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+					var lAchou = false;
+					oCell = oTable.rows[z].cells[w];
+					if((oCell.innerHTML).search("items.png") != -1){
+						//Encontrou a coluna de inclusão de outras despesas
+						imgOutDesp = $(oCell).find("img[src$='items.png']")[0];
+						imgOutDesp.style.display = (OutrasDesp) ? 'none' : 'block';
+						var idTb = oGuias.cNameTab;
+						col = $( "#" + idTb + " tr th:nth-child(" + (oCell.cellIndex + 1) + "), " + "#" + idTb + " tr td:nth-child(" + (oCell.cellIndex + 1) +")");
+        				(OutrasDesp) ? col.hide() : col.show();		
+						lAchou = true;				
+					}
+				}
+				if(lAchou)
+					break;
+				z++;
+			}
+		
+		}
+		
+		//Tratamento para exibição do botão "Listar Críticas" somente se for no status Em Conferência, sem dar o problema de sumir o cabeçalho da coluna quando for listar as críticas.
+		var listCritic = (getField('Field_STATUSDIG') != "2") ? true : false;
+		if(oGuias.aCols.length > 0) { // && getField('Field_STATUSDIG') != "2") {
+			var z = 0;
+			var w = 0;
+			var imgOutDesp = null;
+			var oCell = null;
+			var oTable = oGuias.getObjCols();
+
+			while (z < oTable.rows.length){
+				for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+					var lAchou = false;
+					oCell = oTable.rows[z].cells[w];
+					if((oCell.innerHTML).search("message.png") != -1){
+						//Encontrou a coluna de inclusão de outras despesas
+						imgOutDesp = $(oCell).find("img[src$='message.png']")[0];
+						imgOutDesp.style.display = (listCritic) ? 'none' : 'block';
+						var idTb = oGuias.cNameTab;
+						col = $( "#" + idTb + " tr th:nth-child(" + (oCell.cellIndex + 1) + "), " + "#" + idTb + " tr td:nth-child(" + (oCell.cellIndex + 1) +")");
+        				(listCritic) ? col.hide() : col.show();		
+						lAchou = true;				
+					}
+				}
+				if(lAchou)
+					break;
+				z++;
+			}
+		}
+					
+				
+//esconder o checkbox do grid
+		if(oGuias.aCols.length > 0 ) {
+			var z = 0;
+			var w = 0;
+			var imgOut = null;
+			var oCell = null;
+			var oTable = oGuias.getObjCols();
+
+			while (z < oTable.rows.length){
+				for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+					var lAchou = false;
+					oCell = oTable.rows[z].cells[w];
+					if((oCell.innerHTML).search("checkbox") != -1){
+						//Encontrou a coluna de inclusão de outras despesas
+						imgOut = $(oCell).find("input")[0];
+						imgOut.type = "hidden";
+						var idTb = oGuias.cNameTab;
+						col = $( "#" + idTb + " tr th:nth-child(" + (oCell.cellIndex + 1) + "), " + "#" + idTb + " tr td:nth-child(" + (oCell.cellIndex + 1) +")");
+        				col.hide();		
+						lAchou = true;				
+					}
+	}
+				if(lAchou)
+					break;
+				z++;
+			}
+		}
+
+//fim
+
+				
+	}
+	
+	//Se for callback de 'exclusão' ou 'voltar para digitação', não mostra a mensagem de erro.
+	if ( !lCallBackOp && !isEmpty(cMsg) ) { 
+		putAlertMsg("alertWarningMsgs", "warningMsgAlert", cMsg);
+	}
+
+	lCallBackOp = false; //Retorna para o estado default false a variavel que define se irá mostrar ou não a mensagem de erro.
+}
+/* --------------------------------- FIM LOAD GRID DAS GUIAS --------------------------------- */
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Muda a label do campo e sua máscara
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+function TrocaNomDadSol() { 
+var nTipo = document.querySelector("#Field_CTIPOS").selectedIndex;
+	if (nTipo != '5') {
+		document.querySelector("#Field_MATRIC").parentNode.parentNode.getElementsByTagName("label")[0].childNodes[0].textContent = 'Carteirinha/Matrícula Beneficiário:';
+		document.getElementById('Field_MATRIC').value = '';
+		$("#Field_MATRIC").unmask();
+		document.querySelector("#BField_MATRIC").style.opacity = 0;
+		document.querySelector("#BField_MATRIC").disabled = true;
+ 	}
+ 	else {
+		document.querySelector("#Field_MATRIC").parentNode.parentNode.getElementsByTagName("label")[0].childNodes[0].textContent = 'Informe o número da Solicitação de Internação:';
+		document.getElementById('Field_MATRIC').value = '';
+		$("#Field_MATRIC").unmask().mask("9999.9999.99-99999999"); 
+		document.querySelector("#BField_MATRIC").style.opacity = 1;
+		document.querySelector("#BField_MATRIC").disabled = false;
+	}	
+}
+
+
+function VerfPreench() {
+var cPrest	= (isEmpty(getField('Field_PREST'))		? "" : getField('Field_PREST'));	
+cPrest = cPrest.split("|");	
+cCodRdaGlobal = cPrest[0];
+	if (isEmpty(cCodRdaGlobal)){ 
+		modalBS("Atenção", "Informe a RDA", "@Fechar~closeModalBS();", "white~red", "large");
+	} else {
+	ChamaPoP('W_PPLSXF3.APW?cFunName=PLF3BE4RI&cVldGen='+cCodRdaGlobal+'&F3Nome=Field_MATRIC&F3CmpDes=Field_MATRIC,Field_MATRESINT','jF3','yes');
+	}
+}
+
+
+/* --------------------------------- INÍCIO INCLUSÃO --------------------------------- */
+function incluirGuia() {	
+	cTipoGuia	= (isEmpty(getField('Field_CTIPOS'))	? "" : getField('Field_CTIPOS'));	
+	var cMatric	= (isEmpty(getField('Field_MATRIC'))	? "" : getField('Field_MATRIC'));	
+	var cPrest	= (isEmpty(getField('Field_PREST'))		? "" : getField('Field_PREST'));
+	var dDatAtd = (isEmpty(getField('Field_DataAtd'))	? "" : getField('Field_DataAtd'));	
+	
+	cPrest = cPrest.split("|");	
+	var cRda 	 = cPrest[0];
+	var cCodLoc	 = cPrest[1];
+	cCodRdaGlobal = cPrest[0];
+	
+	//Verifica conteudo dos campos para inclusão e mostra mensagem bootstrap caso algum esteja vazio    ³
+	if ((cTipoGuia == "") || (cPrest == "") || (cMatric == "") || (dDatAtd == "")) {
+		if (cTipoGuia != '5')
+			putAlertMsg("alertWarningMsgs", "warningMsgAlert", "Preencha todos os campos para inclusão (Prestador, Tipo de Guia, Matrícula e data do atendimento).");		
+		else
+			putAlertMsg("alertWarningMsgs", "warningMsgAlert", "Preencha todos os campos para inclusão (Prestador, Tipo de Guia, Solicitação de Internação e data do atendimento).");
+					
+		return;
+	}		
+
+	if (cTipoGuia != '5') {	
+	//Valida matrícula do beneficiário
+	Ajax.open("W_PPLSDADUSR.APW?TrilhaCard="+cMatric+"&lPreAten=false&cRda="+cRda+"&cCodLoc="+cCodLoc+"&lDigiRetro=true&dDtaAtd="+dDatAtd, {callback: chkMatric, error: exibeErroAlert} );	
+	} else {
+		Ajax.open("W_PPLVerSInt.APW?cCodGuia="+cMatric+"&dDtaAtd="+dDatAtd+"&cRda="+cRda, {callback: VerIncRecint, error: exibeErroAlert} );		
+	}	
+}
+
+function VerIncRecint(v) {
+	var cMatric	= (isEmpty(getField('Field_MATRESINT'))	? v.split("|")[2] : getField('Field_MATRESINT'));
+	var dDatAtd = (isEmpty(getField('Field_DataAtd'))	? "" : getField('Field_DataAtd'));	
+	var cPrest	= (isEmpty(getField('Field_PREST'))		? "" : getField('Field_PREST'));
+	var cNumSol = (isEmpty(getField('Field_MATRIC'))	? "" : getField('Field_MATRIC'));
+	var cResposta = v.split("|")[0];
+	var cNumGuiTrc = v.split("|")[1];
+	cPrest = cPrest.split("|");	
+	var cRda 	 = cPrest[0];
+	var cCodLoc	 = cPrest[1];
+
+	if (cResposta != "S") {
+		putAlertMsg("alertWarningMsgs", "warningMsgAlert", v);	
+		return;
+	} else {
+		document.getElementById("Field_cNumGuiaTrc").value = cNumGuiTrc;   
+		
+		Ajax.open("W_PPLSDADUSR.APW?TrilhaCard="+cMatric+"&lPreAten=false&cRda="+cRda+"&cCodLoc="+cCodLoc+"&lDigiRetro=true&dDtaAtd="+dDatAtd, {callback: chkMatric, error: exibeErroAlert} );
+	}
+}
+
+function chkMatric(v) {	
+
+	cDataLimit = v.split("@")[1];
+
+	v = v.split("@")[0];	
+
+	var aResults = v.split("#");
+	var aResult;
+	var z = (aResults.length) > 1 ? aResults[0] : v;  
+	var critica = "";
+
+	if (z.length == 1) {
+		aResult = z.split(" ");
+   		cCapIde	= aResult[1];
+	} else {
+		aResult = z.split("|");
+		cCapIde		= aResult[1];
+  	}  
+	
+	if (aResult[0] == "T") {
+		for (var i=1;i<aResult.length;i++) 
+			critica += aResult[i];		
+
+		putAlertMsg("alertDangerMsgs", "dangerMsgAlert", critica);		
+	} else if (aResult[0] == "N"){
+		//Redireciona para o formulário de digitação de guias - inclusão
+		carregarDigitacaoIncGuia(false);		
+	}	
+}    
+
+function carregarDigitacaoIncGuia(lOutDesp){
+	if(typeof lOutDesp == "undefined") lOutDesp = false;
+	var cPrest	= (lOutDesp ? getField('Field_comboPrest') : getField('Field_PREST')).split("|");		
+	var cRda 	 = cPrest[0];
+	var cCodLoc	 = cPrest[1];	
+	var cPagina  = "";
+	var cTipoOrigem = "";
+	var dDtLimRetro = "";
+	
+	var cNumSol = (isEmpty(getField('Field_MATRIC'))	? "" : getField('Field_MATRIC'));	
+	var cNumGuiTrc = (isEmpty(getField('Field_cNumGuiaTrc'))	? "" : getField('Field_cNumGuiaTrc')); 
+
+	if(cNumGuiTrc != "")
+		cNumSol = cNumSol + "|" + cNumGuiTrc;
+	
+	dDtLimRetro = CalcDateBase64(cDataLimit);		
+
+	cPagina = "W_PPLCHAATE.APW";
+	
+	cTipoGuia = (lOutDesp ? "12" : cTipoGuia);
+
+	switch(cTipoGuia){
+		case "1": //Consulta
+			cTipoOrigem = "consulta|1";
+		break;
+
+		case "2": //SADT
+			cTipoOrigem = "sadt|1";
+		break;
+
+		case "3": //Internação
+			cTipoOrigem = "internacao|1";
+		break;
+		
+		case "4": //Odonto
+			cTipoOrigem = "odonto|1";
+		break;
+		
+		case "6": //Honorários
+			cTipoOrigem = "honorario|1";
+		break;
+
+		case "12": //Outras despesas
+			cTipoOrigem = "outrasdesp|1";
+		break;
+		
+		case "5": //Resumo de Internação
+			cTipoOrigem = "resumoint|1&" + "cNumGuiRef=" + cNumSol;
+		break;
+
+	}
+
+	document.forms[0].action = cPagina;
+	document.forms[0].action += "?cRda="+cRda;
+	document.forms[0].action += "&cCodLoc=" + cCodLoc;
+	document.forms[0].action += "&cTp=" + cTipoGuia;
+	document.forms[0].action += "&cTipoOrigem=" + cTipoOrigem;
+	document.forms[0].action += "&cDigiGui=Digitacao";
+	document.forms[0].action += (dDtLimRetro != "" ? "&dDtLimRetro=" + dDtLimRetro : "");
+	if(lOutDesp){
+		document.forms[0].action += "&cTpGuiRef="  + getField('Field_cTipoGuia');
+        document.forms[0].action += "&cNumGuiRef=" + getField('Field_cGuiaRef');
+		document.forms[0].action += "&cRecGuiRef=" + cRecGuiRef;
+		document.forms[0].action += "&cDatAtd=" + CalcDateBase64(dDatAtd);
+	}
+
+	document.forms[0].submit();
+}
+/* --------------------------------- FIM INCLUSÃO --------------------------------- */
+
+/* --------------------------------- INÍCIO EXCLUSÃO --------------------------------- */
+function excluirGuia(cRecno) {
+	var aResult = cRecno.split("~");
+	modalBS('<i class="fa fa-exclamation-triangle" style="font-weight: bold; color: #000; text-shadow: 0 1px 0 #fff; filter: alpha(opacity=20); opacity: .2;"></i>&nbsp;&nbsp;&nbsp;Alerta', '<p>Tem certeza que deseja excluir a guia?</p>', "@Sim~window.frames[0].frameElement.contentWindow.fExcluiGuia(" + aResult[0] + ',' + aResult[1] + ")@Não~closeModalBS();", "white~ #f8c80a", "large","N");
+}   
+
+
+function fExcluiGuia(cRecno, cTipo){
+	closeModalBS();
+	Ajax.open("W_PPLCANGUI.APW?cNumGui="+cRecno+"&cDigiGuia=1&cTipo="+cTipo, {callback: callBackExcluirGuia, error: exibeErroAlert} );
+}
+
+function RetGuiaGrid(cRecno,cDado){
+	var z = 0;
+	var oTable = oGuias.getObjCols();
+	var cRet = "";
+		
+	while (z < oTable.rows.length) {		
+		if( $(oTable.rows[z].cells[1].childNodes[0]).attr("value") == cRecno){
+			switch(cDado){
+				case "num_guia": //Numero da Guia
+					return oTable.rows[z].cells[7].innerHTML;
+				break;
+		
+				case "data_guia": //Data Guia
+					return oTable.rows[z].cells[12].innerHTML;
+				break;
+
+				case "matricula": //Matrícula
+					return oTable.rows[z].cells[8].innerHTML;
+				break;
+
+				case "cod_rda": //RDA da guia da grid
+					return oTable.rows[z].cells[10].innerHTML;
+				break;		
+				
+			}
+		}
+		z++;
+	}
+}
+
+function callBackExcluirGuia(v) {                                            
+    var cResult	= v.split("|");
+
+    if ( cResult == 'SIM' ) {
+		putAlertMsg("alertSuccessMsgs", "successMsgAlert", "Guia excluída com Sucesso");		
+		lCallBackOp = true;
+		fExibGui();
+		
+    } else {
+		putAlertMsg("dangerWarningMsgs", "dangerMsgAlert", cResult);
+    }
+}
+/* --------------------------------- FIM EXCLUSÃO --------------------------------- */
+ 
+/* --------------------------------- Exibe Erro ----------------------------------- */
+function exibeErroAlert(v) {                  
+
+	var aResult = v.split("|"); 
+            
+	if (aResult[0] != "true" && aResult[0] != "false")
+		putAlertMsg("dangerWarningMsgs", "dangerMsgAlert", "Erro: " + aResult[0]);
+	else {   
+		if (aResult[0] == "false") {
+			putAlertMsg("dangerWarningMsgs", "dangerMsgAlert", aResult[1]);         
+
+			if(typeof cCampoRef != 'undefined' && !document.getElementById(cCampoRef).disabled)
+				document.getElementById(cCampoRef).focus();
+		}   
+	}	
+
+	parent.$("body").animate({
+    	scrollTop: $("#Field_PREST").offset().top - $('html, body').offset().top + $('html, body').scrollTop()
+    }, 1000)
+}
+
+
+/* --------------------------------- INÍCIO ALTERAR GUIA DIGITAÇÃO --------------------------------- */
+function alterarGuia(v){
+	var aResult = v.split("~"); //1ª Posição: RECNO - 2ª Posição: STATUS da Guia
+	
+	if ( getField('Field_cTipoGuia') == '5' ) {
+		cNumeTot =  aResult[5];
+	}
+	
+	//Verifico de acordo com a fase da guia: Se "Em Conferência - 2" (glosa) ou "Finalizada - 3", para voltar no status de "Em Digitação." 
+	if (aResult[1] != "1") {
+		Ajax.open("W_PPLBKGUI.APW?cRecnoGuias=" + aResult[0] + "&cTipoGuias=" + document.getElementById('Field_cTipoGuia').value, { callback : feditaGuia(aResult[0], aResult[2], aResult[3], aResult[4]), error : exibeErroAlert });
+	} 
+	else {
+		feditaGuia(aResult[0], aResult[2], aResult[3], aResult[4])
+	}
+}
+
+function feditaGuia(cRecno, cMatric, cCodRda, cCodLoc) {
+	cRecnoBD5 = cRecno;
+	cMatricGlobal = cMatric;
+	cCodLocGlobal = cCodLoc;
+	cCodRdaGlobal = RetGuiaGrid(cRecno, "cod_rda");
+	var dDatGuia = RetGuiaGrid(cRecno, "data_guia");	
+
+	Ajax.open("W_PPLSDADUSR.APW?TrilhaCard="+cMatric+"&lPreAten=false&cRda="+cCodRda+"&cCodLoc="+cCodLoc+"&lDigiRetro=true&dDtaAtd="+dDatGuia, {callback: fAltGui, error: exibeErroAlert} );
+}
+
+function fAltGui(v) {
+	
+	//Captura a data limite máxima retroativa
+	cDataLimit = v.split("@")[1];
+
+	cPagina  = "W_PPLCHAATE.APW";
+	var cTipoOri = "AltCmp"; 
+	var cTipoOrigem = "digitacao";
+ 	//var cTipAltG = "AltCmp";
+	
+ 	document.forms[0].action = cPagina + "?cRda="+cCodRdaGlobal+"&cCodLoc="+cCodLocGlobal+"&cTp="+getField('Field_cTipoGuia')+"&cTipAltG=AltCmp&cTipoOrigem="+cTipoOrigem+"&cDigiGui=digitacao&cRecnoBD5="+cRecnoBD5+"&dDtLimRetro="+CalcDateBase64(cDataLimit)+"&cNumGuiRef=" + cNumeTot;
+    document.forms[0].submit();
+} 
+/* --------------------------------- FIM ALTERAR GUIA DIGITAÇÃO --------------------------------- */
+
+function CalcDateBase64(cDate){
+	if(cDate != undefined && cDate != ""){
+		$.base64.utf8encode = true;
+		return ($.base64.encode(cDate));
+	}else{
+		return "";
+	}
+}
+
+/* ----------------------------------- INÍCIO OUTRAS DESPESAS --------------------------------- */
+function incluirOutrasDespesas(v){
+	var aResult = v.split("~"); //1ª Posição: RECNO - 2ª Posição: TIPO DA GUIA, sendo 2 para SADT e 5 para resumo de internação
+	cRecGuiRef = aResult[0];
+	//Validação da matrícula e data	
+	var cMatric	= RetGuiaGrid(aResult[0],"matricula");
+	var cGuia 	= RetGuiaGrid(aResult[0],"num_guia");
+	dDatAtd = RetGuiaGrid(aResult[0],"data_guia");
+	
+	var cPrest	= getField('Field_comboPrest').split("|");
+	var cRda 	= cPrest[0];
+	var cCodLoc	= cPrest[1];
+	
+	//Armazena numero da guia para utilização posterior caso seja validado
+	document.getElementById('Field_cGuiaRef').value = cGuia;
+
+	cTipoGuia	= aResult[1];	
+	
+	//Valida matrícula do beneficiário
+	Ajax.open("W_PPLSDADUSR.APW?TrilhaCard="+cMatric+"&lPreAten=false&cRda="+cRda+"&cCodLoc="+cCodLoc+"&lDigiRetro=true&dDtaAtd="+dDatAtd, {callback: chkMatricOutDesp, error: exibeErroAlert} );
+}
+
+function chkMatricOutDesp(v) {	
+
+	cDataLimit = v.split("@")[1];
+
+	v = v.split("@")[0];	
+
+	var aResults = v.split("#");
+	var aResult;
+	var z = (aResults.length) > 1 ? aResults[0] : v;  
+	var critica = "";
+
+	if (z.length == 1) {
+		aResult = z.split(" ");
+   		cCapIde	= aResult[1];
+	} else {
+		aResult = z.split("|");
+		cCapIde		= aResult[1];
+  	}  
+	
+	if (aResult[0] == "T") {
+		for (var i=1;i<aResult.length;i++) 
+			critica += aResult[i];		
+
+		putAlertMsg("alertDangerMsgs", "dangerMsgAlert", critica);		
+	} else if (aResult[0] == "N"){
+		//Redireciona para o formulário de digitação de guias - inclusão
+		carregarDigitacaoIncGuia(true);		
+	}
+}
+
+/* -------------------------------------- FIM OUTRAS DESPESAS --------------------------------- */
+
+//------------------------------------
+function listasCriticas(v) {
+
+Ajax.open("W_PPLRETCRMF.APW?cChave="+v, {callback: fExibeCritica, error: exibeErroAlert} );
+}
+
+
+function fExibeCritica(v) {
+modalBS('<i class="fa fa-exclamation-triangle" style="font-weight: bold; color: #000; text-shadow: 0 1px 0 #fff; filter: alpha(opacity=20); opacity: .2;"></i>&nbsp;&nbsp;&nbsp;Alerta',  v , "@OK~closeModalBS();", "white~ #f8c80a", "small");
+
+}
+
+</script>
+
+
+<%                                        
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Formulario
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oForm := WCForm():New("Form1")
+oForm:setWidth(nTamTab)
+oForm:setTitle("Digitação de Guias")  
+
+	oForm:setAddFieldHidden("Field_CODUSU",AllTrim( HttpSession->USR_INFO[1]:CUSERCODE ))
+	oForm:setAddFieldHidden("Field_cTipoGuia","")
+	oForm:setAddFieldHidden("Field_comboPrest","")
+	oForm:setAddFieldHidden("Field_cGuiaRef","")
+	oForm:setAddFieldHidden("Field_MATRESINT","")
+	oForm:setAddFieldHidden("Field_cNumGuiaTrc","")
+                     
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Tabela principal
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oTabela := WCTable():New()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Campos da Pesquisa 
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oLiPre := WCLine():New()                         
+oFSPre := WCFieldSet():New("",nTamFs,"11","11")
+
+	oPreLocReg := WCComponent():New("C","Field_PREST","Prestador, Local de Atendimento e Regime de Atendimento:","20","10")
+	oPreLocReg:setObrigat(.T.)
+	oPreLocReg:setSession("HttpSession->RDAVIEW")
+	oPreLocReg:setXS("12")
+	oPreLocReg:setSM("12")
+	oPreLocReg:setMD("12")
+	oPreLocReg:setLG("12")
+	oPreLocReg:setDefCB("0")
+	oFSPre:setAddCFS(oPreLocReg)
+	
+	oTipGui := WCComponent():New("C","Field_CTIPOS","Tipo de Guia","160")
+	oTipGui:setSM("5")
+	oTipGui:setMD("5")
+	oTipGui:setLG("5")
+	oTipGui:setJSChange("TrocaNomDadSol();")
+	oTipGui:setObrigat(.t.)  
+	oFSPre:setAddCFS(oTipGui)
+
+	oMatric := WCComponent():New("F","Field_MATRIC","Carteirinha/Matrícula Beneficiário:","30","30") 
+	oMatric:setSM("5")
+	oMatric:setMD("5")
+	oMatric:setLG("5")
+	//oMatric:setJSKeyPre("return TxtBoxFormat(this, event,'99999999999999999');")
+	oMatric:setJsFF3("VerfPreench();")        
+	oFSPre:setAddCFS(oMatric)
+	
+	oDataAtd := WCComponent():New("F","Field_DataAtd","Data Atendimento:","20","10")
+	oDataAtd:setJSKeyPre("return TxtBoxFormat(this,event,'99/99/9999');")
+	oDataAtd:setJSBlur("validaCmp(this,'data','Data invalida');")
+	oDataAtd:setSM("2")
+	oDataAtd:setMD("2")
+	oDataAtd:setLG("2")
+	oDataAtd:setData(.T.)
+	oFSPre:setAddCFS(oDataAtd)
+
+	oBConFC := WCComponent():New("B","bIncGuia","Incluir")
+	oBConFC:SetJsFunc("incluirGuia();")
+	oBConFC:setAlign('right')
+	oFSPre:setAddCFS(oBConFC)
+
+	//-------------------------------------------------------------------
+	//	Nova linha
+	//-------------------------------------------------------------------
+	oLiAlerts := WCLine():New()
+
+		//-------------------------------------------------------------------
+		//   Componente de alert do bootstrap
+		//-------------------------------------------------------------------
+		oAleBS1 := WCComponent():New("ABS","alertWarningMsgs")
+		oAleBS1:setCss("warning")  
+		cTexto := "<span id='warningMsgAlert'></span>"
+		oAleBS1:setText(cTexto)
+
+		//-------------------------------------------------------------------
+		//   Componente de alert do bootstrap
+		//-------------------------------------------------------------------
+		oAleBS2 := WCComponent():New("ABS","alertSuccessMsgs")
+		oAleBS2:setCss("success")  
+		cTexto := "<span id='successMsgAlert'></span>"
+		oAleBS2:setText(cTexto)
+
+		//-------------------------------------------------------------------
+		//   Componente de alert do bootstrap
+		//-------------------------------------------------------------------
+		oAleBS3 := WCComponent():New("ABS","dangerWarningMsgs")
+		oAleBS3:setCss("danger")  
+		cTexto := "<span id='dangerMsgAlert'></span>"
+		oAleBS3:setText(cTexto)
+	 
+		//-------------------------------------------------------------------
+		//	Adicionando os alerts na linha
+		//-------------------------------------------------------------------
+		oLiAlerts:setAddComp(oAleBS1)
+		oLiAlerts:setAddComp(oAleBS2)
+		oLiAlerts:setAddComp(oAleBS3)
+
+oLiPre:setAddComp(oFSPre)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Campos da Pesquisa 
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oLiPar := WCLine():New()                         
+oFSPar := WCFieldSet():New("Parâmetros de Pesquisa",nTamFs,"11","11")
+
+	oDtInic := WCComponent():New("F","Field_DTINICIAL","Data Inicial:","20","10")
+	oDtInic:setJSKeyPre("return TxtBoxFormat(this,event,'99/99/9999');")
+	oDtInic:setJSBlur("validaCmp(this,'data','Data invalida');")
+	oDtInic:setSM("2")
+	oDtInic:setMD("2")
+	oDtInic:setLG("2")
+	oDtInic:setData(.T.)
+	oFSPar:setAddCFS(oDtInic)
+
+	oDtFinal := WCComponent():New("F","Field_DTFINAL","Data Final:","20","10")
+	oDtFinal:setJSKeyPre("return TxtBoxFormat(this,event,'99/99/9999');")
+	oDtFinal:setJSBlur("validaCmp(this,'data','Data invalida');")
+	oDtFinal:setSM("2")
+	oDtFinal:setMD("2")
+	oDtFinal:setLG("2")
+	oDtFinal:setData(.T.)
+	oFSPar:setAddCFS(oDtFinal)
+
+	oNumGui := WCComponent():New("F","Field_NUMGUI","Número da Guia:","25","18")  
+	oNumGui:setSM("4")
+	oNumGui:setMD("4")
+	oNumGui:setLG("4")
+	oFSPar:setAddCFS(oNumGui)
+
+	oStatusDig := WCComponent():New("C","Field_STATUSDIG","Status Digitação","160")
+	oStatusDig:setArrCombo(aStatG)
+	oStatusDig:setObrigat(.T.)
+	oStatusDig:setSM("4")
+	oStatusDig:setMD("4")
+	oStatusDig:setLG("4")
+	oStatusDig:setDefCB("1")
+	oFSPar:setAddCFS(oStatusDig)
+
+
+	oBConFC := WCComponent():New("B","bConsFC","Listar Guias")
+	oBConFC:SetJsFunc("fExibGui();")
+	oBConFC:setAlign('right')
+	oFSPar:setAddCFS(oBConFC)
+
+oLiPar:setAddComp(oFSPar)
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Grid Guia BEA
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oLiDoc := WCLine():New()
+oFSDoc := WCFieldSet():New("Guias",nTamFs,"10","10")
+	
+	oLegAm := WCComponent():New("LEG","bLegAm","Em Digitação")
+	oLegAm:setCss("icon-yellow")
+
+	oLegLa := WCComponent():New("LEG","bLegLa","Finalizada")
+	oLegLa:setCss("icon-green")
+
+	oLegRd := WCComponent():New("LEG","bLegRd","Em Conferência (Divergências)")
+	oLegRd:setCss("icon-red")
+	
+
+	oLegPr := WCComponent():New("LEG","bLegPr","Guia originária do Digitação de Guias")
+	oLegPr:setCss("icon-black")
+
+	oLegAz := WCComponent():New("LEG","bLegAZ","Guia originária do Atendimento")
+	oLegAz:setCss("icon-blue")
+
+	oBrwGUI := WCComponent():New("BW","BrwGrid")
+	oBrwGUI:setBrWidth(nLarBrw)
+	oBrwGUI:setJsFunc("fExibGui()")
+
+oFSDoc:setAddCFS(oLegAm)
+oFSDoc:setAddCFS(oLegLa)
+oFSDoc:setAddCFS(oLegRd)
+oFSDoc:setAddCFS(oLegPr)
+oFSDoc:setAddCFS(oLegAz)
+oFSDoc:setAddCFS(oBrwGUI)
+oLiDoc:setAddComp(oFSDoc)  
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Fechamento da Tabela
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oTabela:setAddLine(oLiAlerts)
+oTabela:setAddLine(oLiPre)
+oTabela:setAddLine(oLiPar)
+oTabela:setAddLine(oLiDoc)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Tabelas do form
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oForm:setAddTables(oTabela)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Form no HTML.
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+oHtml:SetObj(oForm)
+%>
+
+<%=oHtml:loadWC()%> 
+<script language="JavaScript">
+
+$(function() { 	
+
+	$('.datepicker').datepicker("option", { 
+		
+		onSelect: function () {
+			var cFrom = this.id == "Field_DTINICIAL" ? 'de' : 'ate';
+			chkData(this.form.Field_DTINICIAL, this.form.Field_DTFINAL, cFrom); 
+		}, 
+
+		onClose: function () {
+			var cFrom = this.id == "Field_DTINICIAL" ? 'de' : 'ate';
+			chkData(this.form.Field_DTINICIAL, this.form.Field_DTFINAL, cFrom); 
+   	    }
+
+ 	});
+
+});
+	
+	comboLoad("Field_CTIPOS",Array('1$Consulta','2$SADT','4$Odontológico','6$Honorários', '5$Resumo de Internação'));
+	
+	//Esconder botão do F3 Resumo de internação 
+	document.querySelector("#BField_MATRIC").style.opacity = 0; //Transparente
+	document.querySelector("#BField_MATRIC").disabled = true;
+
+var aItensRec    = (isEmpty(sessionStorage.getItem("cItens"))) ? [] : sessionStorage.getItem("cItens").split("-")
+var tempopassado = Date.now() - sessionStorage.getItem("acesso") 
+var permanencia  = 10 * 60 * 1000; 
+
+if (tempopassado <= permanencia) { //Se em dez minutos não houver atualização de pesquisa, a session é limpa
+	if ( !isEmpty(sessionStorage.getItem("cItens")) ) {
+		document.getElementById('Field_PREST').value = aItensRec[0];
+		document.getElementById('Field_CTIPOS').value = aItensRec[1];
+		document.getElementById("Field_DTINICIAL").value = aItensRec[2];  
+		document.getElementById('Field_DTFINAL').value = aItensRec[3];
+		document.getElementById('Field_NUMGUI').value = aItensRec[4];
+		document.getElementById('Field_STATUSDIG').value = aItensRec[5];	
+		document.querySelector("#bConsFC").click();  //volta a tela com os dados preenchidos e com o grid carregado.
+		TrocaNomDadSol(); //Para ocultar ou não  a mascara de matrícula/guia e lupa de pesquisa, quando guia de resumo de internação.		
+	}
+} else {
+	sessionStorage.setItem("cItens", "");
+}
+</script>

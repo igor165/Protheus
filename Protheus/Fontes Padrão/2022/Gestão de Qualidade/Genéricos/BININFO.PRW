@@ -1,0 +1,17 @@
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE 'FWMVCDEF.CH'
+
+
+Class BININFO
+
+	DATA   index AS INTEGER
+	DATA   isUnderflow AS BOOLEAN
+	DATA   isOverflow AS BOOLEAN
+	DATA   isInRange AS BOOLEAN
+	METHOD New() CONSTRUCTOR
+
+EndClass
+
+METHOD New() CLASS BININFO
+	::index := 1
+Return

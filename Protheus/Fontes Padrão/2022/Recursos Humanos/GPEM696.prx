@@ -1,0 +1,200 @@
+#INCLUDE "GPEM696.CH"
+#INCLUDE 'Protheus.ch'
+#INCLUDE "FWMVCDEF.CH"
+
+/*/ {Protheus.doc} GPEM696()
+Lançamentos retroativos de verbas avulsas para serem integradas à folha de pagamento.
+@return	NIL
+@author	Marcelo Faria
+@since		23/07/2014
+/*/
+Function GPEM696()
+	
+	Local xRetFilRh
+	Local oBrowse
+	
+	Static cMesAnoIni	:= ""
+	Static cMesAnoFim	:= ""
+	
+	// Carrega Perguntas para Período a ser Visualizado.
+	If ! Pergunte( "GPCR04", .T. )
+		Return .F.
+	EndIf
+	
+	cMesAnoIni := Right( mv_par01, 4 ) + Left( mv_par01, 2 )
+	cMesAnoFim := Right( mv_par02, 4 ) + Left( mv_par02, 2 )
+	
+	//Busca o filtro a ser utilizado no Browse
+	xRetFilRh := CHKRH("GPEM696", "SRA", "1")
+	If ValType(xRetFilRh) == "L"
+		cFiltraRh := if(xRetFilRh, ".T.", ".F.")
+	Else
+		cFiltraRh := xRetFilRh
+	EndIf
+	
+	oBrowse := FWmBrowse():New()
+	oBrowse:SetAlias( "SRA" )
+	oBrowse:SetDescription( STR0001 ) //'Lançamentos Retroativos'
+	
+	oBrowse:AddLegend( "SRA->RA_CATFUNC $ '78' .AND. SRA->RA_SITFOLH==' '" , 'BR_CINZA'   ) //'Aposentado'
+	oBrowse:AddLegend( "SRA->RA_CATFUNC $ '9'  .AND. SRA->RA_SITFOLH==' '" , 'BR_LARANJA' ) //'Pensionista'
+	oBrowse:AddLegend( "SRA->RA_RESCRAI$'30/31'"                           , 'BR_PINK'    ) //'Transferido'
+	oBrowse:AddLegend( "SRA->RA_SITFOLH==' '"                              , 'BR_VERDE'   ) //'Situação Normal'
+	oBrowse:AddLegend( "SRA->RA_SITFOLH=='D'"                              , 'BR_VERMELHO') //'Desligado'
+	oBrowse:AddLegend( "SRA->RA_SITFOLH=='A'"                              , 'BR_AMARELO' ) //'Afastado'
+	oBrowse:AddLegend( "SRA->RA_SITFOLH=='F'"                              , 'BR_AZUL'    ) //'Férias'
+	
+	oBrowse:SetmenuDef('GPEM696')
+	oBrowse:SetFilterDefault(cFiltraRh)
+	oBrowse:Activate()
+	
+Return NIL
+
+/*/ {Protheus.doc} MenuDef()
+Opções do menu da rotina lançamentos retroativos.
+@return	NIL
+@author	Marcelo Faria
+@since 23/07/2014
+@version P11.90
+/*/
+Static Function MenuDef()
+	
+	Local aRotina := {}
+	
+	ADD OPTION aRotina Title STR0002  Action 'VIEWDEF.GPEM696' OPERATION 2 ACCESS 0 //'Visualizar'
+	ADD OPTION aRotina Title STR0003  Action 'VIEWDEF.GPEM696' OPERATION 4 ACCESS 0 //'Manutenção'
+	ADD OPTION aRotina TITLE STR0004  Action 'GPLegend'        OPERATION 5 ACCESS 0 //'Legenda'
+	
+Return aRotina
+
+/*/ {Protheus.doc} ModelDef()
+Monta a estrutura utilizada na rotina
+@return   oModel, Objeto, modelo de dados utilizado na rotina
+@author   Marcelo Faria
+@since    23/07/2014
+@version  P11.90
+/*/
+Static Function ModelDef()
+	
+	Local oStruSRA  	:= FWFormStruct( 1, 'SRA', {|cCampo| AllTrim(cCampo) $ "RA_FILIAL|RA_MAT|RA_NOME|RA_ADMISSA" })
+	Local oStruRHH  	:= FWFormStruct( 1, 'RHH' )
+	Local oModel
+	Local aCposObrig	:= {'RHH_CC', 'RHH_DATA', 'RHH_MESANO', 'RHH_VERBA', 'RHH_VALOR', 'RHH_PROCES', 'RHH_ROTEIR', 'RHH_SEMANA','RHH_IDCMPL'}
+	Local nI
+	
+	oStruRHH:SetProperty('RHH_MAT', MODEL_FIELD_OBRIGAT, .F.)
+	
+	// Define os campos da RHH como obrigatórios
+	For nI := 1 to Len(aCposObrig)
+		oStruRHH:SetProperty(aCposObrig[nI], MODEL_FIELD_OBRIGAT, .T.)
+	Next
+	
+	oModel := MPFormModel():New( 'GPEM696')
+	
+	oModel:AddFields( 'SRAMASTER', , oStruSRA)     
+	oModel:AddGrid( 'RHHDETAIL', 'SRAMASTER', oStruRHH, , {|oModel|LinOkRHH(oModel)},,, {|oModel|bLoadRHH(oModel)})
+	
+	oModel:SetPrimaryKey({ "RA_FILIAL", "RA_MAT" })
+	
+	oModel:SetRelation( 'RHHDETAIL', {{ 'RHH_FILIAL', 'RA_FILIAL' }, { 'RHH_MAT', 'RA_MAT' }}, RHH->( IndexKey( 1 )))
+	
+	oModel:GetModel( 'RHHDETAIL' ):SetUniqueLine( { "RHH_FILIAL", "RHH_MAT", "RHH_MESANO", "RHH_DATA", "RHH_VB", "RHH_CC", "RHH_ITEM", "RHH_CLVL", "RHH_SEMANA", "RHH_SEQ", "RHH_ROTEIR", "RHH_COMPL_"})
+	
+	oModel:GetModel( 'SRAMASTER' ):SetOnlyView(.T.)
+	
+	oModel:GetModel( 'SRAMASTER' ):SetDescription( STR0007 ) //'Dados do Servidor/Membro'
+	oModel:GetModel( 'RHHDETAIL' ):SetDescription( STR0008 ) //'Movimento Retroativo'
+	
+Return oModel
+
+/*/ {Protheus.doc} ViewDef()
+@return   NIL
+@author   Marcelo Faria
+@since    23/07/2014
+@version  P11.90
+/*/
+Static Function ViewDef()
+	
+	Local oStruSRA 	:= FWFormStruct( 2, 'SRA', {|cCampo| AllTrim(cCampo) $ "RA_FILIAL|RA_MAT|RA_NOME|RA_ADMISSA" })
+	Local oStruRHH 	:= FWFormStruct( 2, 'RHH' )
+	Local oModel   	:= FWLoadModel( 'GPEM696' )
+	Local oView	   	:= FWFormView():New()
+	Local aCposRemo	:= {'RHH_FILIAL', 'RHH_MAT', 'RHH_NOME', 'RHH_VB', 'RHH_DESCVB', 'RHH_VL', 'RHH_CALC', 'RHH_INDICE', 'RHH_VLRAUM', 'RHH_TPOAUM', 'RHH_TIPO1', 'RHH_TIPO2', 'RHH_HORAS', 'RHH_QTDSEM', 'RHH_DTPGT', 'RHH_QTDSEM', 'RHH_DTACOR', 'RHH_SINDIC', 'RHH_PARC', 'RHH_SEQ', 'RHH_COMPL_'}
+	Local nI
+	
+	oStruSRA:SetProperty('*', MVC_VIEW_FOLDER_NUMBER, '1')
+	
+	For nI := 1 to Len(aCposRemo)
+		oStruRHH:RemoveField(aCposRemo[nI])
+	Next
+	
+	oStruRHH:SetProperty( 'RHH_IDCMPL', MVC_VIEW_CANCHANGE, .T.)
+	oStruRHH:SetProperty( 'RHH_IDCMPL', MVC_VIEW_LOOKUP, "RF1")
+	oStruRHH:SetProperty( 'RHH_DATA', MVC_VIEW_PICT, "@R 9999/99")
+	oStruRHH:SetProperty( 'RHH_MESANO', MVC_VIEW_PICT, "@R 9999/99")
+	
+	oView:SetModel( oModel )
+	
+	oView:AddField( 'VIEW_SRA', oStruSRA, 'SRAMASTER' )
+	oView:AddGrid( 'VIEW_RHH', oStruRHH, 'RHHDETAIL' )
+	
+	oView:CreateHorizontalBox( 'SUPERIOR', 15 )
+	oView:CreateHorizontalBox( 'INFERIOR', 85 )
+	
+	oView:SetOwnerView( 'VIEW_SRA', 'SUPERIOR' )
+	oView:SetOwnerView( 'VIEW_RHH', 'INFERIOR' )
+	
+	oView:EnableTitleView('VIEW_RHH', STR0008)//'Movimento Retroativo'
+	
+Return oView
+
+/*/{Protheus.doc} bLoadRHH
+Seleciona os dados para o grid da RHH
+@author Marcos Pereira
+@since 09/09/2014
+@version P11
+@params
+oMdl -> Modelo de dados Detail.
+/*/
+Static Function bLoadRHH( oModel )
+	
+	Local aRet      := {}
+	Local cTmpTrab  := GetNextAlias()
+	
+	BeginSql alias cTmpTrab 
+		SELECT * FROM %table:RHH%
+		WHERE
+		RHH_FILIAL = %exp:SRA->RA_FILIAL%
+		AND RHH_MAT = %exp:SRA->RA_MAT%
+		AND RHH_DATA >= %exp:cMesAnoIni%
+		AND RHH_DATA <= %exp:cMesAnoFim%
+		AND RHH_COMPL_ IN ('P', 'M')
+		AND SUBSTRING(RHH_DATA, 1, 4) < SUBSTRING(RHH_MESANO, 1, 4)
+		AND %NotDel%
+		ORDER BY RHH_MESANO, RHH_DATA, RHH_IDCMPL, RHH_ROTEIR, RHH_SEMANA, RHH_VERBA, RHH_SEQ
+	EndSql
+	
+	aRet := FwLoadByAlias( oModel, cTmpTrab )
+	(cTmpTrab)->(DbCloseArea())
+	
+Return aRet
+
+/*/{Protheus.doc} LinOkRHH
+Validação Linha OK do modelo de dados da RHH
+@return lRet, Lógico, Verdadeiro se a linha for válida
+@author Marcos Pereira			
+@since 12/09/2014
+/*/
+Static Function LinOkRHH(oModelRHH)
+	
+	Local lRet := .T.
+	
+	oModelRHH:LoadValue("RHH_COMPL_", "M")
+	
+	If Left( oModelRHH:GetValue("RHH_DATA"), 4 ) >= Left(oModelRHH:GetValue("RHH_MESANO"), 4)
+		// "Referência inválida. Esta rotina permite apenas lançamentos para anos anteriores ao pagamento, conforme regras de RRA"
+		Help( ,, 'Help',, STR0009, 1, 0 )
+		lRet := .F.
+	EndIf
+	
+Return (lRet)

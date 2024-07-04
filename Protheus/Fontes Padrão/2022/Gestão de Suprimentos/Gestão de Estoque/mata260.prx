@@ -1,0 +1,3921 @@
+#INCLUDE "MATA260.CH"
+#INCLUDE "PROTHEUS.CH"
+
+Static __lIntWMS := FindFunction("IntWMS")
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Mata260  ³ Autor ³ Eveli Morasco         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Transferencia entre almoxarifados / localizacoes           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Mata260()
+Local aCores     := A240aCores()
+Local cFiltraSD3 := ""
+Local aIndexSD3  := {}
+Local lAcesso    := .T. 
+Local cFiltro    := ""
+Local cRelease   := ''
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pega a variavel que identifica se o calculo do custo e' :    ³
+//³               O = On-Line                                    ³
+//³               M = Mensal                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE cCusMed  := GetMv("MV_CUSMED")
+PRIVATE cCadastro:= OemToAnsi(STR0001)	//"Transferˆncias"
+PRIVATE aRegSD3  := {}
+PRIVATE aCtbDia  := {}
+Static nFCICalc := SuperGetMV("MV_FCICALC",.F.,0)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o custo medio e' calculado On-Line               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cCusMed == "O"
+	PRIVATE nHdlPrv 			// Endereco do arquivo de contra prova dos lanctos cont.
+	PRIVATE lCriaHeader := .T.	// Para criar o header do arquivo Contra Prova
+	PRIVATE cLoteEst 			// Numero do lote para lancamentos do estoque
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Posiciona numero do Lote para Lancamentos do Faturamento     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SX5")
+	SX5->(dbSeek(xFilial("SX5")+"09EST"))
+	cLoteEst:=IIf(Found(),Trim(X5Descri()),"EST ")
+	PRIVATE nTotal := 0 	// Total dos lancamentos contabeis
+	PRIVATE cArquivo		// Nome do arquivo contra prova
+EndIf
+
+If ExistBlock("MT260ACS")
+	lAcesso := ExecBlock("MT260ACS",.F.,.F.)
+	If ValType(lAcesso) == "L" .And. !lAcesso
+		Return
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define Array contendo as Rotinas a executar do programa      ³
+//³ ----------- Elementos contidos por dimensao ------------     ³
+//³ 1. Nome a aparecer no cabecalho                              ³
+//³ 2. Nome da Rotina associada                                  ³
+//³ 3. Usado pela rotina                                         ³
+//³ 4. Tipo de Transa‡„o a ser efetuada                          ³
+//³    1 - Pesquisa e Posiciona em um Banco de Dados             ³
+//³    2 - Simplesmente Mostra os Campos                         ³
+//³    3 - Inclui registros no Bancos de Dados                   ³
+//³    4 - Altera o registro corrente                            ³
+//³    5 - Estorna uma transferencia feita anteriormente         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE aRotina := MenuDef()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ mv_par01 - Se mostra e permite digitar lancamentos contabeis   ³
+//³ mv_par02 - Se deve aglutinar os lancamentos contabeis          ³
+//³ mv_par03 - Subtrai Saldo Terc. N.Poder ? SIM/NAO               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If !IsBlind()
+	If FindFunction("MsgExpRot")
+		cRelease := GetRPORelease()
+
+		MsgExpRot("MATA260",;
+					"Transferência Múltiplas(MATA261)",;
+					"https://tdn.totvs.com/pages/releaseview.action?pageId=607042817" ,;
+					'20220404',; //Data de expiração
+					7,; //Pausa do aviso em dias
+					'20220801' ) //Data de bloqueio
+
+		If cRelease != '12.1.027' .And. DToS(Date()) >= '20220801'
+			Return
+		EndIf
+	EndIf
+EndIf
+
+Pergunte("MTA260",.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ativa tecla F12 para acionar perguntas                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Set Key VK_F12 TO MTA260PERG()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Endereca a funcao de BROWSE                                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MT260FIL")
+	cFiltraSD3 := ExecBlock("MT260FIL",.F.,.F.)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para verificacao de filtros na Mbrowse      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If  ExistBlock("M260FILB")
+	cFiltro := ExecBlock("M260FILB",.F.,.F.)
+	If Valtype(cFiltro) <> "C"
+		cFiltro := ""
+	EndIf
+EndIf
+
+mBrowse( 6, 1,22,75,"SD3",,,,,,aCores,,,,,,,, IF(!Empty(cFiltro),cFiltro, NIL),,,,cFiltraSD3)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Desativa tecla que aciona perguntas                            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Set Key VK_F12 To
+Return Nil
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260Visual³ Autor ³ Eveli Morasco         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de visualizacao de uma transferencia              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260Visual(ExpC1,ExpN1,ExpN2)                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±³          ³ ExpN2 = Numero da opcao selecionada                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260Visual(cAlias,nReg,nOpcx)
+Local GetList:={}
+Local cNumSeq,nRecantes, oDlg
+Local cLocCQ := GetMvNNR('MV_CQ','98')
+Local cQtdPict,cQtd2Pict,cPerImPct
+Local aButton := {}
+Local aTela   := {}
+Local aGet    := {}
+Local aSay    := {}
+Local oSize
+Local lCAT83  := .F.
+Local cPotPict := PesqPict("SD3", "D3_POTENCI")
+Local o01MsGet,o02MsGet,o03MsGet,o04MsGet,o05MsGet,o06MsGet,o07MsGet,o08MsGet
+Local o09MsGet,o10MsGet,o11MsGet,o12MsGet,o13MsGet,o14MsGet,o15MsGet,o16MsGet,o17MsGet
+Local cMovimento := SD3->D3_CF
+
+If (ExistBlock("MT260BTN"))
+	aButton := ExecBlock("MT260BTN",.F.,.F.)
+	If ValType(aButton) # "A"
+		aButton := {}
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pega as pictures do SX3 para manter o padrao                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX3")
+dbSetOrder(2)
+
+Seek "D3_QUANT"
+If Eof();Help(" ",1,"NOSX3");EndIf
+cQtdPict := TRIM(X3_PICTURE)
+
+Seek "D3_QTSEGUM"
+If Eof();Help(" ",1,"NOSX3");EndIf
+cQtd2Pict := Trim(X3_PICTURE)
+
+If nFCICalc == 1 .And. cPaisLoc == "BRA"
+	Seek "D3_PERIMP"
+	If Eof();Help(" ",1,"NOSX3");EndIf
+	cPerImPct := Trim(X3_PICTURE)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se existe algum dado no arquivo                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAlias)
+If RecCount() == 0
+	SetCursor(0)
+	Return .T.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se esta' na filial correta                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If SD3->(xFilial('SD3')) != SD3->D3_FILIAL
+	Help(" ",1,"A000FI")
+	SetCursor(0)
+	Return .T.
+EndIf
+
+If !A260ChkCF(SD3->D3_COD, SD3->D3_LOCAL, SD3->D3_NUMSEQ, SD3->D3_CF, cLocCQ)
+	Help(" ",1,"A260NAO")
+	SetCursor(0)
+	Return .T.
+EndIf
+
+PRIVATE cCodOrig,cCodDest,cUmOrig,cUmDest,cLocOrig,cLocDest,cCAT83O,cCAT83D,nQuant260,;
+		nQuant260D,cDocto,dEmis260,cLoteDigi,dDtValid,cLoclzOrig,cLoclzDest,;
+		cNumLote,cNumSerie,nPotencia,nPerImp
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Portaria CAT83   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If V240CAT83()
+    lCAT83:=.T.
+EndIf
+
+If cMovimento == "RE4"
+	cLoteDigi	:= SD3->D3_LOTECTL
+	cNumLote    := SD3->D3_NUMLOTE
+	dDtValid 	:= SD3->D3_DTVALID
+EndIf
+
+dbSelectArea("SD3")
+nRecAntes   := SD3->(RecNo())
+SD3->(dbSetOrder(4))
+cNumSeq     := SD3->D3_NUMSEQ
+SD3->(dbSeek(xFilial('SD3')+cNumSeq))
+cCodOrig 	:= SD3->D3_COD
+cUmOrig  	:= SD3->D3_UM
+cLocOrig 	:= SD3->D3_LOCAL
+cLoclzOrig 	:= SD3->D3_LOCALIZ
+cNumSerie   := SD3->D3_NUMSERI
+cCAT83O     := IIF(lCAT83,SD3->D3_CODLAN,"")
+
+dbSkip()
+cCodDest 	:= SD3->D3_COD
+cUmDest  	:= SD3->D3_UM
+cLocDest 	:= SD3->D3_LOCAL
+cLoclzDest 	:= SD3->D3_LOCALIZ
+nQuant260   := SD3->D3_QUANT
+nQuant260D  := SD3->D3_QTSEGUM
+nPotencia 	:= SD3->D3_POTENCI
+cDocto   	:= SD3->D3_DOC
+dEmis260 	:= SD3->D3_EMISSAO
+cCAT83D     := IIF(lCAT83,SD3->D3_CODLAN,"")
+
+If cMovimento == "DE4"
+	cLoteDigi	:= SD3->D3_LOTECTL
+	cNumLote    := SD3->D3_NUMLOTE
+	dDtValid 	:= SD3->D3_DTVALID
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Percentual FCI   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nFCICalc == 1 .And. cPaisLoc == "BRA"
+	nPerImp		:= SD3->D3_PERIMP
+EndIf
+
+dbSetOrder(1)
+dbSelectArea("SB1")
+SB1->(dbSeek(xFilial("SB1")+cCodOrig))
+cDescOrig:=SB1->B1_DESC
+SB1->(dbSeek(xFilial("SB1")+cCodDest))
+cDescDest:=B1_DESC
+dbSelectArea("SD3")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Faz o posicionamento dos Says/Gets    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+A260PosGet(@aSay, @aGet, @aTela)
+
+oSize := FwDefSize():New()
+
+oSize:AddObject( "ORIGEM"	,  100, 15, .T., .T. ) // Totalmente dimensionavel
+oSize:AddObject( "DESTINO"	,  100, 15, .T., .T. ) // Totalmente dimensionavel
+oSize:AddObject( "DADOS"	,  100, 70, .T., .T. ) // Totalmente dimensionavel
+
+oSize:lProp := .T. // Proporcional
+oSize:aMargins := { 3, 3, 3, 3 } // Espaco ao lado dos objetos 0, entre eles 3
+
+oSize:Process() // Dispara os calculos
+
+DEFINE MSDIALOG oDlg TITLE OemtoAnsi(STR0001) FROM ;
+								oSize:aWindSize[1],oSize:aWindSize[2] TO oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL 	 //"Transferˆncias"
+
+@ oSize:GetDimension("ORIGEM","LININI"), oSize:GetDimension("ORIGEM","COLINI") TO oSize:GetDimension("ORIGEM","LINEND"),;
+ oSize:GetDimension("ORIGEM","COLEND") LABEL OemToAnsi(STR0006) OF oDlg  PIXEL //"Origem"
+@ oSize:GetDimension("DESTINO","LININI"), oSize:GetDimension("DESTINO","COLINI") TO oSize:GetDimension("DESTINO","LINEND"),;
+ oSize:GetDimension("DESTINO","COLEND") LABEL OemToAnsi(STR0007) OF oDlg  PIXEL //"Destino"
+
+@ oSize:GetDimension("ORIGEM","LININI")+13, oSize:GetDimension("ORIGEM","COLINI")+10 SAY OemtoAnsi(STR0008)	SIZE 30,20 		OF oDlg PIXEL //"Produto"
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+40 MSGET o01MsGet Var cCodOrig 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+25, oSize:GetDimension("ORIGEM","COLINI")+42 SAY cDescOrig			SIZE 60,20 		OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+110 SAY OemToAnsi(STR0009)	SIZE 30,20 		OF oDlg PIXEL //"Unidade de Medida"
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+142 MSGET o02MsGet Var cUmOrig  	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+167 SAY OemToAnsi(STR0010)	SIZE 30,20 	OF oDlg PIXEL 	//"Armazem  /  Endereco"
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+207 MSGET o03MsGet Var cLocOrig	 	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+232 MSGET o04MsGet Var cLoclzOrig		When .F. SIZE 60,10 OF oDlg PIXEL
+
+If lCAT83
+	@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+325 MSGET cCAT83O 	When .F. SIZE 60,10 OF oDlg PIXEL   //Cod.CAT83
+EndIf
+
+@ oSize:GetDimension("DESTINO","LININI")+13, oSize:GetDimension("DESTINO","COLINI")+10 SAY OemToAnsi(STR0011)	SIZE 30,20 	OF oDlg PIXEL 		//"Produto"
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+40 MSGET o05MsGet Var cCodDest 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+25, oSize:GetDimension("DESTINO","COLINI")+42 SAY cDescDest				SIZE 60,20 	OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+110 SAY OemToAnsi(STR0012)		SIZE 30,20 	OF oDlg PIXEL 		//"Unidade de Medida"
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+142 MSGET o06MsGet Var cUmDest  	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+167 SAY OemToAnsi(STR0010)	SIZE 30,20 	OF oDlg PIXEL 	//"Armazem  /  Endereco"
+
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+207 MSGET o07MsGet Var cLocDest 	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+232 MSGET o08MsGet Var cLoclzDest 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+5, oSize:GetDimension("DADOS","COLINI")+45 MSGET o09MsGet Var cNumSerie 	When .F. SIZE 80,10 OF oDlg PIXEL
+
+If lCAT83
+	@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+325 MSGET cCAT83D 	When .F.SIZE 60,10 OF oDlg PIXEL  //Cod.CAT83
+EndIf
+
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+45 MSGET o10MsGet Var cLoteDigi 	When .F. SIZE 120,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+195 MSGET o11MsGet Var cNumLote  	When .F. SIZE 30,10  OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+265 MSGET o12MsGet Var dDtValid  	When .F. SIZE 45,10  OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+350 MSGET o13MsGet Var nPotencia    Picture cPotPict  When .F. SIZE 30,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45, oSize:GetDimension("DADOS","COLINI")+45 MSGET o14MsGet Var nQuant260 	Picture cQtdPict  When .F. SIZE 50,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+135 MSGET o15MsGet Var nQuant260D 	Picture cQtd2Pict When .F. SIZE 50,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+225 MSGET o16MsGet Var dEmis260 	When .F. SIZE 45,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+310 MSGET o17MsGet Var cDocto 		When .F. SIZE 30,10 OF oDlg PIXEL
+If nFCICalc == 1
+	@ oSize:GetDimension("DADOS","LININI")+65,  oSize:GetDimension("DADOS","COLINI")+45 MSGET nPerImp Picture cPerImPct When .F. SIZE 50,10 OF oDlg PIXEL
+EndIf
+
+@ oSize:GetDimension("DADOS","LININI")+5,  oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0013) 	SIZE 30,20 	OF oDlg PIXEL 	//"N£mero de Serie"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0015) 	SIZE 30,20 	OF oDlg PIXEL 	//"Lote"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+170 SAY OemToAnsi(STR0014)	SIZE 30,20 	OF oDlg PIXEL 	//"Sub-Lote"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+230 SAY OemToAnsi(STR0016) 	SIZE 30,20 	OF oDlg PIXEL	 //"Data de Validade"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+315 SAY OemToAnsi(STR0057) 	SIZE 30,20 	OF oDlg PIXEL 	//"Pot."
+
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+5 SAY OemToAnsi(STR0017)	SIZE 30,20 	OF oDlg PIXEL 		//"Quantidade Prim ria"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+100 SAY OemToAnsi(STR0018) 	SIZE 30,20 	OF oDlg PIXEL 		//"Quantidade Secund ria"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+190 SAY OemToAnsi(STR0019) 	SIZE 30,20 	OF oDlg PIXEL 		//"Data"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+275 SAY OemToAnsi(STR0020) 	SIZE 30,20 	OF oDlg PIXEL 		//"Documento"
+
+If nFCICalc == 1
+	@ oSize:GetDimension("DADOS","LININI")+65,  oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0101+chr(13)+chr(10)+STR0102) SIZE 30,20 OF oDlg PIXEL 			//"Percentual Importacao"
+EndIf
+
+If lCAT83
+	@ oSize:GetDimension("ORIGEM" ,"LININI")+10,  oSize:GetDimension("ORIGEM" ,"COLINI")+300  SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE 30,20 OF oDlg PIXEL 		//Cod.Cat Produto Origem
+	@ oSize:GetDimension("DESTINO","LININI")+10,  oSize:GetDimension("DESTINO","COLINI")+300  SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE 30,20 OF oDlg PIXEL 		//Cod.Cat Produto Destino
+EndIf
+
+o01MsGet:lReadOnly:=.T.
+o02MsGet:lReadOnly:=.T.
+o03MsGet:lReadOnly:=.T.
+o05MsGet:lReadOnly:=.T.
+o06MsGet:lReadOnly:=.T.
+o07MsGet:lReadOnly:=.T.
+o10MsGet:lReadOnly:=.T.
+o11MsGet:lReadOnly:=.T.
+o12MsGet:lReadOnly:=.T.
+o13MsGet:lReadOnly:=.T.
+o14MsGet:lReadOnly:=.T.
+o15MsGet:lReadOnly:=.T.
+o16MsGet:lReadOnly:=.T.
+o17MsGet:lReadOnly:=.T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Tratamento dos objetos para o Siga Pyme                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+o04MsGet:lReadOnly:=.T.
+o08MsGet:lReadOnly:=.T.
+o09MsGet:lReadOnly:=.T.
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{||oDlg:End()},{||oDlg:End()},, aButton)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Restaura a integridade da janela                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAlias)
+dbGoTo(nRecantes)
+Return
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260Inclui³ Autor ³ Eveli Morasco         ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de inclusao de transferencias                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260Inclui(ExpC1,ExpN1,ExpN2)                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±³          ³ ExpN2 = Opcao selecionada                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260Inclui(cAlias,nReg,nOpcx)
+Local cSaveMenuh,nOpca := 0,cNumSeq,aCM:={},aCusto:={}
+Local GetList:={},lDigita,lAglutina
+Local cCodPict,cUmPict,cLocPict,cDocPict,cUmValid,cLotePict,cPotPict,cPerImPct
+Local dDataFec  := MVUlmes()
+Local oDlg,oBtn
+Local cTela
+Local lButLotDst:= .T.
+Local lCAT83    := .F.
+Local aButton   := {}
+Local cLoteDigiD:=""
+Local cLocCQ    := GetMvNNR('MV_CQ','98')
+Local aTela		:= {}
+Local aGet		:= {}
+Local aSay		:= {}
+Local cServico	:= ""
+Local lWmsNew	:= SuperGetMv("MV_WMSNEW",.F.,.F.)
+Local lDocto	:= IIf( GetSx3Cache("D3_DOC","X3_VISUAL") == "V", .F., IIf( Empty( GetSx3Cache( "D3_DOC", "X3_WHEN" ) ), .T.,&( GetSx3Cache( "D3_DOC", "X3_WHEN" ) ) ) )
+
+Private cDescOrig	:= cDescDest := Criavar("B1_DESC", .F.)
+Private cSavCdOri   := ""
+
+//-- Variaveis utilizadas pela funcao wmsexedcf
+Private aLibSDB    := {}
+Private aWmsAviso  := {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para inclusao de botoes na ToolBar.         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If (ExistBlock("MT260BTN"))
+	aButton := ExecBlock("MT260BTN",.F.,.F.)
+	If ValType(aButton) # "A"
+		aButton := {}
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para acionar ou nao o botao Sel Lote Destino³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If (ExistBlock("MT260BLD"))
+	lButLotDst := ExecBlock("MT260BLD",.F.,.F.)
+	If ValType(lButLotDst) # "L"
+		lButLotDst := .T.
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inclusao de botao que permite selecionar lote destino da     ³
+//³ transferencia diferente do lote origem.                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lButLotDst
+	aAdd(aButton,{'BONUS',{|| A260LDest(cCodDest,@cLoteDigiD,cLotePict,.T.)},STR0099,STR0062}) //"Sel. Lote Destino"
+EndIf
+
+//-- SIGAWMS: Botao p/ acionar tela p/ informar cod. servico WMS / Transferencia (DLTransfer)
+If a260IntWMS()
+	aAdd(aButton,{'PARAMETROS',{|| DLPergServ(@cServico,,,'3')},STR0093}) //"cod. servico WMS"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verificar data do ultimo fechamento em SX6.                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If dDataFec >= dDataBase
+	Help ( " ", 1, "FECHTO" )
+	Return
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica a Existencia do ponto de entrada e seta valor       ³
+//³ da variavel que define se edita o documento ou nao           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MTA260DOC")
+	lDocto := ExecBlock("MTA260DOC",.F.,.F.)
+	lDocto := If(ValType(lDocto)#"L",.T.,lDocto)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ativa tecla F4 para comunicacao com Saldos dos Lotes         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Set Key VK_F4 To A260AvalF4()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pega as pictures do SX3 para manter o padrao                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX3")
+dbSetOrder(2)    // ordem por campo
+
+dbSeek("D3_COD")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cCodOrig := cCodDest := Space(X3_TAMANHO)
+cCodPict := Trim(X3_PICTURE)
+
+dbSeek("D3_UM")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cUmOrig := cUmDest := Space(X3_TAMANHO)
+cUmPict := Trim(X3_PICTURE)
+cUmValid:= Trim(X3_VALID)
+
+dbSeek("D3_LOCAL")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cLocOrig := cLocDest := Space(X3_TAMANHO)
+cLocPict := Trim(X3_PICTURE)
+
+dbSeek("D3_LOCALIZ")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cLoclzOrig := cLoclzDest := Space(X3_TAMANHO)
+cLoclzPict := Trim(X3_PICTURE)
+
+dbSeek("D3_QUANT")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE nQuant260   := Criavar("D3_QUANT")
+PRIVATE cQtdPict := Trim(X3_PICTURE)
+
+dbSeek("D3_QTSEGUM")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE nQuant260D   :=  Criavar("D3_QTSEGUM")
+PRIVATE cQtd2Pict := Trim(X3_PICTURE)
+
+dbSeek("D3_DOC")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cDocto := CriaVar("D3_DOC")
+cDocPict := Trim(X3_PICTURE)
+
+dbSeek("D3_NUMLOTE")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cNumLote := Space(X3_TAMANHO)
+cLotePict := Trim(X3_PICTURE)
+
+dbSeek("D3_NUMSERI")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cNumSerie := Space(X3_TAMANHO)
+cSeriePict := Trim(X3_PICTURE)
+
+dbSeek("D3_LOTECTL")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE cLoteDigi:= Space(X3_TAMANHO)
+cLoteDigiD:= Space(X3_TAMANHO)
+cLotCTLPic := Trim(X3_PICTURE)
+
+dbSeek("D3_DTVALID")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE dDtValid := dDtVldDest := CriaVar("D3_DTVALID")
+cDtVldPic := Trim(X3_PICTURE)
+
+dbSeek("D3_POTENCI")
+If Eof();Help(" ",1,"NOSX3");EndIf
+PRIVATE nPotencia:= CriaVar("D3_POTENCI")
+cPotPict := Trim(X3_PICTURE)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Portaria CAT83   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If V240CAT83()
+	lCAT83:=.T.
+	dbSeek("D3_CODLAN")
+	If Eof()
+	    Help(" ",1,"NOSX3")
+	EndIf
+EndIf
+
+PRIVATE cCAT83O:= IIF(lCAT83,CriaVar("D3_CODLAN"),"")
+PRIVATE cCAT83D:= IIF(lCAT83,CriaVar("D3_CODLAN"),"")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Percentual FCI   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nFCICalc == 1 .And. cPaisLoc == "BRA"
+	dbSeek("D3_PERIMP")
+	If Eof();Help(" ",1,"NOSX3");EndIf
+	PRIVATE nPerImp := CriaVar("D3_PERIMP")
+	cPerImPct := Trim(X3_PICTURE)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Devolve ordem original do SX3                                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSetOrder(1)
+
+PRIVATE dEmis260 := M->dDataBase
+PRIVATE lControl :=.F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Faz o posicionamento dos Says/Gets    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+A260PosGet(@aSay, @aGet, @aTela)
+
+While .T.
+	nOpca:=0
+	DEFINE MSDIALOG oDlg FROM  aTela[1],aTela[2] TO aTela[3],aTela[4] TITLE OemToAnsi(STR0001) PIXEL	//"Transferˆncias"
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Monta Panel                                                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oPanel:= tSay():New(,,,oDlg)
+	oPanel:Align := CONTROL_ALIGN_ALLCLIENT
+
+	DEFINE SBUTTON oBtn FROM 800,800 TYPE 5 ENABLE OF oPanel
+	@ aGet[1,1],aGet[1,2] TO aGet[1,3],aGet[1,4] LABEL OemToAnsi(STR0006)  OF oPanel  PIXEL	//"Origem"
+	@ aGet[2,1],aGet[2,2] TO aGet[2,3],aGet[2,4] LABEL OemToAnsi(STR0007) OF oPanel  PIXEL	//"Destino"
+	@ aGet[3,1],aGet[3,2] MSGET cCodOrig F3 "SB1" Picture PesqPict("SD3","D3_COD") Valid NaoVazio() .And. A260IniCpo(1,@cServico) SIZE aGet[3,3],aGet[3,4] OF oPanel PIXEL
+
+	@ aGet[4,1],aGet[4,2] MSGET cUmOrig  When .F. SIZE aGet[4,3],aGet[4,4] OF oPanel PIXEL
+
+   	@ aGet[5,1],aGet[5,2] MSGET cLocOrig Picture cLocPict F3 "NNR" Valid ExistCpo("NNR") .And. NaoVazio() .And. A260Local() .And. VldUser("D3_LOCAL") SIZE aGet[5,3],aGet[5,4] OF oPanel PIXEL   //Armazem Origem
+
+	@ aGet[6,1],aGet[6,2] MSGET cLoclzOrig F3 "SBE" Picture cLoclzPict Valid If(Localiza(cCodOrig,.T.),A260Locali(),Vazio()) When (Localiza(cCodOrig,.T.)) SIZE aGet[6,3],aGet[6,4] OF oPanel PIXEL
+
+	If lCAT83 .And. cPaisLoc == "BRA"
+		@ aGet[20,1],aGet[20,2] MSGET cCAT83O F3 "CDZ"	SIZE aGet[20,3],aGet[20,4] Valid IIF(Vazio() .Or. ExistCpo("CDZ",&(ReadVar())),.T.,.F.) OF oPanel PIXEL   //Cod.CAT83
+	EndIf
+
+	@ aGet[7,1],aGet[7,2] MSGET cCodDest F3 "SB1" Picture cCodPict Valid NaoVazio() .And. A260IniCpo(2) SIZE aGet[7,3],aGet[7,4] OF oPanel PIXEL
+
+	@ aGet[8,1],aGet[8,2] MSGET cUmDest  When .F. SIZE aGet[8,3],aGet[8,4] OF oPanel PIXEL
+
+	@ aGet[9,1],aGet[9,2] MSGET cLocDest Picture cLocPict F3 "NNR" Valid ExistCpo("NNR") .And. NaoVazio() .And. A260LocDest() .And. VldUser("D3_LOCAL") SIZE aGet[9,3],aGet[9,4] OF oPanel PIXEL //Armazem Destino
+
+	@ aGet[10,1],aGet[10,2] MSGET cLoclzDest F3 "SBE" Picture cLoclzPict Valid If(Localiza(cCodDest,.T.),A260Locali(),Vazio()) When (Localiza(cCodDest,.T.)) SIZE aGet[10,3],aGet[10,4] OF oPanel PIXEL
+	@ aGet[11,1],aGet[11,2] MSGET cNumSerie When Localiza(cCodOrig,.T.) SIZE aGet[11,3],aGet[11,4] OF oPanel PIXEL
+
+	If lCAT83 .And. cPaisLoc == "BRA"
+		@ aGet[21,1],aGet[21,2] MSGET cCAT83D F3 "CDZ"	SIZE aGet[21,3],aGet[21,4] Valid IIF(Vazio() .Or. ExistCpo("CDZ",&(ReadVar())),.T.,.F.) OF oPanel PIXEL  //Cod.CAT83
+	EndIf
+
+	@ (aGet[12,1]+25),aGet[11,2] MSGET cLoteDigi  Picture cLotCtlPic Valid A260Lote() When (Rastro(cCodOrig,"S") .Or. Rastro(cCodOrig,"L")) SIZE (aGet[12,3]+85),aGet[12,4] OF oPanel PIXEL
+	@ (aGet[13,1]+25),aGet[13,2] MSGET cNumLote   Picture cLotePict  Valid A260Lote() When Rastro(cCodOrig,"S") SIZE aGet[13,3],aGet[13,4] OF oPanel PIXEL
+	@ (aGet[14,1]+25),aGet[14,2] MSGET dDtValid   Picture cDtVldPic  Valid dDtValid > dDataBase When lControl  SIZE aGet[14,3],aGet[14,4] OF oPanel PIXEL
+	@ (aGet[15,1]+25),aGet[15,2] MSGET nPotencia  Picture cPotPict   When lControl  SIZE aGet[15,3],aGet[15,4] OF oPanel PIXEL
+	@ (aGet[16,1]+25),aGet[16,2] MSGET nQuant260  Picture cQtdPict   Valid A260Quant(1) SIZE aGet[16,3],aGet[16,4] OF oPanel PIXEL
+	@ (aGet[17,1]+25),aGet[17,2] MSGET nQuant260D Picture cQtd2Pict  Valid A260Quant(2) SIZE aGet[17,3],aGet[17,4] OF oPanel PIXEL
+	@ (aGet[18,1]+25),aGet[18,2] MSGET dEmis260 Valid A260Data() .And. VldUser('D3_EMISSAO') WHEN If(GetSx3Cache("D3_EMISSAO","X3_VISUAL") == "V",.F.,&(GetSx3Cache("D3_EMISSAO","X3_WHEN"))) SIZE aGet[18,3],aGet[18,4] OF oPanel PIXEL
+	@ (aGet[19,1]+25),aGet[19,2] MSGET cDocto Picture cDocPict Valid A260Doc() SIZE aGet[19,3],aGet[19,4] OF oPanel PIXEL WHEN lDocto
+	If nFCICalc == 1
+			@ (aGet[22,1]+25),aGet[22,2] MSGET nPerImp Picture cPerImPct Valid A250VlPImp() SIZE aGet[22,3],aGet[22,4] OF oPanel PIXEL
+	EndIf
+	@ aSay[1,1],aSay[1,2] SAY cDescOrig SIZE aSay[1,3],aSay[1,4] OF oPanel PIXEL
+	@ aSay[2,1],aSay[2,2] SAY cDescDest SIZE aSay[2,3],aSay[2,4] OF oPanel PIXEL
+	@ aSay[3,1],aSay[3,2] SAY OemtoAnsi(STR0008)	SIZE aSay[3,3],aSay[3,4] 	OF oPanel PIXEL 		//"Produto"
+	@ aSay[4,1],aSay[4,2] SAY OemToAnsi(STR0009)	SIZE aSay[4,3],aSay[4,4] 	OF oPanel PIXEL 		//"Unidade de Medida"
+	@ aSay[5,1],aSay[5,2] SAY OemToAnsi(STR0010)	SIZE aSay[5,3],aSay[5,4] 	OF oPanel PIXEL 		//"Armazem  /  Endereco"
+	@ aSay[7,1],aSay[7,2] SAY OemToAnsi(STR0011)	SIZE aSay[7,3],aSay[7,4] 	OF oPanel PIXEL 		//"Produto"
+	@ aSay[8,1],aSay[8,2] SAY OemToAnsi(STR0012)	SIZE aSay[8,3],aSay[8,4] 	OF oPanel PIXEL 		//"Unidade de Medida"
+	@ aSay[9,1],aSay[9,2] SAY OemToAnsi(STR0010)	SIZE aSay[9,3],aSay[9,4] 	OF oPanel PIXEL 		//"Armazem  /  Endereco"
+	@ aSay[11,1],aSay[11,2] SAY OemToAnsi(STR0013) SIZE aSay[11,3],aSay[11,4]	OF oPanel PIXEL 		//"N£mero de Serie"
+	@ (aSay[12,1]+25),aSay[11,2] SAY OemToAnsi(STR0015) SIZE aSay[12,3],aSay[12,4] OF oPanel PIXEL	//"Lote"
+	@ (aSay[13,1]+25),aSay[13,2] SAY OemToAnsi(STR0014) SIZE aSay[13,3],aSay[13,4] OF oPanel PIXEL	//"Sub-Lote"
+	@ (aSay[14,1]+25),aSay[14,2] SAY OemToAnsi(STR0016) SIZE aSay[14,3],aSay[14,4] OF oPanel PIXEL	//"Data de Validade"
+	@ (aSay[15,1]+25),aSay[15,2] SAY OemToAnsi(STR0057) SIZE aSay[15,3],aSay[15,4] OF oPanel PIXEL	//"Pot."
+	@ (aSay[16,1]+25),aSay[16,2] SAY OemToAnsi(STR0017) SIZE aSay[16,3],aSay[16,4] OF oPanel PIXEL	//"Quantidade Prim ria"
+	@ (aSay[17,1]+25),aSay[17,2] SAY OemToAnsi(STR0018) SIZE aSay[17,3],aSay[17,4] OF oPanel PIXEL	//"Quantidade Secund ria"
+	@ (aSay[18,1]+25),aSay[18,2] SAY OemToAnsi(STR0019) SIZE aSay[18,3],aSay[18,4] OF oPanel PIXEL	//"Data"
+	@ (aSay[19,1]+25),aSay[19,2] SAY OemToAnsi(STR0020) SIZE aSay[19,3],aSay[19,4] OF oPanel PIXEL	//"Documento"
+	If nFCICalc == 1
+		@ (aSay[22,1]+25),aSay[22,2] SAY OemToAnsi(STR0101+chr(13)+chr(10)+STR0102) SIZE aSay[22,3],aSay[22,4] OF oPanel PIXEL 			//"Percentual Importacao"
+	EndIf
+
+	If lCAT83
+		@ (aSay[20,1]),aSay[20,2] SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE aSay[20,3],aSay[20,4] OF oPanel PIXEL 		//Cod.Cat Produto Origem
+		@ (aSay[21,1]),aSay[21,2] SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE aSay[21,3],aSay[21,4] OF oPanel PIXEL 		//Cod.Cat Produto Destino
+	EndIf
+
+	ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{|| If(A260TudoOK(cLocCQ, cLoteDigiD, cServico, lWmsNew,cDocto),(nOpca:=1,oDlg:End()),"") },{||nOpca:=0,oDlg:End()},, aButton)
+	If nOpcA == 0
+		Exit
+	EndIf
+	//-- Adicionada validacao do local de origem
+	If nOpca == 1
+		If !A260Local(cLocOrig)
+			Exit
+		EndIf
+	EndIf
+
+	If a260Processa(cCodOrig,cLocOrig,nQuant260,cDocto,dEmis260,nQuant260D,cNumLote,cLoteDigi,dDtValid,cNumSerie,cLoclzOrig,cCodDest,cLocDest,cLocLzDest,.F.,Nil,Nil,"MATA260",Nil,cServico,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,nPotencia,cLoteDigiD,dDtVldDest,cCAT83O,cCAT83D)
+		// Processa Gatilhos
+		EvalTrigger()
+		If __lSX8
+			ConfirmSX8()
+		EndIf
+
+		//-- Integrado ao wms devera avaliar as regras para convocacao do servico e disponibilizar os
+		//-- registros do SDB para convocacao, ou exibir as mensagens de erro WMS caso necessário
+		If a260IntWMS() .And. !lWmsNew
+			WmsAvalSd3 ('2','SD3')
+		EndIf
+
+	Else
+		If __lSX8
+			RollBackSX8()
+		EndIf
+		Loop
+	EndIf
+	Exit
+EndDo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Desativa a tecla F4 neste momento por seguranca              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Set Key VK_F4 To
+A260Comum(aCtbDia)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Restaura a integridade da janela                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAlias)
+Return .T.
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260Estorn³ Autor ³ Eveli Morasco         ³ Data ³ 30/01/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de exclusao de transferencias                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260Estorn(ExpC1,ExpN1,ExpN2)                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Alias do arquivo                                   ³±±
+±±³          ³ ExpN1 = Numero do registro                                 ³±±
+±±³          ³ ExpN2 = Numero da opcao selecionada                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260Estorn(cAlias,nReg,nOpcx)
+Local cSaveMenuh,nOpca := 0,lDigita,lAglutina,aCusto := {}
+Local GetList:={}
+Local cQtdPict,cQtd2Pict,nRecOrig,nRecDest,nCusOrig,cNumSeq,cPerImPct
+Local dDataFec := MVUlmes(), oDlg
+Local cLocCQ := GetMvNNR('MV_CQ','98')
+Local o01MsGet,o02MsGet,o03MsGet,o04MsGet,o05MsGet,o06MsGet,o07MsGet,o08MsGet
+Local o09MsGet,o10MsGet,o11MsGet,o12MsGet,o13MsGet,o14MsGet,o15MsGet,o16MsGet,o17MsGet
+Local aButton		:= {}
+Local lButLotDst	:= .T.
+Local lCAT83		:= .F.
+Local cLoteDigiD	:= ""
+Local cServico		:= ""
+Local aTela			:= {}
+Local aGet			:= {}
+Local aSay			:= {}
+Local lRet 			:= .T.
+Local lContinua		:= .T.
+Local oOrdSerDel	:= Nil
+Local lWmsSD3		:= If(!(Type('lExecWms')=='U'), lExecWms, .F.)
+Local lWmsNew		:= SuperGetMv("MV_WMSNEW",.F.,.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o usuario tem permissao de delecao. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !(lRet := MaAvalPerm(1,{SD3->D3_COD,"MTA260",5}))
+	Help(,,1,'SEMPERM')
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica calendário contábil                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet
+	lRet := (CtbValiDt(Nil,SD3->D3_EMISSAO,,Nil ,Nil ,{"EST001"}))
+EndIf
+
+If lRet
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Ponto de entrada para inclusao de botoes na ToolBar.         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If (ExistBlock("MT260BTN"))
+		aButton := ExecBlock("MT260BTN",.F.,.F.)
+		If ValType(aButton) # "A"
+			aButton := {}
+		EndIf
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Ponto de entrada para acionar ou nao o botao Sel Lote Destino³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If (ExistBlock("MT260BLD"))
+		lButLotDst := ExecBlock("MT260BLD",.F.,.F.)
+		If ValType(lButLotDst) # "L"
+			lButLotDst := .T.
+		EndIf
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Inclusao de botao que permite selecionar lote destino da     ³
+	//³ transferencia diferente do lote origem.                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lButLotDst
+		aAdd(aButton,{'BONUS',{|| A260LDest(cCodDest,cLoteDigiD,"",.F.)},STR0099,STR0062}) //"Sel. Lote Destino"
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existe algum dado no arquivo                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea(cAlias)
+	If RecCount() == 0
+		SetCursor(0)
+		Return .T.
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se esta' na filial correta                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If SD3->(xFilial("SD3"))!= D3_FILIAL
+		Help(" ",1,"A000FI")
+		SetCursor(0)
+		Return .T.
+	EndIf
+
+	If !A260ChkCF(D3_COD, D3_LOCAL, D3_NUMSEQ, D3_CF, cLocCQ)
+		Help(" ",1,"A260NAO")
+		SetCursor(0)
+		Return .T.
+	EndIf
+
+	If D3_ESTORNO == "S"
+		Help(" ",1,"A260ESTORN")
+		SetCursor(0)
+		Return .T.
+	EndIf
+
+	If SD3->D3_CHAVE == "E0"
+
+		dbSelectArea("SBC")
+		dbSetOrder(1)
+		dbGoTop()
+		Do While !SBC->(Eof())
+			If SD3->D3_FILIAL+SD3->D3_NUMSEQ == xFilial("SD3")+SBC->BC_SEQSD3
+				lContinua := .F.
+			EndIf
+			If !lContinua
+				Help(' ',1,'A260NAO')
+				SetCursor(0)
+				Return .T.
+			EndIf
+			SBC->(dbSkip())
+		EndDo
+	Endif
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verificar data do ultimo fechamento em SX6.                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If dDataFec >= dDataBase .Or. dDataFec >=  SD3->D3_EMISSAO
+		Help ( " ", 1, "FECHTO" )
+		SetCursor(0)
+		Return
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ AvalMovDiv - Funcao utilizada para avaliar possiveis divergencias de     |
+	//|              saldo no estorno do movimento selecionado.                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If AvalMovDiv(SD3->D3_COD,SD3->D3_LOCAL,SD3->D3_LOTECTL,SD3->D3_NUMLOTE,SD3->D3_NUMSEQ)
+		Return
+	EndIf
+
+	PRIVATE cCodOrig,cCodDest,cUmOrig,cUmDest,cLocOrig,cLocDest,cCAT83O,cCAT83D,nQuant260,;
+			nQuant260D,cDocto,dEmis260,cLoteDigi,dDtValid,dDtVldDest,cLoclzOrig,cLoclzDest,;
+			cNumLote,cNumSerie,nPotencia,nPerImp
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Portaria CAT83   |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If V240CAT83()
+	    lCAT83:=.T.
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Pega as pictures do SX3 para manter o padrao                         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SX3")
+	dbSetOrder(2)
+
+	Seek "D3_QUANT"
+	If Eof();Help(" ",1,"NOSX3");EndIf
+	cQtdPict := Trim(X3_PICTURE)
+
+	Seek "D3_QTSEGUM"
+	If Eof();Help(" ",1,"NOSX3");EndIf
+	cQtd2Pict := Trim(X3_PICTURE)
+
+	If nFCICalc == 1 .And. cPaisLoc == "BRA"
+		Seek "D3_PERIMP"
+		If Eof();Help(" ",1,"NOSX3");EndIf
+		cPerImPct := Trim(X3_PICTURE)
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Devolve ordem original do SX3                                        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSetOrder(1)
+
+	dbSelectArea("SD3")
+	SD3->(dbSetOrder(4))
+	cNumSeq := SD3->D3_NUMSEQ
+	SD3->(dbSeek(xFilial("SD3")+cNumSeq))
+	nRecOrig   := RecNo()
+	cCodOrig   := D3_COD
+	cUmOrig    := D3_UM
+	cLocOrig   := D3_LOCAL
+	cLoclzOrig := D3_LOCALIZ
+	cNumLote   := D3_NUMLOTE
+	cNumSerie  := D3_NUMSERI
+	cLoteDigi  := D3_LOTECTL
+	dDtValid   := D3_DTVALID
+	nPotencia  := D3_POTENCI
+	cDocto     := D3_DOC
+	dEmis260   := D3_EMISSAO
+	cCAT83O    := IIF(lCAT83,SD3->D3_CODLAN,"")
+	If nFCICalc == 1 .And. cPaisLoc == "BRA"
+		nPerImp		:= SD3->D3_PERIMP
+	EndIf
+
+	SD3->(dbSkip())
+	If cNumSeq == D3_NUMSEQ
+		nRecDest   := RecNo()
+		cCodDest   := D3_COD
+		cUmDest    := D3_UM
+		cLocDest   := D3_LOCAL
+		dDtVldDest := D3_DTVALID
+		cLoclzDest := D3_LOCALIZ
+		nQuant260  := D3_QUANT
+		nQuant260D := D3_QTSEGUM
+		cLoteDigiD := D3_LOTECTL
+		cServico   := D3_SERVIC
+		cCAT83D    := IIF(lCAT83,SD3->D3_CODLAN,"")
+		If nFCICalc == 1 .And. cPaisLoc == "BRA"
+			nPerImp		:= SD3->D3_PERIMP
+		EndIf
+	Else
+		Aviso(STR0022,STR0058,{STR0059})	// "Movimento nao pode ser estornado" # "Nao Estornar"
+		Return
+	EndIf
+	dbSetOrder(1)
+
+	// --- Validacoes WMS
+	If	Localiza(cCodDest,.T.) .And. a260IntWMS(cCodDest)
+		If !lWmsNew
+			//-- Validar Servico WMS de transferencia quando informado.
+			If !Empty(cServico)
+				//A ordem de serviço WMS é gerada para o local destino
+				If WmsChkDCF('SD3',,,cServico,'3',,cDocto,,,,cLocDest,cCodDest,,,cNumSeq)
+					If !WmsAvalDCF('2')
+						Return
+					EndIf
+				EndIf
+			EndIf
+			If (SuperGetMV('MV_WMSVLDT',.F.,.T.)==.T.)
+				If ExistBlock("MA260WMS")
+					cRetPE := ExecBlock("MA260WMS",.F.,.F.,{cLocOrig,cCodOrig,cLoclzOrig})
+					If !(ValType(CRetPE)=="C" .And. cLocDest $ cRetPE)
+						//No estorno o destino deve ser assumido como a origem
+						If !WmsVldDest(cCodOrig,cLocOrig,cLoclzOrig,cLoteDigi,cNumLote,cNumSerie,nQuant260)
+							Return
+						EndIf
+					EndIf
+				Else
+					//No estorno o destino deve ser assumido como a origem
+					If !WmsVldDest(cCodOrig,cLocOrig,cLoclzOrig,cLoteDigi,cNumLote,cNumSerie,nQuant260)
+						Return
+					EndIf
+				EndIf
+			EndIf
+		ElseIf !lWmsSD3
+			// Validação de estorno [NOVO WMS]
+			oOrdSerDel := WMSDTCOrdemServicoDelete():New()
+			oOrdSerDel:SetIdDCF(SD3->D3_IDDCF)
+			If oOrdSerDel:LoadData()
+				If oOrdSerDel:CanDelete()
+					Help( ,1,"SIGAWMS",,oOrdSerDel:GetErro(),1,0)
+					Return
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o produto origem ou o produto destino   ³
+	//³ estao sendo inventariados.                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If BlqInvent(cCodOrig,cLocOrig,,cLoclzOrig)
+		Help(" ",1,"BLQINVENT",,cCodOrig+" Almox: "+cLocOrig,1,11)
+		Return
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Analisa se o tipo do armazem permite a movimentacao |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If AvalBlqLoc(cCodOrig,cLocOrig,Nil,,cCodDest,cLocDest)
+		Return
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o produto origem ou o produto destino   ³
+	//³ estao sendo inventariados.                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If BlqInvent(cCodDest,cLocDest,,cLoclzDest)
+		Help(" ",1,"BLQINVENT",,cCodDest+" Almox: "+cLocDest,1,11)
+		Return
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o produto destino tem saldo p/ estornar ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !MatVldEst(cCodDest,;
+			cLocDest,;
+			SD3->D3_LOTECTL,;
+			SD3->D3_NUMLOTE,;
+			If(Empty(cServico),SD3->D3_LOCALIZ,""),;
+			SD3->D3_NUMSERI,;
+			cNumSeq,;
+			cDocto,;
+			nQuant260)
+		Return
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o produto destino esta com saldo bloqueado ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !SldBlqSB2(cCodDest,cLocDest)
+		Return
+	EndIf
+
+	dbSelectArea("SB1")
+	SB1->(dbSeek(xFilial("SB1")+cCodOrig))
+	cDescOrig:=SB1->B1_DESC
+	SB1->(dbSeek(xFilial("SB1")+cCodDest))
+	cDescDest:=SB1->B1_DESC
+	dbSelectArea("SD3")
+
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Faz o posicionamento dos Says/Gets    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	A260PosGet(@aSay, @aGet, @aTela)
+
+	oSize := FwDefSize():New()
+
+	oSize:AddObject( "ORIGEM"	,  100, 15, .T., .T. ) // Totalmente dimensionavel
+	oSize:AddObject( "DESTINO"	,  100, 15, .T., .T. ) // Totalmente dimensionavel
+	oSize:AddObject( "DADOS"		,  100, 70, .T., .T. ) // Totalmente dimensionavel
+
+	oSize:lProp := .T. // Proporcional
+	oSize:aMargins := { 3, 3, 3, 3 } // Espaco ao lado dos objetos 0, entre eles 3
+
+	oSize:Process() // Dispara os calculos
+
+DEFINE MSDIALOG oDlg TITLE OemtoAnsi(STR0001) FROM ;
+								oSize:aWindSize[1],oSize:aWindSize[2] TO oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL 	//"Transferˆncias"
+
+@ oSize:GetDimension("ORIGEM","LININI"), oSize:GetDimension("ORIGEM","COLINI") TO oSize:GetDimension("ORIGEM","LINEND"),;
+ oSize:GetDimension("ORIGEM","COLEND") LABEL OemToAnsi(STR0006) OF oDlg  PIXEL //"Origem"
+
+@ oSize:GetDimension("DESTINO","LININI"), oSize:GetDimension("DESTINO","COLINI") TO oSize:GetDimension("DESTINO","LINEND"),;
+ oSize:GetDimension("DESTINO","COLEND") LABEL OemToAnsi(STR0007) OF oDlg  PIXEL //"Destino"
+
+@ oSize:GetDimension("ORIGEM","LININI")+13, oSize:GetDimension("ORIGEM","COLINI")+10 SAY OemtoAnsi(STR0008)	SIZE 30,20 		OF oDlg PIXEL //"Produto"
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+40 MSGET o01MsGet Var cCodOrig 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+25, oSize:GetDimension("ORIGEM","COLINI")+42 SAY cDescOrig			SIZE 60,20 		OF oDlg PIXEL
+
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+110 SAY OemToAnsi(STR0009)	SIZE 30,20 		OF oDlg PIXEL //"Unidade de Medida"
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+142 MSGET o02MsGet Var cUmOrig  	When .F. SIZE 15,10 OF oDlg PIXEL
+
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+167 SAY OemToAnsi(STR0010)	SIZE 30,20 	OF oDlg PIXEL 	//"Armazem  /  Endereco"
+
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+207 MSGET o03MsGet Var cLocOrig	 	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+232 MSGET o04MsGet Var cLoclzOrig		When .F. SIZE 60,10 OF oDlg PIXEL
+
+If lCAT83
+	@ oSize:GetDimension("ORIGEM","LININI")+10, oSize:GetDimension("ORIGEM","COLINI")+325 MSGET cCAT83O 	When .F. SIZE 60,10 OF oDlg PIXEL   //Cod.CAT83
+EndIf
+
+@ oSize:GetDimension("DESTINO","LININI")+13, oSize:GetDimension("DESTINO","COLINI")+10 SAY OemToAnsi(STR0011)	SIZE 30,20 	OF oDlg PIXEL 		//"Produto"
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+40 MSGET o05MsGet Var cCodDest 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+25, oSize:GetDimension("DESTINO","COLINI")+42 SAY cDescDest				SIZE 60,20 	OF oDlg PIXEL
+
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+110 SAY OemToAnsi(STR0012)		SIZE 30,20 	OF oDlg PIXEL 		//"Unidade de Medida"
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+142 MSGET o06MsGet Var cUmDest  	When .F. SIZE 15,10 OF oDlg PIXEL
+
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+167 SAY OemToAnsi(STR0010)	SIZE 30,20 	OF oDlg PIXEL 	//"Armazem  /  Endereco"
+
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+207 MSGET o07MsGet Var cLocDest 	When .F. SIZE 15,10 OF oDlg PIXEL
+@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+232 MSGET o08MsGet Var cLoclzDest 	When .F. SIZE 60,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+5, oSize:GetDimension("DADOS","COLINI")+45 MSGET o09MsGet Var cNumSerie 	When .F. SIZE 80,10 OF oDlg PIXEL
+
+If lCAT83
+	@ oSize:GetDimension("DESTINO","LININI")+10, oSize:GetDimension("DESTINO","COLINI")+325 MSGET cCAT83D 	When .F.SIZE 60,10 OF oDlg PIXEL  //Cod.CAT83
+EndIf
+
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+45 MSGET o10MsGet Var cLoteDigi 	When .F. SIZE 120,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+195 MSGET o11MsGet Var cNumLote  	When .F. SIZE 30,10  OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+265 MSGET o12MsGet Var dDtValid  	When .F. SIZE 45,10  OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+350 MSGET o17MsGet Var nPotencia 	SIZE 30,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45, oSize:GetDimension("DADOS","COLINI")+45 MSGET o13MsGet Var nQuant260  Picture cQtdPict  SIZE 50,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+135 MSGET o14MsGet Var nQuant260D Picture cQtd2Pict SIZE 50,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+225 MSGET o15MsGet Var dEmis260 	SIZE 45,10 OF oDlg PIXEL
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+310 MSGET o16MsGet Var cDocto 	SIZE 30,10 OF oDlg PIXEL
+
+If nFCICalc == 1
+	@ oSize:GetDimension("DADOS","LININI")+65,  oSize:GetDimension("DADOS","COLINI")+45 MSGET nPerImp Picture cPerImPct When .F. SIZE 50,10 OF oDlg PIXEL
+EndIf
+
+@ oSize:GetDimension("DADOS","LININI")+5,  oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0013) 	SIZE 30,20 	OF oDlg PIXEL 	//"N£mero de Serie"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0015) 	SIZE 30,20 	OF oDlg PIXEL 	//"Lote"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+170 SAY OemToAnsi(STR0014)	SIZE 30,20 	OF oDlg PIXEL 	//"Sub-Lote"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+230 SAY OemToAnsi(STR0016) 	SIZE 30,20 	OF oDlg PIXEL	 //"Data de Validade"
+@ oSize:GetDimension("DADOS","LININI")+25, oSize:GetDimension("DADOS","COLINI")+315 SAY OemToAnsi(STR0057) 	SIZE 30,20 	OF oDlg PIXEL 	//"Pot."
+
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+5 SAY OemToAnsi(STR0017)	SIZE 30,20 	OF oDlg PIXEL 		//"Quantidade Prim ria"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+100 SAY OemToAnsi(STR0018) 	SIZE 30,20 	OF oDlg PIXEL 		//"Quantidade Secund ria"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+190 SAY OemToAnsi(STR0019) 	SIZE 30,20 	OF oDlg PIXEL 		//"Data"
+@ oSize:GetDimension("DADOS","LININI")+45,  oSize:GetDimension("DADOS","COLINI")+275 SAY OemToAnsi(STR0020) 	SIZE 30,20 	OF oDlg PIXEL 		//"Documento"
+
+If nFCICalc == 1
+	@ oSize:GetDimension("DADOS","LININI")+65,  oSize:GetDimension("DADOS","COLINI")+5  SAY OemToAnsi(STR0101+chr(13)+chr(10)+STR0102) SIZE 30,20 OF oDlg PIXEL 			//"Percentual Importacao"
+EndIf
+
+If lCAT83
+	@ oSize:GetDimension("ORIGEM" ,"LININI")+10,  oSize:GetDimension("ORIGEM" ,"COLINI")+300  SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE 30,20 OF oDlg PIXEL 		//Cod.Cat Produto Origem
+	@ oSize:GetDimension("DESTINO","LININI")+10,  oSize:GetDimension("DESTINO","COLINI")+300  SAY OemToAnsi(STR0104+chr(13)+chr(10)+STR0105) SIZE 30,20 OF oDlg PIXEL 		//Cod.Cat Produto Destino
+EndIf
+
+	o01MsGet:lReadOnly:=.T.
+	o02MsGet:lReadOnly:=.T.
+	o03MsGet:lReadOnly:=.T.
+	o05MsGet:lReadOnly:=.T.
+	o06MsGet:lReadOnly:=.T.
+	o07MsGet:lReadOnly:=.T.
+	o10MsGet:lReadOnly:=.T.
+	o11MsGet:lReadOnly:=.T.
+	o12MsGet:lReadOnly:=.T.
+	o13MsGet:lReadOnly:=.T.
+	o14MsGet:lReadOnly:=.T.
+	o15MsGet:lReadOnly:=.T.
+	o16MsGet:lReadOnly:=.T.
+	o17MsGet:lReadOnly:=.T.
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Tratamento dos objetos para o Siga Pyme                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	o04MsGet:lReadOnly:=.T.
+	o08MsGet:lReadOnly:=.T.
+	o09MsGet:lReadOnly:=.T.
+
+	ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{||nOpca:=2,IIF(MTA260OK(cNumSeq),oDlg:end(),nOpca:=0)},{|| oDlg:end() },, aButton)
+
+	If nOpca == 2 .And. MatVldEst(cCodDest,cLocDest,cLoteDigid,SD3->D3_NUMLOTE,If(Empty(cServico),cLocLzDest,""),cNumSerie,cNumSeq,	cDocto,nQuant260)
+		a260Processa(cCodOrig,cLocOrig,nQuant260,cDocto,dEmis260,nQuant260D,cNumLote,cLoteDigi,dDtValid,cNumSerie,cLoclzOrig,cCodDest,cLocDest,cLocLzDest,.T.,nRecOrig,nRecDest,"MATA260",Nil,cServico,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,Nil,nPotencia,Nil,Nil,cCAT83O,cCAT83D)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Se ele criou o arquivo de prova ele deve gravar o rodape'    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		A260Comum(aCtbDia)
+	EndIf
+
+
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Restaura a integridade da janela                             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea(cAlias)
+	dbGoTo(nRecOrig)
+	SetCursor(0)
+EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³                                                                       ³±±
+±±³                                                                       ³±±
+±±³                   ROTINAS DE CRITICA DE CAMPOS                        ³±±
+±±³                                                                       ³±±
+±±³                                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260IniCpo³ Autor ³Rodrigo de A. Sartorio ³ Data ³ 14/03/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Inicializa campos a partir do codigo do produto            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260IniCpo(ExpN1)                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpN1 = 1 - inicializa campos do codigo origem             ³±±
+±±³          ³         2 - inicializa campos do codigo destino            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MatA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260IniCpo(nOrigDest,cServico)
+Static lA260INI := Nil
+Local lRet    :=.T.
+Local cVar    := IIf(nOrigDest=1,cCodOrig,cCodDest)
+Local nDec2UM := TamSX3('D3_QTSEGUM')[2]
+Local lWmsNew := SuperGetMv("MV_WMSNEW",.F.,.F.)
+
+Default cServico := ""
+
+lA260INI := If(lA260INI == Nil,ExistBlock("A260INI"),lA260INI)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Executa PE na digitacao do campo                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lA260INI
+	lRet := Execblock("A260INI",.F.,.F.)
+	lRet := If(ValType(lRet)#"L",.T.,lRet)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o usuario tem permissao de inclusao. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet .AND. IsInCallStack("MATA260") .Or. IsInCallStack("MATA261")
+	lRet := MaAvalPerm(1,{cVar,"MTA260",3})
+EndIf
+If !lRet
+	Help(,,1,'SEMPERM')
+EndIf
+
+// Utilizado para verificar se quando o protudo for WMS novo não efetuar transferencias quando for Produto PAI
+If lRet .And. a260IntWMS(cVar) .And. lWmsNew
+	lRet:= MTVerPai(cVar)
+EndIf
+
+// Utilizado para verificar se quando o produdo for WMS novo não efetuar transferencias
+If lRet .And. a260IntWMS() .And. lWmsNew .And. (a260IntWMS(cVar) .Or. a260IntWMS(cCodOrig))
+	Help(" ",1,"A260WMS",,'Produto informado controlado por WMS não é possivel efetuar a transferência! Utilize o monitor de transferência WMS!',1,0)
+	lRet:= .F.
+EndIf
+
+If lRet
+	dbSelectArea("SB1")
+	If !SB1->(dbSeek(xFilial('SB1')+cVar))
+		Help(" ",1,"A260SB1")
+		lRet:=.F.
+	EndIf
+	 If !ExistCpo("SB1")
+	 	lRet:=.F.
+	 EndIf
+	If lRet .And. nOrigDest == 1
+		If cSavCdOri <> "" .And. cSavCdOri <> SB1->B1_COD
+			cCodDest	:= ""
+			cUmDest	 	:= ""
+	 	    cLocDest  	:= ""
+	 	    cDescDest	:= ""
+	 	EndIf
+		cSavCdOri  := SB1->B1_COD
+		cUmOrig    := B1_UM
+		cLocOrig   := RetFldProd(SB1->B1_COD,"B1_LOCPAD")
+		cDescOrig  := B1_DESC
+		cCodDest   := IIf(Empty(cCodDest),cCodOrig,cCodDest)
+		cUmDest    := IIf(Empty(cUmDest),B1_UM,cUmDest)
+		cLocDest   := IIf(Empty(cLocDest),RetFldProd(SB1->B1_COD,"B1_LOCPAD"),cLocDest)
+		cDescDest  := IIf(Empty(cDescDest),B1_DESC,cDescDest)
+		nQuant260D := Round(QtdComp(ConvUm(B1_COD, nQuant260, nQuant260D, 2)), nDec2UM)
+
+		If a260IntWMS(cCodOrig) .Or. lWmsNew
+			SB5->(dbSetOrder(1))
+			If SB5->(dbSeek(xFilial("SB5")+cCodOrig))
+				cServico := SB5->B5_SERVINT
+			EndIf
+		EndIf
+	Else
+		cUmDest  := B1_UM
+		cLocDest := IIf(Empty(cLocDest),RetFldProd(SB1->B1_COD,"B1_LOCPAD"),cLocDest)
+		cDescDest:= B1_DESC
+	EndIf
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260Quant ³ Autor ³ Fernando Joly Siquini ³ Data ³19/07/2000³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Trata a Convers„o de Unidades de Medida                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260Quant(ExpN1)                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parƒmetros³ ExpN1 = 1 - Trata 1a Unidade de Medida                     ³±±
+±±³          ³         2 - Trata 2a Unidade de Medida                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ MatA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function A260Quant(nTipoUM)
+
+Local aAreaAnt   := GetArea()
+Local aAreaSB1   := SB1->(GetArea())
+Local aAreaSB2   := SB2->(GetArea())
+Local aAreaSB8   := SB8->(GetArea())
+Local aAreaSBE   := SBE->(GetArea())
+Local lEstNeg    := .F.
+Local lRastro    := .F.
+Local lLocaliza  := .F.
+Local lRet       := .T.
+Local nTam1UM    := TamSX3('D3_QUANT')[1]
+Local nTam2UM    := TamSX3('D3_QTSEGUM')[1]
+Local nDec1UM    := TamSX3('D3_QUANT')[2]
+Local nDec2UM    := TamSX3('D3_QTSEGUM')[2]
+Local nQuantVld  := 0
+Local lEmpPrev   := If(SuperGetMV("MV_QTDPREV")== "S",.T.,.F.)
+Local lWmsNew	 := SuperGetMv("MV_WMSNEW",.F.,.F.)
+Local lValidPE
+Local oSaldoWMS  := Iif(lWmsNew,WMSDTCEstoqueEndereco():New(),Nil)
+
+SB1->(dbSetOrder(1))
+
+If nTipoUM == 1
+	//-- Verifica se deve reiniciar a 2a.UM com base na 1a.UM digitada
+	nQuantVld := Round(QtdComp(ConvUm(cCodOrig, nQuant260, nQuant260D,2)), nDec2UM)
+	If !(StrZero(nQuant260D,nTam2UM,nDec2UM)==StrZero(nQuantVld,nTam2UM,nDec2UM))
+		nQuant260D := nQuantVld
+	EndIf
+ElseIf nTipoUM == 2
+	//-- Verifica se deve reiniciar a 1a.UM com base na 2a.UM digitada
+	nQuantVld := Round(QtdComp(ConvUm(cCodOrig, nQuant260, nQuant260D,2)), nDec2UM)
+	//-- Recalcula a 1a.UM somente quando a reconversao para a 2a.UM divergir da 2a.UM digitada
+	If !(StrZero(nQuant260D,nTam2UM,nDec2UM)==StrZero(nQuantVld,nTam2UM,nDec2UM))
+		nQuantVld := Round(QtdComp(ConvUm(cCodOrig, nQuant260, nQuant260D, 1)), nDec1UM)
+		If !(StrZero(nQuant260,nTam1UM,nDec1UM)==StrZero(nQuantVld,nTam1UM,nDec1UM))
+			nQuant260 := nQuantVld
+		EndIf
+	EndIf
+EndIf
+
+//-- Valida Movimenta‡äes c/Quantidade Negativa
+If QtdComp(nQuant260) < QtdComp(0)
+	Help(' ', 1, 'POSIT')
+	lRet := .F.
+EndIf
+
+If lRet
+	lEstNeg   := (GetMv('MV_ESTNEG')=='N')
+	lRastro   := Rastro(cCodOrig)
+	lLocaliza := Localiza(cCodOrig,.T.)
+EndIf
+
+If lRet .And. (lEstNeg .Or. lRastro .Or. lLocaliza)
+	//-- Valida Saldo em Estoque Negativo
+	If lEstNeg
+		dbSelectArea('SB2')
+		aAreaSB2 := GetArea()
+		SB2->(dbSetOrder(1))
+		If !SB2->(dbSeek(xFilial('SB2')+cCodOrig+cLocOrig))
+			Help(' ', 1, 'REGNOIS')
+			lRet := .F.
+		ElseIf QtdComp(SaldoMov(Nil, Nil, Nil,If(mv_par03==1,.F.,Nil), Nil,Nil, If(lLocaliza, If((cCodOrig==cCodDest.And.cLocOrig==cLocDest.And.cLoclzOrig#cLoclzDest), .F., Nil), Nil),If(Type('dEmis260') == "D",dEmis260,dDataBase))) < QtdComp(nQuant260)
+			Help(' ', 1, 'MA240NEGAT')
+			lRet := .F.
+		EndIf
+		dbSetOrder(aAreaSB2[2])
+		dbGoto(aAreaSB2[3])
+	EndIf
+
+	//-- Valida Saldo em Estoque ref. a Rastreabilidade
+	If lRet .And. lRastro
+		dbSelectArea('SB8')
+		aAreaSB8 := GetArea()
+		If	Rastro(cCodOrig, 'S')
+			SB8->(dbSetOrder(2))
+			If SB8->(dbSeek(xFilial('SB8')+cNumLote+cLoteDigi+cCodOrig+cLocOrig, .F.))
+				If QtdComp(SB8Saldo(Nil,.T.,Nil,Nil,Nil,lEmpPrev,Nil,dEmis260)) < QtdComp(nQuant260)
+					Help(' ', 1, 'A240NEGAT' )
+					lRet := .F.
+				EndIf
+			EndIf
+		ElseIf QtdComp(SaldoLote(cCodOrig,cLocOrig,cLoteDigi,Nil,Nil,Nil,Nil,dEmis260)) < QtdComp(nQuant260)
+			Help(' ', 1, 'A240NEGAT')
+			lRet := .F.
+		EndIf
+		dbSetOrder(aAreaSB8[2])
+		dbGoto(aAreaSB8[3])
+	EndIf
+
+	//-- Valida Saldo em Estoque ref. a Localiza‡Æo
+	If lRet .And. lLocaliza
+		If lRet
+			dbSelectArea('SBE')
+			aAreaSBE := GetArea()
+			SBE->(dbSetOrder(1))
+			If SBE->(dbSeek(xFilial('SBE')+cLocDest+cLoclzDest, .F.))
+				If QtdComp(BE_CAPACID)>QtdComp(0) .And. (QtdComp(BE_CAPACID)<QtdComp(nQuant260+QuantSBF(cLocDest, cLoclzDest)))
+					Help(' ', 1, 'MA265CAPAC')
+					lRet := .F.
+				EndIf
+			EndIf
+			If lRet
+			 	If !(lWmsNew .And. a260IntWMS(cCodOrig))
+			 		If QtdComp(SaldoSBF(cLocOrig,cLoclzOrig,cCodOrig,cNumSerie,cLoteDigi,If(Rastro(cCodOrig,'S'),cNumLote,''))) < QtdComp(nQuant260)
+			 			Help(' ', 1, 'SALDOLOCLZ')
+			 			lRet := .F.
+			 		EndIf
+			 	Else
+			 		If QtdComp(oSaldoWMS:GetSldWMS(cCodOrig,cLocOrig,cLoclzOrig,cLoteDigi,If(Rastro(cCodOrig, 'S'),cNumLote,''),cNumSerie)) < QtdComp(nQuant260)
+			 			Help(' ', 1, 'SALDOLOCLZ')
+			 			lRet := .F.			 		
+			 		EndIf
+			 	EndIf
+			EndIf
+			dbSetOrder(aAreaSBE[2])
+			dbGoto(aAreaSBE[3])
+		EndIf
+	EndIf
+EndIf
+
+If ExistBlock("MT260UM")
+	lValidPE := ExecBlock("MT260UM",.F.,.F.,{nTipoUM,lRet})
+	If ValType(lValidPE) == "L"
+		lRet := lValidPE
+	EndIf
+EndIf
+SB1->(dbSetOrder(aAreaSB1[2]))
+SB1->(dbGoto(aAreaSB1[3]))
+RestArea(aAreaAnt)
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260Comum ³ Autor ³ Microsiga S.A.        ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Ajuste referente a contabilizacao                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260Comum()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Mata260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function a260Comum(aCtbDia)
+Local nX := 1
+Default aCtbDia	:= {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o custo medio e' calculado On-Line               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cCusMed == "O" .And. Type("nTotal")=="N"
+	If !lCriaHeader .And. nTotal<>0
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Inicializa perguntas deste programa                            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ mv_par01 - Se mostra e permite digitar lancamentos contabeis   ³
+		//³ mv_par02 - Se deve aglutinar os lancamentos contabeis          ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		Pergunte("MTA260",.F.)
+		lDigita   := IIf(mv_par01 == 1,.T.,.F.)
+		lAglutina := IIf(mv_par02 == 1,.T.,.F.)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Se ele criou o arquivo de prova ele deve gravar o rodape'    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		RodaProva(nHdlPrv,nTotal)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Atualiza o código de diário³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty(aCtbDia)
+			cCodDiario := CtbaVerdia()
+			For nX := 1 to Len(aCtbDia)
+				aCtbDia[nX][3] := cCodDiario
+			Next nX
+		EndIf
+
+		If cA100Incl(cArquivo,nHdlPrv,3,cLoteEst,lDigita,lAglutina,,,,,,aCtbDia)
+			lCriaHeader := .T.
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava a data de Contabilizacao do campo D3_DTLANC         ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			For nX := 1 To Len(aRegSD3)
+				SD3->(dbGoTo(aRegSD3[nX]))
+				RecLock("SD3",.F.)
+				Replace D3_DTLANC With dDataBase
+				MsUnLock()
+			Next nX
+		EndIf
+	EndIf
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MTA260PERG³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 06/12/95 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Chamada da funcao PERGUNTE                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MTA260PERG()
+Pergunte("MTA260",.T.)
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260AVALF4³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 01/12/95 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Chamada da funcao F4                                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA241                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260AvalF4()
+Local cCadastroSav := cCadastro
+If Upper(ReadVar()) $ "CNUMLOTE/CLOTEDIGI"
+	F4Lote(,,,"A260",cCodOrig,cLocOrig,Nil,cLoclzOrig)
+ElseIf Upper(ReadVar()) == "CCODORIG" .Or. Upper(ReadVar()) == "CCODDEST" .Or. Upper(ReadVar()) == "NQUANT260"
+	MaViewSB2(cCodOrig)
+ElseIf Upper(ReadVar()) == "CLOCLZORIG" .Or. Upper(ReadVar()) == "CNUMSERIE"
+	F4Localiz(,,,"A260", cCodOrig, cLocOrig,, ReadVar() )
+ElseIf Upper(ReadVar()) == "CLOCLZDEST"
+	F4Localiz(,,,"A260", cCodDest, cLocDest,, ReadVar() )
+EndIf
+// -- Recupera titulo
+cCadastro := cCadastroSav
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³ Fun‡…o   ³MTA260OK  ³ Autor ³Rodrigo de A. Sartorio ³ Data ³ 07/12/95 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Descri‡…o³ Confirmacao antes de executar o estorno.                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MTA260OK                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MTA260OK(cNumSeq)
+Local lRet:=.T.
+// Ponto de Entrada para validar o estorno da transferencia
+If ExistBlock("MA260EST")
+	lRet := ExecBlock("MA260EST",.F.,.F.,{cNumSeq})
+	lRet := If(ValType(lRet)#"L",.T.,lRet)
+EndIf
+If lRet
+	lRet:=MsgYesNo(OemToAnsi(STR0021),OemToAnsi(STR0022)) //"Confirma o estorno da transferˆncia?"###"Aten‡„o"
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260Local ³ Autor ³ Waldemiro L. Lustosa  ³ Data ³ 27/02/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida‡„o do campo cLocOrig                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260Local(cLocOrig1)
+Static l260Local := Nil
+Local lRet 		 := .T.
+Local cAlias	 :=Alias()
+Local nOrder	 :=IndexOrd()
+Local nRecno	 :=Recno()
+Local cLocal
+
+Default cLocOrig1 := ''
+
+cLocal    := If(Empty(cLocOrig1),&(ReadVar()),cLocOrig1)
+l260Local :=If(l260Local==Nil,ExistBlock("A260LOC"),l260Local)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Localizacoes - Valida armazem de transito                     |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If IsLocTran(cLocal)
+	lRet := .F.
+EndIf
+
+If cLocal == GetMvNNR('MV_CQ','98') .and. IIf(Empty(cLocOrig),.F.,cLocal <> cLocOrig) 
+	Help(" ",1,"A260LOCCQ")
+	lRet:=.F.
+ElseIf (cLocal == GetMvNNR('MV_LOCPROC','99')) .And. If(Empty(cCodOrig),.T.,A260ApropI(cCodOrig))	//-- Soh impede transferencia do Armazem de Processo se o Produto for de "Apropriacao Indireta"
+	If Aviso(STR0022,STR0085,{STR0054,STR0056}) == 2
+		lRet:=.F.
+	EndIf
+Else
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o produto est  sendo inventariado.      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If BlqInvent(cCodOrig,cLocal,,cLoclzOrig)
+		Help(" ",1,"BLQINVENT",,cCodOrig+" Almox: "+cLocal,1,11)
+		lRet:=.F.
+	EndIf
+	If lRet
+		If l260Local
+			ExecBlock("A260LOC",.F.,.F., {cCodOrig,cLocal,1}) //Terceiro parametro igual a 1 para indicar armazem origem
+		EndIf
+		dbSelectArea("SB2")
+		SB2->(dbSetOrder(1))
+		If ! SB2->(dbSeek(xFilial('SB2')+cCodOrig+cLocal))
+			Help(" ",1,"A260LOCAL")
+			lRet:=.F.
+		EndIf
+		dbSelectArea(cAlias)
+		dbSetOrder(nOrder)
+		dbGoTo(nRecno)
+	EndIf
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260Data  ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 20/03/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida‡„o do campo dEmis260                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260Data()
+Local dData
+Local dDataFec := MVUlmes()
+Local lRet := .T.
+dData:= &(ReadVar())
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verificar data do ultimo fechamento em SX6.                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If dDataFec >= dData
+	Help ( " ", 1, "FECHTO" )
+	lRet := .F.
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260LocDest³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 29/04/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida‡„o do campo cLocDest                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260LocDest()
+Local aArea		:= GetArea()
+Local lRet		:= .T.
+Local cArmCQ	:= GetMvNNR('MV_CQ','98')
+Local l260local	:= If(l260Local==Nil,ExistBlock("A260LOC"),l260Local)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o produto est  sendo inventariado.      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cLocOrig == cArmCQ .And. cLocOrig # cLocDest 
+	Help(" ",1,"A260LOCCQ")
+	lRet:=.F.
+Else
+	If BlqInvent(cCodDest,cLocDest,,cLoclzDest)
+		Help(" ",1,"BLQINVENT",,cCodDest+" Almox: "+cLocDest,1,11)
+		lRet:=.F.
+	ElseIf (cLocDest == GetMvNNR('MV_LOCPROC','99')) .And. If(Empty(cCodDest),.T.,A260ApropI(cCodDest))	//-- Soh impede transferencia para Armazem de Processo se o Produto for de "Apropriacao Indireta"
+		If Aviso(STR0022,STR0086,{STR0054,STR0056}) == 2
+			lRet:=.F.
+		EndIf
+	EndIf
+	If lRet .And. l260Local
+		ExecBlock("A260LOC",.F.,.F., {cCodDest,cLocDest,2}) //Terceiro parametro igual a 2 para indicar armazem destino
+	EndIf
+	If lRet .And. (GetMv("MV_VLDALMO") == "S")
+		dbSelectArea("SB2")
+		SB2->(dbSetOrder(1))
+		If !(lRet:=SB2->(dbSeek(xFilial("SB2")+cCodDest+cLocDest)))
+			Help(" ",1,"A260LOCAL")
+		EndIf
+	EndIf
+EndIf
+RestArea(aArea)
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260Lote   ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 25/11/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida‡„o referente aos campos de Lote                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260Lote()
+Local cAlias := Alias()
+Local nOrder := IndexOrd()
+Local nRecno := Recno()
+Local lRet   := .T.
+Local cVar	 := Upper(ReadVar())
+
+If Empty(&(ReadVar()))
+	Help(" ",1,"MA260LOTE")
+	lRet:=.F.
+EndIf
+
+If lRet
+	If Rastro(cCodOrig,'S') .And. If(cVar == "CNUMLOTE",!Empty(cLoteDigi),!Empty(cNumLote))
+		SB8->(dbSetOrder(2))
+		If SB8->(dbSeek(xFilial('SB8') + cNumLote + cLoteDigi + cCodOrig + cLocOrig, .F.))
+			cLoteDigi := SB8->B8_LOTECTL
+			dDtValid  := SB8->B8_DTVALID
+			nPotencia := SB8->B8_POTENCI
+		Else
+			Help(' ', 1, 'A240LOTERR')
+			lRet := .F.
+		EndIf
+	Else
+		SB8->(dbSetOrder(3))
+		If SB8->(dbSeek(xFilial('SB8')+cCodOrig+cLocOrig+cLoteDigi, .F.))
+			dDtValid :=SB8->B8_DTVALID
+			nPotencia:=SB8->B8_POTENCI
+		Else
+			Help(' ', 1, 'A240LOTERR')
+			lRet := .F.
+		EndIf
+	EndIf
+EndIf
+
+dbSelectArea(cAlias)
+dbSetOrder(nOrder)
+dbGoto(nRecno)
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ A260Doc  ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 31/03/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Valida o documento da transferencia.                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260Doc()
+Local lRet:=.T.,cAlias:=Alias(),nOrder:=IndexOrd(),nRecno:=Recno()
+Local cDoc		:= &(ReadVar())
+Local lValidaDoc:=GetMV("MV_VLDDOC") == "S"
+
+If lValidaDoc
+	If !Empty(cDoc)
+		dbSelectArea("SD3")
+		SD3->(dbSetOrder(2))
+		If SD3->(dbSeek(xFilial('SD3')+cDoc))
+			While SD3->(!Eof()) .And. SD3->(D3_FILIAL+D3_DOC) == xFilial("SD3")+cDoc
+				If SD3->D3_ESTORNO # "S"
+					Help(" ",1,"a24101")
+					lRet:= .F.
+					Exit
+				EndIf
+				SD3->(dbSkip())
+			EndDo
+		EndIf
+		dbSelectArea(cAlias)
+		dbSetOrder(nOrder)
+		dbGoTo(nRecno)
+	EndIf
+EndIf
+
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260Locali³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 14/11/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Valida as localizacoes da transferencia                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A260Locali()
+Local aArea     := GetArea()
+Local cCampo    := ReadVar()
+Local cConteudo := &(cCampo)
+Local lRet      := .T.
+If !Vazio(cConteudo)
+	If cCampo == "CLOCLZORIG"
+		lRet := ExistCpo("SBE",cLocOrig+cConteudo)
+	ElseIf cCampo == "CLOCLZDEST"
+		lRet := ExistCpo("SBE",cLocDest+cConteudo)
+	EndIf
+EndIf
+If X3Obrigat('D3_LOCALIZ') .And. Vazio(cConteudo)
+	lret := .F.
+EndIf
+
+RestArea(aArea)
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260NFOrig    ³ Fernando Joly Siquini     ³ Data ³ 13/12/99 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Posiciona o SD1 sobre a NF/Item da NF de Origem            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ MatA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function A260NFOrig(cCod, cLocal, cLoteCTL, cNumLote, lShowHelp,cLocDest)
+
+Local lRet       := .F.
+Local aAreaAnt   := GetArea()
+Local aAreaSB8   := SB8->(GetArea())
+Local aAreaSD1   := SD1->(GetArea())
+Local cDoc       := Space(Len(SD1->D1_DOC))
+Local cSerie     := SerieNfId("SD1",5,"D1_SERIE")
+Local cFornec    := Space(Len(SD1->D1_FORNECE))
+Local cLoja      := Space(Len(SD1->D1_LOJA))
+Local cFilSB8    := xFilial('SB8')
+Local cFilSD1    := xFilial('SD1')
+Local aNFO       := {}
+Local aNFODOS    := {}
+Local aSD1       := {}
+Local aSD1DOS    := {}
+Local aSD1WIN    := {}
+Local cSeekSB8   := ''
+Local oGet       := Nil
+Local oDlg       := Nil
+Local oQual      := Nil
+Local cVar       := Nil
+Local nOption    := 0
+Local nOpca      := 0
+Local nOAt       := 0
+Local nX         := 0
+Local cPictD1Qtd := PesqPictQt('D1_QUANT', 11)
+Local cString    := ''
+Local cCodEIC    := SubStr(GetMv('MV_PRODIMP'),1,Len(SB1->B1_COD))
+Local aButton    := {}
+
+Default cLocDest := IIf(Empty(cLocDest),RetFldProd(SB1->B1_COD,"B1_LOCPAD"),cLocDest)
+
+If (ExistBlock("MT260BTN"))
+	aButton := ExecBlock("MT260BTN",.F.,.F.)
+	If ValType(aButton) # "A"
+		aButton := {}
+	EndIf
+EndIf
+
+lShowHelp := If(lShowHelp==Nil.Or.ValType(lShowHelp)#'L',.F.,lShowHelp)
+
+If lShowHelp
+	lRet := Aviso(STR0022,STR0032 + AllTrim(cCod) + STR0033,{STR0029,STR0030}) == 1 //'Aten‡„o'###'O Sistema precisa de dados ref.a NF de Entrada do Prod.'###'. Prossegue pesquisa?'###'Sim'###'Aborta'
+Else
+	lRet := .T.
+EndIf
+
+If lRet .And. Rastro(cCod)
+	dbSelectArea('SB8')
+	If Rastro(cCod, 'S')
+		dbSetOrder(2)
+		If dbSeek(cFilSB8 + cNumLote + cLoteCtl + cCod + cLocal, .F.) .And. ;
+				B8_ORIGLAN == 'NF'
+			cDoc    := B8_DOC
+			cSerie  := B8_SERIE
+			cFornec := B8_CLIFOR
+			cLoja   := B8_LOJA
+		EndIf
+	Else
+		dbSetOrder(3)
+		If dbSeek(cSeekSB8 := cFilSB8 + cCod + cLocal + cLoteCtl, .F.)
+			Do While !Eof() .And. cSeekSB8 == B8_FILIAL + B8_PRODUTO + B8_LOCAL + B8_LOTECTL
+
+				If B8_ORIGLAN == 'NF' .And. aScan(aNFO, {|x| AllTrim(x[1]+x[2]+x[3]+x[4]+cCod) == AllTrim(B8_DOC+B8_SERIE+B8_CLIFOR+B8_LOJA+B8_PRODUTO)}) == 0
+					aAdd(aNFO, {})
+					aAdd(aNFO[Len(aNFO)], B8_DOC)
+					aAdd(aNFO[Len(aNFO)], B8_SERIE)
+					aAdd(aNFO[Len(aNFO)], B8_CLIFOR)
+					aAdd(aNFO[Len(aNFO)], B8_LOJA)
+
+				EndIf
+				dbSkip()
+			EndDo
+			If Len(aNFO) == 1
+				cDoc    := aNFO[1, 1]
+				cSerie  := aNFO[1, 2]
+				cFornec := aNFO[1, 3]
+				cLoja   := aNFO[1, 4]
+			ElseIf Len(aNFO) > 1
+				If lShowHelp
+					Aviso(STR0022,STR0034,{STR0025}) //'Aten‡„o'###'Mais de 1 NF de Entrada foi encontrada. Selecione a NF Correta.'###'Ok'
+				EndIf
+				DEFINE MSDIALOG oDlg TITLE STR0041 From 9,0 To 15,50 OF oMainWnd
+				@ 000.0, 000.7 LISTBOX oQual VAR cVar Fields HEADER STR0042,STR0043,STR0044,STR0045 SIZE 150,42 ON DBLCLICK (nOption:=1, oDlg:End())
+				oQual:SetArray(aNFO)
+				oQual:bLine := {||{aNFO[ oQual:nAt,1 ], aNFO[ oQual:nAt,2 ], aNFO[ oQual:nAt,3 ], aNFO[ oQual:nAt,4 ]}}
+				DEFINE SBUTTON FROM 005.0, 166.0 TYPE 1 ACTION (nOption := 1,oDlg:End()) ENABLE OF oDlg
+				DEFINE SBUTTON FROM 017.5, 166.0 TYPE 2 ACTION oDlg:End()                ENABLE OF oDlg
+				ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAT:=oQual:nAT, .T.)
+				If nOption == 1
+					cDoc    := aNFO[nOAt, 1]
+					cSerie  := aNFO[nOAt, 2]
+					cFornec := aNFO[nOAt, 3]
+					cLoja   := aNFO[nOAt, 4]
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+EndIf
+
+If lRet .And. Empty(cDoc + cSerie + cFornec + cLoja)
+	lRet:=.F.
+	If lShowHelp
+		Aviso(STR0035,STR0036,{'Ok'}) //'NF Origem'###'Os Dados ref.a NF de Origem precisam ser Digitados.'
+	EndIf
+	oDlg := Nil
+	DEFINE MSDIALOG oDlg FROM 0,0 TO 200,440 TITLE STR0046 PIXEL
+	@ 40,10 SAY   STR0047			OF oDlg PIXEL
+	@ 40,45 MSGET cDoc F3 'SD1'		OF oDlg PIXEL
+	@ 55,10 SAY   STR0048			OF oDlg PIXEL
+	@ 55,45 MSGET cSerie			OF oDlg PIXEL
+	@ 70,10 SAY   STR0049			OF oDlg PIXEL
+	@ 70,45 MSGET cFornec F3 'SA2'	OF oDlg PIXEL
+	@ 85,10 SAY   STR0050			OF oDlg PIXEL
+	@ 85,45 MSGET cLoja				OF oDlg PIXEL
+	ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar(oDlg,{||If(lRet:=A260Qok(cDoc,cSerie,cFornec,cLoja,cLocDest,cCod,cLoteCTL),oDlg:End(),)},{||oDlg:End()},, aButton)
+EndIf
+
+If lRet
+	dbSelectArea('SD1')
+	dbSetOrder(1)
+	lEIC := dbSeek(cSeekSD1 := cFilSD1+cDoc+cSerie+cFornec+cLoja+cCodEIC)
+	If !lEIC
+		dbSeek(cSeekSD1 := cFilSD1+cDoc+cSerie+cFornec+cLoja+cCod,.F.)
+	EndIf
+
+	If !Eof()
+		If !lEIC
+			While !Eof() .And. cSeekSD1 == D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD
+				If aScan(aSD1, {|x| x[5] == D1_ITEM}) == 0
+					aAdd(aSD1, {D1_DOC,D1_SERIE,D1_FORNECE,D1_LOJA,D1_ITEM,Transform(D1_QUANT, cPictD1Qtd),Recno()})
+				EndIf
+				dbSkip()
+			EndDo
+		Else
+			dbSelectArea('SWN')
+			SWN->(dbSetOrder(2))
+			SWN->(dbSeek(xFilial("SWN")+cDoc+cSerie+cFornec+cLoja))
+			While ! SWN->(Eof()) .And. SWN->(WN_FILIAL+WN_DOC+WN_SERIE+WN_FORNECE+WN_LOJA) ==;
+					(xFilial("SWN")+cDoc+cSerie+cFornec+cLoja)
+				//-- Pesquisa itens da NF Importacao
+				If cCod == WN_PRODUTO
+					If aScan(aSD1, {|x| x[5] == WN_ITEM}) == 0
+						aAdd(aSD1, {SD1->D1_DOC,SerieNfId("SD1",2,SD1->D1_SERIE),SD1->D1_FORNECE,SD1->D1_LOJA,WN_ITEM,Transform(WN_QUANT,cPictD1Qtd),Recno()})
+					EndIf
+				EndIf
+				dbSkip()
+			EndDo
+		EndIf
+
+		If Len(aSD1) == 1
+			lRet := .T.
+			If lEIC
+				aAreaSD1 := SWN->(GetArea())
+			EndIf
+
+			aAreaSD1[3] := aSD1[1,7]
+
+		ElseIf Len(aSD1) > 1
+			If lShowHelp
+				Aviso(STR0022,STR0037,{STR0025}) //'Aten‡„o'###'Mais de 1 Item na NF de Entrada foi encontrado. Selecione o Item Correto.'###'Ok'
+			EndIf
+			oDlg    := Nil
+			cVar    := Nil
+			oQual   := Nil
+			nOption := 0
+			For nX := 1 to Len(aSD1)
+				aAdd(aSD1WIN, {aSD1[nX,1], aSD1[nX,2], aSD1[nX,3], aSD1[nX,4], aSD1[nX,5], aSD1[nX,6]})
+			Next nX
+			DEFINE MSDIALOG oDlg TITLE STR0064 From 9,0 To 15,50 OF oMainWnd //'Selecione o Item da NF de Entrada...'
+			@ 000.0, 000.7 LISTBOX oQual VAR cVar Fields HEADER STR0065,STR0066,STR0067,STR0068,STR0069,STR0070 SIZE 150,42 ON DBLCLICK (nOption:=1, oDlg:End()) //'Documento'###'Serie'###'Fornecedor'###'Loja'###'Item'###'Quantidade'
+			oQual:SetArray(aSD1WIN)
+			oQual:bLine := {||{aSD1WIN[ oQual:nAt,1 ], aSD1WIN[ oQual:nAt,2 ], aSD1WIN[ oQual:nAt,3 ], aSD1WIN[ oQual:nAt,4 ], aSD1WIN[ oQual:nAt,5 ], aSD1WIN[ oQual:nAt,6 ]}}
+			DEFINE SBUTTON FROM 005.0, 166.0 TYPE 1 ACTION (nOption := 1,oDlg:End()) ENABLE OF oDlg
+			DEFINE SBUTTON FROM 017.5, 166.0 TYPE 2 ACTION oDlg:End()                ENABLE OF oDlg
+			ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAt:=oQual:nAT, .T.)
+			If nOption == 1
+				lRet := .T.
+				If lEIC
+					aAreaSD1 := SWN->(GetArea())
+				EndIf
+
+				aAreaSD1[3] := aSD1[nOAt, 7]
+
+			EndIf
+		EndIf
+	Else
+		lRet := .F.
+	EndIf
+EndIf
+
+If !lRet .And. lShowHelp
+	Aviso(STR0022,STR0038+AllTrim(cCod) + '.',{STR0025})//'Aten‡„o'###"NÆo foram encontradas NF's de entrada para o produto "###'Ok'
+EndIf
+RestArea(aAreaSB8)
+RestArea(aAreaAnt)
+RestArea(aAreaSD1)
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³A260ChkCF     ³ Fernando Joly Siquini     ³ Data ³ 16/12/99 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida o D3_CF correto para ser utilizado em Transferencias³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260ChkCF()                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ MatA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function A260ChkCF(cCod, cLocal, cNumSeq, cCF, cLocCQ)
+
+Local lRet       := .F.
+Local nOrdSD3    := SD3->(IndexOrd())
+Local nRecSD3    := SD3->(Recno())
+
+cLocCQ := If(cLocCQ==Nil.Or.ValType(cLocCQ)#'C',GetMvNNR('MV_CQ','98'),cLocCQ)
+
+If Subs(cCF,3,1) == '4'
+	lRet := .T.
+	If SuperGetMV("MV_INTACD",.F.,"0") == "1" .and. USACB0('01')
+		CB0->(dbsetorder(4))
+		CB0->(Dbseek(xfilial('CB0')+'01'+cLocal+cCod))
+		While CB0->(!EOF()) .and. CB0->CB0_FILIAL+'01'+CB0->CB0_LOCAL+CB0->CB0_CODPRO = xfilial('CB0')+'01'+cLocal+cCod
+			If CB0->CB0_NUMSEQ == cNumSeq
+				lRet := .F.
+				Exit
+			EndiF
+			CB0->(Dbskip())
+		End do
+	EndIf
+EndIf
+
+SD3->(dbSetOrder(nOrdSD3))
+SD3->(dbGoto(nRecSD3))
+
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260Processa  ³ Eveli Morasco             ³ Data ³ 16/01/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Processamento da inclusao                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpC01: Codigo do Produto Origem - Obrigatorio              ³±±
+±±³          ³ExpC02: Almox Origem             - Obrigatorio              ³±±
+±±³          ³ExpN01: Quantidade 1a UM         - Obrigatorio              ³±±
+±±³          ³ExpC03: Documento                - Obrigatorio              ³±±
+±±³          ³ExpD01: Data                     - Obrigatorio              ³±±
+±±³          ³ExpN02: Quantidade 2a UM                                    ³±±
+±±³          ³ExpC04: Sub-Lote                 - Obrigatorio se Rastro "S"³±±
+±±³          ³ExpC05: Lote                     - Obrigatorio se usa Rastro³±±
+±±³          ³ExpD02: Validade                 - Obrigatorio se usa Rastro³±±
+±±³          ³ExpC06: Numero de Serie                                     ³±±
+±±³          ³ExpC07: Localizacao Origem                                  ³±±
+±±³          ³ExpC08: Codigo do Produto Destino- Obrigatorio              ³±±
+±±³          ³ExpC09: Almox Destino            - Obrigatorio              ³±±
+±±³          ³ExpC10: Localizacao Destino                                 ³±±
+±±³          ³ExpL01: Indica se movimento e estorno                       ³±±
+±±³          ³ExpN03: Numero do registro original (utilizado estorno)     ³±±
+±±³          ³ExpN04: Numero do registro destino (utilizado estorno)      ³±±
+±±³          ³ExpC11: Indicacao do programa que originou os lancamentos   ³±±
+±±³          ³ExpC12: cEstFis    - Estrutura Fisica          (APDL)       ³±±
+±±³          ³ExpC13: cServico   - Servico                   (APDL)       ³±±
+±±³          ³ExpC14: cTarefa    - Tarefa                    (APDL)       ³±±
+±±³          ³ExpC15: cAtividade - Atividade                 (APDL)       ³±±
+±±³          ³ExpC16: cAnomalia  - Houve Anomalia? (S/N)     (APDL)       ³±±
+±±³          ³ExpC17: cEstDest   - Estrututa Fisica Destino  (APDL)       ³±±
+±±³          ³ExpC18: cEndDest   - Endereco Destino          (APDL)       ³±±
+±±³          ³ExpC19: cHrInicio  - Hora Inicio               (APDL)       ³±±
+±±³          ³ExpC20: cAtuEst    - Atualiza Estoque? (S/N)   (APDL)       ³±±
+±±³          ³ExpC21: cCarga     - Numero da Carga           (APDL)       ³±±
+±±³          ³ExpC22: cUnitiza   - Numero do Unitizador      (APDL)       ³±±
+±±³          ³ExpC23: cOrdTar    - Ordem da Tarefa           (APDL)       ³±±
+±±³          ³ExpC24: cOrdAti    - Ordem da Atividade        (APDL)       ³±±
+±±³          ³ExpC25: cRHumano   - Recurso Humano            (APDL)       ³±±
+±±³          ³ExpC26: cRFisico   - Recurso Fisico            (APDL)       ³±±
+±±³          ³ExpN05: nPotencia  - Potencia do Lote                       ³±±
+±±³          ³ExpC27: cLoteDest  - Lote Destino da Transferencia          ³±±
+±±³          ³ExpD03: dDtVldDest - Validade Lote Destino da Trasnferencia ³±±
+±±³          ³ExpC28: cCAT83O    - Cod.Cat83 Produto Origem	              ³±±
+±±³          ³ExpC29: cCAT83D    - Cod.Cat83 Produto Destino              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Transferencia                                              ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function a260Processa(cCodOrig,cLocOrig,nQuant260,cDocto,dEmis260,nQuant260D,cNumLote,cLoteDigi,dDtValid,cNumSerie,cLoclzOrig,cCodDest,cLocDest,cLocLzDest,lEstorno,nRecOrig,nRecDest,cPrograma,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico,nPotencia,cLoteDest,dDtVldDest,cCAT83O, cCAT83D, lAtuSB2)
+Static lA260GRV  := Nil
+Static lMA260D3  := Nil
+Static lMA260Exc := Nil
+Static lMA260NFQ := Nil
+Static lMA260D3F := Nil
+
+Local i			 := 0
+
+Local lIntegDef  := FWHasEAI("MATA261",.T.,,.T.)
+Local bCampo     := {|nCPO| Field(nCPO) }
+Local nDec2UM    := TamSX3('D3_QTSEGUM')[2]
+
+//-- CQ/Celerina
+Local cLocCQ     := GetMvNNR('MV_CQ','98')
+Local lQualyCQ   := (cLocDest==cLocCQ) .And. (SB1->(dbSeek(xFilial('SB1')+cCodOrig, .F.)) .And. (RetFldProd(SB1->B1_COD,"B1_TIPOCQ")=='Q'))
+Local nSC7OrdAnt := 0
+Local nSC7RecAnt := 0
+Local aEnvCele   := {}
+Local aRecCele   := {}
+Local aMov       := {}
+Local aItenSD3	 := {}
+Local aCTBEnt	 := CTBEntArr()
+Local cForNFO    := ''
+Local cLojNFO    := ''
+Local cPedNFO    := ''
+Local cDocNFO    := ''
+Local cSerNFO    := ''
+Local cTipNFO    := ''
+Local cIPCNFO    := ''
+Local cFilSD7    := xFilial('SD7')
+Local aAreaSD5
+Local nAtraso    := 0
+Local nQtdOri    := 0
+Local nW		 := 0 
+Local cItemNF    := " "
+Local dNotFis    := cTod("")
+Local nPreco     := 0
+Local lQtdRep    := If(GetMv("MV_QTRFREP")=="S",.T.,.F.)
+Local cCodEIC    := SubStr(GetMv('MV_PRODIMP'),1,Len(SB1->B1_COD))
+Local cLotCtlQie := ''
+Local cNumLotQie := ''
+Local lContinua  := .T.
+Local lRet       := .T.
+Local lCAT83	 := .F.
+Local lMtNLote   := If(SuperGetMV("MV_MTNLOTE",,"N")=="S",.T.,.F.)
+Local lMantemLot := .F.
+Local lD3KLimp	 := Findfunction('MatLimpD3K')
+Local cLoteFor   := CriaVar("B8_LOTEFOR")
+Local cNumDesp   := CriaVar("B8_NUMDESP")
+Local oOrdSerDel := Nil
+Local lWmsSD3    := If(!(Type('lExecWms')=='U'), lExecWms, .F.)
+Local lWmsNew	 := SuperGetMv("MV_WMSNEW",.F.,.F.)
+Local oOrdServ	 := Nil
+Local nY	
+Local lCpoUser := ExistBlock('CPOSDH1')
+Local aCpoUser := {}
+Local aCpoAuxUsr := {}
+Local nPosAux	:= 0
+
+lMA260NFQ := If(lMA260NFQ== Nil,ExistBlock("MA260NFQ"),lMA260NFQ)
+lA260GRV  := If(lA260GRV == Nil,ExistBlock("A260GRV"),lA260GRV)
+lMA260D3  := If(lMA260D3 == Nil,ExistBlock("MA260D3"),lMA260D3)
+lMA260Exc := If(lMA260Exc== Nil,ExistBlock("MA260Exc"),lMA260Exc)
+lMA260D3F := If(lMA260D3F == Nil,ExistBlock("MA260D3F"),lMA260D3F)
+
+// Preenche variaveis nao obrigatorias a fim de evitar erro
+cNumLote  :=If(cNumLote==Nil,Criavar("D3_NUMLOTE"),cNumLote)
+cLoteDigi :=If(cLoteDigi==Nil,Criavar("D3_LOTECTL"),cLoteDigi)
+dDtValid  :=If(dDtValid==Nil,Criavar("D3_DTVALID"),dDtValid)
+nPotencia :=If(nPotencia==Nil,Criavar("D3_POTENCI"),nPotencia)
+lEstorno  :=If(lEstorno==Nil,.F.,lEstorno)
+cNumSerie :=If(cNumSerie==Nil,Criavar("D3_NUMSERI"),cNumSerie)
+cPrograma :=If(cPrograma==Nil,"MATA260",cPrograma)
+cLoclzOrig:=If(cLocLzOrig==Nil,Criavar("D3_LOCALIZ"),cLocLzOrig)
+cLocLzDest:=If(cLocLzDest==Nil,Criavar("D3_LOCALIZ"),cLocLzDest)
+cEstFis   :=If(cEstFis==Nil,'',cEstFis)
+cServico  :=If(cServico==Nil,'',cServico)
+cTarefa   :=If(cTarefa==Nil,'',cTarefa)
+cAtividade:=If(cAtividade==Nil,'',cAtividade)
+cAnomalia :=If(cAnomalia==Nil,'',cAnomalia)
+cEstDest  :=If(cEstDest==Nil,'',cEstDest)
+cEndDest  :=If(cEndDest==Nil,'',cEndDest)
+cHrInicio :=If(cHrInicio==Nil,'',cHrInicio)
+cAtuEst   :=If(cAtuEst==Nil,'',cAtuEst)
+cCarga    :=If(cCarga==Nil,'',cCarga)
+cUnitiza  :=If(cUnitiza==Nil,'',cUnitiza)
+cOrdTar   :=If(cOrdTar==Nil,'',cOrdTar)
+cOrdAti   :=If(cOrdAti==Nil,'',cOrdAti)
+cRHumano  :=If(cRHumano==Nil,'',cRHumano)
+cRFisico  :=If(cRFisico==Nil,'',cRFisico)
+cLoteDest :=If(cLoteDest==Nil .Or. Empty(cLoteDest),cLoteDigi,cLoteDest)
+dDtVldDest:=If(dDtVldDest==Nil .Or. Empty(dDtVldDest),dDtValid,dDtVldDest)
+cLtDestAux:= cLoteDest //Variavel private utilizada no ponto de entrada A260GRV para alterar o conteudo do lote destino
+cCAT83O   :=If(cCAT83O==Nil,'',cCAT83O)
+cCAT83D   :=If(cCAT83D==Nil,'',cCAT83D)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Portaria CAT83   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If V240CAT83()
+    lCAT83:=.T.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o custo medio e' calculado On-Line               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cCusMed == "O"
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Se necessario cria o cabecalho do arquivo de prova           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lCriaHeader
+		lCriaHeader := .F.
+		nHdlPrv := HeadProva(cLoteEst,cPrograma,Subs(cUsuario,7,6),@cArquivo)
+		If nHdlPrv <= 0
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Restaura a integridade da janela                             ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("SD3")
+			Return .T.
+		EndIf
+	EndIf
+EndIf
+
+If lEstorno
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se o Estorno referente ao CQ pode ser feito  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	lEstCQ := .F.
+	If AllTrim(cLocCQ) == AllTrim(cLocDest) .And. AllTrim(cLocCQ) # AllTrim(cLocOrig)
+		dbSelectArea('SD7')
+		dbSetOrder(3)
+		SD3->(dbGoTo(nRecOrig))
+		If dbSeek(cFilSD7+cCodDest+SD3->D3_NUMSEQ, .F.)
+			cNumCQ   := SD7->D7_NUMERO
+			cSeekSD7 := cFilSD7 + cNumCQ + cCodDest
+			lEstCQ   := .T.
+			SD7->(dbSetOrder(2))
+			If SD7->(dbSeek(cSeekSD7, .F.))
+				Do While !SD7->(Eof()) .And. ;
+						cSeekSD7 == SD7->D7_FILIAL+SD7->D7_NUMERO+SD7->D7_PRODUTO
+					If SD7->D7_TIPO > 0 .And. Empty(SD7->D7_ESTORNO)
+						Help(' ',1,'A261MOVICQ')
+						Return .T.
+					EndIf
+					SD7->(dbSkip())
+				EndDo
+			EndIf
+		EndIf
+	EndIf
+	SB1->(dbSetOrder(1))
+	lEstQualy :=  lEstCQ .And. (SB1->(dbSeek(xFilial('SB1')+cCodOrig, .F.)) .And. RetFldProd(SB1->B1_COD,"B1_TIPOCQ")=='Q')
+
+	Begin Transaction
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Estorna Movimenta‡”es no CQ Materiais                 ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lEstCQ
+			dbSelectArea('SD7')
+			dbSetorder(1)
+			If dbSeek(cSeekSD7 := cFilSD7 + cNumCQ + cCodDest, .F.)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Estorna Movimenta‡”es no CQ Quality                   ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If lEstQualy
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Exclus„o do CQ no SigaQIE                                    ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Posiciona o registro no SD5 para que o LOTECTL+NUMLOTE seja   ³
+					//³enviado para qAtuMatQie()									 ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					cLotCtlQie := ''
+					cNumLotQie := ''
+					If Rastro(cCodOrig,"L") .Or. Rastro(cCodOrig,"S")
+						aAreaSD5 := SD5->(GetArea())
+						SD5->(dbSetOrder(3))
+						If SD5->(dbSeek(xFilial('SD5')+SD7->D7_NUMSEQ+SD7->D7_PRODUTO+SD7->D7_LOCAL+SD7->D7_LOTECTL, .F.))
+							cLotCtlQie := SD5->D5_LOTECTL
+							cNumLotQie := SD5->D5_NUMLOTE
+						EndIf
+						SD5->(dbSetOrder(aAreaSD5[2]))
+						SD5->(dbGoto(aAreaSD5[3]))
+					EndIf
+
+					aEnvCele := {SD7->D7_DOC			,; //Numero da Nota Fiscal
+						SD7->D7_SERIE					,; //Serie da Nota Fiscal
+						"N"								,; //Tipo da Nota Fiscal
+						SD7->D7_DATA					,; //Data de Emissao da Nota Fiscal
+						SD7->D7_DATA					,; //Data de Entrada da Nota Fiscal
+						"NF"							,; //Tipo de Documento
+						Space(TamSX3("D1_ITEM")[1])		,; //Item da Nota Fiscal
+						Space(TamSX3("D1_REMITO")[1])	,; //Numero do Remito (Localizacoes)
+						Space(TamSX3("D1_PEDIDO")[1])	,; //Numero do Pedido de Compra
+						Space(TamSX3("D1_ITEMPC")[1])	,; //Item do Pedido de Compra
+						SD7->D7_FORNECE					,; //Codigo Fornecedor/Cliente
+						SD7->D7_LOJA					,; //Loja Fornecedor/Cliente
+						SD7->D7_LOTECTL					,; //Numero do Lote do Fornecedor
+						Space(TamSX3("QEK_SOLIC")[1])	,; //Codigo do Solicitante
+						SD7->D7_PRODUTO					,; //Codigo do Produto
+						SD7->D7_LOCAL					,; //Local Origem
+						cLotCtlQie						,; //Numero do Lote
+						cNumLotQie						,; //Sequencia do Sub-Lote
+						SD7->D7_NUMSEQ					,; //Numero Sequencial
+						SD7->D7_NUMERO					,; //Numero do CQ
+						SD7->D7_SALDO					,; //Quantidade
+						0								,; //Preco
+						0								,; //Dias de atraso
+						" "								,; //TES
+						AllTrim(FunName())				,; //Origem
+						" "								,; //Origem TXT
+						0}								   //Quantidade do Lote Original
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Realiza a exclusao do material enviado para Inspecao	     ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					aRecCele := qAtuMatQie(aEnvCele,2)
+
+				EndIf
+
+				dbSelectArea('SD7')
+				dbSeek(cSeekSD7 := cFilSD7 + cNumCQ + cCodDest, .F.)
+				Do While !Eof() .And. cSeekSD7 == D7_FILIAL + D7_NUMERO + D7_PRODUTO
+					RecLock('SD7', .F.)
+					dbDelete()
+					MsUnlock()
+					dbSkip()
+				EndDo
+			EndIf
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Gera movimento inverso da origem           ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Grava o Flag de estorno                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SD3")
+		dbGoTo(nRecOrig)
+		RecLock("SD3",.F.)
+		Replace D3_ESTORNO With "S"
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Salva a integridade dos campos de Bancos de Dados            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		For i := 1 To FCount()
+			M->&(EVAL(bCampo,i)) := FieldGet(i)
+		Next i
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Cria o registro de estorno com mesmos dados do original      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		RecLock("SD3",.T.)
+		For i := 1 TO FCount()
+			FieldPut(i,M->&(EVAL(bCampo,i)))
+		Next i
+		Replace D3_TM With "499",D3_CF With "DE" + Subs(D3_CF,3,1)
+		Replace D3_CHAVE   With SubStr(D3_CF,2,1)+IIF(Subs(D3_CF,1,1)=="D","9","0")
+		Replace D3_USUARIO With CUSERNAME
+		If lD3KLimp
+			MatLimpD3K(SD3->D3_COD,SD3->D3_NUMSEQ)
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pega o custo da movimentacao               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aCusto := PegaCusD3()
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o saldo atual (VATU) com os dados do SD3     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPrograma == 'DLGXFUN'
+			//-- Parametro MV_WMSATB2 -> NAO documentar esse parametro
+			//-- Tratamento Interno para WMS
+			If SuperGetMv("MV_WMSATB2",.F.,.T.)
+				B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,Nil,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico)
+			Else
+				Default lAtuSB2 := .F.
+				// Tratamento especifico para o WMS
+				MovLote("SD3",;					//1
+						SD3->D3_COD,;				//2
+						SD3->D3_LOCAL,;			//3
+						Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_LOCALIZ),;	//4
+						Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_NUMSERI),;	//5
+						SD3->D3_LOTECTL,;			//6
+						SD3->D3_NUMLOTE,;			//7
+						SD3->D3_NUMSEQ,;			//8
+						SD3->D3_TM,;				//9
+						NIL,;							//10
+						NIL,;							//11
+						cLoteFor,;					//12
+						"MI",;						//13
+						NIL,;							//14
+						SD3->D3_DOC,;				//15
+						NIL,;							//16
+						SD3->D3_OP,;				//17
+						NIL,;							//18
+						NIL,;							//19
+						NIL,;							//20
+						NIL,;							//21
+						SD3->D3_QUANT,;			//22
+						SD3->D3_QTSEGUM,;			//23
+						SD3->D3_EMISSAO,;			//24
+						SD3->D3_DTVALID,;			//25
+						NIL,;							//26
+						NIL,;							//27
+						SD3->D3_ESTORNO == "S",;//28
+						.F.,;							//29
+						Substr(SD3->D3_CF,1,1) $ "DP",;//30
+						NIL,;							//31
+						.T.,;							//32
+						NIL,;							//33
+						cEstFis,;					//34
+						cServico,;					//35
+						cTarefa,;					//36
+						cAtividade,;				//37
+						cAnomalia,;					//38
+						cEstDest,;					//39
+						cEndDest,;					//40
+						cHrInicio,;					//41
+						cAtuEst,; 					//42
+						.T.,;							//43
+						cCarga,;						//44
+						cUnitiza,;					//45
+						cOrdTar,;					//46
+						cOrdAti,;					//47
+						cRHumano,;					//48
+						cRFisico,;					//49
+						SD3->D3_POTENCI,;			//50
+						Nil,;							//51
+						.F.,; 						//52
+						"",; 							//53
+						"",; 							//54
+						"",;							//55
+						{},;							//56
+						Nil,; 						//57
+						cNumDesp,; 					//58
+						lAtuSB2)						//59 (ATENCAO PARAMETRO UTILIZADO PARA NAO REALIZAR O LOCK NA TABELA SB2)
+			EndIf
+		Else
+			B2AtuComD3(aCusto)
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o custo medio e' calculado On-Line               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cCusMed == "O"
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Gera o lancamento no arquivo de prova           ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			nTotal+=DetProva(nHdlPrv,"672",cPrograma,cLoteEst)
+
+			// Grava os registros que estarão com o código do documento contabil relacionado (Correlativo)
+			If ( UsaSeqCor() ) .AND. Type("aCtbDia") == "A"
+				aAdd(aCtbDia,{"SD3",SD3->(RECNO()),"","D3_NODIA","D3_DIACTB"})
+			Else
+		 			aCtbDia := {}
+			EndIF
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Gera movimento inverso do destino          ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Grava o Flag de estorno                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SD3")
+		dbGoTo(nRecDest)
+		RecLock("SD3",.F.)
+		Replace D3_ESTORNO With "S"
+
+		//-- Integracao SIGAWMS - Realiza o Estorno do Servico
+		If a260IntWMS(SD3->D3_COD) .And. !Empty(SD3->D3_SERVIC)
+			If !lWmsNew
+				WmsDelDCF('1','SD3')
+			Else
+				// Estorno [NOVO WMS]
+				oOrdSerDel := WMSDTCOrdemServicoDelete():New()
+				oOrdSerDel:SetIdDCF(SD3->D3_IDDCF)
+				If oOrdSerDel:LoadData()
+					If !oOrdSerDel:DeleteDCF()
+						Help( ,1,"SIGAWMS",,oOrdSerDel:GetErro(),1,0)
+						lRet := .F.
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Salva a integridade dos campos de Bancos de Dados            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		For i := 1 To FCount()
+			M->&(EVAL(bCampo,i)) := FieldGet(i)
+		Next i
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Cria o registro de estorno com mesmos dados do original      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		RecLock("SD3",.T.)
+		For i := 1 TO FCount()
+			FieldPut(i,M->&(EVAL(bCampo,i)))
+		Next i
+		Replace D3_TM With "999",D3_CF With "RE" + Subs(D3_CF,3,1)
+		Replace D3_CHAVE   With SubStr(D3_CF,2,1)+IIF(Subs(D3_CF,1,1)=="D","9","0")
+		Replace D3_USUARIO With CUSERNAME
+		Replace D3_SERVIC  With ''
+		MsUnlock()
+		If ld3kLimp
+			MatLimpD3K(SD3->D3_COD,SD3->D3_NUMSEQ)
+		EndIf
+
+		//-- Ponto de Entrada apos a gravacao do estorno
+		If lMA260Exc
+			ExecBlock('MA260Exc',.F.,.F.)
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pega o custo da movimentacao               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aCusto := PegaCusD3()
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza o saldo atual (VATU) com os dados do SD3     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cPrograma == 'DLGXFUN'
+			//-- Parametro MV_WMSATB2 -> NAO documentar esse parametro
+			//-- Tratamento Interno para WMS
+			If SuperGetMv("MV_WMSATB2",.F.,.T.)
+				B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,Nil,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico)
+			Else
+				Default lAtuSB2 := .F.
+				// Tratamento especifico para o WMS
+				MovLote("SD3",;					//1
+						SD3->D3_COD,;				//2
+						SD3->D3_LOCAL,;			//3
+						Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_LOCALIZ),;	//4
+						Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_NUMSERI),;	//5
+						SD3->D3_LOTECTL,;			//6
+						SD3->D3_NUMLOTE,;			//7
+						SD3->D3_NUMSEQ,;			//8
+						SD3->D3_TM,;				//9
+						NIL,;							//10
+						NIL,;							//11
+						cLoteFor,;					//12
+						"MI",;						//13
+						NIL,;							//14
+						SD3->D3_DOC,;				//15
+						NIL,;							//16
+						SD3->D3_OP,;				//17
+						NIL,;							//18
+						NIL,;							//19
+						NIL,;							//20
+						NIL,;							//21
+						SD3->D3_QUANT,;			//22
+						SD3->D3_QTSEGUM,;			//23
+						SD3->D3_EMISSAO,;			//24
+						SD3->D3_DTVALID,;			//25
+						NIL,;							//26
+						NIL,;							//27
+						SD3->D3_ESTORNO == "S",;//28
+						.F.,;							//29
+						Substr(SD3->D3_CF,1,1) $ "DP",;//30
+						NIL,;							//31
+						.T.,;							//32
+						NIL,;							//33
+						cEstFis,;					//34
+						cServico,;					//35
+						cTarefa,;					//36
+						cAtividade,;				//37
+						cAnomalia,;					//38
+						cEstDest,;					//39
+						cEndDest,;					//40
+						cHrInicio,;					//41
+						cAtuEst,; 					//42
+						.T.,;							//43
+						cCarga,;						//44
+						cUnitiza,;					//45
+						cOrdTar,;					//46
+						cOrdAti,;					//47
+						cRHumano,;					//48
+						cRFisico,;					//49
+						SD3->D3_POTENCI,;			//50
+						Nil,;							//51
+						.F.,; 						//52
+						"",; 							//53
+						"",; 							//54
+						"",;							//55
+						{},;							//56
+						Nil,; 						//57
+						cNumDesp,; 					//58
+						lAtuSB2)						//59 (ATENCAO PARAMETRO UTILIZADO PARA NAO REALIZAR O LOCK NA TABELA SB2)
+			EndIf
+		Else
+			B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,Nil,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico)
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Integração Mensagem Única.                                              ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lIntegDef
+			FwIntegDef("MATA261",,,,"MATA261")
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o custo medio e' calculado On-Line               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cCusMed == "O"
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Gera o lancamento no arquivo de prova           ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			nTotal+=DetProva(nHdlPrv,"670",cPrograma,cLoteEst)
+			// Grava os registros que estarão com o código do documento contabil relacionado (Correlativo)
+			If ( UsaSeqCor() ) .AND. Type("aCtbDia") == "A"
+				aAdd(aCtbDia,{"SD3",SD3->(RECNO()),"","D3_NODIA","D3_DIACTB"})
+			Else
+	 			aCtbDia := {}
+			EndIF
+		EndIf
+	End Transaction
+
+Else
+	If lQualyCQ
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se a existencia do P.E. MA260NFQ, para que nao seja exibida   ³
+		//³ a tela para selecao de materiais a serem transferidos para o CQ, quan- ³
+		//³ do houver integracao com o Quality.									   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lMA260NFQ
+			lQualyCQ := Execblock("MA260NFQ",.F.,.F.)
+			lQualyCQ := If(ValType(lQualyCQ)#"L",.T.,lQualyCQ)
+		Else
+			If !a260NFOrig(cCodOrig, cLocOrig, cLoteDigi, cNumLote, .T.,cLocDest)
+				If Aviso(STR0023,STR0027 + AllTrim(cCodOrig) + STR0028,{STR0029,STR0030}) == 1 // 'Siga Quality'###'Envia o Produto '###' somente para CQ Materiais?'###'Sim'###'Aborta'
+					lQualyCQ := .F.
+				Else
+					Return(.F.)
+				EndIf
+			EndIf
+		EndIf
+
+		If lQualyCQ
+			If Alias() == 'SWN'
+				cForNFO := SWN->WN_FORNECE
+				cLojNFO := SWN->WN_LOJA
+				cDocNFO := SWN->WN_DOC
+				cSerNFO := SWN->WN_SERIE
+				cTipNFO := SWN->WN_TIPO_NF
+				nQtdOri := SWN->WN_QUANT
+				cItemNF := StrZero(Val(SWN->WN_ITEM),2)
+				nPreco  := SWN->WN_VALOR
+
+				SD1->(dbSetOrder(1))
+				If SD1->(dbSeek(xFilial('SD1')+cDocNFO+cSerNFO+cForNFO+cLojNFO+cCodEIC))
+					cPedNFO := SD1->D1_PEDIDO
+					cIPCNFO := SD1->D1_ITEMPC
+					cDocEnt := SD1->D1_LOTEFOR
+					dNotFis := SD1->D1_EMISSAO
+				EndIf
+			Else
+				cForNFO := SD1->D1_FORNECE
+				cLojNFO := SD1->D1_LOJA
+				cPedNFO := SD1->D1_PEDIDO
+				cDocNFO := SD1->D1_DOC
+				cSerNFO := SD1->D1_SERIE
+				cTipNFO := SD1->D1_TIPO
+				cIPCNFO := SD1->D1_ITEMPC
+				nQtdOri := SD1->D1_QUANT
+				cItemNF := SD1->D1_ITEM
+				cDocEnt := SD1->D1_LOTEFOR
+				dNotFis := SD1->D1_EMISSAO
+				nPreco  := SD1->D1_VUNIT
+			EndIf
+		EndIf
+	EndIf
+
+	If lA260Grv
+		lRet := !Execblock("A260GRV",.F.,.F.)
+		If ValType(lRet)=="L" .And. lRet
+			Return .F.
+		EndIf
+		cLoteDest := cLtDestAux
+	EndIf
+
+	cNumSeq := ProxNum() //-- Pega o proximo numero sequencial de movimento 
+
+	If !lWmsSD3 .And. lWmsNew .And. a260IntWMS(cCodOrig)
+		Begin Transaction
+			aAdd(aItenSD3,{})	
+			For nW:= 1 To 2
+			 // Gerar a movimentacao de REQUISICAO = 1 / DEVOLUCAO = 2
+				AADD(aItenSD3[Len(aItenSD3)],xFilial("SD3",cFilAnt))											//-- D3_FILIAL
+				AADD(aItenSD3[Len(aItenSD3)],IIf(nW = 1,"999","499") )											//-- D3_TM
+				AADD(aItenSD3[Len(aItenSD3)],dEmis260)															//-- D3_EMISSAO
+				AADD(aItenSD3[Len(aItenSD3)],cNumSeq)															//-- D3_NUMSEQ
+				AADD(aItenSD3[Len(aItenSD3)],IIf(nW = 1,cCodOrig,cCodDest))										//-- D3_COD
+				If	nW == 1
+					AADD(aItenSD3[Len(aItenSD3)],IIf(Rastro(cCodOrig),cLoteDigi,CriaVar("D3_LOTECTL")))			//-- D3_LOTECTL
+				Else
+					AADD(aItenSD3[Len(aItenSD3)],IIf(Rastro(cCodDest),cLoteDest,CriaVar("D3_LOTECTL")))	
+				EndIf
+				AADD(aItenSD3[Len(aItenSD3)],IIf(nW = 1,cLocOrig,cLocDest))										//-- D3_LOCAL
+				AADD(aItenSD3[Len(aItenSD3)],IIf(nW = 1,cLoclzOrig,cLoclzDest))									//-- D3_LOCALIZ
+				AADD(aItenSD3[Len(aItenSD3)],nQuant260)															//-- D3_LOCALIZ
+				AADD(aItenSD3[Len(aItenSD3)],nQuant260D)														//-- D3_QTSEGUM
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_TRT
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_PROJPMS
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_TASKPMS
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_CLVL
+				aAdd(aItenSD3[Len(aItenSD3)],cServico)															//-- D3_SERVIC
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_CC
+				AADD(aItenSD3[Len(aItenSD3)],SB1->B1_CONTA)														//-- D3_CONTA
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_ITEMCTA
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_STATUS
+				AADD(aItenSD3[Len(aItenSD3)],"")																//-- D3_OP
+				If SD3->(FieldPos("D3_NUMSA")) > 0
+					AADD(aItenSD3[Len(aItenSD3)],SD3->D3_NUMSA)													//-- D3_NUMSA
+				Else			
+					AADD(aItenSD3[Len(aItenSD3)],""	)															//-- D3_NUMSA
+				EndIf
+				If SD3->(FieldPos("D3_ITEMSA")) > 0
+					AADD(aItenSD3[Len(aItenSD3)],SD3->D3_ITEMSA)												//-- D3_ITEMSA
+				Else
+					AADD(aItenSD3[Len(aItenSD3)],""	)															//-- D3_ITEMSA
+				EndIf
+				AADD(aItenSD3[Len(aItenSD3)],cDocto)															//-- D3_DOC
+				AADD(aItenSD3[Len(aItenSD3)],IIf(nW = 1,"RE4","DE4"))											//-- D3_CF
+				AADD(aItenSD3[Len(aItenSD3)],IIf(Rastro(cCodOrig,"S"),cNumLote,CriaVar("D3_NUMLOTE")))			//-- D3_NUMLOTE
+				AADD(aItenSD3[Len(aItenSD3)],cNumSerie)															//-- D3_NUMSERI
+				AADD(aItenSD3[Len(aItenSD3)], 0) //D3_CUSTO1
+				AADD(aItenSD3[Len(aItenSD3)], 0)	//D3_CUSTO2
+				AADD(aItenSD3[Len(aItenSD3)], 0)	//D3_CUSTO3
+				AADD(aItenSD3[Len(aItenSD3)], 0)	//D3_CUSTO4
+				AADD(aItenSD3[Len(aItenSD3)], 0)	//D3_CUSTO5
+				AADD(aItenSD3[Len(aItenSD3)], dDtValid)//D3_DTVALID
+				AADD(aItenSD3[Len(aItenSD3)], nPotencia)//D3_POTENCI
+				
+				If lCpoUser
+					aCpoUser := ExecBlock('CPOSDH1',.F.,.F.,{"MATA260",nW})
+					If ValType(aCpoUser) == 'A'
+						aADD(aCpoAuxUsr,{})
+						nPosAux := Len(aCpoAuxUsr)
+						For nY := 1 to Len(aCpoUser)
+							aADD(aCpoAuxUsr[nPosAux],{aCpoUser[nY,1],aCpoUser[nY,2]}) 			
+						Next nY		
+					EndIf
+				EndIf						
+				
+				EspDH1Wms(aItenSD3,"MATA260",,IIF(nW = 1,"2","1"),@oOrdServ,aCpoAuxUsr)
+				aItenSD3 := {{}}
+				aCpoAuxUsr:= {}
+			Next nW
+		End Transaction
+		
+		//Somente executa as ordens de serviço do WMS, após a transação
+		//Pois a execução dos serviços no WMS tem transação própria
+		If a260IntWMS() .And. FindFunction("WmsAvalDH1")
+			WmsAvalDH1("2","DH1","MATA260",oOrdServ)
+		EndIf
+	Else
+		Begin Transaction
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Posiciona produto e lote se usa rastro.    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("SB1")
+			SB1->(dbSeek(xFilial("SB1")+cCodOrig))
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Atualiza arquivo de saldos em estoque      ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("SB2")
+			If ! SB2->(dbSeek(xFilial("SB2")+cCodOrig+cLocOrig))
+				CriaSB2(cCodOrig,cLocOrig)
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Pega o proximo numero sequencial de movimento      ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			cNumSeq := ProxNum()
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Caso o numero do docto não for informadona tela preencher   ³
+			//³ com o conteudo informado na NF de Entrada. (SD1)            ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			IIf(Empty(cDocto) .and. lQualyCQ,cDocto:=SD1->D1_LOTEFOR,.F.)
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ GERA MOV. INTERNOS ATRAVES DO SD3                    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			RecLock("SD3",.T.)
+			Replace D3_FILIAL  With xFilial("SD3")  ,D3_COD     With cCodOrig,;
+					D3_QUANT   With nQuant260       ,D3_CF      With "RE4",;
+					D3_CHAVE   With SubStr(D3_CF,2,1)+IIf(D3_CF=="DE4","9","0"),;
+					D3_LOCAL   With cLocOrig        ,D3_DOC     With cDocto,;
+					D3_EMISSAO With dEmis260        ,D3_UM      With SB1->B1_UM,;
+					D3_GRUPO   With SB1->B1_GRUPO   ,D3_NUMSEQ  With cNumSeq,;
+					D3_QTSEGUM With nQuant260D      ,D3_SEGUM   With SB1->B1_SEGUM,;
+					D3_TM      With "999"           ,D3_TIPO    With SB1->B1_TIPO,;
+					D3_CONTA   With SB1->B1_CONTA   ,D3_USUARIO With CUSERNAME,;
+					D3_NUMLOTE With IIf(Rastro(cCodOrig,"S"),cNumLote,CriaVar("D3_NUMLOTE")),;
+					D3_LOTECTL With IIf(Rastro(cCodOrig),cLoteDigi,CriaVar("D3_LOTECTL")),;
+					D3_DTVALID With IIf(Rastro(cCodOrig),dDtValid,CriaVar("D3_DTVALID")),;
+					D3_POTENCI With IIf(Rastro(cCodOrig),nPotencia,CriaVar("D3_POTENCI")),;
+					D3_LOCALIZ With cLoclzOrig,D3_NUMSERI With cNumSerie
+
+			For i := 1 To Len(aCTBEnt)
+				&("D3_EC"+aCTBEnt[i]+"CR") := SB1->&("B1_EC"+aCTBEnt[i]+"CR")
+				&("D3_EC"+aCTBEnt[i]+"DB") := SB1->&("B1_EC"+aCTBEnt[i]+"DB")
+			Next nX
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Portaria CAT83   |
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lCAT83 .And. cCodOrig != cCodDest
+				Replace D3_CODLAN With If(Empty(cCAT83O),A240CAT83(),cCAT83O)
+			EndIf
+
+			aAdd(aRegSD3,SD3->(Recno()))
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Pega os 15 custos medios atuais            ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			aCM := PegaCMAtu(SD3->D3_COD,SD3->D3_LOCAL)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava o custo da movimentacao              ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			aCusto := GravaCusD3(aCM)
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Carrega Lote do Fornecedor e Num. Despacho ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			SB8->(dbSetOrder(3)) // B8_FILIAL+B8_PRODUTO+B8_LOCAL+B8_LOTECTL+B8_NUMLOTE+DTOS(B8_DTVALID)
+			If SB8->(dbSeek(xFilial('SB8')+cCodOrig+cLocOrig+cLoteDigi+cNumLote,.F.))
+				cLoteFor := SB8->B8_LOTEFOR
+				cNumDesp := SB8->B8_NUMDESP
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Atualiza o saldo atual (VATU) com os dados do SD3     ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If cPrograma == 'DLGXFUN'
+				//-- Parametro MV_WMSATB2 -> NAO documentar esse parametro
+				//-- Tratamento Interno para WMS
+				If SuperGetMv("MV_WMSATB2",.F.,.T.)
+					lContinua:=!B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,.T.,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico,NIL,NIL,NIL,NIL,NIL,cLoteFor,cNumDesp)
+				Else
+					Default lAtuSB2 := .F.
+					// Tratamento especifico para o WMS
+					MovLote("SD3",;			   				//1
+							SD3->D3_COD,;					//2
+							SD3->D3_LOCAL,;					//3
+							Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_LOCALIZ),;	//4
+							Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_NUMSERI),;	//5
+							SD3->D3_LOTECTL,;				//6
+							SD3->D3_NUMLOTE,;				//7
+							SD3->D3_NUMSEQ,;				//8
+							SD3->D3_TM,;					//9
+							NIL,;							//10
+							NIL,;							//11
+							cLoteFor,;						//12
+							"MI",;							//13
+							NIL,;							//14
+							SD3->D3_DOC,;					//15
+							NIL,;							//16
+							SD3->D3_OP,;					//17
+							NIL,;							//18
+							NIL,;							//19
+							NIL,;							//20
+							NIL,;							//21
+							SD3->D3_QUANT,;					//22
+							SD3->D3_QTSEGUM,;				//23
+							SD3->D3_EMISSAO,;				//24
+							SD3->D3_DTVALID,;				//25
+							NIL,;							//26
+							NIL,;							//27
+							SD3->D3_ESTORNO == "S",;		//28
+							.F.,;							//29
+							Substr(SD3->D3_CF,1,1) $ "DP",;//30
+							NIL,;							//31
+							.T.,;							//32
+							NIL,;							//33
+							cEstFis,;						//34
+							cServico,;						//35
+							cTarefa,;						//36
+							cAtividade,;					//37
+							cAnomalia,;						//38
+							cEstDest,;						//39
+							cEndDest,;						//40
+							cHrInicio,;						//41
+							cAtuEst,; 						//42
+							.T.,;							//43
+							cCarga,;						//44
+							cUnitiza,;						//45
+							cOrdTar,;						//46
+							cOrdAti,;						//47
+							cRHumano,;						//48
+							cRFisico,;						//49
+							SD3->D3_POTENCI,;				//50
+							Nil,;							//51
+							.F.,; 							//52
+							"",; 							//53
+							"",; 							//54
+							"",;							//55
+							{},;          				 	//56
+							Nil,; 							//57
+							cNumDesp,; 						//58
+							lAtuSB2)							//59 (ATENCAO PARAMETRO UTILIZADO PARA NAO REALIZAR O LOCK NA TABELA SB2)
+					EndIf
+			Else
+				lContinua:=!B2AtuComD3(aCusto,NIL,NIL,NIL,NIL,.T.,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,NIL,cLoteFor,cNumDesp)
+			EndIf
+
+			If lContinua
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Verifica se o custo medio e' calculado On-Line               ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If cCusMed == "O"
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Gera o lancamento no arquivo de prova           ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					nTotal+=DetProva(nHdlPrv,"670",cPrograma,cLoteEst)
+					// Grava os registros que estarão com o código do documento contabil relacionado (Correlativo)
+					If ( UsaSeqCor() ) .AND. Type("aCtbDia") == "A"
+						aAdd(aCtbDia,{"SD3",SD3->(RECNO()),"","D3_NODIA","D3_DIACTB"})
+					Else
+		 				aCtbDia := {}
+					EndIF
+				EndIf
+				If cCodOrig != cCodDest
+					dbSelectArea("SB1")
+					SB1->(dbSeek(xFilial("SB1")+cCodDest))
+					nQuant260D := Round(QtdComp(ConvUm(B1_COD, nQuant260, nQuant260d, 2)), nDec2UM)
+				EndIf
+				dbSelectArea("SB2")
+				If ! SB2->(dbSeek(xFilial("SB2")+cCodDest+cLocDest))
+					CriaSB2(cCodDest,cLocDest)
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Ponto de Entrada para escolher o tipo de sub-lote     ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+				If ExistBlock("MT260NLOT")
+					lMantemLot := ExecBlock("MT260NLOT",.F.,.F.,{cCodOrig,cCodDest})
+					If ValType(lMantemLot) <> "L"
+						lMantemLot := .F.
+					EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Transferencia entre produtos iguais não altera o sub-lote				 ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				ElseIf lMtNLote .And. cCodOrig == cCodDest
+					lMantemLot := .T.
+				EndIf
+
+				RecLock("SD3",.T.)
+				Replace D3_FILIAL With xFilial("SD3")  ,D3_COD     With cCodDest,;
+						D3_QUANT   With nQuant260    	,D3_CF      With "DE4",;
+						D3_CHAVE   With SubStr(D3_CF,2,1)+IIf(D3_CF=="DE4","9","0"),;
+						D3_LOCAL   With cLocDest     	,D3_DOC     With cDocto,;
+						D3_EMISSAO With dEmis260     	,D3_UM      With SB1->B1_UM,;
+						D3_GRUPO   With SB1->B1_GRUPO	,D3_NUMSEQ  With cNumSeq,;
+						D3_QTSEGUM With nQuant260D    	,D3_SEGUM   With SB1->B1_SEGUM,;
+						D3_TM      With "499"        	,D3_TIPO    With SB1->B1_TIPO ,;
+						D3_CONTA   With SB1->B1_CONTA,D3_USUARIO With CUSERNAME,;
+						D3_NUMLOTE With IIf(lMantemLot,cNumLote,CriaVar("D3_NUMLOTE")),;
+						D3_LOTECTL With IIf(Rastro(cCodDest),cLoteDest,CriaVar("D3_LOTECTL")),;
+						D3_DTVALID With IIf(Rastro(cCodDest),dDtVldDest,CriaVar("D3_DTVALID")),;
+						D3_POTENCI With IIf(Rastro(cCodDest),nPotencia,CriaVar("D3_POTENCI")),;
+						D3_LOCALIZ With cLoclzDest,D3_NUMSERI With cNumSerie,;
+						D3_SERVIC  With cServico
+
+				For i := 1 To Len(aCTBEnt)
+					 &("D3_EC"+aCTBEnt[i]+"CR") := SB1->&("B1_EC"+aCTBEnt[i]+"CR")
+					 &("D3_EC"+aCTBEnt[i]+"DB") := SB1->&("B1_EC"+aCTBEnt[i]+"DB")
+				Next nX
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Portaria CAT83   |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If lCAT83 .And. cCodOrig != cCodDest
+					Replace D3_CODLAN With If(Empty(cCAT83D),A240CAT83(),cCAT83D)
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Percentual FCI   |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If nFCICalc == 1
+					Replace D3_PERIMP With nPerImp
+				EndIf
+
+				aAdd(aRegSD3,SD3->(Recno()))
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Grava o custo da movimentacao              ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				aCusto := GravaCusD3(aCM)
+				If cPrograma == 'DLGXFUN'
+					//-- Parametro MV_WMSATB2 -> NAO documentar esse parametro
+					//-- Tratamento Interno para WMS
+					If SuperGetMv("MV_WMSATB2",.F.,.T.)
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o saldo atual (VATU) com os dados do SD3     ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,.T.,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico,NIL,NIL,NIL,NIL,NIL,cLoteFor,cNumDesp)
+					Else
+						Default lAtuSB2 := .F.
+						// Tratamento especifico para o WMS
+						MovLote("SD3",;				//1
+							SD3->D3_COD,;				//2
+							SD3->D3_LOCAL,;			//3
+							Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_LOCALIZ),;	//4
+							Iif(SD3->D3_CF == "DE3" .And. SD3->D3_ESTORNO # "S","",SD3->D3_NUMSERI),;	//5
+							SD3->D3_LOTECTL,;			//6
+							SD3->D3_NUMLOTE,;			//7
+							SD3->D3_NUMSEQ,;			//8
+							SD3->D3_TM,;				//9
+							NIL,;							//10
+							NIL,;							//11
+							cLoteFor,;					//12
+							"MI",;						//13
+							NIL,;							//14
+							SD3->D3_DOC,;				//15
+							NIL,;							//16
+							SD3->D3_OP,;				//17
+							NIL,;							//18
+							NIL,;							//19
+							NIL,;							//20
+							NIL,;							//21
+							SD3->D3_QUANT,;			//22
+							SD3->D3_QTSEGUM,;			//23
+							SD3->D3_EMISSAO,;			//24
+							SD3->D3_DTVALID,;			//25
+							NIL,;							//26
+							NIL,;							//27
+							SD3->D3_ESTORNO == "S",;		//28
+							.T.,;							//29
+							Substr(SD3->D3_CF,1,1) $ "DP",;//30
+							NIL,;							//31
+							.T.,;							//32
+							NIL,;							//33
+							cEstFis,;					//34
+							cServico,;					//35
+							cTarefa,;					//36
+							cAtividade,;				//37
+							cAnomalia,;					//38
+							cEstDest,;					//39
+							cEndDest,;					//40
+							cHrInicio,;					//41
+							cAtuEst,; 					//42
+							.T.,;							//43
+							cCarga,;						//44
+							cUnitiza,;					//45
+							cOrdTar,;					//46
+							cOrdAti,;					//47
+							cRHumano,;					//48
+							cRFisico,;					//49
+							SD3->D3_POTENCI,;			//50
+							Nil,;							//51
+							.F.,; 						//52
+							"",; 							//53
+							"",; 							//54
+							"",; 							//55
+							{},; 							//56
+							Nil,; 						//57
+							cNumDesp,; 					//58
+							lAtuSB2)						//59 (ATENCAO PARAMETRO UTILIZADO PARA NAO REALIZAR O LOCK NA TABELA SB2)
+					EndIf
+				Else
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Atualiza o saldo atual (VATU) com os dados do SD3     ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					B2AtuComD3(aCusto,Nil,Nil,Nil,Nil,.T.,Nil,cEstFis,cServico,cTarefa,cAtividade,cAnomalia,cEstDest,cEndDest,cHrInicio,cAtuEst,Nil,cCarga,cUnitiza,cOrdTar,cOrdAti,cRHumano,cRFisico,NIL,NIL,NIL,NIL,NIL,cLoteFor,cNumDesp)
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Atualiza o CQ dos Modulos de Materiais (SD7)          ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If AllTrim(cLocCQ) == AllTrim(cLocDest) .And. AllTrim(cLocCQ) # AllTrim(cLocOrig)
+
+					fGeraCQ0('SD3', SD3->D3_COD, 'TR')
+
+					If lQualyCQ
+						SB1->(dbSetOrder(1))
+						lQualyCQ := SB1->(dbSeek(xFilial("SB1")+SD3->D3_COD)) .And. RetFldProd(SB1->B1_COD,"B1_TIPOCQ") =="Q"
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Atualiza o CQ do modulo SigaQuality                   ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If lQualyCQ
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Posiciona o Registro do SD5, para envio do LOTECTL+NUMLOTE a  ³
+						//³ qAtuMatQie().												 ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						cLotCtlQie := ''
+						cNumLotQie := ''
+						If Rastro(SD3->D3_COD,"L") .Or. Rastro(SD3->D3_COD,"S")
+							aAreaSD5 := SD5->(GetArea())
+							SD5->(dbSetOrder(3))
+							If SD5->(dbSeek(xFilial('SD5')+SD3->D3_NUMSEQ+SD3->D3_COD+SD3->D3_LOCAL+SD3->D3_LOTECTL, .F.))
+								cLotCtlQie := SD5->D5_LOTECTL
+								cNumLotQie := SD5->D5_NUMLOTE
+							EndIf
+							SD5->(dbSetOrder(aAreaSD5[2]))
+							SD5->(dbGoto(aAreaSD5[3]))
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Passa LOTECTL+NUMLOTE p/ser gravado nos campos de Lote do QIE³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						nSC7OrdAnt := SC7->(IndexOrd())
+						nSC7RecAnt := SC7->(Recno())
+						SC7->(dbSetOrder(1))
+						If SC7->(dbSeek(xFilial('SC7')+cPedNFO+cIPCNFO, .F.))
+							nAtraso := SD3->D3_DTVALID-SC7->C7_DATPRF
+						Else
+							nAtraso := 0
+						EndIf
+
+						SC7->(dbSetOrder(nSC7OrdAnt))
+						SC7->(dbGoto(nSC7RecAnt))
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Grava os dados referentes ao Inspecao de Entradas (SIGAQIE)  ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If !lQtdRep
+							//cItemNF := ''  //retirado pois está influenciando no processo de reinspeção QIExEST
+							dNotFis := SD3->D3_EMISSAO
+							nPreco  := SD3->D3_CUSTO1
+						EndIf
+
+						aEnvCele := {cDocNFO				,; //Numero da Nota Fiscal
+							cSerNFO                         ,; //Serie da Nota Fiscal
+							cTipNFO                         ,; //Tipo da Nota Fiscal
+							dNotFis							,; //Data de Emissao da Nota Fiscal
+							SD3->D3_EMISSAO					,; //Data de Entrada da Nota Fiscal
+							"TR"							,; //Tipo de Documento
+							cItemNF							,; //Item da Nota Fiscal
+							Space(TamSX3("D1_REMITO")[1])	,; //Numero do Remito (Localizacoes)
+							cPedNFO							,; //Numero do Pedido de Compra
+							Space(TamSX3("D1_ITEMPC")[1])	,; //Item do Pedido de Compra
+							cForNFO							,; //Codigo Fornecedor/Cliente
+							cLojNFO							,; //Loja Fornecedor/Cliente
+							cDocto							,; //Numero do Lote do Fornecedor
+							Space(6)						,; //Codigo do Solicitante
+							SD3->D3_COD						,; //Codigo do Produto
+							SD3->D3_LOCAL					,; //Local Origem
+							cLotCtlQie						,; //Numero do Lote
+							cNumLotQie						,; //Sequencia do Sub-Lote
+							SD3->D3_NUMSEQ					,; //Numero Sequencial
+							SD7->D7_NUMERO					,; //Numero do CQ
+							SD3->D3_QUANT					,; //Quantidade
+							nPreco							,; //Preco
+							nAtraso							,; //Dias de atraso
+							" "								,; //TES
+							AllTrim(FunName())				,; //Origem
+							" "								,; //Origem TXT
+							PadR(nQtdOri,15)}				   //Tamanho do lote original
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Realiza a integracao Materiais x Inspecao de Entradas		 ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						aRecCele := qAtuMatQie(aEnvCele,1)
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Liberação Automatica (FREE-PASS) - Parametrizada no SigaQIE  ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If aRecCele[1] == 'C' .Or. aRecCele[1] == 'L'
+
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Realiza Automaticamente a Libera‡„o da movimenta‡Æo no SD7   ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							aMov := {}
+							aadd(aMov, {})
+							aadd(aMov[Len(aMov)], 1)                 //-- Tipo da Movimentação (1=Libera/2=Rejeita)
+							aadd(aMov[Len(aMov)], SD7->D7_SALDO)     //-- Quantidade a ser Movimentada
+							aadd(aMov[Len(aMov)], SD7->D7_LOCDEST)   //-- Local de Destino da Movimentacao
+							aadd(aMov[Len(aMov)], SD7->D7_DATA)      //-- Data da Movimentacao
+							aadd(aMov[Len(aMov)], "")                //-- X=Estornado
+							aadd(aMov[Len(aMov)], "")                //-- Motivo da Rejeicao
+							aadd(aMov[Len(aMov)], aRecCele[2])       //-- Observacao
+							aadd(aMov[Len(aMov)], SD7->D7_QTSEGUM)   //-- Quantidade na 2a Unidade de Medida
+							fGravaCQ(SD7->D7_PRODUTO, SD7->D7_NUMERO, .F., aMov, PegaCMD3())
+
+						EndIf
+
+					EndIf
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ ExecBlock apos gravacao do SD3                               ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If lMA260D3
+					ExecBlock("MA260D3",.F.,.F.)
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Integração Mensagem Única.                                              ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If lIntegDef
+					FwIntegDef("MATA261",,,,"MATA261")
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Verifica se o custo medio e' calculado On-Line               ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If cCusMed == "O"
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Gera o lancamento no arquivo de prova           ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					nTotal+=DetProva(nHdlPrv,"672",cPrograma,cLoteEst)
+					// Grava os registros que estarão com o código do documento contabil relacionado (Correlativo)
+					If ( UsaSeqCor() ) .AND. Type("aCtbDia") == "A"
+						aAdd(aCtbDia,{"SD3",SD3->(RECNO()),"","D3_NODIA","D3_DIACTB"})
+					Else
+		 				aCtbDia := {}
+					EndIF
+				EndIf
+			EndIf
+		End Transaction
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ ExecBlock apos gravacao do SD3                               ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lMA260D3F
+		ExecBlock("MA260D3F",.F.,.F.,{lContinua})
+	EndIf
+EndIf
+Return .T.
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³  A260TudoOK  ³ Larson Zordan               ³ Data ³ 26/08/02 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ - Verifica se existe o Ponto de Entrada MT260TOK e consiste  ³±±
+±±³          ³   o retorno que devera ser logico.                           ³±±
+±±³          ³ - Valida as informacoes inseridas pelo usuario.              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260TudoOK(ExpC01,ExpC02)                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC01 = Local(Almoxarifado) Controle Qualidade              ³±±
+±±³          ³ ExpC02 = Codigo do Lote de destino                           ³±±
+±±³          ³ ExpC03 = Codigo do Servico WMS                               ³±±
+±±³          ³ ExpL04 = Indica se a validacao esta sendo executada pelo WMS ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Generico                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function A260TudoOk(cLocCQ, cLoteDigiD, cServico, lWms, cDocto)
+Local aAreaAnt   := GetArea()
+Local aAreaSB2   := SB2->(GetArea())
+Local aAreaSB8   := SB8->(GetArea())
+Local aAreaSBE   := SBE->(GetArea())
+Local lEstNeg    := .F.
+Local lRastro    := .F.
+Local lLocaliza  := .F.
+Local lRet       := .T.
+Local lEmpPrev   := If(SuperGetMV("MV_QTDPREV")== "S",.T.,.F.)
+Local lValida    := .T.
+Local oTransfer  := Nil
+Local lWmsSD3    := If(!(Type('lExecWms')=='U'), lExecWms, .F.)
+Local lWmsNew	 := SuperGetMv("MV_WMSNEW",.F.,.F.)
+Local oSaldoWMS  := Iif(lWmsNew,WMSDTCEstoqueEndereco():New(),Nil)
+Local oOrdServ	 := Nil
+Local cArmCQ := GetMvNNR('MV_CQ','98')
+
+Default lWms     := .F.
+Default cDocto   := ''
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de Entrada para a validacao dos dados digitados nos    ³
+//³ Gets fixos.                                                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MT260TOK")
+	lRet := ExecBlock("MT260TOK",.F.,.F.,{cLoteDigiD})
+	lRet := If(ValType(lRet)#"L",.T.,lRet)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica a permissao do armazem. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet
+	lRet := MaAvalPerm(3,{cLocOrig,cCodOrig}) .And. MaAvalPerm(3,{cLocDest,cCodDest})
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica calendário contábil                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet 
+	lRet := (CtbValiDt(Nil,DEMIS260,,Nil ,Nil ,{"EST001"}))
+EndIf
+
+// As validacoes abaixo devem ser executadas mesmo que exista o ponto de entrada e este retorne .T.
+If lRet
+	If lRet .And. cCodOrig+cUmOrig+cLocOrig+cLocLzOrig+cLoteDigi == cCodDest+cUmDest+cLocDest+cLoclzDest+If(!Empty(cLoteDigiD),cLoteDigiD,cLoteDigi)
+		Help(" ",1,"MA260IGUAL") // A origem da transferência não pode ser igual ao destino
+		lRet := .F.
+	EndIf
+
+	If lRet .And. Localiza(cCodOrig,.T.)
+		// Avalia qtd utilizada em movimentos com Numero de Serie
+		If !MtAvlNSer(cCodOrig,cNumSerie,nQuant260,nQuant260D)
+			lRet := .F.
+		EndIf
+
+		If lRet .And. Empty(cLocLzOrig+cNumSerie)
+			Help(" ",1,"LOCALIZOBR") //Quando o produto utiliza controle de Endereço, deve ter preenchido no movimento o campo Endereço, Número deSérie ou os dois.
+			lRet := .F.
+		EndIf
+
+		If lRet .And. ((!Empty(cLocLzOrig) .Or. !Empty(cNumSerie)) .And. QtdComp(SaldoSBF(cLocOrig,cLoclzOrig,cCodOrig,cNumSerie,cLoteDigi,If(Rastro(cCodOrig, 'S'),cNumLote,''))) < QtdComp(nQuant260))
+		 	If !(lWmsNew .And. a260IntWMS(cCodOrig))
+		 		If QtdComp(SaldoSBF(cLocOrig,cLoclzOrig,cCodOrig,cNumSerie,cLoteDigi,If(Rastro(cCodOrig, 'S'),cNumLote,''))) < QtdComp(nQuant260)
+		 			Help(" ",1,"SALDOLOCLZ") //O produto não tem saldo Enderecado suficiente ou o Endereço selecionado não tem saldo suficiente.
+		 			lRet := .F.
+		 		EndIf
+		 	Else
+		 		If QtdComp(oSaldoWMS:GetSldWMS(cCodOrig,cLocOrig,cLoclzOrig,cLoteDigi,If(Rastro(cCodOrig, 'S'),cNumLote,''),cNumSerie)) < QtdComp(nQuant260)
+		 			Help(" ",1,"SALDOLOCLZ") //O produto não tem saldo Enderecado suficiente ou o Endereço selecionado não tem saldo suficiente.
+		 			lRet := .F.		 		
+		 		EndIf
+		 	EndIf
+		EndIf
+
+		// se produto e' o unico na localizacao
+		If lRet .And. (!ProdLocali(cCodDest,cLocDest,cLoclzDest))
+			lRet := .F.
+		EndIf
+	EndIf
+
+	If  lRet 
+	
+		//Retorna falso caso um produto integre com WMS e o outro não
+		If FindFunction('WMSValTPOD')
+			lRet := WMSValTPOD(cCodOrig, cCodDest)
+		EndIf 
+		
+		If lRet .And. ((Localiza(cCodDest,.T.)) .Or. a260IntWMS(cCodDest))
+			If cLocDest == cLocCQ
+				If !ProdLocali(cCodDest,cLocDest,cLoclzDest)
+					lRet := .F.
+				EndIf
+			EndIf
+
+			// --- Validacoes WMS
+			If lRet .And. !Empty(cLocLzDest) .And. a260IntWMS(cCodDest)
+				If ExistBlock("MA260WMS")
+					cRetPE := ExecBlock("MA260WMS",.F.,.F.,{cLocOrig,cCodOrig,cLoclzOrig})
+					lValida := (!(ValType(CRetPE)=="C" .And. cLocDest $ cRetPE))
+				EndIf
+				If lValida
+					If !lWmsNew
+						lRet := WMSVldTran(cDocto, cServico, cCodOrig, cLocOrig, cLoclzOrig, cCodDest, cLocDest, cLoclzDest, cLoteDigi, cNumLote, cNumSerie, nQuant260)
+					ElseIf !lWmsSD3
+						If !Empty(cLoclzDest) 
+							oTransfer := WMSBCCTransferencia():New()
+							// Endereco Origem
+							oTransfer:oMovEndOri:SetArmazem(cLocOrig)
+							oTransfer:oMovEndOri:SetEnder(cLoclzOrig)
+							// Endereco Destino
+							oTransfer:oMovEndDes:SetArmazem(cLocDest)
+							oTransfer:oMovEndDes:SetEnder(cLoclzDest)				
+							// Produto				
+							oTransfer:oMovPrdLot:SetArmazem(cLocDest)
+							oTransfer:oMovPrdLot:SetProduto(cCodOrig)
+							oTransfer:oMovPrdLot:SetPrdOri(cCodOrig)			
+							oTransfer:oMovPrdLot:SetLoteCtl(cLoteDigi)
+							oTransfer:oMovPrdLot:SetNumLote(cNumLote)
+							oTransfer:oMovPrdLot:SetNumSer(cNumSerie)
+							// Serviço
+							oTransfer:oMovServic:SetServico(cServico)
+							oTransfer:oOrdServ:SetDocto(cDocto)
+							oTransfer:SetQuant(nQuant260)
+							If !oTransfer:VldGeracao()
+								WmsMessagem(oTransfer:GetErro(),"SIGAWMS",5/*MSG_HELP*/)
+								lRet := .F.
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+	If lRet .And. (Rastro(cCodOrig) .And. Empty(If(Rastro(cCodOrig,"S"),cNumLote,cLoteDigi)))
+		Help(" ",1,"MA260LOTE") //É obrigatória a digitação do número do lote, pois o produto utiliza rastreabilidade
+		lRet := .F.
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Se a Qtde estiver em branco ele deve dar uma mensagem  ³
+	//³ de que este registro nao sera' gravado.                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lRet .And. (nQuant260 == 0)
+		Help(" ",1,"MA240NAOGR")
+		lRet := .F.
+	EndIf
+
+	//--> Verifica se o saldo do armz esta liberado
+	If lRet .And. (!SldBlqSB2(cCodOrig,cLocOrig))
+		lRet := .F.
+	EndIf
+
+	//--> Verifica se o saldo do armz Dest esta liberado
+	If lRet .And. (!SldBlqSB2(cCodOrig,cLocDest))
+		lRet := .F.
+	EndIf
+
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Validacao do Custo FIFO On-Line                     |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If IsFifoOnLine()
+		If SaldoSBD("SD3",cCodOrig,cLocOrig,Nil)[1] < nQuant260
+			Help(" ",1,"DIVFIFO2")
+			lRet := .F.
+		EndIf
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Consistir saldo referente a Rastro, Localizacao e Quantidade Negativa  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lRet
+		lEstNeg   := (GetMv('MV_ESTNEG')=='N')
+		lRastro   := Rastro(cCodOrig)
+		lLocaliza := Localiza(cCodOrig,.T.)
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Analisa se o tipo do armazem permite a movimentacao |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lRet .And. AvalBlqLoc(cCodOrig,cLocOrig,Nil,,cCodDest,cLocDest)
+		lRet := .F.
+	EndIf
+
+	If lRet .And. (lEstNeg.Or.lRastro.Or.lLocaliza)
+		//-- Valida Saldo em Estoque Negativo
+		If lEstNeg
+			dbSelectArea('SB2')
+			aAreaSB2 := GetArea()
+			SB2->(dbSetOrder(1))
+			If !SB2->(dbSeek(xFilial('SB2')+cCodOrig+cLocOrig))
+				Help(' ', 1, 'REGNOIS')
+				lRet := .F.
+			ElseIf QtdComp(SaldoMov(Nil, Nil, Nil,IIf(lWms,Nil,IIf(mv_par03==1,.F.,Nil)), Nil,Nil, If(lLocaliza, If((cCodOrig==cCodDest.And.cLocOrig==cLocDest.And.cLoclzOrig#cLoclzDest), .F., Nil), Nil),If(Type('dEmis260') == "D",dEmis260,dDataBase))) < QtdComp(nQuant260)
+				Help(' ', 1, 'MA240NEGAT')
+				lRet := .F.
+			EndIf
+			dbSetOrder(aAreaSB2[2])
+			dbGoto(aAreaSB2[3])
+		EndIf
+
+		//-- Valida Saldo em Estoque ref. a Rastreabilidade
+		If lRet .And. lRastro
+			dbSelectArea('SB8')
+			aAreaSB8 := GetArea()
+			If	Rastro(cCodOrig, 'S')
+				SB8->(dbSetOrder(2))
+				If SB8->(dbSeek(xFilial('SB8')+cNumLote+cLoteDigi+cCodOrig+cLocOrig, .F.))
+					If QtdComp(SB8Saldo(Nil,.T.,Nil,Nil,Nil,lEmpPrev,Nil,dEmis260)) < QtdComp(nQuant260)
+						Help(' ', 1, 'A240NEGAT' )
+						lRet := .F.
+					EndIf
+				EndIf
+			Else
+				If !(lWmsNew .And. a260IntWMS(cCodOrig)) 
+					If QtdComp(SaldoLote(cCodOrig,cLocOrig,cLoteDigi,Nil,Nil,Nil,Nil,dEmis260)) < QtdComp(nQuant260)
+						Help(' ', 1, 'A240NEGAT')
+						lRet := .F.
+					EndIf
+				Else
+			 		If QtdComp(oSaldoWMS:GetSldWMS(cCodOrig,cLocOrig,,cLoteDigi)) < QtdComp(nQuant260)
+						Help(' ', 1, 'A240NEGAT')
+						lRet := .F.
+					EndIf					
+				EndIf
+			EndIf
+			dbSetOrder(aAreaSB8[2])
+			dbGoto(aAreaSB8[3])
+		EndIf
+
+		//-- Valida Saldo em Estoque ref. a Localizacao
+		If  lRet .And. !lWmsNew .And. !lWms .And. lLocaliza
+			If lRet
+				dbSelectArea('SBE')
+				aAreaSBE := GetArea()
+				SBE->(dbSetOrder(1))
+				If SBE->(dbSeek(xFilial('SBE')+cLocDest+cLoclzDest, .F.))
+					If QtdComp(BE_CAPACID)>QtdComp(0) .And. (QtdComp(BE_CAPACID)<QtdComp(nQuant260+QuantSBF(cLocDest, cLoclzDest)))
+						Help(' ', 1, 'MA265CAPAC')
+						lRet := .F.
+					EndIf
+				EndIf
+				If lRet
+					If !(lWmsNew .And. a260IntWMS(cCodOrig)) 
+						If QtdComp(SaldoSBF(cLocOrig,cLoclzOrig,cCodOrig,cNumSerie,cLoteDigi,If(Rastro(cCodOrig,'S'),cNumLote,''))) < QtdComp(nQuant260)
+							Help(' ', 1, 'SALDOLOCLZ')
+							lRet := .F.
+						EndIf
+					Else
+						If QtdComp(oSaldoWMS:GetSldWMS(cCodOrig,cLocOrig,cLoclzOrig,cLoteDigi,If(Rastro(cCodOrig,'S'),cNumLote,''),cNumSerie)) < QtdComp(nQuant260)
+							Help(' ', 1, 'SALDOLOCLZ')
+							lRet := .F.						
+						EndIf
+					EndIf
+				EndIf
+				dbSetOrder(aAreaSBE[2])
+				dbGoto(aAreaSBE[3])
+			EndIf
+		EndIf
+		RestArea(aAreaAnt)
+	EndIf
+
+	If cLocOrig == cArmCQ .And. cLocOrig # cLocDest 
+		Help(" ",1,"A260LOCCQ")
+		lRet := .F.
+	EndIf
+EndIf
+Return(lRet)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260QOK   ³ Autor ³Rodrigo A Sartorio     ³ Data ³13/08/03  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Valida as informacoes da Nota Fiscal informada             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260QOK(ExpC1,ExpC2,ExpC3,ExpC4)                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Documento                                          ³±±
+±±³          ³ ExpC2 = Serie do Documento                                 ³±±
+±±³          ³ ExpC3 = Fornecedor do Documento                            ³±±
+±±³          ³ ExpC4 = Loja do Fornecedor do Documento                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260QOk(cDoc,cSerie,cFornec,cLoja,cLocDest,cCod,cLoteDigi)
+Local lRet     := !Empty(cDoc+cSerie+cFornec+cLoja)
+Local cLocCQ   := GetMvNNR('MV_CQ','98')
+Local lQualyCQ := (cLocDest==cLocCQ) .And. (SB1->(dbSeek(xFilial('SB1')+cCod, .F.)) .And. (RetFldProd(SB1->B1_COD,"B1_TIPOCQ")=='Q'))
+Local lQReinsp := QieReinsp()
+
+Default cLocDest:=IIf(Empty(cLocDest),RetFldProd(SB1->B1_COD,"B1_LOCPAD"),cLocDest)
+Default cLoteDigi:= CriaVar( 'D3_LOTECTL', .F. )
+
+If lRet
+	SD1->(dbSetOrder(1))
+	lRet:= SD1->(dbSeek(xFilial("SD1")+cDoc+cSerie+cFornec+cLoja))
+EndIf
+
+// Verifica  a integração com o quality (QIE x EST)
+If !lQReinsp .And. lRet .And. lQualyCQ
+	If SD1->D1_EMISSAO == dDataBase .And. AllTrim( cLoteDigi ) == AllTrim( SD1->D1_LOTECTL )
+		Help(" ",1, 'Help','A260QOk', STR0091 ) // Devido a integração com ambiente Inspeção de Entradas, não é possível efetuar a transferência deste lote,pois já existe uma inspeção nesta data.		
+		lRet:= .F.
+	Endif
+	SD3->(DbSetOrder(7)) //D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ
+	If SD3->(MsSeek(xFilial("SD3")+cCod+cLocCQ+(Dtos(dDataBase))))
+		While SD3->(!Eof()) .And. SD3->(D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_CF) == ;
+			xFilial("SD3")+cCod+cLocCQ+Dtos(dDataBase)+"DE4"
+			Help(" ",1, 'Help','A260QOk', STR0091  )
+			lRet:=.F.
+			SD3->(Dbskip())
+		EndDo
+	Endif
+EndIf
+
+Return lRet
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260LDest ³ Autor ³Rodrigo A Sartorio     ³ Data ³16/08/04  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Funcao para informar o lote destino da transferencia       ³±±
+±±³          ³ diferente do lote origem.                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ A260LDest(cProduto,cLoteDest,cPicture,lDigita)             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cProduto = Codigo do Produto Destino da Transferencia      ³±±
+±±³          ³ cLoteDest = Lote destino informado para a Transferencia    ³±±
+±±³          ³ cPicture = Picture para digitacao do lote da transferencia ³±±
+±±³          ³ lDigita = Variavel logica que indica se permite a digitacao³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260LDest(cProduto,cLoteDest,cPicture,lDigita)
+Local oDlg,lConfirma:=.F.
+Local cNovoLote	:= cLoteDest
+Local dNovoDtVD
+Local lRastroO	:= Rastro(cCodOrig)
+Local lRastroD	:= Rastro(cProduto)
+Local lContinua := .T.
+
+If Empty(cCodOrig)
+	Aviso(STR0022,STR0072,{STR0025})    //"Atencao" ### "Informe o codigo de origem!" ### "Ok"
+	lContinua := .F.
+EndIf
+If lContinua .And. lRastroO .And. lRastroD .And. Empty(cLoteDigi)
+	Aviso(STR0022,STR0073,{STR0025}) //"Atencao" ### "Informe o codigo do lote de origem!"  ### "Ok"
+	lContinua := .F.
+EndIf
+
+If lContinua .And. lRastroD
+	If lRastroO
+		If dDtVldDest < dDtValid
+			If !Empty(dDtVldDest)
+				HelpAutoma(" ",1,"A240DTVALI",,,,,,,,,.F.)
+			EndIf
+			dDtVldDest := dDtValid
+		EndIf
+	ElseIf Empty(dDtVldDest)
+		dDtVldDest := dDataBase
+	EndIf
+	dNovoDtVD	:= dDtVldDest
+
+	DEFINE MSDIALOG oDlg TITLE STR0099 From 000,000 To 200,300 OF oMainWnd PIXEL //"Sel. Lote Destino"
+	@ 10,07 TO 40,149 LABEL STR0063 OF oDlg PIXEL   //"Informe Lote Destino"
+	@ 20,12 MSGET cNovoLote WHEN lDigita Picture cPicture SIZE 129,009 OF oDlg PIXEL VALID ( A260DtVldD(cProduto,cLocDest,cNovoLote,@dNovoDtVD,dDtValid,lRastroO) )
+
+	@ 45,07 TO 75,149 LABEL STR0074	 OF oDlg PIXEL //"Informe Validade Destino"
+	@ 55,12 MSGET dNovoDtVD Picture '@D' OF oDlg PIXEL VALID ( A260DtVldD(cProduto,cLocDest,cNovoLote,@dNovoDtVD,dDtValid,lRastroO) )
+
+	DEFINE SBUTTON FROM 80,15 TYPE 1 ACTION (oDlg:End(),lConfirma:=.T.) ENABLE OF oDlg
+	DEFINE SBUTTON FROM 80,43 TYPE 2 ACTION oDlg:End() ENABLE OF oDlg
+	ACTIVATE MSDIALOG oDlg CENTERED
+	If lConfirma
+		cLoteDest:=cNovoLote
+		dDtVldDest := dNovoDtVD
+	EndIf
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³A260ApropIºAutor  ³Fernando J Siquini  º Data ³  04/28/05   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Verifica se o produto em questao utiliza metodo de          º±±
+±±º          ³apropriacao Indireta (B1_APROPRI = I)                       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametro ³ ExpC1 = Codigo do produto a ser pesquisado                 º±±
+±±º          ³ ExpC2 = Codigo do tipo de movimentacao                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºReturno   ³ True se o produto utilizar Apropriacao Indireta            º±±
+±±º          ³ False se o produto NAO utilizar Apropriacao Indireta       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Protheus                                                   º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function A260ApropI(cProduto,cTm)
+Local lRet       := .F.
+Local aAreaAnt   := GetArea()
+Local aAreaSB1   := SB1->(GetArea())
+Local aAreaSF5   := SF5->(GetArea())
+
+dbSelectArea('SB1')
+dbSetOrder(1)
+lRet := MsSeek(xFilial('SB1')+cProduto, .F.) .And. (B1_APROPRI == 'I')
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verificar se o TM esta configurada para utilizar apropriacao indireta  |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet .And. !Empty(cTm)
+	dbSelectArea('SF5')
+	dbSetOrder(1)
+	If !(MsSeek(xFilial('SF5')+cTm) .And. SF5->F5_APROPR == "N")
+		lRet := .F.
+	EndIf
+EndIf
+
+RestArea(aAreaSF5)
+RestArea(aAreaSB1)
+RestArea(aAreaAnt)
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³A260DtVldDºAutor  ³Erike Yuri da Silva º Data ³  23/01/06   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Valida data de validade do lote de destino.                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametro ³ ExpC1 = Codigo do produto de destino                       º±±
+±±º          ³ ExpC2 = Armazem de destino                                 º±±
+±±º          ³ ExpC3 = Lote de destino                                    º±±
+±±º          ³ ExpD1 = Data de validade do lote de destino                º±±
+±±º          ³ ExpD2 = Data de validade do lote de origem                 º±±
+±±º          ³ ExpL1 = Variavel logica que indica se o codigo de origem   º±±
+±±º          ³         possui controle de rastreabilidade.                º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºReturno   ³ Logico                                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ MATA260                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function A260DtVldD(cCodDest,cLocDest,cLoteDest,dDtVldDest,dDtValid,lRastroO)
+Local lRet		:= .T.
+Local lHelp		:= .F.
+Local aAreaSB8	:= GetArea("SB8")
+
+DbSelectArea("SB8")
+DbSetOrder(3)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica a existencia do lote de destino na base ja existente ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If DbSeek(xFilial("SB8")+cCodDest+cLocDest+cLoteDest) .And. SB8->B8_DTVALID # dDtVldDest
+	If !Empty(dDtVldDest)
+		lHelp := .T.
+	EndIf
+	dDtVldDest := SB8->B8_DTVALID
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ A data de validade de destino nao pode ser menor que a origem³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !lRastroO .And. dDtVldDest < dDataBase
+	dDtVldDest	:= dDtValid
+	lHelp		:= .T.
+EndIf
+If lHelp
+	HelpAutoma(" ",1,"A240DTVALI",,,,,,,,,.F.)
+EndIf
+RestArea(aAreaSB8)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³ Fabio Alves Silva     ³ Data ³04/10/2006³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³    1 - Pesquisa e Posiciona em um Banco de Dados           ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef()
+Private aRotina	:= {	{ STR0002,"AxPesqui" 	, 0 , 1,0,.F.},;	//"Pesquisar"
+						{ STR0003,"A260Visual"	, 0 , 2,0,nil},;	//"Visualizar"
+						{ STR0004,"A260Inclui"	, 0 , 3,0,nil},;	//"Incluir"
+						{ STR0005,"A260Estorn"	, 0 , 5,0,nil},;	//"Estornar"
+						{ STR0103,"CTBC662"	    , 0 , 7,0,nil},;	//"Tracker Contábil"
+						{ STR0071,"A240Legenda"	, 0 , 2,0,.F.} }	//"Legenda"
+If ExistBlock ("MTA260MNU")
+	ExecBlock ("MTA260MNU",.F.,.F.)
+Endif
+Return (aRotina)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³A260PosGet³ Autor ³ Emerson Rony Oliveira ³ Data ³ 18/12/08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Funcao que posiciona os campos na tela de acordo com o     ³±±
+±±³          ³ tamanho do codigo do produto                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpA1 = Vetor com as coordenadas/tamanhos dos SAYS         ³±±
+±±³          ³ ExpA2 = Vetor com as coordenadas/tamanhos dos GETS         ³±±
+±±³          ³ ExpA3 = Vetor com as coordenadas/tamanho da tela           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA260                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A260PosGet(aSay, aGet, aTela)
+Local nTamCod := TamSX3("D3_COD")[1]
+
+DEFAULT aSay  := {}
+DEFAULT aGet  := {}
+DEFAULT aTela := {}
+
+If !(nTamCod > 15) // tamanho minimo (15)
+	aTela:= {140,000,550,730}
+
+	aSay := {{036,040,130,006}, {074,040,130,006}, {020,011,024,007}, {020,118,032,016}, {020,178,035,016},;
+			 {020,178,035,013}, {061,011,024,007}, {058,118,032,016}, {058,178,035,016}, {061,178,035,013},;
+			 {096,004,025,016}, {096,118,012,013}, {096,179,022,007}, {096,234,025,016}, {096,307,009,013},;
+			 {118,003,030,016}, {118,104,030,016}, {118,205,015,007}, {118,270,029,007},;
+			 {020,309,035,013}, {059,309,035,013}, {118,330,029,014}}
+
+	aGet := {{003,006,045,362}, {049,006,085,362}, {020,039,068,009}, {020,153,012,009}, {020,216,012,009},;
+			 {020,246,060,009}, {059,039,068,009}, {059,153,012,009}, {059,216,012,009}, {059,246,060,009},;
+			 {096,029,085,009}, {096,132,045,009}, {096,204,027,009}, {096,260,044,009}, {096,323,010,009},;
+			 {118,037,063,009}, {118,137,063,009}, {118,223,040,009}, {118,282,044,009},;
+			 {020,327,032,010}, {059,327,032,010}, {118,344,035,009}}
+Else
+	aTela:= {140,000,550,770}
+
+	aSay := {{038,040,130,006}, {074,040,130,006}, {026,011,024,007}, {022,186,032,016}, {022,246,035,016},;
+			 {026,246,035,013}, {061,011,024,007}, {058,186,032,016}, {058,246,035,016}, {061,246,035,013},;
+			 {096,004,025,016}, {096,118,012,013}, {096,179,022,007}, {096,234,025,016}, {096,307,009,013},;
+			 {118,003,030,016}, {118,104,030,016}, {118,205,015,007}, {118,270,029,007},;
+ 			 {038,190,035,013}, {078,190,035,013}, {118,330,029,014}}
+
+	aGet := {{003,006,045,380}, {049,006,085,380}, {024,039,136,009}, {024,221,012,009}, {024,284,012,009},;
+			 {024,314,060,009}, {059,039,136,009}, {059,221,012,009}, {059,284,012,009}, {059,314,060,009},;
+			 {096,029,085,009}, {096,132,045,009}, {096,204,027,009}, {096,260,044,009}, {096,323,010,009},;
+			 {118,037,063,009}, {118,137,063,009}, {118,223,040,009}, {118,282,044,009},;
+			 {038,246,032,010}, {074,246,032,010}, {118,344,035,009}}
+EndIf
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³WMS260TOK ºAutor  ³Flavio Luiz Vicco   º Data ³  13/11/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±³Descri‡„o ³ Executa validacoes da rotina de Transf. Mod I (a260TudoOk) º±±
+±±³          ³ somente quando execucao de O. S. WMS                       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Dlgxfun (SIGAWMS)                                          º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function a260WMSTOK(cwCodOrig,cwCodDest,cwLocOrig,cwLocDest,nwQtd260,nwQtd260D, ;
+                    dwEmis260,cwLoteDigi,cwLoclzOri,cwLoclzDes,cwNumLote,cwNumSerie,cDocumento)
+Local lRet     := .T.
+Local aAreaAnt := GetArea()
+Local aAreaSB1 := SB1->(GetArea())
+//-- Variaveis Private
+cCodOrig   := cwCodOrig
+cCodDest   := cwCodDest
+cUmOrig    := ""
+cUmDest    := ""
+cLocOrig   := cwLocOrig
+cLocDest   := cwLocDest
+nQuant260  := nwQtd260
+nQuant260D := nwQtd260D
+dEmis260   := dwEmis260
+cLoteDigi  := cwLoteDigi
+cLoclzOrig := cwLoclzOri
+cLoclzDest := cwLoclzDes
+cNumLote   := cwNumLote
+cNumSerie  := cwNumSerie
+//-- Pesquisa codigo do produto
+dbSelectArea("SB1")
+dbSetOrder(1)
+If	MSSeek(xFilial("SB1")+cwCodOrig)
+	cUmOrig := cUmDest := SB1->B1_UM
+EndIf
+//-- Executa validacoes somente quando execucao de O. S. WMS
+lRet := a260TudoOk(,,,.T.,cDocumento)
+RestArea(aAreaSB1)
+RestArea(aAreaAnt)
+Return lRet
+
+/*----------------------------------------------------
+ Suavizar a nova verificação de integração com o WMS
+------------------------------------------------------*/
+Static Function a260IntWMS(cProduto)
+Default cProduto := ""
+	If __lIntWMS
+		Return IntWMS(cProduto)
+	Else
+		Return IntDL(cProduto)
+	EndIf
+Return
+

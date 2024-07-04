@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Error en la ejecución dela Stored Procedure"
+	#define STR0002 "Stored Procedure"
+	#define STR0003 "no instalada en la base de datos."
+	#define STR0004 "Error al borrar los datos de la tabla SMB."
+	#define STR0005 "Inicio del recálculo de los niveles."
+	#define STR0006 "Inicio del recálculo de los niveles. Sucursal:"
+	#define STR0007 "Final del recálculo de los niveles. Sucursal:"
+	#define STR0008 "Tiempo total:"
+	#define STR0009 "Final del recálculo de niveles. Tiempo total:"
+	#define STR0010 "Recálculo de niveles procesado con error."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Error in the execution of the Stored Procedure"
+		#define STR0002 "Stored Procedure"
+		#define STR0003 "not installed in the database."
+		#define STR0004 "Error in deletion of SMB Table data."
+		#define STR0005 "Start of levels recalculation."
+		#define STR0006 "Start of levels recalculation. Branch:"
+		#define STR0007 "End of levels recalculation. Branch:"
+		#define STR0008 "Total Time:"
+		#define STR0009 "End of levels recalculation. Total Time:"
+		#define STR0010 "Error in levels recalculation."
+	#else
+		#define STR0001 "Erro na execução da Stored Procedure "
+		#define STR0002 "Stored Procedure "
+		#define STR0003 " não instalada no banco de dados."
+		#define STR0004 "Erro ao excluir os dados da tabela SMB. "
+		#define STR0005 "Inicio do recalculo dos niveis."
+		#define STR0006 "Inicio do recalculo dos niveis. Filial: "
+		#define STR0007 "Termino do recalculo de niveis. Filial: "
+		#define STR0008 "Tempo total: "
+		#define STR0009 "Termino do recalculo de niveis. Tempo total: "
+		#define STR0010 "Recalculo de niveis processado com erro. "
+	#endif
+#endif

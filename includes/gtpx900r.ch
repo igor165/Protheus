@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Generando contrato de fletamiento..."
+	#define STR0002 "Archivo no encontrado"
+	#define STR0003 "Verifique los parámetros MV_DIRDOC y MV_MODFRT"
+	#define STR0004 "Error"
+	#define STR0005 "No fue posible establecer comunicación con el Microsoft Word"
+	#define STR0006 "Verificación"
+	#define STR0007 "SIMPLE VERIFICACIÓN"
+	#define STR0008 "Informe la cantidad de copias"
+	#define STR0009 "Impresión del contrato de fletamiento continuo"
+	#define STR0010 "Procesando contrato:"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generating freight contract..."
+		#define STR0002 "File not found"
+		#define STR0003 "Check parameters MV_DIRDOC and MV_MODFRT"
+		#define STR0004 "Error"
+		#define STR0005 "Unable to establish communication with Microsoft Word"
+		#define STR0006 "Checking"
+		#define STR0007 "SIMPLE CHECKING"
+		#define STR0008 "Enter number of copies"
+		#define STR0009 "Printing of ongoing freight contract"
+		#define STR0010 "Processing contract:"
+	#else
+		#define STR0001 "Gerando contrato de fretamento..."
+		#define STR0002 "Arquivo não encontrado"
+		#define STR0003 "Verifique os parâmetros MV_DIRDOC e MV_MODFRT"
+		#define STR0004 "Erro"
+		#define STR0005 "Não foi possível estabelecer comunicação com o Microsoft Word"
+		#define STR0006 "Conferência"
+		#define STR0007 "SIMPLES CONFERÊNCIA"
+		#define STR0008 "Informe a quantidade de cópias"
+		#define STR0009 "Impressão do contrato de fretamento contínuo"
+		#define STR0010 "Processando contrato: "
+	#endif
+#endif

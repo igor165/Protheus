@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Generando informe, espere......"
+	#define STR0002 "¡No se encontraron datos para la impresión!"
+	#define STR0003 "Participantes con inconsistencias en el valor de honorarios"
+	#define STR0004 "Sigla - Participante"
+	#define STR0005 "Año mes del registro"
+	#define STR0006 "Tabla de honorarios no identificada"
+	#define STR0007 "Tabla de honorarios:"
+	#define STR0008 "Categoría no identificada"
+	#define STR0009 "Categoría:"
+	#define STR0010 "Caso:"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generating report, wait..."
+		#define STR0002 "No data was found for printing!"
+		#define STR0003 "Participants with inconsistencies in the fees"
+		#define STR0004 "Acronym - Employee"
+		#define STR0005 "Entry year-month"
+		#define STR0006 "Fee table not identified"
+		#define STR0007 "Fees table: "
+		#define STR0008 "Unidentified category"
+		#define STR0009 "Category: "
+		#define STR0010 "Case: "
+	#else
+		#define STR0001 "Gerando relatório, aguarde..."
+		#define STR0002 "Não foram encontrados dados para impressão!"
+		#define STR0003 "Participantes com inconsistências no valor de honorários"
+		#define STR0004 "Sigla - Participante"
+		#define STR0005 "Ano-mês do lançamento"
+		#define STR0006 "Tabela de honorários não identificada"
+		#define STR0007 "Tabela de honorários: "
+		#define STR0008 "Categoria não identificada"
+		#define STR0009 "Categoria: "
+		#define STR0010 "Caso: "
+	#endif
+#endif

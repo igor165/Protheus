@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Espere un momento, localizando los contactos..."
+	#define STR0002 "Filtro CRM"
+	#define STR0003 "Privilegios"
+	#define STR0004 "Perfil"
+	#define STR0005 "Campañas"
+	#define STR0006 "Campañas rápidas"
+	#define STR0007 "Nueva actividad"
+	#define STR0008 "Todas las actividades"
+	#define STR0009 "Nueva anotación"
+	#define STR0010 "Todas las anotaciones"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Wait, locating Contacts..."
+		#define STR0002 "CRM Filter"
+		#define STR0003 "Privileges"
+		#define STR0004 "Profile"
+		#define STR0005 "Campaigns"
+		#define STR0006 "Quick Campaigns"
+		#define STR0007 "New Activity"
+		#define STR0008 "All Companies"
+		#define STR0009 "New Annotation"
+		#define STR0010 "All Annotations"
+	#else
+		#define STR0001 "Só um momento, localizando os Contatos..."
+		#define STR0002 "Filtro CRM"
+		#define STR0003 "Privilégios"
+		#define STR0004 "Perfil"
+		#define STR0005 "Campanhas"
+		#define STR0006 "Campanhas Rápidas"
+		#define STR0007 "Nova Atividade"
+		#define STR0008 "Todas as Atividades"
+		#define STR0009 "Nova Anotação"
+		#define STR0010 "Todas as Anotações"
+	#endif
+#endif

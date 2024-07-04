@@ -1,0 +1,114 @@
+#INCLUDE "PROTHEUS.CH"                
+#INCLUDE "FWADAPTEREAI.CH"
+
+
+Function TMSIO05( cXML, nTypeTrans, cTypeMessage )
+
+Local lRet     	:= .T.  
+Local lExecAuto	:= .T.
+
+Local cXMLRet  	:= ""
+Local cError		:= ""
+Local cWarning 	:= "" 
+Local cEvent      := "upsert" 
+Local cAlias      := "DAO"
+Local cLogErro 	:= ""
+
+Local nCount      := 0
+Local nOpcx			:= 0
+
+Local aErroAuto	:= {} 
+Local aCab			:= {}
+Local aItens		:= {} 
+Local aArea			:= GetArea()
+Local aAreaDAO		:=	DAO->( GetArea() )
+
+Private oXmlO05		  := Nil
+Private nCountO05	     := 0
+Private lMsErroAuto    := .F.
+Private lAutoErrNoFile := .T.
+
+If nTypeTrans == TRANS_RECEIVE
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+		oXmlO05 := XmlParser(cXml, "_", @cError, @cWarning)
+		
+		If oXmlO05 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+			DAO->( dbSetOrder( 1 ) )
+			If Upper(oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+			   If Type("oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") <> "U"
+					If DAO->( MsSeek( xFilial('DAO')+oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text))							
+						nOpcx:= 4
+					Else
+						nOpcx:= 3
+					EndIf
+					Aadd( aCab, { "DAO_CODMAC", oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text, Nil })
+				EndIf
+			ElseIf Upper(oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE"
+				If !DAO->( MsSeek( xFilial('DAO')+oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text))
+            	lExecAuto := .F.
+				EndIf
+				Aadd( aCab, { "DAO_CODMAC", oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text, Nil })
+				nOpcx := 5
+			EndIf
+			
+			If nOpcx <> 5
+				If Type("oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Message:Text") <> "U"
+					Aadd( aCab, { "DAO_DESMAC", oXmlO05:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Message:Text, Nil })
+				EndIf
+			EndIf
+
+			If lExecAuto
+				MSExecAuto({|x,y| TMSAO05(x,y)},aCab,nOpcx)
+			EndIf		
+
+			If lMsErroAuto
+				aErroAuto := GetAutoGRLog()
+				For nCount := 1 To Len(aErroAuto)
+					TMSLogMsg("ERROR", aErroAuto[nCount])
+					cLogErro += StrTran(StrTran(aErroAuto[nCount],"<",""),"-","") + (" ")
+				Next nCount
+				// Monta XML de Erro de execução da rotina automatica.
+				lRet := .F.
+				cXMLRet := EncodeUTF8(cLogErro)
+			Else
+				// Monta xml com status do processamento da rotina autmotica OK.
+				cXMLRet := "<MacroCode>"+DAO->DAO_CODMAC+"</MacroCode> 
+			EndIf
+			
+		Else
+			// "Falha ao gerar o objeto XML"
+			lRet := .F.
+			cXMLRet := "Falha ao manipular o XML"
+		EndIf
+
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		cXMLRet := '<TAGX>TESTE DE RECEPCAO RESPONSE MESSAGE</TAGX>'
+	ElseIf   cTypeMessage == EAI_MESSAGE_WHOIS
+		cXMLRet := '1.000'
+	EndIf
+	
+ElseIf nTypeTrans == TRANS_SEND
+   
+	If !Inclui .And. !Altera
+		cEvent := 'delete'		
+	EndIf
+  
+	cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>Macros</Entity>'
+	cXMLRet +=     '<Event>' + cEvent + '</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="InternalID">'  + AllTrim(DAO->DAO_CODMAC)  + '</key>'       
+	cXMLRet +=     '</Identification>'	
+	cXMLRet += '</BusinessEvent>'  
+	
+	cXMLRet += '<BusinessContent>'
+	cXMLRet +=	  '<Code>'     + AllTrim(DAO->DAO_CODMAC)       + '</Code>'
+	cXMLRet +=    '<Message>'  + AllTrim(DAO->DAO_DESMAC)    + '</Message>'
+	cXMLRet += '</BusinessContent>'  
+	
+EndIf
+
+RestArea( aArea )
+RestArea( aAreaDAO )
+
+Return { lRet , cXMLRet }

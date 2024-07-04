@@ -1,0 +1,3065 @@
+#INCLUDE "FATA320B.CH"
+#INCLUDE "PROTHEUS.CH"
+       
+#DEFINE AC_CLIENTES			1
+#DEFINE AC_PROSPECT			2
+#DEFINE AC_PIPELINE			3
+#DEFINE AC_APONTAMENTO		4
+#DEFINE AC_OPORTUNIDADE		5
+#DEFINE AC_ESTRUTURA		6
+#DEFINE AC_TPACCLIENTE		7
+#DEFINE AC_TPACPROSPECT		8
+#DEFINE AC_TPACOPORTUN		9
+#DEFINE AC_TPACESTRUT		10
+#DEFINE AC_LIBORCAM			11
+#DEFINE AC_PROPOSTA			12
+#DEFINE AC_SUSPECTS			13
+#DEFINE AC_CONTATOS			14
+#DEFINE AC_METASVENDA		15
+#DEFINE AC_PRODUTO			16
+#DEFINE AC_SCRIPTS			17
+#DEFINE AC_QUALSUSPECT		18
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define as posições da array dos dados do usuario Exchange.	 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+#define _USUAR	 	1  
+#define _SENHA	 	2  
+#define _ISAGENDA 	3  
+#define _DTAGEINI	4  
+#define _DTAGEFIM	5  
+#define _ISTAREFA	6  
+#define _DTTARINI	7  
+#define _DTTARFIM	8  
+
+// Ação de filtro.
+#DEFINE CALENDARIO 1
+#DEFINE ANIVERSARIO 2
+
+
+Static aAcesso	:= {}	  							//Lista de acessos do grupo do vendedor atual
+Static cVendLog	:= ""	 							// Codigo do vendedor selecionado na workarea
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³FATA320   ºAutor  ³Vendas CRM          º Data ³  29/06/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Browse para listagem dos vendedores subordinados ao vendedorº±±
+±±º          ³logado no sistema                                           º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function FATA320(xAutoVend,xAutoTask,xAutoCalend,nPosArotina,lAutomato)
+
+Local cFiltro		:= "" 			// Filtro aplicado a tabela SA3
+Local cUser			:= ""			// Codigo do usuario logado no SISTEMA
+Local cCodInt		:= ""			// Codigo inteligente do usuario atual (A3_NVLSTR)
+Local nNivelAtu		:= 0			// Nivel do vendedor atual na estrutura de vendas
+
+Default nPosArotina	:= 0
+Default lAutomato	:= .F.
+
+Private oMBrowse	:= Nil			// Objeto que contem o browse
+Private aRotina 	:= Nil
+
+If __cInternet == "AUTOMATICO"
+	aRotina	:= MenuDef()
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Obtem codigo do usuario atual³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If xAutoVend <> Nil
+	DbSelectArea("SA3")
+	dbSetOrder(1)
+	DbSeek(xFilial("SA3")+xAutoVend[1][2])
+	cUser := SA3->A3_CODUSR
+Else
+	cUser   := RetCodUsr()  
+EndIf
+
+DbSelectArea("SA3")
+DbSetOrder(7)
+
+If !DbSeek(xFilial("SA3")+cUser)
+	Aviso(STR0001, STR0002, { STR0005 }, 2 ) 	//"Atencao !"###"Este usuario nao esta associado a nenhum representante !"###"Ok"
+	Return .F.
+ElseIf Empty(SA3->A3_NVLSTR)
+	Aviso(STR0001, STR0003+ AllTrim(SA3->A3_NOME) + STR0004, { STR0005 }, 2)//"Atencao !"###"O vendedor "###" não está na estrutura de vendas"###"Ok"
+	Return .F.
+EndIf
+
+//-----------------------------------------------------------
+// Execução direto através do aRotina - Automação de testes
+//-----------------------------------------------------------
+If nPosArotina > 0
+
+	DbSelectArea( "SA3" )	
+	bBlock := &( "{ |a,b,c,d| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d) }" )
+	Eval( bBlock, Alias(), ( Alias() )->( Recno() ), nPosArotina, lAutomato )
+	
+Else
+
+	nNivelAtu	:= SA3->A3_NIVEL
+	cCodInt		:= AllTrim(SA3->A3_NVLSTR) 
+	
+	cFiltro := "(Left(A3_NVLSTR,"+cValToChar(Len(cCodInt))+") == '"+cCodInt+"' .AND. A3_NIVEL > "+cValToChar(nNivelAtu)+") .OR. A3_COD == '"+SA3->A3_COD+"'"
+	
+	DbSetFilter({|| &cFiltro}, cFiltro)
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³MBrowse de contas do vendedor³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oMBrowse := FWMBrowse():New()
+	
+	oMBrowse:SetAlias("SA3")		// Indica o Alias da tabela utilizada no Browse
+	oMBrowse:SetMenuDef("FATA320")
+	oMBrowse:SetWalkThru(.F.)
+	oMBrowse:SetUseFilter(.F.)
+	oMBrowse:SetDetails(.F.)
+	oMBrowse:SetExecuteDef(2)		// Elemento do aRotina executado no duplo clique
+	
+	//Não exibir Browse se rotina foi chamada pelo Portal Protheus = SIGA3286
+	If !__cInternet == "AUTOMATICO"
+		oMBrowse:Activate()	
+	Else
+		If alltrim(httpHeadIn->MAIN) $ "FTSELLERTASK/FTCUSTOMERTASK"
+			Ft320Task(xAutoTask) //SIGAAUTO Tarefas
+		Else
+			Ft320Age(xAutoCalend)  //SIGAAUTO Agendas
+		EndIf
+	EndIf
+EndIf
+
+Return Nil
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³Ft320Work ³ Autor ³Vendas CRM             ³ Data ³ 07/07/09 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Chamada da area de Trabalho dos Representantes Comerciais   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ Verdadeiro                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 : Alias                                              ³±±
+±±³          ³ ExpN1 : Numero do Registro                                 ³±±
+±±³          ³ ExpN2 : Opcao Selecionada                                  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320Work(cAlias,nReg,nOpcx) 
+
+Local lProcADL := GetMv( "MV_CRMADL",,.T. )  // Indica se a ADL deverá ter manutenção
+
+If lProcADL
+	LjMsgRun(STR0006 + AllTrim(Capital(SA3->A3_NOME)),STR0007,{||Ft320WArea(cAlias,nReg,nOpcx)}) //"Inicializando workarea - "###"Aguarde"
+Else
+	Aviso(STR0001,STR0097,{STR0005},2)//"Atenção !"//"Area de Tabalho bloqueada !. Para poder utilizar, o parametro MV_CRMADL deve ser habilitado !"//"OK"
+EndIf
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³Ft320WArea³ Autor ³Vendas CRM             ³ Data ³ 07/07/09 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Area de Trabalho dos Representantes Comerciais              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ Verdadeiro                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 : Alias                                              ³±±
+±±³          ³ ExpN1 : Numero do Registro                                 ³±±
+±±³          ³ ExpN2 : Opcao Selecionada                                  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Ft320WArea(cAlias,nReg,nOpcx)
+
+Local aCoors 	:= FWGetDialogSize(oMainWnd)	// Dimensoes da tela na resolucao atual
+Local aButCad	:= {}							// Botoes do painel de cadastro
+Local aButRel	:= {}							// Botoes do painel de relatorios
+Local aButPrc	:= {}							// Botoes do painel de processo de vendas
+Local aButUsr	:= {}  							// Botoes de usuario 
+Local aBtRdp	:= {}							// Botoes do rodape
+Local cUser   	:= RetCodUsr()					// Codigo do usuario logado no SISTEMA
+Local cFilter	:= ""							// Filtro aplicado a tabela ADL
+Local nTamBrw	:= 50							// Percentual da tela ocupado pelo Browse
+Local nTamLin1	:= 20							// Percentual da tela ocupado pelo 1o. painel 
+Local nTamLin2	:= 20							// Percentual da tela ocupado pelo 2o. painel 
+Local nTamLin3 	:= 0							// Percentual da tela ocupado pelo 3o. painel (usuario)
+Local nTamLin4	:= 10							// Percentual da tela ocupado pelo rodape com totais
+Local nColBtn	:= 0							// Posicao horizontal do botao no rodape
+Local nX		:= 0							// Auxiliar de loop
+Local lFt320Btn	:= ExistBlock("FT320BTN")		// Ponto de entrada para criacao de botoes
+Local lFt320Inf	:= ExistBlock("FT320Inf")		// Ponto de entrada para manutencao no rodape  
+Local lFt320BRP	:= ExistBlock("FT320BRP")		// Ponto de entrada para criacao de botoes no rodape
+Local lFt320ADL	:= ExistBlock("FT320ADL")		// ponto de entrada para filtrar o browse da ADL
+Local oFntBut	:= Nil							// Objeto da fonte dos botoes
+Local oFntTot	:= Nil							// Objeto da fonte dos totais
+Local oFwLayer	:= Nil							// Objeto do Container de layers
+Local oPanSup	:= Nil							// Objeto do painel superior
+Local oPanCad	:= Nil							// Objeto do painel de botoes cadastrais
+Local oPanProc	:= Nil 							// Objeto do painel de botoes de processos
+Local oPanUsr	:= Nil							// Objeto do painel de botoes do usuario
+Local oPanCtas	:= Nil 							// Objeto do painel de contas (rodape)
+Local oDlg		:= Nil							// Objeto da tela (dialog)
+Local oQtdCli	:= Nil							// Objeto da quantidade de clientes do vendedor logado na workarea
+Local oQtdPro	:= Nil							// Objeto da quantidade de prospects do vendedor logado na workarea
+Local oQtdSus	:= Nil							// Objeto da quantidade de suspects do vendedor logado na workarea
+Local oQtdCon	:= Nil							// Objeto da quantidade de contas do vendedor logado na workarea
+// Sincronização
+Local nTimeThread := 0 
+Local oTimer := nil
+Local oPanSinc := nil
+Local oData := Nil 
+Local oGetData := Nil 
+Local cData := "" 
+Local oHora := Nil 
+Local oGetHora := Nil 
+Local cHora := "" 
+Local oStatus := Nil 
+Local cStatus := "" 
+Local oGetStatus := Nil 
+Local oButton := Nil 
+Local aStatus := {} 
+Local cMensagem := "" 
+Local oMsg := Nil
+Local bAtualiza	:= {|| FT320LoadRes(@oQtdCon, @oQtdSus, @oQtdPro, @oQtdCli), oMBrwWA:Refresh() }
+Local cStrAtiv := IF(NewInterface() , STR0021, STR0096) 
+
+Static oMBrwWA	:= Nil							// Objeto do browse de contas
+
+PRIVATE aRotina := MenuDef()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Carrega botoes do usuario³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFt320Btn
+	aButUsr := ExecBlock("FT320BTN",.F.,.F.)
+	If ValType(aButUsr) <> "A"
+		aButUsr := {}
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adequa o tamanho dos paineis se houver botoes do usuario³
+//³para serem adicionados                                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Len(aButUsr) > 0
+	nTamBrw	:= 45
+	nTamLin1:= 16.6
+	nTamLin2:= 16.6
+	nTamLin3:= 16.6
+	nTamLin4:= 5
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Valida se o cadastro do vendedor esta ok³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cVendLog	:= SA3->A3_COD 
+aAcesso	:= Ft320Acess()
+
+If lFt320ADL
+	cFilter := ExecBlock("FT320ADL",.F.,.F.,{cVendLog})
+Else
+	//Filtro para exibir apenas contas do vendedor
+	cFilter := "ADL_VEND = '" + cVendLog + "' .AND. ADL_NOME <> ' ' .AND. ADL_CODOPO = ' '"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Configura teclas de atalho:³
+//³F5 - Atualizar dados       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SetKey(VK_F5,{||LjMsgRun(STR0018,STR0007,bAtualiza)}) //"Aguarde, a processar..."
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Criacao da interface³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ  
+DEFINE MSDIALOG oDlg TITLE STR0008 + Capital(AllTrim(SA3->A3_NOME))  FROM aCoors[1],aCoors[2] TO aCoors[3],aCoors[4] PIXEL //"Workarea - "
+
+DEFINE FONT oFntBut NAME "Arial"	SIZE 0, -9
+DEFINE FONT oFntTot NAME "Tahoma"	SIZE 0,16 BOLD
+DEFINE FONT oTFont 
+oTFont:= TFont():New("Arial",,15,.T.,.T.)
+
+
+oFwLayer := FwLayer():New()
+oFwLayer:init(oDlg,.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³1o. Painel - Contas do vendedor³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oFWLayer:addLine("ENTIDADES", nTamBrw, .F.)
+oFWLayer:addCollumn( "COLENT",100, .T. , "ENTIDADES")
+oFWLayer:addWindow( "COLENT", "WINENT", STR0009, 100, .F., .F., , "ENTIDADES") //"Painel de contas"
+
+oPanSup	:=oFWLayer:GetWinPanel("COLENT","WINENT","ENTIDADES")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³2o. Painel - Botoes de cadastro³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oFWLayer:addLine("LINHA1", nTamLin1, .F.)         
+oFWLayer:addCollumn( "COL1",20, .T. , "LINHA1")
+oFWLayer:addCollumn( "COL2",80, .T. , "LINHA1")
+oFWLayer:addWindow( "COL1", "WIN1", STR0010, 100, .F., .F., , "LINHA1") //"Cadastros"
+oFWLayer:addWindow( "COL2", "WIN2", STR0011, 100, .F., .F., , "LINHA1") //"Processos de vendas"
+
+oPanCad	:=oFWLayer:GetWinPanel("COL1","WIN1","LINHA1")
+oPanCad:SetFont(oFntBut)
+oPanProc:=oFWLayer:GetWinPanel("COL2","WIN2","LINHA1")
+oPanProc:SetFont(oFntBut)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³3o. Painel - Demais botoes     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oFWLayer:addLine("LINHA2", nTamLin2, .F.)         
+oFWLayer:addCollumn( "COL1",75, .T. , "LINHA2")
+oFWLayer:addWindow( "COL1", "WIN1", STR0012, 100, .F., .F., , "LINHA2") //"Relatórios / Consultas"
+
+oPanRel := oFWLayer:GetWinPanel("COL1","WIN1","LINHA2")
+oPanRel:SetFont(oFntBut)
+
+
+//Sincronização 
+oFWLayer:addCollumn( "COL3",25, .T. , "LINHA2") 
+oFWLayer:addWindow( "COL3", "WIN1", STR0027, 100, .F., .F., , "LINHA2") //Sincronização 
+
+oPanSinc := oFWLayer:GetWinPanel("COL3","WIN1","LINHA2") 
+oPanSinc:SetFont(oFntBut)
+
+oScrSinc := TScrollArea():New(oPanSinc,01,01,100,100,.T.,.F.,.F.)
+oScrSinc:Align := CONTROL_ALIGN_ALLCLIENT
+
+oPnl := TPanel():New(001,001,"",oScrSinc,,,,,,50,IIf(Len(aButUsr)>0,45,56))
+
+@ 003, 007 SAY STR0088  COLOR CLR_BLUE FONT oTFont SIZE 150, 007 PIXEL OF oPnl //"Dados da Última Sincronização Automática"
+@ 018, 008 SAY oData PROMPT STR0089  COLOR CLR_BLUE SIZE 025, 007 PIXEL OF oPnl //"Data/Hora"
+@ 016, 043 MSGET oGetData VAR cData COLOR CLR_BLUE SIZE 040, 010 PIXEL OF oPnl 
+oGetData:Disable() 
+@ 016, 085 MSGET oGetHora VAR cHora SIZE 030, 010 OF oPnl  PIXEL 
+oGetHora:Disable() 
+@ 032, 008 SAY oStatus PROMPT STR0090  COLOR CLR_BLUE SIZE 035, 007 OF oPnl  PIXEL //"Status"
+@ 030, 043 MSGET oGetStatus VAR cStatus SIZE 040, 010 OF oPnl  PIXEL 
+oGetStatus:Disable() 
+@ 030, 085 BUTTON oButton PROMPT  STR0091 SIZE 034, 012 ACTION (FT320MsgRetorno(cStatus,cMensagem))OF oPnl PIXEL //"Detalhes"
+	
+oScrSinc:SetFrame( oPnl )
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³4o. Painel - Botoes do usuario ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Len(aButUsr) > 0
+	oFWLayer:addLine("BUTUSR", nTamLin3, .F.)         
+	oFWLayer:addCollumn( "COL1",100, .T. , "BUTUSR")
+	oFWLayer:addWindow( "COL1", "WIN1", STR0013, 100, .F., .F., , "BUTUSR") //"Específicos"
+	
+	oPanUsr := oFWLayer:GetWinPanel("COL1","WIN1","BUTUSR")
+	oPanUsr:SetFont(oFntBut)
+	MontaBtn(aButUsr,@oPanUsr,oFntBut)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³5o. Painel - Totalizadores     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oFWLayer:addLine("LINHA4", nTamLin4, .F.)         
+oFWLayer:addCollumn( "COL1",100, .T. , "LINHA4")
+
+oPanCtas := oFWLayer:GetColPanel("COL1","LINHA4")
+oPanCtas:SetFont(oFntTot)
+
+If !lFt320Inf
+	@ 3, 005 SAY STR0014+":" COLOR CLR_BLUE SIZE 040, 10 PIXEL OF oPanCtas //"Contas"
+	@ 3, 055 SAY STR0050+":" COLOR CLR_BLUE SIZE 100, 10 PIXEL OF oPanCtas //"A Qualificar"
+	@ 3, 115 SAY STR0051+":" COLOR CLR_BLUE SIZE 100, 10 PIXEL OF oPanCtas //"Prospect - Oportunidade"
+	@ 3, 220 SAY STR0052+":" COLOR CLR_BLUE SIZE 100, 10 PIXEL OF oPanCtas //"Cliente - Oportunidade"
+	
+	@ 3, 035 SAY oQtdCon PROMPT "0" COLOR CLR_HRED SIZE 20, 10 PIXEL OF oPanCtas //"Contas"
+	@ 3, 095 SAY oQtdSus PROMPT "0" COLOR CLR_HRED SIZE 20, 10 PIXEL OF oPanCtas //"Suspects"
+	@ 3, 195 SAY oQtdPro PROMPT "0" COLOR CLR_HRED SIZE 20, 10 PIXEL OF oPanCtas //"Prospects"
+	@ 3, 295 SAY oQtdCli PROMPT "0" COLOR CLR_HRED SIZE 20, 10 PIXEL OF oPanCtas //"Clientes" 
+Else
+	ExecBlock("FT320INF",.F.,.F.,{oPanCtas})
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de entrada para inclusao de botoes no rodape da tela³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFT320BRP
+	aButUsr := ExecBlock("FT320BRP",.F.,.F.)
+	If ValType(aButUsr) <> "A"
+		aButUsr := {}
+	EndIf
+	For nX := 1 to Len(aButUsr) 
+		If Len(aButUsr[nx]) == 3
+			AAdd(aBtRdp,aButUsr[nx])
+		EndIf
+	Next nX
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Botoes do rodape³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AAdd(aBtRdp,{"RELOAD",{||LjMsgRun(STR0018,STR0007,bAtualiza)},STR0049})	//Atualizar
+AAdd(aBtRdp,{"FINAL",{||oDlg:End()},STR0100})								//Sair
+nColBtn := 40
+
+For nX := Len(aBtRdp) to 1 Step -1    
+	TBtnBmp2():New (5,(oPanCtas:nClientWidth - nColBtn), 25, 25, aBtRdp[nX][1],,,,aBtRdp[nX][2],oPanCtas,aBtRdp[nX][3])
+	nColBtn += 35
+Next nX
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona botoes ao painel de cadastros³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If aAcesso[AC_CONTATOS]<>"2"
+	AAdd(aButCad,{"BMPUSER"	,{||Ft320Btn(1)} ,STR0019 , STR0020,{||.T.}}) //"Contatos da entidade selecionada"###"Contatos"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona botoes ao painel de processos de venda³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AAdd(aButPrc,{"BTCALEND"	,{||Ft320Btn(2)} ,cStrAtiv , cStrAtiv,{||.T.}}) //"Agenda" "Atividades"
+If !NewInterface()
+	AAdd(aButPrc,{"CLIPS"		,{||Ft320Btn(3)} ,STR0022 , STR0022,{||.T.}}) //"Tarefas"
+EndIf
+If aAcesso[AC_APONTAMENTO]=="1"
+	AAdd(aButPrc,{"EDITABLE"	,{||Ft320Btn(4)} ,STR0023 , STR0023,{||.T.}}) //"Apontamentos"
+EndIf
+If aAcesso[AC_OPORTUNIDADE]=="1"
+	AAdd(aButPrc,{"COMPTITL"	,{||Ft320Btn(5)} ,STR0024 , STR0024,{||.T.}}) //"Oportunidades"
+EndIf
+If aAcesso[AC_LIBORCAM]=="1"
+	AAdd(aButPrc,{"PRECO"	,{||Ft320Btn(9)} , STR0025 , STR0026,{||.T.}}) //"Liberação de Orcamentos"###"Lib.Orcamento"
+EndIf
+AAdd(aButPrc,{"OUTLOOK"		,{||Ft320Btn(8)} , STR0027	, STR0027,{||.T.}}) //"Sincronizacao"
+
+AAdd(aButPrc,{"BMPGROUP"		,{||Ft320Btn(11)} , STR0092	,STR0093 ,{||.T.}}) // "Associa Contas" "Associar Contatos"
+                                  
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿       
+//³Desbloqueio de Propostas. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If A600LProp(SA3->A3_COD)
+	AAdd(aButPrc,{"CADEADO",{||Ft320Btn(10)},STR0056,STR0057,{||.T.}}) //"Desbloqueio de propostas"
+Else
+	AAdd(aButPrc,{"CADEADO",{||Ft320Btn(10)},STR0056,STR0057,{||.F.}}) //"Desbloqueio de propostas bloqueado"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona botoes ao painel de relatorios/consultas³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AAdd(aButRel,{"ANALITICO"	,{||Ft320Btn(6)} ,STR0024	, STR0024,{||.T.}}) //"Oportunidades"
+
+If aAcesso[AC_PIPELINE]=="1"
+	AAdd(aButRel,{"AREA"		,{||Ft320Btn(7)} , STR0028 , STR0028,{||.T.}}) //"Pipeline"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Distribui os botoes criados em seus paineis³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+MontaBtn(aButCad,@oPanCad,oFntBut)
+MontaBtn(aButPrc,@oPanProc,oFntBut)
+MontaBtn(aButRel,@oPanRel,oFntBut)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³MBrowse de contas do vendedor³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oMBrwWA := FWMBrowse():New()
+
+oMBrwWA:SetAlias("ADL")		// Indica o Alias da tabela utilizada no Browse
+oMBrwWA:SetMenuDef("FATA320B")
+oMBrwWA:SetOwner(oPanSup)
+oMBrwWA:SetFilterDefault(cFilter)
+oMBrwWA:SetWalkThru(.F.)
+oMBrwWA:SetDetails(.F.)
+oMBrwWA:lLocate := .F.
+
+oMBrwWA:AddLegend("ADL->ADL_ENTIDA == 'SA1'","GREEN",STR0029) //"Cliente"
+oMBrwWA:AddLegend("ADL->ADL_ENTIDA == 'ACH'","WHITE",STR0030) //"Suspect"
+oMBrwWA:AddLegend("ADL->ADL_ENTIDA == 'SUS'","BLUE" ,STR0031) //"Prospect"
+
+oMBrwWA:Activate()				// Ativação da Classe
+
+oTimer:= TTimer():New(3000,{|| FT320BRefresh(@cStatus, @cMensagem, @cData, @cHora, oGetStatus, oGetData, oGetHora) },oDlg) 
+oTimer:Activate() 
+
+If cPaisLoc == "BRA" .And. SA3->A3_HABSINC == "S"
+	If !Empty(F321GetUrlExg())   
+		Ft320AtuParamThread() 
+		CreateSyncSession(cValToChar(ThreadId()))
+	EndIf
+EndIf
+
+ACTIVATE MSDIALOG oDlg CENTERED ON INIT FT320LoadRes(@oQtdCon, @oQtdSus, @oQtdPro, @oQtdCli)
+
+EndSyncSession(cValToChar(ThreadId()))
+
+SetKey(VK_F5,Nil)
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³MontaBtn  ºAutor  ³Vendas CRM          º Data ³  30/06/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Distribuicao dos botoes no painel                           º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpA1 - Lista de botoes para exibicao                       º±±
+±±º          ³ExpO2 - Objeto do painel que contera os botoes              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Fata320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MontaBtn(aButtons,oPanel,oFont)
+
+Local nPos 			:= 25
+Local nX
+Local cBText
+Local oBtn1			:= Nil
+Local oBtn2			:= Nil
+Local lFt320BVs		:= ExistBlock("FT320BVS")
+Local lVisible		:= .T.
+
+For nX := 1 to Len(aButtons)
+	
+	//Ajuste da descricao e tooptip
+	If Len(aButtons[nX]) >= 4
+		cBText	:= PadC(aButtons[nX][4],14," ")
+	Else
+		cBText	:= PadC(aButtons[nX][3],14," ")
+	EndIf
+    	      
+	oBtn1 := TBtnBmp2():New(05,nPos,25,25,aButtons[nX][1],,,,aButtons[nX][2],oPanel,aButtons[nX][3],IIF(Len(aButtons[nX])>=5,aButtons[nX][5],Nil),.T.)
+	oBtn2 := THButton():New(15,(nPos/2)-12,cBText,oPanel,aButtons[nX][2],40,8,oFont,aButtons[nX][3],IIF(Len(aButtons[nX])>=5,aButtons[nX][5],Nil))
+	                                 
+	If lFt320BVs
+		lVisible := ExecBlock("FT320BVS",.F.,.F.,{aButtons[nX][1],aButtons[nX][3]})
+	EndIf
+	
+	If !lVisible
+		oBtn1:lActive  := .F.
+		oBtn2:lActive  := .F.
+		oBtn1:lVisible  := .F.
+		oBtn2:lVisible  := .F.
+	EndIf
+	
+	nPos += 85
+	
+Next nX
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320Btn  ºAutor  ³Vendas CRM          º Data ³  30/06/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Executa as acoes de cada botao                              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpN1 - Numero do botao acionado                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Ft320Btn(nBtn)    
+
+Local aArea		:= GetArea()					// Guarda o posicionamento da tabela atual
+Local aAreaSA3	:= SA3->(GetArea())			// Guarda o posicionamento da tabela SA3
+Local aAreaADL	:= ADL->(GetArea())			// Guarda o posicionamento da tabela ADL
+Local cFilSA3BK	:= ""							// Backup do filtro do SA3
+Local cAliasADL	:= "ADL"						// Nome do alias correto para referencia da conta
+Local cFiltro	:= ""							// Sintaxe de filtro temporario
+Local cUsrFilt	:= ""							// Sintaxe de filtro temporario(usuario)
+Local lRetorno	:= .T.
+Local lFT300FTR	:= ExistBlock("FT300FTR")
+Local cFtrUsr		:= ""
+
+SaveInter()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³A rotina abaixo reinicia as variaveis STATIC da mBrowse/FwBrowse³
+//³Ate 13/08/2009 nao havia correcao na lib para esta situacao:    ³
+//³Realizar a busca pelo CGC e pressionar "oportunidades"          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ResetMbrwCTRLs()                                                   
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se alguma entidade esta selecionada³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If (nBtn <= 5) .AND. Empty(ADL->ADL_ENTIDA)
+   	HELP(" ",1,"ARQVAZIO")
+   	RestInter()
+	RestArea(aArea)
+	Return Nil
+EndIf
+     
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Aplica filtro na AD1³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If (nBtn==2) .OR. (nBtn==3)
+
+	DbSelectArea("AD1")
+	If ADL->ADL_ENTIDA == "SUS"
+		cFiltro := "AD1_PROSPE = '" + ADL->ADL_CODENT + "' .AND. AD1_LOJPRO = '" + ADL->ADL_LOJENT + "'"
+	ElseIf ADL->ADL_ENTIDA == "SA1"
+		cFiltro := "AD1_CODCLI = '" + ADL->ADL_CODENT + "' .AND. AD1_LOJCLI = '" + ADL->ADL_LOJENT + "'"
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Tratamento para filtro especifico³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If FindFunction("P_FT300FIL")
+		cUsrFilt := P_FT300FIL(ADL->ADL_ENTIDA,cFiltro)
+		If ValType(cUsrFilt) == "C" .AND. Len(cUsrFilt) > 0
+			cFiltro := cUsrFilt
+		EndIf
+	EndIf
+
+	If !Empty(cFiltro)
+		dbSetFilter({|| &cFiltro}, cFiltro)
+	EndIf    
+	
+EndIf
+
+Do Case
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Cadastro de contatos³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Case nBtn == 1
+	      
+	    //Define variaveis private para compatibilidade com a FtContato
+	    If TYPE("INCLUI") == "U"          
+			INCLUI 		:= .F.
+		EndIf
+	    If TYPE("ALTERA") == "U"          
+			ALTERA 		:= .T.
+		EndIf
+	    If TYPE("cCadastro") == "U"          
+			cCadastro	:= STR0020 //"Contatos"
+		EndIf		
+
+		//aRotina padrao para compatibilidade da FtContato		
+		aRotina := { {"","AxPesqui",0,1} ,;
+		             {"","AxVisual",0,2} ,;
+		             {"","AxInclui",0,3} ,;
+		             {"","AxAltera",0,4} ,;
+		             {"","AxDeleta",0,5} }
+		
+		DbSelectArea((cAliasADL)->ADL_ENTIDA)
+		DbSetOrder(1)
+		If DbSeek((cAliasADL)->(ADL_FILENT+ADL_CODENT+ADL_LOJENT))
+			FtContato( (cAliasADL)->ADL_ENTIDA, Recno(), 4 )
+		EndIf		
+	
+	//Agenda do representante	
+	Case nBtn == 2
+		If AllTrim((cAliasADL)->ADL_ENTIDA) $ "SA1/SUS"
+			If NewInterface()
+				FT321Ativ()
+			Else
+				Ft320Age()
+			EndIf
+		Else
+			MsgInfo(STR0053) //"O uso da agenda é limitado a prospects e clientes"
+		EndIf
+	
+	//Tarefas do representante
+	Case nBtn == 3
+		If AllTrim((cAliasADL)->ADL_ENTIDA) $ "SA1/SUS"
+			Ft320Task()
+		Else
+			MsgInfo(STR0054) //"O uso das tarefas é limitado a prospects e clientes"
+		EndIf
+	//Apontamentos
+	Case nBtn == 4 
+	
+		If ADL->ADL_ENTIDA == "SUS"
+			cFiltro := "AD5_VEND = '" + SA3->A3_COD + "' .AND. AD5_PROSPE = '" + ADL->ADL_CODENT + "' .AND. AD5_LOJPRO = '" + ADL->ADL_LOJENT + "'"
+		Else
+			cFiltro := "AD5_VEND = '" + SA3->A3_COD + "' .AND. AD5_CODCLI = '" + ADL->ADL_CODENT + "' .AND. AD5_LOJA = '" + ADL->ADL_LOJENT + "'"
+		EndIf
+		
+		FATA310(/*xAutoCab*/,/*xAutoItens*/,/*nOpcAuto*/,cFiltro,/*aAddFil*/) 
+
+	//Oportunidades
+	Case nBtn == 5  
+		
+		//Armazena o filtro atual
+		cFilSA3BK := SA3->(DbFilter())		
+		If !Empty(cFilSA3BK)
+			SA3->(DbClearFilter())
+		Endif
+		
+		If ADL->ADL_ENTIDA == "SUS"
+			cFiltro := "AD1_PROSPE = '" + ADL->ADL_CODENT + "' .AND. AD1_LOJPRO = '" + ADL->ADL_LOJENT + "'"
+		ElseIf ADL->ADL_ENTIDA == "SA1"
+			cFiltro := "AD1_CODCLI = '" + ADL->ADL_CODENT + "' .AND. AD1_LOJCLI = '" + ADL->ADL_LOJENT + "'"
+		Else
+			lRetorno := .F.
+			MsgInfo(STR0098) //"Não é possível Incluir / Alterar Oportunidades de Venda utilizando Suspects."
+		EndIf
+		
+		If lFT300FTR
+			cFtrUsr := Execblock("FT300FTR",.F.,.F.)
+			If ValType(cFtrUsr) == "C" .AND. Len(cFtrUsr) > 0
+				cFiltro += ".AND. " + cFtrUsr
+			EndIf
+		EndIf
+		
+		If lRetorno .AND. !Empty(cFiltro)
+			//Aciona a rotina de oportunidades
+			FATA300( /*nOperation*/, /*aAD1Master*/, /*aAD2Detail*/, /*aAD3Detail*/,;
+				  	  /*aAD4Detail*/, /*aAD9Detail*/, /*aADJDetail*/, cFiltro		 ,;
+				  	  /*aAddFil*/ ) 
+		Else
+			MsgStop(STR0099) //"Problemas para abrir a Oportunidade de Venda."
+		EndIf
+		  
+		//Restaura o filtro anterior
+		If !Empty(cFilSA3BK)
+			DbSelectArea("SA3")   
+			DbSetFilter({|| &cFilSA3BK}, cFilSA3BK)
+		EndIf
+		
+	//Relatorio de oportunidades		
+	Case nBtn == 6
+		Ft320RelOp()
+	
+	//Pipeline
+	Case nBtn == 7
+		Ft320Pipe()
+	
+	//Exchange
+	Case nBtn == 8
+		LjMsgRun(STR0032,STR0032,{|| Ft321SincExg() }) //"Sincronizando"
+	
+	//Liberacao de orcamento
+	Case nBtn == 9
+		If AllTrim(ADL->ADL_ENTIDA) $ "SA1/SUS"
+			FATA502("F")
+		EndIf                   
+		
+	//Desbloqueio de Proposta	
+	Case nBtn == 10 
+		 A600DesbP(SA3->A3_COD) 	
+		
+	//Exchange
+	Case nBtn == 11
+		FATA330()		
+	//Botao nao configurado
+	OtherWise
+		MsgStop(STR0033) //"Opção inválida"
+		
+EndCase   
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Limpa o filtro temporario da AD1³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If (nBtn==2) .OR. (nBtn==3)
+	AD1->(DbClearFilter())
+EndIf
+
+RestInter() 
+
+RestArea(aAreaSA3)
+RestArea(aAreaADL)
+RestArea(aArea)
+
+Return Nil
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³Vendas CRM             ³ Data ³01/09/2006³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³aRotina utilizado na workarea                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef()
+                                           
+Local lFt320Rot	:= ExistBlock("FT320ROT") 
+Local nX		:= 0
+Local aRotUsr	:= {}
+Local aRotina 	:= {	{ STR0034,"AxPesqui",0,1,0,.F.},;	//"Pesquisar"
+						{ STR0035,"Ft320Mnt",0,2,0,NIL},;	//"Visualizar"
+						{ STR0036,"Ft320Inc",0,3,0,NIL},;	//"Incluir"
+						{ STR0037,"Ft320Mnt",0,4,0,NIL},;	//"Alterar"
+						{ STR0038,"Ft320Mnt",0,5,0,NIL},;	//"Excluir"
+						{ STR0039,"Ft320Leg",0,6,0,NIL}}	//"Legenda"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de entrada para inclusao de rotinas do usuario³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFt320Rot
+
+	aRotUsr := ExecBlock("FT320ROT",.F.,.F.,{aRotina})
+
+	If ValType(aRotUsr) == "A" .AND. Len(aRotUsr) > 0
+		For nX := 1 to Len(aRotUsr)
+			AAdd(aRotina,aClone(aRotUsr[nX]))
+		Next nX
+	EndIf
+
+EndIf
+
+Return(aRotina)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320Inc  ºAutor  ³Vendas CRM          º Data ³  30/06/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Rotina de inclusao de entidades, validando as permissoes do º±±
+±±º          ³grupo de representantes do vendedor logado na workarea      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320Inc(cAlias,nReg,nOpc,lAutomato) 
+
+Local aArea		:= GetArea()				// Guarda o posicionamento da tabela atual
+Local aAreaSA3	:= SA3->(GetArea())		// Guarda o posicionamento da tabela SA3
+Local aBtEnable	:= {}						// Botoes ativos
+Local nOpcInc	:= 0 						// Indice da entidade a incluir (SA1,SUS,ACH)
+Local nCntOpc	:= 0						// Conta quantas possibilidades o vendedor pode incluir
+Local nPos		:= 0 						// Auxiliar de busca em array
+Local cArea		:= ""						// Nome da tabela a ser manipulada
+Local oDlg									// Objeto da tela exibida
+Local aRetAuto	:= Nil
+
+Default lAutomato	:= .F.
+
+SaveInter()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica quais sao as opcoes disponiveis para o vendedor³
+//³corrente. Se houver apenas uma opcao, nao exibe a tela  ³
+//³para selecionar a entidade.                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lAutomato
+	aAcesso := Ft320Acess()
+EndIf
+
+aBtEnable := {	{1,aAcesso[AC_CLIENTES]$"1/3/4/5/7"},;	//Clientes
+				{2,aAcesso[AC_PROSPECT]$"1/3/4/5/7"},;	//Prospects
+				{3,aAcesso[AC_SUSPECTS]$"1/3/4/5/7"}}	//Suspects
+				
+AEval(aBtEnable,{|X| nCntOpc += Iif(X[2],1,0) })
+
+If nCntOpc == 0 //Sem permissoes
+	MsgInfo(STR0040,STR0001) //"As configurações do seu grupo de representantes não permitem a inclusão de entidades"###"Atencao !"
+ElseIf nCntOpc == 1  //Somente uma permissao
+	nPos	:= aScan(aBtEnable,{|x| x[2] })
+	nOpcInc := aBtEnable[nPos][1]
+Else //Duas ou mais permissoes
+	If !lAutomato
+		DEFINE MSDIALOG oDlg TITLE STR0041 FROM 0,0 TO 158,156 PIXEL //"Inclusão de entidade"
+		
+			@ 002,003 TO 076,077 LABEL STR0042 PIXEL OF oDlg //"Selecione uma opção:"
+		
+			@ 010,008 Button STR0029 Size 061,017 PIXEL OF oDlg Action(nOpcInc:=1,oDlg:End()) When aBtEnable[1,2] //"Cliente"
+			@ 030,008 Button STR0031 Size 061,017 PIXEL OF oDlg Action(nOpcInc:=2,oDlg:End()) When aBtEnable[2,2] //"Prospect"
+			@ 050,008 Button STR0030 Size 061,017 PIXEL OF oDlg Action(nOpcInc:=3,oDlg:End()) When aBtEnable[3,2]	//"Suspect"
+		
+		ACTIVATE MSDIALOG oDlg CENTERED 
+	Else
+		If  FindFunction( "GetParAuto" ) 
+			aRetAuto := GetParAuto( "FATA320TestCase" )
+			nOpcInc := aRetAuto[1]	
+		EndIf
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Define variaveis private para compatibilidade³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cArea := IIf(nOpcInc == 1,"SA1",IIf(nOpcInc == 2,"SUS","ACH"))
+
+If TYPE("INCLUI") == "U"          
+	INCLUI 		:= .T.
+EndIf
+If TYPE("ALTERA") == "U"          
+	ALTERA 		:= .F.
+EndIf
+If TYPE("cCadastro") == "U"
+	cCadastro	:= Capital(AllTrim(FWX2Nome(cArea)))
+EndIf
+      
+cCadastro := cCadastro + " - " + Upper(STR0036)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Aciona a rotina de inclusao correspondente³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Do Case
+	Case nOpcInc == 1 
+		If !lAutomato
+			aRotAuto := Nil
+		EndIf
+		DbSelectArea("SA1")
+		A030Inclui("SA1",0,3)
+	Case nOpcInc == 2
+		DbSelectArea("SUS")
+		FWExecView( STR0036, 'TMKA260', 3,, { || .T. } ) //"Incluir"
+	Case nOpcInc == 3      
+		DbSelectArea("ACH")
+		FWExecView( STR0036, 'TMKA341', 3,, { || .T. } ) //"Incluir"
+EndCase
+
+RestInter()
+
+RestArea(aAreaSA3)
+RestArea(aArea)
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320Mnt  ºAutor  ³Vendas CRM          º Data ³  30/06/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Rotina responsavel por acionar a rotina de cadastro correta º±±
+±±º          ³de acordo com a entidade selecionada                        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320Mnt(cAlias,nReg,nOpc,lAutomato)  
+
+Local aArea		:= GetArea()						// Guarda o posicionamento da tabela atual
+Local aAreaSA3	:= SA3->(GetArea())					// Guarda o posicionamento da tabela SA3
+Local cAliADL	:= "ADL"							// Alias correto para a tabela ADL
+Local cArea		:= (cAliADL)->ADL_ENTIDA			// Alias da entidade a ser manipulada
+Local nRecno	:= 0								// Registro da entidade a ser manipulado
+Local cMsgAcess	:= ""								// Mensagem de erro enviada ao usuario
+Local lGetAuto	:= .F.
+Local aRetAuto	:= Nil
+
+Default lAutomato := .F.
+
+cMsgAcess := STR0043 //"As configurações atuais do seu grupo de representantes não permitem este acesso."
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Caso o representante nao tenha acesso a nada, aborta a rotina³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Empty(cArea)
+	HELP(" ",1,"ARQVAZIO")
+	RestArea(aArea)
+	Return Nil
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Prepara o ambiente para acionar a rotina adequada³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SaveInter()
+
+//Define variaveis private para compatibilidade com a FtContato
+If TYPE("INCLUI") == "U"          
+	INCLUI 		:= .F.
+EndIf
+If TYPE("ALTERA") == "U"          
+	ALTERA 		:= .T.
+EndIf
+If TYPE("cCadastro") == "U"
+	cCadastro	:= Capital(AllTrim(FWX2Nome(cArea)))
+EndIf		
+
+//---------------------------------------------------------------------
+// Posiciona no registro de acordo com o TestCase *Automação*
+//---------------------------------------------------------------------
+If lAutomato
+	aAcesso 	:= Ft320Acess()
+	lGetAuto 	:= FindFunction( "GetParAuto" ) 
+	If lGetAuto 
+		aRetAuto	:= GetParAuto( "FATA320TestCase" )
+		//Posiciona corretamente no ADL
+		ADL->( DbSetOrder( 1 ) )
+		ADL->( DbSeek( xFilial( "ADL" ) + aRetAuto[1] + xFilial( aRetAuto[1] ) + aRetAuto[2] ) ) //ADL_FILIAL+ADL_ENTIDA+ADL_FILENT+ADL_CODENT+ADL_LOJENT+ADL_VEND
+		cArea	:= ( cAliADL )->ADL_ENTIDA	                                                                                                 	
+	EndIf
+EndIf
+
+DbSelectArea(cArea)
+DbSetOrder(1)
+
+If lAutomato .And. lGetAuto
+	( cArea )->( DbSeek( xFilial( cArea ) + aRetAuto[2] ) )
+EndIf
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Localiza a entidade e aciona a rotina correta, validando as permissoes³
+//³do grupo de representantes do usuario corrente                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If DbSeek((cAliADL)->(ADL_FILENT+ADL_CODENT+ADL_LOJENT))
+
+	nRecno := (cArea)->(Recno())
+	
+	If nOpc == 2
+			cCadastro := cCadastro + " - " + Upper(STR0035)
+	ElseIf nOpc == 4
+			cCadastro := cCadastro + " - " + Upper(STR0037)
+	ElseIf nOpc == 5  
+			cCadastro := cCadastro + " - " + Upper(STR0038)
+	EndIf 
+				
+	Do Case
+
+		Case cArea == "SA1" 
+	
+			aRotAuto := Nil
+	
+			If nOpc == 2
+				If aAcesso[AC_CLIENTES]$"1/3/4/5/6/7/8/9/A"   
+					A030Visual("SA1",nRecno,nOpc)
+				Else
+					MsgInfo(cMsgAcess)
+				EndIf
+			ElseIf nOpc == 4
+				If aAcesso[AC_CLIENTES]$"1/3/4/6/8" 
+					A030Altera("SA1",nRecno,nOpc)
+				Else 
+					MsgInfo(cMsgAcess)
+				EndIf
+			ElseIf nOpc == 5  
+				If aAcesso[AC_CLIENTES]$"1/3/5/6/9" 
+					A030Deleta("SA1",nRecno,nOpc)
+				Else 
+					MsgInfo(cMsgAcess)
+				EndIf
+			EndIf 
+			
+		Case cArea == "SUS"
+		
+			If nOpc == 2          
+				FWExecView( STR0035, 'TMKA260', 1,, { || .T. } ) //"Visualizar"
+			ElseIf nOpc == 4 
+				FWExecView( STR0037   , 'TMKA260', 4,, { || .T. } ) //"Alterar"	
+			ElseIf nOpc == 5  
+				FWExecView( STR0038   , 'TMKA260', 5,, { || .T. } ) //"Excluir"
+			EndIf 
+
+		Case cArea == "ACH"
+		
+			If nOpc == 2
+				FWExecView( STR0035, 'TMKA341', 1,, { || .T. } ) //"Visualizar"
+			ElseIf nOpc == 4
+				FWExecView( STR0037	, 'TMKA341', 4,, { || .T. } ) //"Alterar"
+			ElseIf nOpc == 5  
+				FWExecView( STR0038	, 'TMKA341', 5,, { || .T. } ) //"Excluir"
+			EndIf 
+			
+	EndCase
+Else
+	MsgStop(STR0044) //"Entidade excluída, favor reprocessar as contas de vendedores"
+EndIf
+
+RestInter()
+
+RestArea(aAreaSA3)
+RestArea(aArea)
+
+Return Nil
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³Ft320Age  ³ Autor ³ Eduardo Riera         ³ Data ³16.11.1999³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Manutencao da Agenda do Representante Tecnico.              ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpD1: Data de Inicio                                       ³±±
+±±³          ³ExpO2: Objeto do calendario                                 ³±±
+±±³          ³ExpA3: Array da rotina automatica                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ ExpL1: logico                                              ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Ft320Age(aAutoCalend)
+
+Local aArea		:= GetArea() 
+Local aAreaSX3	:= {} 
+Local aButtons	:= {}
+Local aRotBack	:= AClone( aRotina ) 
+Local aRegistros	:= {} 
+Local lGravou		:= .F. 
+Local lFtAgeFil	:= FindFunction("P_FTAGEFIL")
+Local nCntFor		:= 0
+Local nCntFor2	:= 0
+Local nUsado		:= 0
+Local nOpcA		:= 0
+Local nPMemo		:= 0
+Local nSaveSx8	:= GetSx8Len()
+Local oDlg,oGetD
+Local aInfoSinc	:= {}  
+Local cUserExg	:= ""
+Local cSenhaExg	:= ""   
+Local cURL			:= ""
+Local cChave		:= ""
+Local bWhile		:= Nil
+Local cAliasADL	:= "ADL"
+
+Local cCaption	:=  STR0021 // "Agenda"
+Local lTodos		:= .F.
+
+Local lPyme		:= If( Type( "__lPyme" ) <> "U", __lPyme, .F. ) 
+Local lRetExg		:= .T.
+Local uRetAux 	:= nil //auxiliar para evitar errorlog em releases antigos - remover após virada de versão
+
+Local oCalend 	//calendario 
+Local oAlertDia	//mensagem quando bloqueia a edicao por ter filtrado o dia no calendario
+Local aColsBase 	:= {} //base da aCols, para restaurar e filtrar sem a necessidade de abrir novamente o arquivo
+Local aCposAlt	:= {}
+Local nAD7_DATA 	:= 0
+Local nAD7_HORA1 	:= 0
+
+PRIVATE aCols		:= {}
+PRIVATE aHeader	:= {}
+PRIVATE dData		:= dDataBase
+PRIVATE aRegWork	:= {} 		//Variavel criada somente para trabalho da linhaok
+PRIVATE INCLUI	:= .F.
+PRIVATE ALTERA	:= .T.
+
+cURL	:= f321GetUrlExg()
+
+aRotina := { { STR0021, "Ft320Age", 0, 4 } } //"Agenda"     
+
+If !lPyme
+	aButtons:={{"COMPTITl",{||Ft320Apon()},STR0023, STR0045}} //"Apontamentos"###"Apont."
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aHeader                                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SX3")
+dbSetOrder(1)
+dbSeek("AD7")
+While ( !SX3->(Eof()) .AND. SX3->X3_ARQUIVO=="AD7" )
+	If ( X3Uso(SX3->X3_USADO) .AND. cNivel >= SX3->X3_NIVEL .AND.;
+			!AllTrim(SX3->X3_CAMPO)=="AD7_VEND" .AND.;
+			!AllTrim(SX3->X3_CAMPO)=="AD7_NOMVEN") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_NROPOR") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_PROSPE") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_LOJPRO") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_NOMPRO") .AND.;			
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_VENDAP") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_DATAAP") .AND.;
+			!(lPyme .AND. AllTrim(SX3->X3_CAMPO)=="AD7_SEQAP")
+		nUsado++
+		aadd(aHeader,{ AllTrim(X3Titulo()),;
+							SX3->X3_CAMPO,;
+							SX3->X3_PICTURE,;
+							SX3->X3_TAMANHO,;
+							SX3->X3_DECIMAL,;
+							SX3->X3_VALID,;
+							SX3->X3_USADO,;
+							SX3->X3_TIPO,;
+							SX3->X3_ARQUIVO,;
+							SX3->X3_CONTEXT } )
+		If ( AllTrim(SX3->X3_CAMPO)$"AD7_MEMO" )
+			nPMemo := nUsado
+		EndIf
+		aadd(aCposAlt,SX3->X3_CAMPO)
+	EndIf
+	//DbSelectArea("SX3")
+	SX3->(dbSkip())
+End
+
+ADHeadRec("AD7",aHeader)
+nUsado := Len(aHeader)	
+
+If aAutoCalend == Nil
+	lTodos := !MsgYesNo(STR0058) //"Deseja exibir apenas os agendamentos desta entidade?"
+EndIf
+	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aCols                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("AD7")
+
+If lTodos
+	DbSetOrder(1)	//AD7_FILIAL+AD7_VEND+DTOS(AD7_DATA)+AD7_HORA1
+	bWhile	:= {|| AD7->(AD7_FILIAL+AD7_VEND)}
+	cChave	:= xFilial("AD7") + SA3->A3_COD
+Else
+	If (cAliasADL)->ADL_ENTIDA == "SUS"
+		DbSetOrder(3)	//AD7_FILIAL+AD7_PROSPE+AD7_LOJPRO+DTOS(AD7_DATA)
+		bWhile	:= {|| AD7->(AD7_FILIAL+AD7_PROSPE+AD7_LOJPRO)}
+	ElseIf (cAliasADL)->ADL_ENTIDA == "SA1"
+		DbSetOrder(2)	//AD7_FILIAL+AD7_CODCLI+AD7_LOJA+DTOS(AD7_DATA)+AD7_CONTAT
+		bWhile	:= {|| AD7->(AD7_FILIAL+AD7_CODCLI+AD7_LOJA)}
+	EndIf
+	cChave	:= xFilial("AD7") + (cAliasADL)->(ADL_CODENT+ADL_LOJENT)
+EndIf
+
+dbSeek(cChave)
+While ( !Eof() .AND. Eval(bWhile) == cChave )
+	
+	If ( SoftLock("AD7" ) ) .AND. (AD7->AD7_VEND == SA3->A3_COD)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Filtro de usuario³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lFtAgeFil .AND. !P_FTAGEFIL()
+			AD7->(DbSkip())
+			Loop
+		EndIf
+		
+		aadd(aRegistros,RecNo())
+		aadd(aCols,Array(nUsado+1))
+		For nCntFor := 1 To nUsado
+			If IsHeadAlias(aHeader[nCntFor,2])
+			   	aCols[Len(aCols)][nCntFor] := "AD7"
+			ElseIf IsHeadRec(aHeader[nCntFor,2])
+			   	aCols[Len(aCols)][nCntFor] := AD7->(Recno())
+			ElseIf ( aHeader[nCntFor][10] != "V" )
+				aCols[Len(aCols)][nCntFor] := AD7->(FieldGet(FieldPos(aHeader[nCntFor][2])))
+			Else
+				aCols[Len(aCols)][nCntFor] := CriaVar(aHeader[nCntFor,2])
+			EndIf
+		Next nCntFor
+		aCols[Len(aCols)][nUsado+1] := .F.
+	EndIf
+	AD7->(dbSkip())
+End
+
+If ( Len(aCols) == 0 )
+	aadd(aCols,Array(nUsado+1))
+	For nCntFor := 1 To nUsado
+		If IsHeadRec(aHeader[nCntFor,2])
+	 		aCols[Len(aCols)][nCntFor]:= 0 
+	    ElseIf IsHeadAlias(aHeader[nCntFor,2])
+			aCols[Len(aCols)][nCntFor] := "AD7"
+		Else   
+            aCols[1][nCntFor] := CriaVar(aHeader[nCntFor][2])
+		EndIf
+	Next nCntFor
+	aCols[1][nUsado+1] := .F.
+EndIf    
+
+aColsBase := AClone(aCols) //copia a acols para usar como base de filtros posteriores
+
+aRegWork := aClone(aRegistros)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Forca um Eof() para o correto funcionamento do campo memo              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AD7->( dbSetOrder( 1 ) ) 
+AD7->( MsGoto(0) ) 
+
+If aAutoCalend == Nil
+	DEFINE MSDIALOG oDlg TITLE cCaption FROM 9,0 TO 38,80 //OF oMainWnd
+	
+	DEFINE FONT oFontAlert BOLD //fonte para as mensagens do calendario na agenda e nas tarefas
+	
+	@ 017,010 SAY  RetTitle("A3_NOME") 	SIZE 040,009 	OF oDlg PIXEL
+	@ 016,026 MSGET SA3->A3_NOME		SIZE 130,009 	OF oDlg PIXEL WHEN .F.
+
+	oGetd:=MsGetDados():New(080,010,200,314,1,"Ft320LOK2","Ft320TOK","",.T.,,,,999)
+	oGetd:cFieldOk	:= "Ft320AgeLn()"
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ mensagem exibida quando a edicao estiver desabilitada pelo usuario ter selecionado um determinado dia do calendario    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	@ 032,010 SAY oAlertDia PROMPT STR0060 + Chr(13) + Chr(10) + Chr(13) + Chr(10) +; //"A edição está desabilitada."  
+		STR0061 + " '" + STR0062 + "'"  ; //"Para editar ou incluir registros retire o filtro de data clicando em 'Ver Todos'"
+		SIZE 150,040 color CLR_HRED font oFontAlert OF oDlg PIXEL 
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Botao para ver todos os agendamentos independente do dia. Retira filtro do dia ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oTButton1 := TButton():New( 066, 118, STR0062,oDlg,{||RestACols(@oGetd, @oAlertDia, aColsBase, aCposAlt)},; //Ver Todos
+                   40,10,,,.F.,.T.,.F.,,.F.,,,.F. )
+
+	oAlertDia:Hide()
+	oCalend := MsCalend():New(13,172,oDlg) //cria o calendario
+
+	//destaca os dias que tiverem compromisso no mes atual (na abertura da tela)
+	DestacDias(@oCalend, oCalend:dDiaAtu, "AD7_DATA",aColsBase)
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza quando altera o dia selecionado no calendario.                          ³
+	//³ Filtra pelos registros do dia selecionado, altera a aCols e atualiza a GetDados  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    oCalend:bChange := {|| AtuDiaCal(@oCalend, @oGetd, @aRegistros, @oAlertDia, "AD7_DATA", "AD7", aColsBase) } //atualiza GetDados a cada dia selecionado no calendario	
+    
+ 	oCalend:bChangeMes := {||DestacDias(@oCalend, oCalend:dDiaAtu, "AD7_DATA",aColsBase) }   //destaca dias agendados a cada mes alterado no calendario
+                   
+	ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar(oDlg,{||nOpcA:=1,If(oGetd:TudoOk(),oDlg:End(),nOpcA:=0)},{||oDlg:End()},,aButtons)
+Else
+	If MsGetDAuto(aAutoCalend,"Ft320Lok2",{|| .t.},/*aAutoCab*/,4)
+		nOpcA := 1
+	Else
+		nOpcA := 0
+	EndIf
+EndIf
+If ( nOpcA == 1 )
+	nAD7_DATA := aScan(aHeader, {|x| AllTrim(x[2])=="AD7_DATA" })
+	nAD7_HORA1 := aScan(aHeader, {|x| AllTrim(x[2])=="AD7_HORA1" })
+	
+	Begin Transaction
+	
+		// --- INTEGRACAO COM EXCHANGE ---
+		If !Empty(cUrl) 
+			If Empty(cUserExg) 
+			    aInfoSinc	:= GetInfoUserSinc("U")   
+			EndIf
+		EndIf
+		
+		dbSelectArea('AD7')
+		AD7->(dbSetOrder(1))
+					
+		For nCntFor := 1 To Len(aCols)
+			If ( nCntFor > Len(aRegistros) )
+				If ( !aCols[nCntFor][nUsado+1] )
+					
+					If AD7->(dbSeek(xFilial('AD7')+ SA3->A3_COD + Dtos(aCols[nCntFor][nAD7_DATA]) + aCols[nCntFor][nAD7_HORA1] ))
+						RecLock("AD7",.F.)
+					Else
+						RecLock("AD7",.T.)
+					EndIf
+				EndIf
+			Else
+				AD7->(dbGoto(aRegistros[nCntFor]))
+				RecLock("AD7",.F.)			
+			EndIf
+			If ( aCols[nCntFor][nUsado+1] ) .AND. nCntFor <= Len(aRegistros)
+				// --- INTEGRACAO COM EXCHANGE ---
+				If !Empty(cUrl) .and. (!Empty(AD7->AD7_LASTMO) .Or. !Empty(AD7->AD7_IDEXC))
+				    If Empty(cUserExg) 
+					  //  aInfoSinc	:= GetInfoUserSinc("U")   
+					    If aInfoSinc[1]
+							cUserExg	:= aInfoSinc[2,_USUAR]
+							cSenhaExg	:= aInfoSinc[2,_SENHA]
+						Else
+							lRetExg		:= .F.	 
+						EndIf
+					EndIf
+				   If lRetExg
+					    LjMsgRun(STR0055,STR0007,{|| uRetAux := f321AtuAgeExg("D",cUserExg,cSenhaExg,"AD7") }) // "Enviando alterações para o Exchange..." "Aguarde"
+					    lRetExg := If (ValType(uRetAux) == "A", uRetAux[1], uRetAux)
+					EndIf
+				EndIF
+
+				//If lRetExg
+				AD7->(dbDelete())      
+				If ( !Empty(AD7->AD7_CODCLI) )
+					FtUltVis(AD7->AD7_CODCLI,AD7->AD7_LOJA,.T.)
+				EndIf							
+				MSMM(AD7->AD7_CODMEM,,,,2)
+				//EndIf				
+			Else
+				If !( aCols[nCntFor][nUsado+1] ) 
+		
+					For nCntFor2 := 1 To Len(aHeader)
+						If ( aHeader[nCntFor2][10] <> "V" )
+							FieldPut(FieldPos(aHeader[nCntFor2][2]),aCols[nCntFor][nCntFor2])
+						EndIf					
+					Next nCntFor2
+					Replace AD7->AD7_FILIAL With xFilial("AD7")
+					Replace AD7->AD7_VEND	With SA3->A3_COD
+					If ( !Empty(aCols[nCntFor][nPMemo]) )
+						MSMM(AD7->AD7_CODMEM,,,aCols[nCntFor][nPMemo],1,,,"AD7","AD7_CODMEM")
+					EndIf 
+
+					If !Empty(cUrl)
+						If Empty(cUserExg) 
+					//	    aInfoSinc	:= GetInfoUserSinc("U")   
+						    If aInfoSinc[1]
+								cUserExg	:= aInfoSinc[2,_USUAR]
+								cSenhaExg	:= aInfoSinc[2,_SENHA]
+							Else
+								lRetExg		:= .F.	 
+							EndIf
+					    EndIf
+					    If lRetExg
+						    LjMsgRun(STR0055,STR0007,{|| uRetAux := f321AtuAgeExg("A",cUserExg,cSenhaExg,"AD7") }) // "Enviando alterações para o Exchange..." "Aguarde"
+						    lRetExg := If (ValType(uRetAux) == "A", uRetAux[1], uRetAux)
+						EndIF				
+					EndIf
+
+				EndIf					
+			EndIf	
+			MsUnLock()		
+			lGravou := .T. 
+		Next nCntFor
+		EvalTrigger()
+		While (GetSx8Len() > nSaveSx8)
+			ConfirmSx8()
+		End
+	End Transaction
+EndIf
+While (GetSx8Len() > nSaveSx8)
+	RollBackSx8()
+End
+
+aRotina := aClone( aRotBack ) 
+
+MsUnLockAll()
+RestArea(aArea)
+Return(lGravou)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320AgeLnºAutor  ³Vendas CRM          º Data ³  07/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Validacao de linha da agenda do representante               º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320AgeLn()
+
+Local nPosEnt	:= 0
+Local nPosLoj	:= 0
+Local nPosDesc	:= 0
+Local cNome		:= ""  
+Local cAliasADL	:= "ADL"
+
+If (cAliasADL)->ADL_ENTIDA == "SUS"
+	nPosEnt := aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_PROSPE" })
+	nPosLoj := aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_LOJPRO" })
+	nPosDesc:= aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_NOMPRO" })
+	cNome	:= "US_NOME"
+Else
+	nPosEnt := aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_CODCLI" })
+	nPosLoj := aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_LOJA" })
+	nPosDesc:= aScan(aHeader,{|x| AllTrim(x[2]) == "AD7_NOMCLI" })
+	cNome	:= "A1_NOME"
+EndIf
+
+If (nPosEnt == 0) .OR. (nPosLoj == 0) .OR. (nPosDesc == 0)
+	Return .T.
+EndIf
+
+If Empty(aCols[N][nPosEnt])
+	aCols[N][nPosEnt] := (cAliasADL)->ADL_CODENT
+	aCols[N][nPosLoj] := (cAliasADL)->ADL_LOJENT
+	aCols[N][nPosDesc]:= Posicione((cAliasADL)->ADL_ENTIDA,1,xFilial((cAliasADL)->ADL_ENTIDA)+(cAliasADL)->(ADL_CODENT+ADL_LOJENT),cNome)
+EndIf
+
+Return .T.
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³Ft320Task ³ Autor ³ Eduardo Riera         ³ Data ³16.11.1999³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Manutencao das Tarefas do Representante Tecnico.            ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpD1: Data de Inicio                                       ³±±
+±±³          ³ExpO2: Objeto do calendario                                 ³±±
+±±³          ³ExpA3: Array de tarefas preenchido                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ ExpL1: logico                                              ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Ft320Task(aAutoTask)
+
+Local aArea         := GetArea()
+Local aRegistros	:= {}
+Local cCaption      := STR0022 // "Tarefas"
+Local lGravou		:= .F.
+Local nCntFor		:= 0
+Local nCntFor2		:= 0
+Local nUsado		:= 0
+Local nOpcA			:= 0
+Local nPMemo        := 0 
+Local nSaveSx8      := GetSx8Len()
+Local oDlgTask
+Local oGetD
+Local lFt320Task	:= ExistBlock("FT320TSK")  
+Local cUserExg	:= ""
+Local cSenhaExg	:= "" 
+Local lRetExg	:= .T. 
+Local uRetAux	:= nil //auxiliar para evitar errorlog em releases antigos - retirar após virada de versao
+Local lFtTarFil	:= FindFunction("P_FTTARFIL")
+Local aInfoSinc	:= {}   
+Local cURL     	:= ""  
+Local cChave	:= ""
+Local bWhile	:= Nil
+Local cAliasADL	:= "ADL"
+Local cNumTar	:= "" 
+Local lTodos	:= .F.
+Local aButUsr	:= {}
+Local lFt320TBt	:= ExistBlock("FT320TBT")
+Local lFT320CAN := ExistBlock("FT320CAN")
+Local oCalend //calendario 
+Local oAlertDia //mensagem quando bloqueia a edicao por ter filtrado o dia no calendario
+Local aColsBase := {} //base da aCols, para restaurar e filtrar sem a necessidade de abrir novamente o arquivo
+Local aCposAlt	:= {}
+
+// Geração de tarefas de aniversário.
+Local oGroup1
+Local oGroup2
+Local oRadio
+Local nRadio    := 1
+Local oCheck1
+Local lChkCli   := .F.
+Local oCheck2
+Local lChkPro   := .F.
+Local oButton
+Local cCodVend  := SA3->A3_COD
+Local cCliente  := STR0029 //"Cliente"
+Local cProspect := STR0031 //"Prospect"
+Local cOculta   := STR0063 //"Ocultar aniversários"
+Local cExibe    := STR0064 //"Exibir somente aniversário"
+Local lVerTodos := .T. // Define o modo de exibição: False = Data filtrada no calendario; True = Ver todos. 
+Local oComboExi
+Local nComboExi := 1
+
+PRIVATE aCols		:= {}
+PRIVATE aHeader		:= {}
+PRIVATE dData       := dDataBase
+PRIVATE aRotina     := { { STR0046,"Ft320Work",0,4} } //"WorkArea"
+PRIVATE aRegWork    := {}		//Variavel criada somente para trabalho da linhaok
+PRIVATE INCLUI      := .F. 
+
+cURL := f321GetUrlExg()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aHeader                                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SX3")
+dbSetOrder(1)
+dbSeek("AD8")
+While ( !Eof() .AND. SX3->X3_ARQUIVO=="AD8" )
+	If ( X3Uso(SX3->X3_USADO) .AND. cNivel >= SX3->X3_NIVEL .AND.;
+			!AllTrim(SX3->X3_CAMPO)$"AD8_CODUSR" .AND.;
+			!AllTrim(SX3->X3_CAMPO)$"AD8_TAREFA")
+		nUsado++
+		aadd(aHeader,{ AllTrim(X3Titulo()),;
+							SX3->X3_CAMPO,;
+							SX3->X3_PICTURE,;
+							SX3->X3_TAMANHO,;
+							SX3->X3_DECIMAL,;
+							SX3->X3_VALID,;
+							SX3->X3_USADO,;
+							SX3->X3_TIPO,;
+							SX3->X3_ARQUIVO,;
+							SX3->X3_CONTEXT } )
+		If ( AllTrim(SX3->X3_CAMPO)$"AD8_MEMO" )
+			nPMemo := nUsado
+		EndIf
+		aadd(aCposAlt,SX3->X3_CAMPO)
+	EndIf
+	DbSelectArea("SX3")
+	dbSkip()
+End
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Inclusão dos campos do walk trhu³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+ADHeadRec("AD8",aHeader)
+nUsado := Len(aHeader)	
+   
+If aAutoTask == Nil
+	lTodos := !MsgYesNo(STR0059) //"Deseja exibir apenas as tarefas desta entidade?"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aCols                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("AD8")
+
+If lTodos
+	DbSetOrder(2)	//AD8_FILIAL+AD8_CODUSR+DTOS(AD8_DTINI)
+	bWhile	:= {|| AD8->(AD8_FILIAL+AD8_CODUSR)}
+	cChave	:= xFilial("AD8") + SA3->A3_CODUSR
+Else
+	If (cAliasADL)->ADL_ENTIDA == "SUS"
+		DbSetOrder(4)	//AD8_FILIAL+AD8_PROSPE+AD8_LOJPRO+DTOS(AD8_DTINI)
+		bWhile	:= {|| AD8->(AD8_FILIAL+AD8_PROSPE+AD8_LOJPRO)}
+	ElseIf (cAliasADL)->ADL_ENTIDA == "SA1"
+		If __cInternet == "AUTOMATICO" .And. IsInCallStack('DELTASK') .And. httpHeadIn->MAIN == 'FTSELLERTASK'
+			DbSetOrder(1)
+			bWhile	:= {|| AD8->(AD8_FILIAL) + aAutoTask[1][1][2]} 
+		Else
+			DbSetOrder(5)	//AD8_FILIAL+AD8_CODCLI+AD8_LOJCLI+DTOS(AD8_DTINI)
+			bWhile	:= {|| AD8->(AD8_FILIAL+AD8_CODCLI+AD8_LOJCLI)}
+		EndIf
+	EndIf
+	If __cInternet == "AUTOMATICO" .And. ( (IsInCallStack('DELTASK') .And. httpHeadIn->MAIN == 'FTSELLERTASK') .Or. (IsInCallStack('PUTTASK') .And. httpHeadIn->MAIN == 'FTCUSTOMERTASK') )
+		cChave	:= xFilial("AD8") + aAutoTask[1][1][2]
+		bWhile	:= {|| AD8->(AD8_FILIAL) + aAutoTask[1][1][2]} 
+	Else
+		cChave	:= xFilial("AD8")+(cAliasADL)->(ADL_CODENT+ADL_LOJENT)
+	EndIf
+EndIf
+
+
+dbSeek(cChave)
+While ( !AD8->(Eof()) .AND. cChave == Eval(bWhile) )
+	If ( SoftLock("AD8" ) ) .AND. (AD8->AD8_CODUSR == SA3->A3_CODUSR) .AND. IIF(aAutoTask == Nil, .T., AD8->AD8_TAREFA==aAutoTask[1][1][2])
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Filtro de usuario³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lFtTarFil .AND. !P_FTTARFIL()
+			AD8->(DbSkip())
+			Loop
+		EndIf
+
+		aadd(aRegistros,RecNo())
+		aadd(aCols,Array(nUsado+1))
+		For nCntFor := 1 To nUsado
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³valida os campos do walk trhu³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If IsHeadAlias(aHeader[nCntFor,2])
+	   			aCols[Len(aCols)][nCntFor] := "AD8"
+	   		ElseIf IsHeadRec(aHeader[nCntFor,2])
+	   		  	aCols[Len(aCols)][nCntFor] := AD8->(Recno())
+	   		ElseIf ( aHeader[nCntFor][10] != "V" )
+				aCols[Len(aCols)][nCntFor] := AD8->(FieldGet(FieldPos(aHeader[nCntFor][2])))
+			Else
+				aCols[Len(aCols)][nCntFor] := CriaVar(aHeader[nCntFor,2])
+			EndIf
+		Next nCntFor
+		aCols[Len(aCols)][nUsado+1] := .F.
+	EndIf
+	AD8->(dbSkip())
+End
+
+If ( Len(aCols) == 0 )
+	INCLUI := .T.
+	aadd(aCols,Array(nUsado+1))
+	For nCntFor := 1 To nUsado
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³valida os campos do walk trhu³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If IsHeadRec(aHeader[nCntFor,2])
+ 	   		aCols[Len(aCols)][nCntFor]:= 0 
+     	ElseIf IsHeadAlias(aHeader[nCntFor,2])
+	 		aCols[Len(aCols)][nCntFor] := "AD8"
+   		Else
+	   		aCols[1][nCntFor] := CriaVar(aHeader[nCntFor][2])
+   		EndIf
+	Next nCntFor
+	aCols[1][nUsado+1] := .F.
+EndIf                        
+
+aColsBase := AClone(aCols) //copia a acols para usar como base de filtros posteriores
+
+aRegWork := aClone(aRegistros)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Carrega botoes do usuario³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lFt320TBt
+	aButUsr := ExecBlock("FT320TBT",.F.,.F.)
+	If ValType(aButUsr) <> "A"
+		aButUsr := {}
+	EndIf
+EndIf
+
+If aAutoTask == Nil		
+	DEFINE MSDIALOG oDlgTask TITLE cCaption FROM 9,0 TO 39,106
+	
+	DEFINE FONT oFontAlert  BOLD //fonte para as mensagens do calendario na agenda e nas tarefas
+	
+	@ 015,012 SAY  RetTitle("A3_NOME") 	SIZE 040,009 	OF oDlgTask PIXEL
+	@ 015,030 MSGET SA3->A3_NOME		SIZE 130,009 	OF oDlgTask PIXEL WHEN .F.
+	oGetd:=MsGetDados():New(082,010,200,410,1,"Ft320LOK1","AllwaysTrue","",.T.,,,,999)
+	oGetd:cFieldOk	:= "Ft320TskLn()" 	
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ mensagem exibida quando a edicao estiver desabilitada pelo usuario ter selecionado um determinado dia do calendario    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	@ 032,012 SAY oAlertDia PROMPT STR0060 + Chr(13) + Chr(10) + Chr(13) + Chr(10) +; //"A edição está desabilitada."  
+		STR0061 + " '" + STR0062 + "'"  ; //"Para editar ou incluir registros retire o filtro de data clicando em 'Ver Todos'"
+		SIZE 150,040 color CLR_HRED font oFontAlert OF oDlgTask PIXEL 
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Botao para ver todos os agendamentos independente do dia. Retira filtro do dia ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oTButton1 := TButton():New( 066, 119, STR0062 ,oDlgTask,{||RestACols(@oGetd, @oAlertDia, aColsBase, aCposAlt, @lVerTodos, oComboExi, nComboExi)},;
+                   40,10,,,.F.,.T.,.F.,,.F.,,,.F.,nComboExi )
+                   
+    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ se nao tiver filtrado a entidade, nao permite editar                   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	oAlertDia:Hide()
+		
+	oCalend := MsCalend():New(13,172,oDlgTask) //cria o calendario
+
+	@ 015, 332 SAY STR0065 SIZE 70,7 PIXEL OF oDlgTask //"Lembretes de Aniversário"
+	@ 023, 328 RADIO oRadio VAR nRadio ITEMS STR0066,STR0067,STR0068 SIZE 044, 027 OF oDlgTask PIXEL //"3 Meses","6 Meses","1 Ano"
+	@ 055, 328 CHECKBOX oCheck1 VAR lChkCli PROMPT cCliente   SIZE 048, 008 OF oDlgTask PIXEL
+	@ 065, 328 CHECKBOX oCheck2 VAR lChkPro PROMPT cProspect  SIZE 048, 008 OF oDlgTask PIXEL
+	@ 066, 365 BUTTON oButton PROMPT STR0069 SIZE 040, 010 ACTION MsgRun(STR0007, STR0094,; //"'Aguarde'" //'Aguarde geração de aniversários'
+				{ || Ft320ProcAni(nRadio,lChkCli,lChkPro,cCodVend,@oGetd,lTodos,aAutoTask,aColsBase,aRegistros) } ) OF oDlgTask PIXEL // "Testar conexão" "Testando conexão." "Aguarde..."
+	@ 203, 010 MSCOMBOBOX oComboExi VAR nComboExi ITEMS {STR0070,STR0071,STR0072} SIZE 085, 010 OF oDlgTask; //"1=Todos","2=Exibe somente aniversário","3=Não exibe aniversário"
+				ON CHANGE AtuDiaCal(@oCalend, @oGetd, @aRegistros,@oAlertDia, "AD8_DTINI", "AD8", aColsBase, @lVerTodos, ANIVERSARIO, nComboExi) PIXEL
+	@ 012, 010 GROUP oGroup1 TO 079, 163 OF oDlgTask PIXEL
+	@ 012, 320 GROUP oGroup2 TO 079, 410 OF oDlgTask PIXEL
+
+	//destaca os dias que tiverem compromisso no mes atual (na abertura da tela)
+	DestacDias(@oCalend, oCalend:dDiaAtu, "AD8_DTINI",aColsBase)
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza quando altera o dia selecionado no calendario.                          ³
+	//³ Filtra pelos registros do dia selecionado, altera a aCols e atualiza a GetDados  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    oCalend:bChange := {|| AtuDiaCal(@oCalend, @oGetd, @aRegistros,@oAlertDia, "AD8_DTINI", "AD8", aColsBase, @lVerTodos, CALENDARIO) } //atualiza GetDados a cada dia selecionado no calendario	
+    
+ 	oCalend:bChangeMes := {||DestacDias(@oCalend, oCalend:dDiaAtu, "AD8_DTINI",aColsBase) }   //destaca dias agendados a cada mes alterado no calendario
+	
+	ACTIVATE MSDIALOG oDlgTask CENTERED ON INIT EnchoiceBar(oDlgTask,{||nOpcA:=1,If(oGetd:TudoOk(),oDlgTask:End(),nOpcA:=0)},IIF(lFT320CAN,{|| Iif(ExecBlock("FT320CAN",.F.,.F.),oDlgTask:End(),)},{||oDlgTask:End()}),,aButUsr)
+Else
+	If MsGetDAuto(aAutoTask,"Ft320Lok1",{|| .t.},{{"","",nil}},1)
+		nOpcA := 1
+	Else
+		nOpcA := 0
+	EndIf
+EndIf	
+If ( nOpcA == 1 )
+	Begin Transaction
+	
+	// --- INTEGRACAO COM EXCHANGE ---
+		If !Empty(cUrl) 
+			If Empty(cUserExg) 
+			    aInfoSinc	:= GetInfoUserSinc("U")   
+			EndIf
+		EndIf
+
+		dbSelectArea('AD8')
+		AD8->(dbSetOrder(1))
+		For nCntFor := 1 To Len(aCols)
+			If ( nCntFor > Len(aRegistros) )
+				If ( !aCols[nCntFor][nUsado+1] ) 
+                    //Verifica se eh alteracao. Se for, usa recLock como False
+					If ValType(aAutoTask) == "A" .and. len(aAutoTask) > 0 .and. alltrim(aAutoTask[nCntFor][1][1]) == "AD8_TAREFA" .and. !Empty(aAutoTask[nCntFor][1][2])		
+						cNumTar	:= aAutoTask[nCntFor][1][2]
+						
+						If AD8->(dbSeek(xFilial('AD8')+cNumTar))
+							RecLock("AD8",.F.)
+						Else
+							cNumTar	:= GetNextTar()
+							RecLock("AD8",.T.)
+						EndIf
+					Else
+						cNumTar	:= GetNextTar()
+						RecLock("AD8",.T.)
+					EndIf
+				EndIf
+			Else
+				AD8->(dbGoto(aRegistros[nCntFor]))
+				RecLock("AD8",.F.)
+			EndIf
+			If ( aCols[nCntFor][nUsado+1] .AND. nCntFor <= Len(aRegistros) )
+				// --- INTEGRACAO COM EXCHANGE ---
+				If !Empty(cURL)
+					If !Empty(AD8->AD8_LASTMO) .Or. !Empty(AD8->AD8_IDEXC)
+					    If Empty(cUserExg) 
+						    //aInfoSinc	:= GetInfoUserSinc("U")   
+						    If aInfoSinc[1]
+								cUserExg	:= aInfoSinc[2,_USUAR]
+								cSenhaExg	:= aInfoSinc[2,_SENHA]
+							Else
+								lRetExg		:= .F.	 
+							EndIf
+					    EndIf
+					    If lRetExg
+						    LJMsgRun(STR0055,STR0007,{|| uRetAux := f321AtuTarExg("D",cUserExg,cSenhaExg,"AD8") }) // "Enviando alterações para o Exchange..." "Aguarde"
+							lRetExg := If (ValType(uRetAux) == "A", uRetAux[1], uRetAux)
+						EndIF				
+					EndIF	       
+				EndIf
+
+				AD8->(dbDelete())
+				MSMM(AD8->AD8_CODMEM,,,,2)
+			Else
+				If !aCols[nCntFor][nUsado+1]		
+					For nCntFor2 := 1 To Len(aHeader)
+						If ( aHeader[nCntFor2][10] <> "V" )
+							FieldPut(FieldPos(aHeader[nCntFor2][2]),aCols[nCntFor][nCntFor2])
+						EndIf					
+					Next nCntFor2
+					If ( nCntFor > Len(aRegistros) ) 						
+						If ( !aCols[nCntFor][nUsado+1] )
+							Replace AD8->AD8_FILIAL With xFilial("AD8")
+							Replace AD8->AD8_TAREFA	With cNumTar
+							Replace AD8->AD8_CODUSR With SA3->A3_CODUSR
+						EndIf
+					EndIf
+					If ( !Empty(aCols[nCntFor][nPMemo]) )
+						MSMM(AD8->AD8_CODMEM,,,aCols[nCntFor][nPMemo],1,,,"AD8","AD8_CODMEM")
+					EndIf     
+					// --- INTEGRACAO COM EXCHANGE ---
+					If !Empty(cUrl) 
+						If Empty(cUserExg) 
+						    //aInfoSinc	:= GetInfoUserSinc("U")   
+						   If aInfoSinc[1]
+								cUserExg	:= aInfoSinc[2,_USUAR]
+								cSenhaExg	:= aInfoSinc[2,_SENHA]
+							Else               
+								lRetExg		:= .F.	 
+							EndIf
+						EndIf
+						If lRetExg
+							LJMsgRun(STR0055,STR0007,{|| uRetAux := f321AtuTarExg("A",cUserExg,cSenhaExg,"AD8") }) // "Enviando alterações para o Exchange..." "Aguarde"
+							lRetExg := If (ValType(uRetAux) == "A", uRetAux[1], uRetAux)
+						EndIF
+					EndIf
+				EndIf 						
+			EndIf	
+			MsUnLock()		
+			lGravou := .T.
+		Next nCntFor
+		EvalTrigger()
+		While (GetSx8Len() > nSaveSx8)
+			ConfirmSx8()
+		End
+	End Transaction
+EndIf
+While (GetSx8Len() > nSaveSx8)
+	RollBackSx8()
+End
+MsUnLockAll()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Ponto de entrada executado apos a gravacao³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lGravou .AND. lFt320Task
+	ExecBlock( "FT320TSK", .F., .F. )
+EndIf
+
+RestArea(aArea)
+Return(lGravou)
+
+//----------------------------------------------------------
+/*/{Protheus.doc} FiltraAniver()
+Filtra aniversarios.
+@param nOpc, numerico, opção do periodo selecionado.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+
+Function FiltraAniver(nOpc)
+
+Local nPosAniver 	:= aScan(aHeader,{|x| AllTrim(x[2]) == 'AD8_ANIVER' })
+Local nPosACols	
+Local aColsBase	:= aClone(aCols)
+Local nCntFor		:= 0
+Local nCntFor2	:= 0
+Local nUsado		:= Len(aHeader)
+
+Default nOpc := '1'
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aCols                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+aSize(aCols,0) //limpa os itens do aCols (para colocar somente o que foi filtrado pelo calendario)
+
+For nPosACols := 1 to Len(aColsBase)
+	If nOpc == '1' // Todos.
+		Aadd(aCols,aColsBase[nPosACols])
+	ElseIf nOpc == '2'	// Exibe somente aniversário.	
+		If aColsBase[nPosACols][nPosAniver] == '1'
+				Aadd(aCols,aColsBase[nPosACols])
+		EndIf
+	ElseIf nOpc == '3'	// Não exibe aniversário.
+		If aColsBase[nPosACols][nPosAniver] <> '1'
+				Aadd(aCols,aColsBase[nPosACols])
+		EndIf
+	EndIf
+Next
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Se nao tiver nenhum registro inclui um em branco pra nao dar erro       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ( Len(aCols) == 0 )
+	aadd(aCols,Array(nUsado+1))
+	For nCntFor := 1 To nUsado
+		If IsHeadRec(aHeader[nCntFor,2])
+	 		aCols[Len(aCols)][nCntFor]:= 0 
+	    ElseIf IsHeadAlias(aHeader[nCntFor,2])
+			aCols[Len(aCols)][nCntFor] := 'AD8'
+		Else   
+            aCols[1][nCntFor] := CriaVar(aHeader[nCntFor][2])
+		EndIf
+	Next nCntFor
+	aCols[1][nUsado+1] := .F.
+EndIf
+
+Return
+
+//----------------------------------------------------------
+
+/*/{Protheus.doc} Ft320ProcAni()
+Filtra o período de geração das tarefas de aniversários por entidades.
+
+@param nOpc, numerico, opção do periodo selecionado.
+@param lCli, logica, gera para contatos de cliente. 
+@param lPro, logica, gera para contatos de prospect. 
+@param lSus, logica, gera para contatos de suspect.
+@param cCodVend, caracter, codigo do representante para geração de tarefas de aniversário.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+Function Ft320ProcAni(nOpc,lCli,lPro,cCodVend,oGetd,lTodos,aAutoTask,aColsBase,aRegistros, oModel)
+
+Local dDtFim  := dDataBase
+Local lTodasEnt := .F.
+Local nOpcEnt
+Local oModelEnt	:= oModel:GetModel("MODEL_ENT_GRID")
+Local cEntida 	:= ""
+Local cCodEnt 	:= ""
+Local cLojEnt 	:= ""
+
+If oModel <> Nil
+	oModelEnt	:= oModel:GetModel("MODEL_ENT_GRID")
+	cCodVend 	:= oModel:GetValue("MODEL_REP", "A3_COD")
+	cEntida 	:= oModel:GetValue("MODEL_ENT_GRID", "ADL_ENTIDA", oModelEnt:nLine)
+	cCodEnt 	:= oModel:GetValue("MODEL_ENT_GRID", "ADL_CODENT", oModelEnt:nLine)
+	cLojEnt 	:= oModel:GetValue("MODEL_ENT_GRID", "ADL_LOJENT", oModelEnt:nLine)
+EndIf
+
+If !Empty(cEntida) .AND. !Empty(cCodEnt) .AND. !Empty(cLojEnt)
+//posiciona a ADL
+	DbSelectArea("ADL")
+	DbSetOrder(5) //ADL_FILIAL+ADL_VEND+ADL_ENTIDA+ADL_CODENT+ADL_LOJENT
+	DbSeek(xFilial('ADL') + PADR(cCodVend, TamSx3("ADL_VEND")[1]) + PADR(cEntida, TamSx3("ADL_ENTIDA")[1]) + PADR(cCodEnt, TamSx3("ADL_CODENT")[1]) + PADR(cLojEnt, TamSx3("ADL_LOJENT")[1]))
+
+EndIf
+
+nOpcEnt := Aviso(STR0073 ,STR0074+ CRLF ; //"Selecione a opção desejada" ,"Deseja gerar lembretes de aniversário para todas as entidades "
+	+ STR0075+ADL->ADL_NOME; //" ou somente para a posicionada "
+	+CRLF+CRLF+STR0076,; //"Os lembretes serão gerados baseados nos contatos associados às entidades selecionadas"
+	 {STR0079,STR0080,STR0081} ,3) //'Todas','Posicionado','Cancelar'
+
+If nOpcEnt <> 3
+	
+	If nOpcEnt == 1
+		lTodasEnt := .T.
+	Else
+		lTodasEnt := .F.
+	EndIf
+		
+	If nOpc == 1 // 3 Mes
+		dDtFim := dDataBase+90
+	ElseIf nOpc == 2	// 6 Meses
+		dDtFim := dDataBase+180
+	Else	// 1 Ano
+		dDtFim := dDataBase+365
+	EndIf
+
+	If lCli == .F. .AND. lPro == .F.
+		MsgAlert(STR0077) //"Por favor selecione uma entidade para geração de lembretes."
+		Return
+	EndIf
+	
+	If lCli == .T.  // Processa Cliente
+		Ft320FilAni(dDtFim,"SA1",cCodVend,lTodasEnt)
+	EndIf
+	If lPro == .T. // Processa Prospect
+		Ft320FilAni(dDtFim,"SUS",cCodVend,lTodasEnt)
+	EndIf
+	If aAutoTask <> Nil
+		Ft320aCols(lTodos,aAutoTask,aColsBase,aRegistros)
+	EndIf
+	If oGetd <> Nil
+		oGetd:ForceRefresh()
+	EndIf
+EndIf
+
+Return
+
+//----------------------------------------------------------
+/*/{Protheus.doc} Ft320aCols()
+Filtra o período de geração das tarefas de aniversários por entidades.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+Function Ft320aCols(lTodos,aAutoTask,aColsBase,aRegistros)
+
+Local bWhile
+LOcal cChave
+Local cAliasADL	:= "ADL"
+Local lFtTarFil	:= FindFunction("P_FTTARFIL")
+Local nUsado := Len(aHeader)
+Local nCntFor		:= 0
+
+aSize(aCols,0)
+aSize(aColsBase,0)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aCols                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("AD8")
+	
+If lTodos
+	DbSetOrder(2)	//AD8_FILIAL+AD8_CODUSR+DTOS(AD8_DTINI)
+	bWhile	:= {|| AD8->(AD8_FILIAL+AD8_CODUSR)}
+	cChave	:= xFilial("AD8") + SA3->A3_CODUSR
+Else
+	If (cAliasADL)->ADL_ENTIDA == "SUS"
+		DbSetOrder(4)	//AD8_FILIAL+AD8_PROSPE+AD8_LOJPRO+DTOS(AD8_DTINI)
+		bWhile	:= {|| AD8->(AD8_FILIAL+AD8_PROSPE+AD8_LOJPRO)}
+	ElseIf (cAliasADL)->ADL_ENTIDA == "SA1"
+		If __cInternet == "AUTOMATICO" .And. IsInCallStack('DELTASK') .And. httpHeadIn->MAIN == 'FTSELLERTASK'
+			DbSetOrder(1)
+			bWhile	:= {|| AD8->(AD8_FILIAL) + aAutoTask[1][1][2]} 
+		Else
+			DbSetOrder(5)	//AD8_FILIAL+AD8_CODCLI+AD8_LOJCLI+DTOS(AD8_DTINI)
+			bWhile	:= {|| AD8->(AD8_FILIAL+AD8_CODCLI+AD8_LOJCLI)}
+		EndIf
+	EndIf
+	If __cInternet == "AUTOMATICO" .And. IsInCallStack('DELTASK') .And. httpHeadIn->MAIN == 'FTSELLERTASK'
+		cChave	:= xFilial("AD8") + aAutoTask[1][1][2]
+	Else
+		cChave	:= xFilial("AD8")+(cAliasADL)->(ADL_CODENT+ADL_LOJENT)
+	EndIf
+EndIf
+
+dbSeek(cChave)
+While ( !AD8->(Eof()) .AND. cChave == Eval(bWhile) )
+	If ( SoftLock("AD8" ) ) .AND. (AD8->AD8_CODUSR == SA3->A3_CODUSR) .AND. IIF(aAutoTask == Nil, .T., AD8->AD8_TAREFA==aAutoTask[1][1][2])
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Filtro de usuario³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lFtTarFil .AND. !P_FTTARFIL()
+			AD8->(DbSkip())
+			Loop
+		EndIf
+
+		aadd(aRegistros,RecNo())
+		aadd(aCols,Array(nUsado+1))
+		For nCntFor := 1 To nUsado
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³valida os campos do walk trhu³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If IsHeadAlias(aHeader[nCntFor,2])
+	   			aCols[Len(aCols)][nCntFor] := "AD8"
+	   		ElseIf IsHeadRec(aHeader[nCntFor,2])
+	   		  	aCols[Len(aCols)][nCntFor] := AD8->(Recno())
+	   		ElseIf ( aHeader[nCntFor][10] != "V" )
+				aCols[Len(aCols)][nCntFor] := AD8->(FieldGet(FieldPos(aHeader[nCntFor][2])))
+			Else
+				aCols[Len(aCols)][nCntFor] := CriaVar(aHeader[nCntFor,2])
+			EndIf
+		Next nCntFor
+		aCols[Len(aCols)][nUsado+1] := .F.
+	EndIf
+	AD8->(dbSkip())
+End
+
+If ( Len(aCols) == 0 )
+	INCLUI := .T.
+	aadd(aCols,Array(nUsado+1))
+	For nCntFor := 1 To nUsado
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³valida os campos do walk trhu³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If IsHeadRec(aHeader[nCntFor,2])
+ 	   		aCols[Len(aCols)][nCntFor]:= 0 
+     	ElseIf IsHeadAlias(aHeader[nCntFor,2])
+	 		aCols[Len(aCols)][nCntFor] := "AD8"
+   		Else
+	   		aCols[1][nCntFor] := CriaVar(aHeader[nCntFor][2])
+   		EndIf
+	Next nCntFor
+	aCols[1][nUsado+1] := .F.
+EndIf                        
+
+aColsBase := AClone(aCols) //copia a acols para usar como base de filtros posteriores
+
+aRegWork := aClone(aRegistros)	
+
+Return
+
+//----------------------------------------------------------
+/*/{Protheus.doc} Ft320FilAni()
+Efetua a gravação das tarefas de acordo com as entidades selecionadas.
+@param dDtFim, data, periodo final a ser gerado as tarefas.
+@param cAlias, caracter, entidade a ser gerado tarefas de aniversário.
+@param cCodVend, caracter, codigo do representante para geração de tarefas de aniversário.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+Static Function Ft320FilAni(dDtFim,cAlias,cCodVend,lTodasEnt)
+
+Local aDtAniver := {}
+Local nX
+Local nY
+Local aArea := GetArea()
+Local aAreaSU5 := SU5->(GetArea())
+Local aContatos := {}
+Local cCodVnd := ""
+
+If ( nModulo == 73 )
+	cCodVnd :=  CRMXRetVend() //vendedor logado  
+Else
+	cCodVnd := Ft320RpSel()
+EndIf
+
+aContatos := Ft320BusCon(dDtFim,cAlias,cCodVend,lTodasEnt)
+ 
+If ExistBlock("PEEXCONT")
+	aContatos := ExecBlock("PEEXCONT",.F.,.F., {cCodVnd})
+	If ValType(aContatos) <> "A"
+		aContatos := {}
+	EndIf
+EndIf
+
+DbSelectArea('SU5')
+DbSetOrder(1) //U5_FILIAL+U5_CODCONT
+For nX := 1 to Len(aContatos)
+
+	If DbSeek(xFilial('SU5') + aContatos[nX,2] )
+	    aDtAniver := Ft320GetAni(dDataBase,dDtFim,SU5->U5_NIVER)
+	    Ft320ChkAni(SU5->U5_CODCONT,SU5->U5_NIVER)	// Verifica se houve alteração na data de aniversário do contato e apaga tarefas com datas divergentes.
+	    	For nY := 1 To Len(aDtAniver)
+	    		Ft320RecAni(aDtAniver[nY],cAlias,AllTrim(aContatos[nX,4]),AllTrim(aContatos[nX,5]))
+	    	Next nY
+	EndIf
+
+Next nX
+
+RestArea(aAreaSU5)
+RestArea(aArea)
+			
+Return
+
+//--------------------------------------------------------
+Static Function Ft320BusCon(dDtFim,cAlias,cCodVend,lTodasEnt)
+
+Local aDtAniver := {}
+Local nX
+Local aArea := GetArea()
+Local aAreaADL := ADL->(GetArea())
+Local aAreaAC8 := AC8->(GetArea())
+Local aAreaSUS := SUS->(GetArea())
+Local aAreaSA1 := SA1->(GetArea())
+Local aAreaSU5 := SU5->(GetArea())
+Local cSeekEnt := ''
+Local cWhileEnt := ''
+Local cCodEnt 	  := ADL->ADL_CODENT
+Local cLojaEnt  := ADL->ADL_LOJENT
+Local aContatos := {}	// Filial,contato,entidade, cod entidade, loja
+
+cCodVend := PADR(cCodVend, TamSx3("ADL_VEND")[1])
+
+If !lTodasEnt
+	cSeekEnt := ADL->ADL_CODENT+ADL->ADL_LOJENT
+	cWhileEnt := " ADL->ADL_CODENT =='"+cCodEnt+"' .AND. ADL->ADL_LOJENT =='"+cLojaEnt+"'"
+Else
+	cWhileEnt := ' 1 == 1 '
+EndIf
+
+DbSelectArea("ADL")
+DbSetOrder(5) //ADL_FILIAL+ADL_VEND+ADL_ENTIDA+ADL_CODENT+ADL_LOJENT
+
+// Busca Entidades (SA1\SUS\ACH associadas ao vendedor.
+If DbSeek(xFilial('ADL') + cCodVend + cAlias + cSeekEnt ) // Retorna lista com as Entidades
+	//Indice nº5 alterado para ADL_FILIAL+ADL_VEND+ADL_ENTIDA  
+	While !ADL->(EOF()) .AND. ADL->ADL_FILIAL == xFilial('ADL') .AND. ADL->ADL_VEND == cCodVend .AND. ADL->ADL_ENTIDA == cAlias .AND. &(cWhileEnt)	
+    	//Busca contato associado a entidade.    	                                   
+		DbSelectArea('AC8')
+		DbSetOrder(2) // AC8_FILIAL+AC8_ENTIDA+AC8_FILENT+AC8_CODENT+AC8_CODCON
+    	If DbSeek(xFilial('AC8') + ADL->ADL_ENTIDA + ADL->ADL_FILENT + ADL->ADL_CODENT)
+    		While !AC8->(EOF()) .AND. xFilial('AC8') == AC8->AC8_FILIAL .AND. ADL->ADL_ENTIDA == AC8->AC8_ENTIDA .AND.;
+    		ADL->ADL_FILENT == AC8->AC8_FILENT .AND. Substr(AC8_CODENT,1,TamSX3('A1_COD')[1]) == ADL->ADL_CODENT
+		    	//Busca aniversario dos contatos.
+		    	DbSelectArea('SU5')
+		    	DbSetOrder(1) //U5_FILIAL+U5_CODCONT
+		    	If DbSeek(xFilial('SU5') + AC8->AC8_CODCON )
+		    		While !SU5->(EOF()) .AND. xFilial('SU5') == SU5->U5_FILIAL .AND. SU5->U5_CODCONT == AC8->AC8_CODCON
+						Aadd(aContatos,{SU5->U5_FILIAL,SU5->U5_CODCONT,AC8->AC8_ENTIDA,;
+						Substr(AC8->AC8_CODENT,1,TamSX3('A1_COD')[1]),;
+						Substr(AC8->AC8_CODENT,TamSX3('A1_COD')[1]+1,Len(AC8->AC8_CODENT))})
+		    		SU5->(DbSkip())
+		    		EndDo
+		    	EndIf
+		    AC8->(DbSkip())
+			EndDo
+		EndIf				
+	ADL->(DbSkip())		
+	EndDo
+
+EndIf
+
+RestArea(aAreaADL)
+RestArea(aAreaAC8)
+RestArea(aAreaSUS)
+RestArea(aAreaSA1)
+RestArea(aAreaSU5)
+RestArea(aArea)
+				
+Return (aContatos)
+
+//--------------------------------------------------------
+Function Ft320AniExiste(dDtAniver,cCodCont)
+
+Local aArea := GetArea()
+Local aAreaAD8 := AD8->(GetArea())
+Local lRet := .F.
+
+DbSelectArea('AD8')
+DbSetOrder(7) //AD8_FILIAL+AD8_ANIVER+AD8_CONTAT+DTOS(AD8_DTINI)
+
+If DbSeek(xFilial('AD8')+'1'+cCodCont+DTOS(dDtAniver)+__cUserId)
+	lRet := .T.
+Else
+	lRet := .F.
+EndIf
+
+RestArea(aAreaAD8)
+RestArea(aArea)
+	
+Return lRet
+
+//--------------------------------------------------------
+Function Ft320ChkAni(cCodCont,dDtAniver)
+
+DbSelectArea('AD8')
+DbSetOrder(7) //AD8_FILIAL+AD8_ANIVER+AD8_CONTAT+DTOS(AD8_DTINI)
+
+If DbSeek(xFilial('AD8')+'1'+cCodCont)
+	If !(Day(AD8->AD8_DTINI) == Day(dDtAniver) .AND. Month(AD8->AD8_DTINI) == Month(dDtAniver))	
+		Ft320DelAni(cCodCont)
+	EndIf
+EndIf
+
+Return
+
+//--------------------------------------------------------
+Function Ft320DelAni(cCodCont)
+
+DbSelectArea('AD8')
+DbSetOrder(7) //AD8_FILIAL+AD8_ANIVER+AD8_CONTAT+DTOS(AD8_DTINI)
+
+If DbSeek(xFilial('AD8')+'1'+cCodCont)
+	While !AD8->(EOF()) .AND. AD8->AD8_ANIVER == '1' .AND. cCodCont == AD8->AD8_CONTAT
+		RecLock('AD8',.F.)
+		AD8->(DbDelete())
+		AD8->(MsUnlock())
+		AD8->(DbSkip())
+	EndDo
+EndIf
+
+Return
+
+//----------------------------------------------------------
+/*/{Protheus.doc} Ft320RecAni()
+Efetua a gravação das tarefas de acordo com as entidades selecionadas.
+@param dDtAniver, data de aniversário a ser gerado as tarefas.
+@param cAlias, caracter, entidade a ser gerado tarefas de aniversário.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+Function Ft320RecAni(dDtAniver,cAlias,cCodEnt,cLojaEnt)
+
+Local cConta := ""     
+Local cMemo  := ""
+Local cCodTar := GetSXENum('AD8','AD8_TAREFA')
+Local aArea := GetArea()
+Local aAreaAD8 := AD8->(GetArea())
+Local cCodVend := ""
+Local aNvlEstrut	:= {}
+
+If ( nModulo == 73  )
+ 	cCodVend :=  CRMXRetVend() //vendedor logado   
+Else
+	cCodVend := Ft320RpSel()
+EndIf
+If !Empty(cCodVend)
+	aNvlEstrut := CRMXNvlEst(cCodVend)
+EndIf
+
+If !Ft320AniExiste(dDtAniver,SU5->U5_CODCONT) // Realiza inclusão quando não existe tarefa de aniversário naquela data. 
+		RecLock('AD8',.T.)
+		AD8->AD8_FILIAL	:= xFilial('AD8')
+		AD8->AD8_TAREFA	:=  cCodTar
+		AD8->AD8_CODUSR	:= __cUserId
+		AD8->AD8_TOPICO	:= STR0078 //"Lembrete de Aniversário"
+		AD8->AD8_DTINI	:= dDtAniver
+		AD8->AD8_DTFIM	:= dDtAniver
+		AD8->AD8_DTREMI	:= dDtAniver
+		AD8->AD8_STATUS	:= '1'
+		AD8->AD8_PRIOR	:= '1'
+		If cAlias == 'SA1'
+			AD8->AD8_CODCLI	:= cCodEnt
+			AD8->AD8_LOJCLI	:= cLojaEnt
+			cConta := Posicione("SA1",1,xFilial("SA1")+AD8->AD8_CODCLI+AD8->AD8_LOJCLI,"A1_NOME")
+		EndIf
+		If cAlias == 'SUS'
+			AD8->AD8_PROSPE	:= cCodEnt
+			AD8->AD8_LOJPRO	:= cLojaEnt
+			cConta := Posicione("SUS",1,xFilial("SUS")+AD8->AD8_PROSPE+AD8->AD8_LOJPRO,"US_NOME")
+		EndIf
+	  	If	!Empty(aNvlEstrut) 
+    		AD8->AD8_VEND	   := cCodVend
+     		AD8->AD8_IDESTN  := aNvlEstrut[1]  
+     		AD8->AD8_NVESTN  := aNvlEstrut[2] 
+		EndIf
+ 		
+		AD8->AD8_CONTAT	:= SU5->U5_CODCONT // vai ser o codigo do representante?
+		AD8->AD8_HRREMI	:= '00:00' // Fazer uma função para tratar horario do lembrete?
+		AD8->AD8_ANIVER	:=	'1'
+		MsUnLock()
+		ConfirmSX8()
+
+		RestArea(aAreaAD8)
+		RestArea(aArea)
+	
+		DbSelectArea("AD8")
+		DbSetOrder(1)
+		
+		If DbSeek(xFilial("AD8")+cCodTar)
+			
+			cMemo := STR0095 + SU5->U5_CONTAT+CRLF + cConta //"Aniversário de: "
+			MSMM(AD8->AD8_CODMEM,,,cMemo,1,,,"AD8","AD8_CODMEM")
+
+		EndIf	
+EndIf
+
+Return
+
+//----------------------------------------------------------
+/*/{Protheus.doc} Ft320GetAni()
+Gera tarefas de aniversários baseado nas datas de aniversário dos contatos associados ao representante.
+@param dDataIni, data, periodo inicial a ser gerado as tarefas.
+@param dDataFim, data, periodo final a ser gerado as tarefas.
+@param dDtNasc, data, data de nascimento do contato.
+@return aRet, array, datas de aniversario a serem gerados como tarefas.
+@author Vendas & CRM
+@since 24/04/2013
+/*/
+//----------------------------------------------------------
+Function Ft320GetAni(dDataIni,dDataFim,dDtNasc)
+
+Local nAnoIni := YEAR(dDataIni)
+Local nAnoFim := YEAR(dDataFim)
+Local aRet := {}
+Local dDtAux
+Local nX
+
+nAnoIni := YEAR(dDataIni)
+nAnoFim := YEAR(dDataFim)
+
+nAno	:= cValToChar(YEAR(dDataBase))
+
+For nX := YEAR(dDataIni) To YEAR(dDataFim)
+	dDtAux := STOD(cValToChar(nX)+Substr(dtos(dDtNasc),5,8))
+
+	If dDtAux >= dDataIni .AND. dDtAux <= dDataFim
+		Aadd(aRet,dDtAux) 
+	EndIf
+Next
+
+Return (aRet)    	
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320TskLnºAutor  ³Vendas CRM          º Data ³  07/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Validacao de linha das tarefas do representante             º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320TskLn()
+
+Local nPosEnt	:= 0
+Local nPosLoj	:= 0 
+Local cAliasADL	:= "ADL"
+
+	If (cAliasADL)->ADL_ENTIDA == "SUS"
+		nPosEnt := aScan(aHeader,{|x| AllTrim(x[2]) == "AD8_PROSPE" })
+		nPosLoj := aScan(aHeader,{|x| AllTrim(x[2]) == "AD8_LOJPRO" })
+	Else
+		nPosEnt := aScan(aHeader,{|x| AllTrim(x[2]) == "AD8_CODCLI" })
+		nPosLoj := aScan(aHeader,{|x| AllTrim(x[2]) == "AD8_LOJCLI" })
+	EndIf
+	
+	If (nPosEnt == 0) .OR. (nPosLoj == 0)
+		Return .T.
+	EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320Pipe ºAutor  ³Vendas CRM          º Data ³  07/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Executa a chamada do pipeline                               º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Fata320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Ft320Pipe()
+
+Local aArea	:= GetArea()
+SaveInter()
+
+If TYPE("AROTINA") == "A"
+	aRotina := Nil
+EndIf
+FATC020(cVendLog)
+
+RestInter()
+RestArea(aArea)
+
+Return Nil     
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320RelOpºAutor  ³Vendas CRM          º Data ³  07/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Executa a chamada do relatorio de oportunidades             º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Fata320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Ft320RelOp()
+Local aArea	:= GetArea()
+SaveInter()
+FATR010()
+RestInter()
+RestArea(aArea)
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320AcessºAutor  ³Vendas CRM          º Data ³  08/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Retorna os acessos do vendedor para alguma permissao da Workº±±
+±±º          ³Area.                                                       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Ft320Acess()
+
+Local aArea		:= GetArea()
+Local aAreaACA	:= ACA->(GetArea()) 
+Local aAcesso	:= Array(18)
+            
+DbSelectArea("ACA") //ACA_FILIAL+ACA_GRPREP
+DbSetOrder(1)
+
+If DbSeek(xFilial("ACA")+SA3->A3_GRPREP)
+	aAcesso[AC_CLIENTES]   		:= ACA->ACA_ACCLIE
+	aAcesso[AC_PROSPECT]   		:= ACA->ACA_ACPROS
+	aAcesso[AC_PIPELINE]   		:= ACA->ACA_ACPIPE
+	aAcesso[AC_APONTAMENTO]		:= ACA->ACA_ACAPON
+	aAcesso[AC_OPORTUNIDADE]	:= ACA->ACA_ACOPOR
+	aAcesso[AC_ESTRUTURA]		:= ACA->ACA_ACESTR
+	aAcesso[AC_TPACCLIENTE]		:= ACA->ACA_MODCLI
+	aAcesso[AC_TPACPROSPECT]	:= ACA->ACA_MODPRO
+	aAcesso[AC_TPACOPORTUN]		:= ACA->ACA_MODOPO
+	aAcesso[AC_TPACESTRUT] 		:= ACA->ACA_MODEST
+	aAcesso[AC_LIBORCAM]		:= ACA->ACA_LIBORC
+	aAcesso[AC_PROPOSTA]		:= ACA->ACA_PROPOS
+	aAcesso[AC_SUSPECTS]		:= ACA->ACA_ACSUSP
+	aAcesso[AC_CONTATOS]		:= ACA->ACA_ACCONT
+	aAcesso[AC_METASVENDA]		:= ACA->ACA_ACMETA
+	aAcesso[AC_PRODUTO]	   		:= ACA->ACA_ACPROD
+	aAcesso[AC_SCRIPTS]	   		:= ACA->ACA_SCRIPT
+	aAcesso[AC_QUALSUSPECT]		:= ACA->ACA_QUASUS
+Else 
+	aAcesso[AC_CLIENTES]   		:= "2"
+	aAcesso[AC_PROSPECT]   		:= "2"
+	aAcesso[AC_PIPELINE]   		:= "2"
+	aAcesso[AC_APONTAMENTO]		:= "2"
+	aAcesso[AC_OPORTUNIDADE]	:= "2"
+	aAcesso[AC_ESTRUTURA]		:= "2"
+	aAcesso[AC_TPACCLIENTE]		:= "1"
+	aAcesso[AC_TPACPROSPECT]	:= "1"
+	aAcesso[AC_TPACOPORTUN]		:= "1"
+	aAcesso[AC_TPACESTRUT] 		:= "1"
+	aAcesso[AC_LIBORCAM]		:= "2"
+	aAcesso[AC_PROPOSTA]		:= "2"
+	aAcesso[AC_SUSPECTS]		:= "2"
+	aAcesso[AC_CONTATOS]		:= "2"
+	aAcesso[AC_METASVENDA]		:= "2"
+	aAcesso[AC_PRODUTO]	   		:= "2"
+	aAcesso[AC_SCRIPTS]	   		:= "2"
+	aAcesso[AC_QUALSUSPECT]		:= "2"
+EndIf
+
+RestArea(aAreaACA)
+RestArea(aArea)
+
+Return aAcesso
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³FT320LoadResºAutor³ Vendas Cliente     º Data ³ 04/Jan/2008 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Carrega os totais de contas no rodape da janela.            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function FT320LoadRes( oQtdCon, oQtdSus, oQtdPro, oQtdCli ) 
+
+Local aTotais	:= {}
+Local lFt320Inf	:= ExistBlock("FT320Inf")
+
+If !lFt320Inf
+
+	aTotais := Ft520Total( SA3->A3_COD )
+	
+	oQtdSus:SetText( StrZero( aTotais[1], 4) )
+	oQtdPro:SetText( StrZero( aTotais[2], 4) )
+	oQtdCli:SetText( StrZero( aTotais[3], 4) )
+	oQtdCon:SetText( StrZero( aTotais[1]+aTotais[2]+aTotais[3], 4) )
+	
+Else
+	ExecBlock("FT320INF",.F.,.F.)	
+EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320RpSelºAutor  ³Vendas CRM          º Data ³  28/07/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Retorna qual o codigo do vendedor(SA3) selecionado na work- º±±
+±±º          ³area atualmente aberta                                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320RpSel()
+Return cVendLog
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320Leg  ºAutor  ³Vendas CRM          º Data ³  13/08/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Apresenta a tela de legendas para o usuario                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Fata320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320Leg()
+
+Local aLegenda := {	{"BR_VERDE"		, STR0029},; //"Cliente"
+					{"BR_AZUL"  	, STR0031},; //"Prospect"
+					{"BR_BRANCO"	, STR0030 }} //"Suspect"
+
+BrwLegenda(STR0046,STR0048,aLegenda) //"Workarea"###"Entidades"
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GetNextTarºAutor  ³Vendas CRM          º Data ³  02/09/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Solicita o proximo numero disponivel e nao utilizado para o º±±
+±±º          ³campo AD8_TAREFA                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function GetNextTar()
+              
+Local aArea		:= GetArea()
+Local aAreaAD8	:= AD8->(GetArea())
+Local cTarefa	:= "" 
+
+DbSelectArea("AD8")
+DbSetOrder(1) //AD8_FILIAL+AD8_TAREFA
+
+cTarefa := GetSx8Num("AD8","AD8_TAREFA")
+
+While AD8->(DbSeek(xFilial("AD8")+cTarefa))
+	ConfirmSx8()
+	cTarefa := GetSx8Num("AD8","AD8_TAREFA")
+End
+
+RestArea(aAreaAD8)
+RestArea(aArea)
+
+Return cTarefa
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Ft320AtuWAºAutor  ³Vendas CRM          º Data ³  20/07/10   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Atualiza o Browse da Workarea                               º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Ft320AtuWA()
+  
+Local cFilter := ""
+
+If ValType(oMBrwWA) == "O"
+	cFilter := oMBrwWA:cFilterDefault
+	oMBrwWA:SetFilterDefault(cFilter) 
+EndIf
+
+Return Nil
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³AtuDiaCal ºAutor  ³Vendas CRM          º Data ³  06/01/12        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Atualiza o calendario a cada dia selecionado                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpO1: Calendario                                                º±±
+±±º          ³ExpO2: MSGetDados                                                º±±
+±±º          ³ExpA3: array com os Recno dos registros                          º±±
+±±º          ³ExpO4: Mensagem de bloqueio de edicao por causa do filtro de dia º±±
+±±º          ³ExpC5: Nome do campo de data na tabela (AD7_DATA / AD8_DTINI)    º±±
+±±º          ³ExpC6: alias (AD7 ou AD8)                                        º±±
+±±º          ³ExpA7: Copia da aCols                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function AtuDiaCal(oCalend, oGetd, aRegistros, oAlertDia, cNomeData, cAlias, aColsBase, lVerTodos, nAcao, nOpc)
+
+Local dDiaSelect	:= oCalend:dDiaAtu
+
+Default nAcao := CALENDARIO
+Default nOpc  := '1'
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Bloqueia edicao por nao estar mostrando todos os agendamentos.         ³
+//³ So pode editar quando todos os registros estiverem sendo exibido porque³
+//³ usa a aCols e a aRegistros (que tem o recno dos registros da aCols no  ³
+//³ momento que a tela eh carregada) pra fazer a gravacao, por isso a aCols³
+//³ precisa estar completa                                                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DisabEdit(@oGetd, @oAlertDia) //desabilita a edicao na GetDados
+
+aCols := aClone(aColsBase)
+
+If nAcao == CALENDARIO
+	lVerTodos := .F.
+EndIf
+
+If !lVerTodos
+	FiltraDia(dDiaSelect, cNomeData, cAlias, aColsBase) //filtra a aCols com os registros do dia selecionado
+EndIf
+
+FiltraAniver(nOpc)
+oGetd:ForceRefresh() //atualiza a getDados
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³FiltraDia ºAutor  ³Vendas CRM          º Data ³  06/01/12      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Aplica filtro na aCols baseado no dia selecionado no calendarioº±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpD1: Data a ser filtrada                                     º±±
+±±º          ³ExpC2: Nome do campo de data na tabela (AD7_DATA / AD8_DTINI)  º±±
+±±º          ³ExpC3: Alias (AD7 / AD8)                                       º±±
+±±º          ³ExpA4: Array copia da aCols (com todos os registros)           º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                       º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function FiltraDia(dData, cNomeData, cAlias, aColsBase )
+
+Local nPosData 	:= aScan(aHeader,{|x| AllTrim(x[2]) == cNomeData })
+Local nPosACols
+Local nCntFor		:= 0
+Local nCntFor2	:= 0
+Local nUsado		:= Len(aHeader)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do aCols                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+aSize(aCols,0) //limpa os itens do aCols (para colocar somente o que foi filtrado pelo calendario)
+
+For nPosACols := 1 to Len(aColsBase)
+
+	If aColsBase[nPosACols][nPosData] == dData
+			Aadd(aCols,aColsBase[nPosACols])
+	EndIf
+	
+Next
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Se nao tiver nenhum registro inclui um em branco pra nao dar erro       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ( Len(aCols) == 0 )
+	aadd(aCols,Array(nUsado+1))
+	For nCntFor := 1 To nUsado
+		If IsHeadRec(aHeader[nCntFor,2])
+	 		aCols[Len(aCols)][nCntFor]:= 0 
+	    ElseIf IsHeadAlias(aHeader[nCntFor,2])
+			aCols[Len(aCols)][nCntFor] := cAlias
+		Else   
+            aCols[1][nCntFor] := CriaVar(aHeader[nCntFor][2])
+		EndIf
+	Next nCntFor
+	aCols[1][nUsado+1] := .F.
+EndIf    
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³DestacDiasºAutor  ³Vendas CRM          º Data ³  06/01/12     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Verifica dias com agendamento e destaca no calendario         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpD1: Objeto do calendario                                   º±±
+±±º          ³ExpD2: Data a ser filtrada                                    º±±
+±±º          ³ExpA3: Nome do campo de data na tabela (AD7_DATA / AD8_DTINI) º±±
+±±º          ³ExpA3: Array copia da aCols (com todos os registros)          º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function DestacDias(oCalend,dData, cNomeData, aColsBase)
+
+Local nContDias	:= 0
+Local cDataAux 	// Data em formato Ano/mes (aaaa/mm). Para filtrar todos os dias que tiverem agendamentos naquele mes  	
+Local aDiasAg		:= {}
+Local nPosData 	:= aScan(aHeader,{|x| AllTrim(x[2]) == cNomeData })
+Local nPosACols
+
+cDataAux := SubStr(DtoS(dDAta), 1, 6) 
+	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem do array dos dias que ja tem agendamento                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+For nPosACols := 1 to Len(aColsBase)
+
+	If SubStr(DtoS(aColsBase[nPosACols][nPosData]), 1, 6) == cDataAux  // se o mes e ano da aCols for igual ao selecionado no calendario
+			Aadd(aDiasAg, Day(aColsBase[nPosACols][nPosData])) //adiciona o dia (da data selecionada) no array
+	EndIf
+Next
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Destaca os dias no calendario³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nContDias := 1 to Len(aDiasAg)
+	oCalend:AddRestri(aDiasAg[nContDias], CLR_HRED, CLR_HRED)
+Next nContRest
+Return 
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³RestACols ºAutor  ³Vendas CRM          º Data ³  06/01/12       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Restaura a aCols. Retira os filtros de data e habilita edicao   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpO1: Objeto do calendario                                     º±±
+±±º          ³ExpO2: Mensagem de bloqueio de edicao por causa do filtro de diaº±±
+±±º          ³ExpA3: Array copia da aCols (com todos os registros)            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function RestACols(oGetd,oAlertDia,aColsBase,aCposAlt,lVerTodos,oComboExi,nComboExi)
+
+Default lVerTodos := .T.
+Default nComboExi := 1
+Default oComboExi := Nil
+
+lVerTodos := .T.
+
+aCols := aclone(aColsBase)
+
+If oComboExi <> Nil
+	oComboExi:Select(1)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Habilita edicao quando estiver mostrando todos os agendamentos                            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+EnableEdit(@oGetd,@oAlertDia,aCposAlt)
+oGetd:ForceRefresh()
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³DisabEdit ºAutor  ³Vendas CRM          º Data ³  06/01/12         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Desabilita edicao na GetDados e mostra a mensagem avisando        º±±
+±±º          ³ sobre o bloqueio da edicao                                       º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpD1: Objeto do calendario                                       º±±
+±±º          ³ExpO2: Mensagem de bloqueio de edicao por causa do filtro de dia  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                          º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function DisabEdit(oGetd,oAlertDia)
+
+oGetd:oBrowse:nOpc 	 	:= 2
+oGetd:oBrowse:aAlter 	:= {}
+oGetd:oBrowse:lAutoEdit := .F.
+oAlertDia:Show() //mostra mensagem sobre o filtro do dia
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³EnableEditºAutor  ³Vendas CRM          º Data ³  06/01/12         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Retira a mensagem do bloqueio da edicao e habilita edicao         º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpD1: Objeto do calendario                                       º±±
+±±º          ³ExpO2: Mensagem de bloqueio de edicao por causa do filtro de dia  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³FATA320B                                                          º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function EnableEdit(oGetd,oAlertDia,aCposAlt)
+
+oGetd:oBrowse:nOpc 	 	:= 4
+oGetd:oBrowse:aAlter 	:= aClone(aCposAlt)
+oGetd:oBrowse:lAutoEdit := .T.
+oAlertDia:Hide() //esconte a mensagem sobre o filtro do dia
+
+Return
+
+//--------------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FT320BRefresh()
+//busca status da sincronizacao automatica e atualiza componentes visuais
+
+@author Vendas CRM
+@since 04/06/2013
+/*/
+//--------------------------------------------------------------------------------------------------------------
+Function FT320BRefresh(cStatus,cMensagem ,cData, cHora, oGetStatus, oGetData, oGetHora)
+//busca status da sincronizacao automatica, atualiza componentes visuais
+
+Local aSyncState := {}
+
+aSyncState := GetSyncState(cValToChar(ThreadId())) 
+
+If ValType(aSyncState) == "A" .AND. Len(aSyncState) > 0
+	
+	If 	aSyncState[1] == 1 
+		cStatus         := STR0082 //"Parado" 
+		cMensagem   := aSyncState[2] 
+	ElseIf aSyncState[1] == 2 
+		cStatus         := STR0083 //"Sincronizando" 
+		cMensagem   := aSyncState[2] 
+	ElseIf aSyncState[1] == 3 
+		cStatus         := STR0084 //"Erro" 
+		cMensagem   := aSyncState[2] 
+	ElseIf aSyncState[1] == 4 
+		cStatus         := STR0085 //"Sincronizado" 
+		cMensagem   := aSyncState[2]       
+	EndIf 
+	
+	If Len(aSyncState) > 3
+		If ValType(aSyncState[3]) == "D"
+			cData := DToC(aSyncState[3])
+		EndIf
+		cHora := aSyncState[4]
+	EndIf
+	
+	// validação casa o Objeto venha com Nil
+	If oGetHora <> nil
+		oGetHora:refresh()
+		oGetData:refresh()
+		oGetStatus:refresh()
+	EndIf
+	
+EndIf
+Return 
+
+//--------------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FT320AtuParamThread()
+Atualiza parametros gerais entre as threads
+@author Vendas CRM
+@since 04/06/2013
+/*/
+//--------------------------------------------------------------------------------------------------------------
+Function FT320AtuParamThread()
+
+Local cVend := ""
+Local cUser := ""
+Local cSenhaUsu := ""
+Local cEndEmail := ""
+Local nTimeThread := 0
+
+If ( nModulo == 73 )
+	cVend 			:= 	CRMXRetVend() 
+   	cUser 			:= 	SA3->A3_USUCORP 
+	cSenhaUsu		:= 	FWAES_decrypt(Decode64(AllTrim(SA3->A3_SNAEXG)))
+	cEndEmail 		:=	SA3->A3_EMACORP
+	nTimeThread	:=	SA3->A3_TIMEMIN   
+Else
+	cCodVnd	:= Ft320RpSel()
+	cVend 		:= Ft320RpSel()
+ 	cUser 		:= Ft321Usuar()
+ 	cSenhaUsu	:= Ft321Senha()
+ 	cEndEmail	:= Ft321Email()
+EndIf
+
+nTimeThread := Val(Posicione("SA3",1,xFilial("SA3")+cVend,"A3_TIMEMIN")) * 60000
+
+If nTimeThread > 0 
+	If !Empty(IIF(nModulo == 73,cVend,cVendLog)) 
+		SetSyncOptions(cValToChar(ThreadId()), "ft321ExcSinc", nTimeThread, {cEmpAnt , cFilAnt,cVend, cUser, cSenhaUsu, cEndEmail })
+	EndIf
+EndIf
+Return
+
+//--------------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FT320MsgRetorno()
+Exibe mensagem de retorno do status da sincronizacao automatica
+@param cStatus
+@param cMensagem
+@author Vendas CRM
+@since 04/06/2013
+/*/
+//--------------------------------------------------------------------------------------------------------------
+Function FT320MsgRetorno(cStatus,cMensagem) 
+
+Local oMsgRet 
+Local oDlg 
+
+DEFAULT cStatus := ""
+
+cStatus := cStatus+CRLF+REPLICATE("*", 83)+CRLF+cMensagem
+
+DEFINE MSDIALOG oDlg TITLE STR0086  FROM 000, 000 TO 400,350 PIXEL //"Sincronização - Status"
+
+@ 002, 002 GET oMsgRet VAR cStatus OF oDlg MULTILINE READONLY SIZE 174, 180 HSCROLL PIXEL 
+@ 185, 142 BUTTON oButton PROMPT STR0087 SIZE 034, 012 ACTION (oDlg:End()) OF oDlg PIXEL //"Fechar" 
+
+ACTIVATE MSDIALOG oDlg CENTERED 
+Return 
+
+//--------------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} NewInterface()
+Define se exibe interface nova de Atividades ou se exibe Tarefas e Agendamentos
+@author Vendas CRM
+@since 28/10/2013
+/*/
+//--------------------------------------------------------------------------------------------------------------
+Static Function NewInterface() 
+
+	Local lRet := .T.
+	Local aArea := GetArea()
+	Local aAreaAD7 := AD7->(GetArea())
+	Local aAreaAD8 := AD8->(GetArea())
+	
+	DbSelectArea('AD7')
+	DbSelectArea('AD8')
+	
+	lRet := ( lRet )
+	
+	AD7->(RestArea(aAreaAD7))
+	AD8->(RestArea(aAreaAD8))
+	RestArea(aArea)
+Return lRet

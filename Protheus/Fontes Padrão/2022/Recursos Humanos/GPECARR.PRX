@@ -1,0 +1,143 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "GPECARR.CH"
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa: ³GPECARRET ³ Autor ³ Mauricio Takakura     ³ Data ³ 24.12.08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Calculo de Carreteiros sem a realizacao da gravacao         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³GETIMPCOOP(aRegs,cTipoChave,d_DtRef,d_DtPgto,lLerFP)        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cFil - Filial de Origem   	                              ³±±
+±±³          ³ cMatr - Matricula (Nao enviar)                             ³±±
+±±³          ³d_DtRef		- Data de Refencia p/tabelas de inss          ³±±
+±±³          ³d_DtPgto		- Data de Pagamento p/tabelas de irrf         ³±±
+±±³          ³lLerFP		- .T. Busca no SRA / .F. Nao busca no SRA     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Observacoes                                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador³ Data   ³ FNC    ³Motivo da Alteracao			  	      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Leandro Dr.³18/11/13³        ³Unificação. Versao 12.                	  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function CalcCarret(cFil, cMatr, cRotCalc, dDtRef, dDtPgto, aVerbas, aCalculo, aCodFol)
+Local aPerAtual		:= {}
+Local lRet			:= .T.
+Local nX
+
+DEFAULT cFil		:= ""
+DEFAULT cMatr		:= ""
+DEFAULT dDtRef		:= CtoD("")
+DEFAULT dDtPgto		:= dDtRef
+DEFAULT aVerbas		:= {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa o ambiente do GPE antes de calcular				 ³
+//³ Seta e Carrega os Mnemonicos.								 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SetMnemonicos(NIL,NIL,.T.)
+
+cRot 		:= cRotCalc	:= fGetCalcRot("9")  //Autonomos
+cComp13 	:= 'N'	//  Calc. Compl. 13o.  Sim/Nao 
+nPosSem		:= 0
+
+DbSelectArea( "SRA" )
+DbSetOrder( RetOrdem( "SRA", "RA_FILIAL+RA_MAT") )
+DbSeek( cFil + cMatr, .F. )
+If SRA->(Eof())
+	Help("", 1, OemToAnsi(STR0010),, OemToAnsi(STR0001) + " " + cFil + "/" + cMatr + " " + OemToAnsi(STR0002)  ) // "A Filial/Matricula " + ### + "não cadastrado! "
+	Return( .F. )
+EndIf
+
+If Empty(aVerbas)
+    Help( "", 1, OemToAnsi(STR0010),, OemToAnsi(STR0003))  // "Nenhum lançamento para Calcular."
+    Return( .F. )
+EndIf
+
+If fGetPerAtual( @aPerAtual, xFilial("RCH"), SRA->RA_PROCES, cRotCalc )
+	cPeriodo := aPerAtual[1,1]
+	cProcesso:= aPerAtual[1,8]
+	dDataBase:= aPerAtual[1,7]
+	dDtPgto  := dDataBase
+Else
+	Help( "", 1, OemToAnsi(STR0010),, OemToAnsi(STR0011) + SRA->RA_PROCES + OemToAnsi(STR0011) + cRotCalc)  // "Não existe periodo aberto para o processo: ### roteiro:###"
+    Return( .F. )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa mnemonicos utilizados no calculo   				 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cCompl13 	:= 'S'
+cSemana		:= '01'
+lGpeCarr	:= .T.
+
+For nX := 1 To Len( aVerbas )
+	cVerba := aVerbas[nX, 1]
+	nHoras := aVerbas[nX, 2]
+	nValor := aVerbas[nX, 3]
+	cSem   := aVerbas[nX, 4]
+	If cSem > cSemana
+		cSemana := cSem
+	EndIf
+	//-- Passar a data de pagamento em todas as verbas, 
+	//-- pois sem data de pagamento nao consegue encontrar 
+	//-- os valores das semanas anteriores.
+	fMatriz(cVerba,nValor,nHoras,cSem,,,,,,dDtPgto)
+	
+Next nX
+
+cCateg      := 'A'					//  Categorias a serem calculadas
+
+cSvSetRot 		:= SetRotExec( cRot )
+cSvSetPer 		:= SetPeriodCalc( cPeriodo )
+cSvSetNumPago 	:= SetNumPgCalc( cNumPag )
+					
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Execucao do Calculo da Folha para Carreteiro	   		     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ExecRot( SRA->RA_FILIAL , cRot )
+
+SetRotExec( cSvSetRot )
+SetPeriodCalc( cSvSetPer )
+SetNumPgCalc( cSvSetNumPago )
+
+lGpeCarr	:= .F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Geracao do array de retorno do calculo para o TMS		     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aCalculo := {}
+
+For nX := 1 To Len( aPd )
+	aAdd( aCalculo, {aPd[nX, 1], aPd[nX, 4], aPd[nX, 5], aPd[nX, 3] } )
+Next nX
+
+Return(lRet)
+
+//--------------------------------1	------------------- FUNCAO PARA TESTAR ROTINA
+Function Carret()
+                  
+                  
+//---- Incluido a variavel lPropTarefa - ver se dever se incluido mesmo.
+//-- Se cMVPENSOUT == N, nao apura a pensao com valor fixo e de salario minimo
+                                                                       
+aVerbas := {}
+
+//aAdd(aVerbas , {'255', 0, 3000, '01' } )
+//aAdd(aVerbas , {'255', 0, 2000, '02' } )
+//aAdd(aVerbas , {'413', 0, 100, '02' } )
+
+aAdd(aVerbas , {'191',  0.0 ,	1234	,	'01' } )	// Salario do Autonomo
+
+aCalculo:= {}
+
+lRet := CalcCarret(xFilial("SRA"), '500072', fGetCalcRot("9") , CtoD('31/12/08'), CTOD('08/01/09'), aVerbas, @aCalculo)
+
+Return lRet

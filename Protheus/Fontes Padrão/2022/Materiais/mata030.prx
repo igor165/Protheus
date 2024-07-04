@@ -1,0 +1,1262 @@
+#INCLUDE "MATA030.CH"   
+#INCLUDE "PROTHEUS.CH"    
+#INCLUDE "FWEVENTVIEWCONSTS.CH"                            
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FWMVCDEF.CH"     
+#INCLUDE "XMLXFUN.CH"
+#INCLUDE "TBICONN.CH"
+#INCLUDE "CRMDEF.CH"
+#INCLUDE "FWLIBVERSION.CH"
+                         
+#DEFINE SIGACRD 1
+      
+Static lHistFiscal := HistFiscal()
+Static lIntegDef //-- Variavel usada para verificar se o disparo da funcao IntegDef() pode ser feita manualmente
+Static lMVCCustomer	:= Nil
+Static aBrwConfig	:= Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MATA030
+Programa de atualização de Clientes.
+@sample	MATA030( xRotAuto, nOpcAuto, oDlgOwner, cFilDef, aAddFil, cVDefault )
+@param		ExpX1 = Determina se é rotina automática 
+			ExpN1 = Numero da opção da operação
+			ExpO1 = Objeto da tela
+			ExpC1 = Filtro Default do Browse
+			ExpA1 = Array de filtro
+			ExpC2 = Visão inicial Default		 
+@return	Verdadeiro
+@author	Jorge Queiroz    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function MATA030( xRotAuto, nOpcAuto, oDlgOwner, cFilDef, aAddFil, cVDefault, xRAutoFOJ )
+
+Local lMvLjIntFS 	:= SuperGetMV("MV_LJINTFS",,.F.) .AND. LjUpd90Ok() //Verifica parâmetro que verifica se o modulo sigaloja esta integrado com o Financial Services
+
+Default oDlgOwner	:= Nil
+Default cFilDef  	:= ""
+Default aAddFil  	:= {}
+Default cVDefault	:= ""
+
+Private cCadastro  	:= STR0006  //"Clientes" 
+Private aMemos     	:= {}
+Private bFiltraBrw 	:= {|| Nil}
+Private aRotina
+Private aRotAuto   	:= Nil
+Private aRAutoFOJ	:= Nil
+Private aCpoAltSA1 	:= {} // Vetor usado na gravacao do historico de alteracoes
+Private aCpoSA1    	:= {} // Vetor usado na gravacao do historico de alteracoes
+Private l030Auto   	:= .F. // Variavel usada para saber se é rotina automática
+Private cFilAux	  	:= cFilAnt // Variavel utilizada no FINC010
+
+If !MA030IsMVC()
+	If !IsBlind()
+    	If FindFunction("ExpRotMt3")
+    	    ExpRotMt3("MATA030",;
+    	                "Cadastro de Clientes (CRMA980)",;
+    	                "https://tdn.totvs.com/pages/releaseview.action?pageId=604230458" )
+    	EndIf
+	EndIf
+	//-- Variavel usada para verificar se o disparo da funcao IntegDef() pode ser feita manualmente
+	If lIntegDef == Nil
+		lIntegDef  := FWHasEAI("MATA030",.T.,,.T.)
+	EndIf
+	
+	// Nao adiciona campos Memos para o PDV pois o cadastro eh reduzido 
+	If nModulo <> 23
+		aMemos := {{"A1_CODMARC","A1_VM_MARC"},{"A1_OBS","A1_VM_OBS"}}
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Define Variaveis                                             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Define Array contendo as Rotinas a executar do programa      ³
+	//³ ----------- Elementos contidos por dimensao ------------     ³
+	//³ 1. Nome a aparecer no cabecalho                              ³
+	//³ 2. Nome da Rotina associada                                  ³
+	//³ 3. Usado pela rotina                                         ³
+	//³ 4. Tipo de Transa‡„o a ser efetuada                          ³
+	//³    1 - Pesquisa e Posiciona em um Banco de Dados             ³
+	//³    2 - Simplesmente Mostra os Campos                         ³
+	//³    3 - Inclui registros no Bancos de Dados                   ³
+	//³    4 - Altera o registro corrente                            ³
+	//³    5 - Remove o registro corrente do Banco de Dados          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	If nModulo == 73
+		aRotina := FwLoadMenuDef("CRMA070")
+	Else	
+		aRotina := MenuDef()
+	EndIf
+	
+	If ExistBlock( "MA030MEM" ) 
+		aMemUser := ExecBlock( "MA030MEM", .F., .F. ) 
+		If ValType( aMemUser ) == "A"
+			AEval( aMemUser, { |x| AAdd( aMemos, x ) } ) 	
+		EndIf 	
+	EndIf
+	
+	DbSelectArea("SA1")      
+	
+	If xRotAuto <> Nil
+		DEFAULT nOpcAuto := 3
+		aRotAuto := xRotAuto
+		aRAutoFOJ:= xRAutoFOJ
+		l030Auto := .T.
+		MBrowseAuto(nOpcAuto,aRotAuto,"SA1")
+	Else
+		/*BEGINDOC
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ˜¿
+		//³MAN0000604-01 - Integração Protheus x Financial Service	 ³
+		//³	Caso a rotina seja executada no módulo controle de lojas ³
+		//³e esteja habilitada a integração com o Financial Services,³
+		//³exibe a mensagem de que a rotina a ser executada é a      ³
+		//³CRDA010                                                   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ˜Ù
+		ENDDOC*/
+		If lMvLjIntFS .AND. nModulo == 12  
+			MsgAlert( STR0067 + CRLF +; //"O módulo controle de lojas está integrado com o  Services. " 
+			          STR0068 + CRLF +; //"Por esta razão o cadastro de clientes, deverá ser através da rotina CRDA010"
+			          STR0069)///"Caminho: Atualizações ->Integrações Financial Services -> Cadastro -> Clientes."
+		Else
+			//----------------------
+			// Browse de Clientes.
+			//----------------------
+			BrowseDef( /*oMBrowse*/, cFilDef, aAddFil, cVDefault, oDlgOwner )
+		EndIf
+	EndIf
+
+Else
+	
+	//Configurações do browse para o CRM.
+	aBrwConfig 	:= {}
+	aAdd(aBrwConfig,cFilDef)
+	aAdd(aBrwConfig,cVDefault)
+	aAdd(aBrwConfig,aAddFil)
+	
+	CRMA980(xRotAuto,nOpcAuto,,xRAutoFOJ)
+	
+	If aBrwConfig <> Nil
+	   aSize(aBrwConfig,0)
+	   aBrwConfig := Nil
+    EndIf	
+EndIf
+
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} BrowseDef
+Browse de Cadastro de Clientes
+@sample	BrowseDef( oMBrowse, cFilDef, aAddFil, cVDefault )
+@param		oMBrowse	, Objeto	, Browse criado pelo Widget da Area de Trabalho.
+			cFilDef	, Caracter	, Filtro padrao.
+			aAddFil	, Array		, Filtros relacionados.
+			cVDefault	, Caracter , Visao padrao.
+			oDlgOwner  , Objeto	, Janela que o browse será utilizado.
+@return	oMBrowse	, Objeto	, Retorna o objeto FWMBrowse.
+@author	Anderson Silva
+@since		05/12/2015
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Static Function BrowseDef( oMBrowse, cFilDef, aAddFil, cVDefault, oDlgOwner )
+
+Local oTableAtt    := Nil
+Local aCores	   := {}
+Local lMA030COR    := ExistBlock("MA030COR")
+Local nX 		   := 0
+Local nDescLeg	   := 0 	
+Local cFiltraSA1   := ""
+Local lMA030BRW	   := ExistBlock("MA030BRW")
+Local lWidget	   := .F.
+Local cMainProc    := IIF(nModulo==73,"CRMA070","MATA030")
+
+Default oMBrowse		:= Nil
+Default cFilDef		:= ""
+Default aAddFil		:= {}
+Default cVDefault		:= ""
+Default oDlgOwner		:= Nil 
+
+If Empty( oMBrowse )
+	//----------------
+	// Cria o Browse 
+	//----------------
+	oMBrowse := FWMBrowse():New()
+	oMBrowse:SetAlias("SA1")
+	If oDlgOwner <> Nil
+		oMBrowse:SetOwner(oDlgOwner)
+	EndIf
+Else
+	lWidget := .T.
+EndIf
+
+
+//SetCanSaveArea trava todos os registros do browse em ambiente codebase
+#IFDEF TOP
+	If nModulo == 73 .And. ( IsInCallStack("CRMA290") .OR. IsInCallStack("CRMA290A") .Or. IsInCallStack( "CA290CWDGT" ) )
+		oMBrowse:SetCanSaveArea(.T.) 
+	EndIf
+#ENDIF
+//--------------------------------------------------------------------
+// Ponto de entrada para adicionar cores de legenda para os clientes.                                               
+//--------------------------------------------------------------------
+If lMA030COR
+	aCores := ExecBlock( "MA030COR", .F., .F. )
+	If ValType( aCores ) <> "A"
+		aCores := {}
+	EndIf
+EndIf
+
+If Len(aCores) > 0
+	nDescLeg := Len(aCores[1])
+	For nX := 1 To Len(aCores)
+		oMBrowse:AddLegend(aCores[nX][1],aCores[nX][2],IIF(nDescLeg==3,aCores[nX][3],"")) 
+	Next nX  
+EndIf
+
+#IFDEF TOP
+	//---------------------------
+	// Filtro Default do Browse  
+	//---------------------------
+	If !Empty( cFilDef )
+		oMBrowse:SetFilterDefault( cFilDef )
+	EndIf
+
+	//---------------------------------
+	//Filtros adicionais do Browse.
+	//---------------------------------
+	For nX := 1 To Len( aAddFil )
+		oMBrowse:DeleteFilter( aAddFil[nX][ADDFIL_ID] )
+		oMBrowse:AddFilter( aAddFil[nX][ADDFIL_TITULO], ;
+							aAddFil[nX][ADDFIL_EXPR], ;
+							aAddFil[nX][ADDFIL_NOCHECK], ;
+							aAddFil[nX][ADDFIL_SELECTED], ;
+							aAddFil[nX][ADDFIL_ALIAS], ;
+							aAddFil[nX][ADDFIL_FILASK], ;
+							aAddFil[nX][ADDFIL_FILPARSER], ;
+							aAddFil[nX][ADDFIL_ID] )
+		oMBrowse:ExecuteFilter()	
+	Next nX		
+
+	//---------------------------
+	// Filtro padrão do usuario. 
+	//---------------------------
+	If lMA030BRW
+		cFiltraSA1 := ExecBlock("MA030BRW",.F.,.F.)
+		If !Empty( cFiltraSA1 )
+			oMBrowse:AddFilter(STR0097,cFiltraSA1,.T.,.T.) //"Filtro de Usuário"
+			oMBrowse:ExecuteFilter()
+		EndIf	
+	EndIf	
+#ENDIF
+
+oMBrowse:SetDescription(STR0006)  // Clientes
+
+If !lWidget
+	#IFDEF TOP
+		oTableAtt 	:= TableAttDef()	
+		oMBrowse:SetAttach(.T.)		
+		oMBrowse:SetViewsDefault( oTableAtt:aViews )	
+		oMBrowse:SetChartsDefault( oTableAtt:aCharts )	
+
+		// selecionando a visão inicial 
+		If !Empty( cVDefault ) 
+			nScan := aScan( oTableAtt:aViews, { |x| x:cID == cVDefault } )
+			If nScan > 0 
+				oMBrowse:SetIDViewDefault( oTableAtt:aViews[nScan]:cID )
+			EndIf
+		EndIf
+		
+		oMBrowse:SetIDChartDefault( "PorRegiao" ) 
+
+		//Se não for SIGACRM inibe a exibição do gráfico
+		If nModulo <> 73
+			oMBrowse:SetOpenChart( .F. )
+		EndIf 
+		
+		oMBrowse:SetMainProc(cMainProc)
+		oMBrowse:SetTotalDefault('A1_FILIAL','COUNT',STR0121) //'Total de Registros'
+	#ENDIF
+	oMBrowse:Activate()
+	
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} TableAttDef
+Cria as visões e gráficos.
+@sample	TableAttDef()
+@param		Nenhum
+@return	ExpO - Objetos com as Visoes e Gráficos.
+@author	Cristiane Nishizaka
+@since		28/04/2014
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function TableAttDef()
+
+Local oTableAtt 	:= Nil
+// Visões
+Local oDSMyCliAt	:= Nil // Meus Clientes Ativos
+Local oDSMyCliCo	:= Nil // Meus Clientes Ativos
+Local oDSCliAtiv	:= Nil // Clientes Ativos
+Local oDSCliInat	:= Nil // Clientes Inativos
+// Gráficos
+Local oDSNvPorDt	:= Nil // Colunas: Novos Clientes Por Data
+Local oDSPorVend	:= Nil // Colunas: Clientes Por Vendedor
+Local oDSPorSegm	:= Nil // Pizza: Clientes Por Segmento
+Local oPorRegiao	:= Nil // Colunas: Clientes Por Região
+Local lMT030View	:= ExistBlock("CRMBRWVIEW")	//Ponto entrada para manipulação das views padrão
+Local cRotina		:= "MATA030"
+Local cAliasView	:= "SA1"
+Local aUserPaper	:= {}
+Local cCodUser 		:= If(SuperGetMv("MV_CRMUAZS",, .F.), CRMXCodUser(), RetCodUsr()) 
+Local cSeqPaper		:= " "	
+
+If lMT030View 
+	oTableAtt := ExecBlock("CRMBRWVIEW", .F.,.F.,{cRotina,cAliasView})
+EndIf 
+
+If Empty ( oTableAtt ) 
+
+	oTableAtt := FWTableAtt():New()
+	oTableAtt:SetAlias("SA1")
+
+	//----------
+	// Visões
+	//---------- 
+	
+	If( IsInCallStack("CRMA070") .Or. IsInCallStack("CRMA290") .Or. IsInCallStack("CRMA290A") .Or. IsInCallStack( "CRM290CWGT" ) )
+		aUserPaper := CRMXGetPaper()
+		
+		If !Empty( aUserPaper )
+			cCodUser 	:= aUserPaper[USER_PAPER_CODUSR]
+			cSeqPaper	:= aUserPaper[USER_PAPER_SEQUEN] + aUserPaper[USER_PAPER_CODPAPER]			
+		EndIf
+	
+		// Meus Clientes Ativos
+		oDSMyCliAt := FWDSView():New()
+		oDSMyCliAt:SetName(STR0122) //"Meus Clientes Ativos"
+		oDSMyCliAt:SetID( "DSMyCliAt" ) 
+		oDSMyCliAt:SetOrder(1) // A1_FILIAL+A1_COD+A1_LOJA
+		oDSMyCliAt:SetCollumns({	"A1_COD"	,"A1_LOJA"	,"A1_NOME"	,"A1_NREDUZ"	,"A1_END",;
+									"A1_TIPO"	,"A1_EST"	,"A1_MUN"	,"A1_BAIRRO"	,"A1_DDD",;
+									"A1_TEL"	,"A1_CGC"	,"A1_REGIAO" })
+		oDSMyCliAt:SetPublic( .T. )
+		oDSMyCliAt:AddFilterRelation( "AO4", "AO4_CHVREG", "A1_FILIAL+A1_COD+A1_LOJA" )
+		If !Empty( aUserPaper )
+			oDSMyCliAt:AddFilter(STR0122, "AO4_ENTIDA == 'SA1' .And. AO4_CODUSR == '" + cCodUser + "' .And. ( AO4_USRPAP == '" + cSeqPaper + "' .Or. AO4_USRPAP == ' ' ) .And. AO4_CTRLTT == .T.","AO4") //"Meus Clientes Ativos"
+		Else
+			oDSMyCliAt:AddFilter(STR0122, "AO4_ENTIDA == 'SA1' .AND. AO4_CODUSR == '" + cCodUser + "' .AND. AO4_CTRLTT == .T.","AO4") //"Meus Clientes Ativos"
+		EndIf
+		oDSMyCliAt:AddFilter(STR0122, "A1_MSBLQL $ ' |2'") //"Meus Clientes Ativos"
+		
+		oTableAtt:AddView(oDSMyCliAt)
+		
+		// Clientes Compartilhados
+		oDSMyCliCo := FWDSView():New()
+		oDSMyCliCo:SetName(STR0141) //"Clientes Compartilhados"
+		oDSMyCliCo:SetID( "DSMyCliCo" ) 
+		oDSMyCliCo:SetOrder(1) // A1_FILIAL+A1_COD+A1_LOJA
+		oDSMyCliCo:SetCollumns({	"A1_COD"	,"A1_LOJA"	,"A1_NOME"	,"A1_NREDUZ"	,"A1_END"	,;
+									"A1_TIPO"	,"A1_EST"	,"A1_MUN"	,"A1_BAIRRO"	,"A1_DDD"	,;
+									"A1_TEL"	,"A1_CGC"	,"A1_REGIAO" })
+		oDSMyCliCo:SetPublic( .T. )
+		oDSMyCliCo:AddFilterRelation( "AO4", "AO4_CHVREG", "A1_FILIAL+A1_COD+A1_LOJA" )
+
+		If !Empty( aUserPaper )
+			oDSMyCliCo:AddFilter(STR0141, "AO4_ENTIDA == 'SA1' .And. AO4_CODUSR == '" + cCodUser + "' .And. ( AO4_USRPAP == '" + cSeqPaper + "' .Or. AO4_USRPAP == ' ' ) .And.  AO4_USRCOM <> ' '","AO4") //"Clientes Compartilhados"
+		Else
+			oDSMyCliCo:AddFilter(STR0141, "AO4_ENTIDA == 'SA1' .AND. AO4_CODUSR == '" + cCodUser + "' .AND. AO4_CTRLTT == .F. .AND. (AO4_PERVIS == .T. .OR. AO4_PEREDT == .T. .OR. AO4_PEREXC == .T. .OR. AO4_PERCOM == .T.)","AO4") //"Clientes Compartilhados"
+		EndIf
+		
+		oTableAtt:AddView(oDSMyCliCo)
+	
+	EndIf
+	
+	// Clientes Ativos
+	oDSCliAtiv := FWDSView():New()
+	oDSCliAtiv:SetName(STR0123) //"Clientes Ativos"
+	oDSCliAtiv:SetID( "DSCliAtiv" )  
+	oDSCliAtiv:SetOrder(1) // A1_FILIAL+A1_COD+A1_LOJA
+	oDSCliAtiv:SetCollumns({	"A1_COD"	,"A1_LOJA"	,"A1_NOME"	,"A1_NREDUZ"	,"A1_END"	,;
+								"A1_TIPO"	,"A1_EST"	,"A1_MUN"	,"A1_BAIRRO"	,"A1_DDD"	,;
+								"A1_TEL"	,"A1_CGC"	,"A1_REGIAO" })
+	oDSCliAtiv:SetPublic( .T. )
+	oDSCliAtiv:AddFilter(STR0123, "A1_MSBLQL $ ' |2'") //"Clientes Ativos"
+	
+	oTableAtt:AddView(oDSCliAtiv)
+	
+	// Clientes Inativos
+	oDSCliInat := FWDSView():New() 
+	oDSCliInat:SetName(STR0124) //"Clientes Inativos"
+	oDSCliInat:SetID( "DSCliInat" ) 
+	oDSCliInat:SetOrder(1) // A1_FILIAL+A1_COD+A1_LOJA
+	oDSCliInat:SetCollumns({	"A1_COD"	,"A1_LOJA"	,"A1_NOME"	,"A1_NREDUZ"	,"A1_END"	,;
+								"A1_TIPO"	,"A1_EST"	,"A1_MUN"	,"A1_BAIRRO"	,"A1_DDD"	,;
+								"A1_TEL"	,"A1_CGC"	,"A1_REGIAO" })
+	oDSCliInat:SetPublic( .T. )
+	oDSCliInat:AddFilter(STR0124, "A1_MSBLQL == '1'") //"Clientes Inativos"
+	
+	oTableAtt:AddView(oDSCliInat)
+EndIf 
+//------------
+// Gráficos
+//------------	
+
+// Colunas: Novos Clientes Por Data
+oDSNvPorDt := FWDSChart():New()	
+oDSNvPorDt:SetName(STR0125) //"Novos Clientes Por Data"
+oDSNvPorDt:SetTitle(STR0125) //"Novos Clientes Por Data"
+oDSNvPorDt:SetID( "DSNvPorDt" ) 
+oDSNvPorDt:SetType("BARCOMPCHART")
+oDSNvPorDt:SetSeries({ {"SA1", "A1_COD+A1_LOJA", "COUNT"} })
+oDSNvPorDt:SetCategory( { {"SA1", "A1_DTCAD"} } )
+oDSNvPorDt:SetPublic( .T. )
+oDSNvPorDt:SetLegend( CONTROL_ALIGN_BOTTOM ) //Inferior
+oDSNvPorDt:SetTitleAlign( CONTROL_ALIGN_CENTER ) 
+
+oTableAtt:AddChart(oDSNvPorDt)	
+
+// Colunas: Clientes Por Vendedor
+oDSPorVend := FWDSChart():New()	
+oDSPorVend:SetName(STR0126) //"Clientes Por Vendedor"
+oDSPorVend:SetTitle(STR0126) //"Clientes Por Vendedor"
+oDSPorVend:SetID( "DSPorVend" ) 
+oDSPorVend:SetType("BARCOMPCHART")
+oDSPorVend:SetSeries({ {"SA1", "A1_COD+A1_LOJA", "COUNT"} })
+oDSPorVend:SetCategory( { {"SA3", "A3_NOME"} } )
+oDSPorVend:SetPublic( .T. )
+oDSPorVend:SetLegend( CONTROL_ALIGN_BOTTOM ) //Inferior
+oDSPorVend:SetTitleAlign( CONTROL_ALIGN_CENTER ) 
+
+oTableAtt:AddChart(oDSPorVend) 
+
+// Pizza: Clientes Por Segmento
+oDSPorSegm := FWDSChart():New()	
+oDSPorSegm:SetName(STR0127) //"Clientes Por Segmento"
+oDSPorSegm:SetTitle(STR0127) //"Clientes Por Segmento"
+oDSPorSegm:SetID( "DSPorSegm" ) 
+oDSPorSegm:SetType("PIECHART")
+oDSPorSegm:SetSeries({ {"SA1", "A1_COD+A1_LOJA", "COUNT"} })
+oDSPorSegm:SetCategory( { {"SA1", "A1_CODSEG"} } )
+oDSPorSegm:SetPublic( .T. )
+oDSPorSegm:SetLegend( CONTROL_ALIGN_BOTTOM ) //Inferior
+oDSPorSegm:SetTitleAlign( CONTROL_ALIGN_CENTER ) 
+
+oTableAtt:AddChart(oDSPorSegm)
+
+// Colunas: Clientes Por Estado
+oPorRegiao := FWDSChart():New()	
+oPorRegiao:SetName(STR0128) //"Clientes Por Estado"
+oPorRegiao:SetTitle(STR0128) //"Clientes Por Estado"
+oPorRegiao:SetID( "PorRegiao" ) 
+oPorRegiao:SetType("BARCOMPCHART")
+oPorRegiao:SetSeries({ {"SA1", "A1_COD+A1_LOJA", "COUNT"} })
+oPorRegiao:SetCategory( { {"SA1", "A1_EST"} } )
+oPorRegiao:SetPublic( .T. )
+oPorRegiao:SetLegend( CONTROL_ALIGN_BOTTOM ) //Inferior
+oPorRegiao:SetTitleAlign( CONTROL_ALIGN_CENTER ) 
+
+oTableAtt:AddChart(oPorRegiao)
+
+Return(oTableAtt)
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MenuDef
+Utilizacao de menu Funcional   
+@sample	MenuDef()
+Parametros do array a Rotina:                               
+	1. Nome a aparecer no cabecalho                          
+	2. Nome da Rotina associada                                 
+	3. Reservado                                                
+	4. Tipo de Transa‡„o a ser efetuada:                        
+			1 - Pesquisa e Posiciona em um Banco de Dados          
+			2 - Simplesmente Mostra os Campos                       
+			3 - Inclui registros no Bancos de Dados                 
+			4 - Altera o registro corrente                          
+			5 - Remove o registro corrente do Banco de Dados        
+	5. Nivel de acesso                                         
+	6. Habilita Menu Funcional     
+@return	aRotina - Array com as opções da Rotina.
+@author	Marco Bianchi    
+@since		01/09/2006
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function MenuDef()
+
+Local aPermissoes	 := {}											// Permissões do representante comercial
+Local aRotAdic	     := {}
+Local aEntRelac      := {}
+Local aApont         := {}
+Local aOpor          := {}
+Local aPerfil360     := {}
+Local lVldOffBalance := .F.
+  
+Private aRotina	  := {}
+Private lIntLox	  := GetMv("MV_QALOGIX") == "1"     
+
+If Alltrim(Upper(Funname())) == "ACAA700"  // verifica se foi chamado pelo modulo Gestao Educacional   
+	aRotina := { 	{STR0001, "PesqBrw"    , 0 , 1,0   ,.F. },;  	// "Pesquisar"
+					{STR0002, "A030Visual" , 0 , 2,0   , NIL},;  	// "Visualizar"
+					{STR0003, "A030Inclui" , 0 , 3,81  , NIL},;  	// "Incluir"
+					{STR0004, "A030Altera" , 0 , 4,143 , NIL},;  	// "Alterar"
+					{STR0005, "A030Deleta" , 0 , 5,144 , NIL}}		// "Excluir"
+ElseIf lIntLox
+	aRotina := { 	{STR0001,"PesqBrw"    , 0 , 1,0 ,.F.},;   		// "Pesquisar"
+					{STR0002,"A030Visual" , 0 , 2 ,0  , NIL},;		// "Visualizar"
+					{STR0004,"A030Altera" , 0 , 4 ,82 , NIL},;		// "Alterar"
+					{STR0010,"FtContato"  , 0 , 4 ,0  , NIL}}		// "Contatos"
+Else
+	If (IsInCallStack("FATA320") .OR. IsInCallStack("FATA321"))
+		aPermissoes := FT060Permi(__cUserId, "ACA_ACCLIE")
+	Else
+		aPermissoes := {.T.,.T.,.T.,.T.}
+	EndIf
+	
+	aRotina := { 	{STR0001,"PesqBrw"    , 0 , 1,0 ,.F.}}		// "Pesquisar"
+	
+	If aPermissoes[4]
+		aAdd(aRotina,{STR0002,"A030Visual" , 0 , 2,0 ,NIL})	// "Visualizar"
+	EndIf
+
+	If aPermissoes[1]
+		aAdd(aRotina,{STR0003,"A030Inclui" , 0 , 3,0,NIL})	// "Incluir"
+	EndIf
+
+	If aPermissoes[2]                                                             
+		aAdd(aRotina,{STR0004,"A030Altera" , 0 , 4,143,NIL})	// "Alterar"
+	EndIf
+
+	If aPermissoes[3]
+		aAdd(aRotina,{STR0005,"A030Deleta" , 0 , 5,144,NIL})	// "Excluir"
+	EndIf
+	
+	aAdd(aRotina,{OemtoAnsi(STR0045), "A030WizFac", 0, 4, 143, .F.})	//"Facilitador"
+	
+	If lHistFiscal
+		Aadd(aRotina, { STR0140 ,  "A030Hist()" , 0 ,0,0, NIL })//"Histórico
+	EndIf
+	
+	Aadd(aRotina,{STR0100,"CRMA120()"	 							, 0, 4, 0, NIL})//"SubClientes"
+	Aadd(aRotina,{STR0014,"MsDocument('SA1',SA1->(RecNo()), 4)"		, 0, 4, 0, NIL})//"Conhecimento"
+	Aadd(aRotina,{STR0011,"Mata030Ref('SA1',SA1->(RecNo()), 4)"		, 0, 3, 0, NIL})//"Referencias"
+	Aadd(aRotina,{STR0010,"FtContato('SA1',SA1->(RecNo()), 4)" 		, 0, 4, 0 ,NIL})// "Contatos"
+
+	Aadd(aRotina,{STR0108,"CRMA200('SA1')"							, 0, 4, 0, NIL})// "Privilégios"
+	Aadd(aRotina,{STR0095,"A030Per()",0,4,0,NIL})// "Perfil" 
+
+	/* Integração RISK - TOTVS Mais Negócios
+	Adiciona itens de concessão caso utilize o TOTVS Mais Negócios */
+	lVldOffBalance := FindFunction( "RskIsActive" ) .And. FindFunction( "RskCliPosition" ) .And. AliasInDic( "AR3" ) .And. AliasInDic( "AR5" )
+	
+	If  lVldOffBalance .And. RskIsActive()
+		Aadd(aRotina,{STR0193,"RskCliPosition(SA1->A1_COD,SA1->A1_LOJA)", 0, 4, 0, NIL})// "Posição Mais Negócios"
+		Aadd(aRotina,{STR0194,"RSKA060()", 0, 2, 0, NIL})// "Histórico de Concessão - Mais Negócios"
+	EndIf                
+
+	//Verifica se usuario possui acesso nas rotinas do Perfil 360.
+	//Protegido para impedir erro no Loja 
+	#IFDEF TOP
+		If ( !IsBlind() .And. cPaisLoc <> "RUS" )
+			aPerfil360 := CRM710P360()
+		EndIf
+	#ENDIF
+
+	If Empty( aPerfil360 )
+		
+		If cPaisLoc <> "RUS"	
+			ADD OPTION aOpor     TITLE STR0137 ACTION "CRMXNewOpo('SA1',SA1->A1_COD,SA1->A1_LOJA)" OPERATION  8 ACCESS 0  //"Nova Oportunidade"
+			ADD OPTION aOpor     TITLE STR0138 ACTION "CRMA110()"                                  OPERATION  8 ACCESS 0  //"Todas as Oportunidades"
+			ADD OPTION aEntRelac TITLE STR0136 ACTION aOpor                                        OPERATION  8 ACCESS 0  //"Oportunidades"
+		EndIf
+	
+		ADD OPTION aApont    TITLE STR0118 ACTION "CRMXNewApo('SA1',SA1->A1_COD,SA1->A1_LOJA)" OPERATION  8 ACCESS 0  //"Novo Apontamento"
+		ADD OPTION aApont    TITLE STR0119 ACTION "CRMA330()"                                  OPERATION  8 ACCESS 0  //"Todos os Apontamentos"
+		ADD OPTION aEntRelac TITLE STR0120 ACTION aApont                                       OPERATION  8 ACCESS 0        //"Apontamentos"
+		ADD OPTION aEntRelac TITLE STR0139 ACTION "CRMA310()"                                  OPERATION  8 ACCESS 0  //"Cons. Pedido de Venda"
+		
+		Asort(aEntRelac,,,{ | x,y | y[1] > x[1] } )
+		Aadd(aRotina,{STR0113,aEntRelac , 0 , 8,0 ,NIL})//"Relacionadas"
+		
+	Else
+		Aadd(aRotina,{STR0156, aPerfil360 , 0 , 8,0 ,NIL})//"Perfil 360"	
+	EndIf			
+	
+EndIf
+ 
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada - Adiciona rotinas ao aRotina       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistTemplate("MA030ROT")
+	aRotAdic := ExecTemplate("MA030ROT", .F., .F.)
+	If ValType(aRotAdic) == "A"
+		AEval(aRotAdic,{|x| AAdd(aRotina,x)})
+	EndIf
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada - Adiciona rotinas ao aRotina       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MA030ROT")
+	aRotAdic := ExecBlock("MA030ROT", .F., .F.)
+	If ValType(aRotAdic) == "A"
+		AEval(aRotAdic,{|x| AAdd(aRotina,x)})
+	EndIf
+EndIf      
+
+Return(aRotina)     
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mata030Ref
+Manutencao das informações cadastrais do cliente
+@sample	Mata030Ref(cAlias,nReg,nOpcx)
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+@return	Nil
+@author	Eduardo Motta      
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Mata030Ref(cAlias,nReg,nOpcx)
+
+Local aPages	:= {}, aTitles := {}
+Local nControl	:= 0
+Local oDlg	
+Local aNaoG1 	:= {"AO_FILIAL","AO_CLIENTE","AO_LOJA","AO_TIPO","AO_TELEFONE","AO_CONTATO","AO_DESDE","AO_ULTCOM", ;
+						"AO_MAICOM","AO_VLRMAI","AO_PAGPON","AO_BCOCAR","AO_LIMCRE","AO_MOVCC","AO_OUTOPE" }
+Local aNaoG2 	:= {"AO_FILIAL","AO_CLIENTE","AO_LOJA","AO_TIPO","AO_MOVCC","AO_OUTOPE"}
+Local aNaoG3 	:= {"AO_FILIAL","AO_CLIENTE","AO_LOJA","AO_TIPO","AO_ULTCOM","AO_MAICOM","AO_VLRMAI","AO_PAGPON",;
+                 "AO_BCOCAR","AO_LIMCRE"} 
+Local cLinOk 	:= "AllWaysTrue()"                 
+Local cTudOk 	:= "AllWaysTrue()"                 
+Local lGetD 	:= .F.
+Local aCBox
+Local aSavSA1 	:= SA1->(GetArea())
+Local aObjects 	:= {} 
+Local aPosObj  	:= {} 
+Local aSizeAut 	:= {}
+Local aNaoGD   	:= {} 
+Local nBotGetD 	:= 0
+Local nRigGetD 	:= 0
+Local nBotFd   	:= 0
+Local nRigFd   	:= 0
+Local nPosItem	:= 0
+
+Private aRotina 	:= { {""  	,""		, 0 , 1},;
+                      {STR0012	,""	, 0 , 2},; // //"Vizualizar"
+                      {STR0013  	,""	, 0 , 3}} // //"Alterar"
+Private nControGD	:= 0    // variavel para controle da ultima GETDADOS editada devido ao problema de que quando se esta editando a getdados e depois clica direto no OK nao e' executado o CODBLOCK de LOSTFOCUS da GETDADOS.
+Private nOpcao		:= If(nOpcx#2,3,nOpcx)
+Private aSvHeader	:= {{},{},{}}
+Private aSvCols	    := {{},{},{}}
+Private aHeader1    := {}
+Private aCols1      := {}
+Private aHeader2    := {}
+Private aCols2      := {}
+Private aHeader3    := {}
+Private aCols3      := {}
+Private oGet01		:= NIL
+Private oGet02		:= NIL
+Private oGet03		:= NIL
+Private n			:= 1
+Private aCols       := {}
+Private aHeader     := {}
+Private aSvAtela	:= {{},{},{}}
+Private aSvAGets	:= {{},{},{}}
+Private aTela		:= {}
+Private aGets		:= {}
+Private oEnc01		:= NIL
+Private lOk			:= .F.
+Private nFoldAtu	:= 1
+Private Inclui		:= (nOpcao==3)
+Private Altera		:= (nOpcao==4)
+Private Exclui		:= (nOpcao==5)  
+
+If Type("cCadastro") == "U"
+	Private cCadastro := STR0011
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para restringir a exibicao dos campos nos diferentes folders ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ  
+If ExistBlock( "MA030REF" ) 
+	aNaoGD := ExecBlock( "MA030REF", .F., .F. ) 
+	AEval( aNaoGD[ 1 ], { |x| AAdd( aNaoG1, x ) } )  
+	AEval( aNaoGD[ 2 ], { |x| AAdd( aNaoG2, x ) } )  
+	AEval( aNaoGD[ 3 ], { |x| AAdd( aNaoG3, x ) } )  	
+EndIf 	
+
+aCBox := RetX3Box("AO_TIPO")
+Aadd(aTitles,aCBox[1])
+Aadd(aPages,"HEADER 1")
+nControl++
+Aadd(aTitles,aCBox[2])
+Aadd(aPages,"HEADER 2")
+nControl++
+Aadd(aTitles,aCBox[3])
+Aadd(aPages,"HEADER 3")
+
+nControl++
+
+If nOpcao # 2	.AND. nOpcao # 5		// Visual/Excluir
+	lGetD :=.T.
+EndIf
+
+aSizeAut := MsAdvSize()
+aObjects := {} 
+AAdd( aObjects, { 68, 312, .T., .t. } )
+AAdd( aObjects, { 105,309, .t., .t. } )
+
+aInfo := { aSizeAut[ 1 ], aSizeAut[ 2 ], aSizeAut[ 3 ], aSizeAut[ 4 ], 3, 3 } 
+
+aPosObj := MsObjSize( aInfo, aObjects ) 
+
+   DbSelectArea("SA1")
+   DbSetOrder(1)
+
+   DEFINE MSDIALOG oDlg TITLE cCadastro FROM aSizeAut[7],0 TO aSizeAut[6],aSizeAut[5] OF oMainWnd PIXEL
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Enchoice 01							                 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ  
+	DbSelectArea("SA1")                 
+
+	aTela := {}
+	aGets := {}
+
+	RegToMemory("SA1",.F.,.F.)
+
+	oEnc01:= MsMGet():New("SA1" ,nReg ,2,,,,,aPosObj[1],,,,,,oDlg,,,.F.,"aSvATela[1]",.T.)
+	oEnc01:oBox:bGotFocus   := {|| Fd_EntraEnc(1,"SA1")}
+	oEnc01:oBox:bLostFocus  := {|| Fd_SaiEnc(1)}
+   
+	aSvATela[1] := aClone(aTela)
+	aSvAGets[1] := aClone(aGets)
+
+	nBotFd   := (aPosObj[2,3]-aPosObj[2,1])
+	nRigFd   := (aPosObj[2,4]-aPosObj[2,2])
+	nBotGetD := (aPosObj[2,3]-aPosObj[2,1]-15)
+	nRigGetD := (aPosObj[2,4]-aPosObj[2,2]-2)
+
+	oFolder := TFolder():New(aPosObj[2,1],aPosObj[2,2],aTitles,aPages,oDlg,,,,.T.,.F.,nRigFd,nBotFd,)
+
+
+	DbSelectArea("SAO")
+	DbSetOrder(1)
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ getDados 03								  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    aHeader:= {}
+	aCols  := {}
+	If MsSeek(xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA+"3")
+		cSeek  	  := xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA
+		cWhile 	  := "AO_FILIAL+AO_CLIENTE+AO_LOJA"
+		bCondicao := {|| If( SAO->AO_TIPO == "3" , .T. , .F. ) }
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados( IIf(nOpcao == 3 , 4 , 2) ,"SAO",1,cSeek,{|| &cWhile },bCondicao,aNaoG3,,,,,,,,,,,)
+	Else
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados(3,"SAO",1,,,,aNaoG3,,,,,.T.,,,,,)
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_DATA" }) ]:= dDataBase })
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_DESDE"}) ]:= dDataBase })
+		nPosItem := aScan(aHeader,{|x| AllTrim(x[2]) == "AO_ITEM"})
+		If nPosItem > 0 .And. Len(aCols) > 0
+			aCols[1][nPosItem] := StrZero(1,TamSX3("AO_ITEM")[1])  
+		EndIf
+	EndIf
+	
+	aHeader3 := aClone(aHeader)
+	aCols3	 := aClone(aCols)
+	n		 := Len(aCols)
+	
+	oGet03 	:= MSGetDados():New(0,0,nBotGetd,nRigGetd,nOpcao,cLinOK,cTudOk,"+AO_ITEM",lGetD,,1,,,,,,,oFolder:aDialogs[3])
+	oGet03  :oBrowse:lDisablePaint := .T.	
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ getDados 02								  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    aHeader:= {}
+	aCols  := {}
+	If MsSeek(xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA+"2") 
+		cSeek  	  := xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA
+		cWhile 	  := "AO_FILIAL+AO_CLIENTE+AO_LOJA"
+		bCondicao := {|| If( SAO->AO_TIPO == "2" , .T. , .F. ) }
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados( IIf(nOpcao == 3 , 4 , 2) ,"SAO",1,cSeek,{|| &cWhile },bCondicao,aNaoG2,,,,,,,,,,,)
+	Else
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados(3,"SAO",1,,,,aNaoG2,,,,,.T.,,,,,)
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_DATA"  }) ]:= dDataBase })
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_DESDE" }) ]:= dDataBase })
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_ULTCOM"}) ]:= dDataBase })
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_MAICOM"}) ]:= dDataBase })
+		nPosItem := aScan(aHeader,{|x| AllTrim(x[2]) == "AO_ITEM"})
+		If nPosItem > 0 .And. Len(aCols) > 0
+			aCols[1][nPosItem] := StrZero(1,TamSX3("AO_ITEM")[1])
+		EndIf
+	EndIf
+	
+	aHeader2 := aClone(aHeader)
+	aCols2	 := aClone(aCols)
+	n		 := len(aCols)
+
+	oGet02 	:= MSGetDados():New(0,0,nBotGetd,nRigGetd,nOpcao,cLinOK,cTudOk,"+AO_ITEM",lGetD,,1,,,,,,,oFolder:aDialogs[2])
+	oGet02  :oBrowse:lDisablePaint := .T.	
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ getDados 01								  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+    aHeader := {}
+	aCols   := {}
+	If MsSeek(xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA+"1")
+		cSeek  	  := xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA
+		cWhile 	  := "AO_FILIAL+AO_CLIENTE+AO_LOJA"
+		bCondicao := {|| If( SAO->AO_TIPO == "1" , .T. , .F. ) }
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados( IIf(nOpcao == 3 , 4 , 2) ,"SAO",1,cSeek,{|| &cWhile },bCondicao,aNaoG1,,,,,,,,,,,)
+	Else
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Sintaxe da FillGetDados(nOpcX,Alias,nOrdem,cSeek,bSeekWhile,uSeekFor,aNoFields,aYesFields,lOnlyYes,cQuery,bMontCols,lEmpty,aHeaderAux,aColsAux,bAfterCols,bBeforeCols,bAfterHeader,cAliasQry |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		FillGetDados(3,"SAO",1,,,,aNaoG1,,,,,.T.,,,,,)
+		aEval(aCols,{|x| x[ aScan(aHeader,{|x| AllTrim(x[2]) == "AO_DATA"}) ]:= dDataBase })
+		nPosItem := aScan(aHeader,{|x| AllTrim(x[2]) == "AO_ITEM"})
+		If nPosItem > 0 .And. Len(aCols) > 0
+			aCols[1][nPosItem] := StrZero(1,TamSX3("AO_ITEM")[1])
+		EndIf
+	EndIf
+	
+	aHeader1 := aClone(aHeader)
+	aCols1	 := aClone(aCols)
+	n		 := len(aCols)
+
+	oGet01 	:= MSGetDados():New(0,0,nBotGetd,nRigGetd,nopcao,cLinOK,cTudOk,"+AO_ITEM",lGetD,,1,,,,,,,oFolder:aDialogs[1])		
+	oGet01  :oBrowse:lDisablePaint := .T.
+
+	oFolder:bSetOption:={|nAtu| MT030Fld(nAtu,oFolder:nOption,oFolder,{oGet01,oGet02,oGet03})}
+   
+	FATPDLogUser('MATA030REF')	// Log de Acesso LGPD
+	ACTIVATE DIALOG oDlg ON INIT ( MT030Refre( {oGet01,oGet02,oGet03} ),;
+	EnchoiceBar(oDlg, {|| oFolder:SetOption(IIf(oFolder:nOption<>1,1,2)),lOk:=.T. ,If(MT030Ok({oGet01,oGet02,oGet03},oFolder:nOption),(If(Str(nOpcao,1) $ "345",Mata030Grv(),.t.),oDlg:End()),.F.)   },{|| oDlg:End()},,,,,,.F. ), Mata030Ini())
+    RestArea(aSavSA1)
+
+Return 
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mata030Ini
+Funcao para inicio da dialog  
+@sample	Mata030Ini()
+@return	Verdadeiro
+@author	Eduardo Motta    
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------   
+Static Function Mata030Ini()
+	oGet01:oBrowse:SetFocus()	
+	oGet01:oBrowse:Refresh(.T.)
+Return .T.
+
+
+Function RFMashups(cCNPJ,aArray)
+//Dummy function mantida caso algum cliente não atualize os outros fontes que contém a chamada desta função
+Return .T.
+
+//-------------------------------------
+/*	Modelo de Dados
+@author  	Leandro Paulino / Jefferson Tomaz
+@version 	P10 R1.4
+@build		7.00.101202A
+@since 		06/04/2011
+@return 		oModel Objeto do Modelo*/
+//-------------------------------------
+Static Function ModelDef()
+
+Local oModel 	   	:= Nil
+Local oStructSA1	:= Nil
+Local lIntGFE    	:= SuperGetMv("MV_INTGFE",,.F.)
+
+If GetBuild() >= '7.00.101202A'
+	
+	oStructSA1 := FwFormStruct(1,"SA1")
+	
+	If lIntGFE
+		oStructSA1:AddField( ;                    // Ord. Tipo Desc.
+		STR0179                   		  , ;      // [01]  C   Titulo do campo "Cli.Filial" 
+		STR0180	               		  , ;      // [02]  C   ToolTip do campo "Cliente Filial"      
+		"A1_CLIFIL"                      , ;      // [03]  C   Id do Field
+		'C'                              , ;      // [04]  C   Tipo do campo
+		1                                , ;      // [05]  N   Tamanho do campo
+		0                                , ;      // [06]  N   Decimal do campo
+		NIL                              , ;      // [07]  B   Code-block de validação do campo
+		NIL                              , ;      // [08]  B   Code-block de validação When do campo
+		NIL                              , ;      // [09]  A   Lista de valores permitido do campo
+		NIL                              , ;      // [10]  L   Indica se o campo tem preenchimento obrigatório
+		FwBuildFeature( STRUCT_FEATURE_INIPAD,'A030CliFil(SA1->A1_CGC)' ), ;   // [11]  B   Code-block de inicializacao do campo
+		NIL                              , ;      // [12]  L   Indica se trata-se de um campo chave
+		NIL                              , ;      // [13]  L   Indica se o campo pode receber valor em uma operação de update.
+		.T.                              )        // [14]  L   Indica se o campo é virtual
+		
+		oStructSA1:AddField( ;                    // Ord. Tipo Desc.
+		STR0181                   		 , ;      // [01]  C   Titulo do campo "IBGE Compl"  
+		STR0182               			 , ;      // [02]  C   ToolTip do campo "Cod.IBGE Compl "
+		"A1_CDIBGE"                      , ;      // [03]  C   Id do Field
+		'C'                              , ;      // [04]  C   Tipo do campo
+		7                                , ;      // [05]  N   Tamanho do campo
+		0                                , ;      // [06]  N   Decimal do campo
+		NIL                              , ;      // [07]  B   Code-block de validação do campo
+		NIL                              , ;      // [08]  B   Code-block de validação When do campo
+		NIL                              , ;      // [09]  A   Lista de valores permitido do campo
+		NIL                              , ;      // [10]  L   Indica se o campo tem preenchimento obrigatório
+		FwBuildFeature( STRUCT_FEATURE_INIPAD,'TMS120CdUf(SA1->A1_EST, "1") + SA1->A1_COD_MUN' ), ;   // [11]  B   Code-block de inicializacao do campo
+		NIL                              , ;      // [12]  L   Indica se trata-se de um campo chave
+		NIL                              , ;      // [13]  L   Indica se o campo pode receber valor em uma operação de update.
+		.T.                              )        // [14]  L   Indica se o campo é virtual
+		
+		oStructSA1:AddTrigger( ;
+		"A1_COD_MUN" ,;                                                      // [01] Id do campo de origem
+		"A1_CDIBGE"  ,;                                                      // [02] Id do campo de destino
+		{|| .T. }    ,;                                                    // [03] Bloco de codigo de validação da execução do gatilho
+		&( ' { | oModel |  TMS120CdUf(M->A1_EST, "1") + M->A1_COD_MUN } ' ) )   // [04] Bloco de codigo de execução do gatilho
+		
+	EndIf
+	
+	// Tira validação da estrutura
+	oStructSA1:SetProperty( '*', MODEL_FIELD_VALID, FWBuildFeature( STRUCT_FEATURE_VALID, '.T.' ) )   
+	oStructSA1:SetProperty( '*'         , MODEL_FIELD_WHEN,  NIL )
+	
+	oModel:= MpFormModel():New("MATA030",/*bPreValid*/,/*bPosValid*/,/*Commit*/,/*Cancel*/)
+	oModel:AddFields("MATA030_SA1",Nil,oStructSA1,/*bPreValid*/,/*bPosValid*/,/*Carga*/)
+	oModel:SetDescription(STR0006)
+	oModel:GetModel("MATA030_SA1"):SetDescription(STR0006)
+	oModel:SetPrimaryKey({"A1_COD","A1_LOJA"})
+	
+EndIf
+
+Return ( oModel )
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} IntegDef
+Funcao de tratamento para o recebimento/envio de mensagem unica de cadastro de clientes. 
+@sample	IntegDef( cXML, nTypeTrans, cTypeMessage )
+@param		ExpC1 = Conteúdo XML 
+			ExpN1 = Tipo dtransação
+			ExpC2 = Tipo de Menssagem 
+@return	aRet
+@author	Marcelo C. Coutinho    
+@since		28/10/2011
+@version	12
+/*/
+//----------------------------------------------------------------------------
+Static Function IntegDef( xEnt, nTypeTrans, cTypeMessage, cVersion, cTransaction, lJSon )
+
+Local aRet := {}
+
+Default lJSon := .F.
+
+//a funcao integdef original foi transferida para o fonte mati030, conforme novas regras de mensagem unica.
+
+If lJSon 
+	aRet:= MATI030O( xEnt, nTypeTrans, cTypeMessage )
+Else
+	aRet:= MATI030( xEnt, nTypeTrans, cTypeMessage, cVersion, cTransaction )
+Endif
+
+Return aRet
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³A030WebbIcºAutor  ³Marcelo Custodio    º Data ³  22/04/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Permite incluir fornecedor atraves da rotina de reprocessa  º±±
+±±º          ³mento da integracao ACC.                                    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Integracao Compras X ACC.                                  º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A030WebbIc(aFields)
+
+Local aParamSA1	:= {{|| A30WebbVl()},{|| .T.},{|| .T.},{|| .T.}}
+
+DEFAULT aFields := {}
+
+Private aVlWebbSA1  := aFields
+
+Return AxInclui("SA1",1,Nil,,,,"MA030TudOk(3)",.T.,,,aParamSA1)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³A30WebbVlº Autor  ³Marcelo Custodio    º Data ³  22/04/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Preenche os campos pre-configurados na inclusao ACC.        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Integracao Compras X ACC.                                  º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function A30WebbVl()
+
+Local nx := 0
+
+For nX := 1 To Len(aVlWebbSA1)
+	M->&(aVlWebbSA1[nx,1]) := aVlWebbSA1[nx,2]
+Next
+
+Return Nil
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MA030IsMVC
+Define se o cadastro do cliente será executado em MVC.
+@param		Nenhum
+@return	 lMVCCustomer, logico, Indica se o cadastro de clientes
+									 será executado em MVC.
+@author 	Squad CRM / FAT
+@version	12.1.17 / Superior
+@since		19/05/2017
+/*/
+//-------------------------------------------------------------------
+Function MA030IsMVC()  
+
+If lMVCCustomer == Nil
+	lMVCCustomer := SuperGetMv("MV_MVCSA1",,.F.)
+	
+	If FWLibVersion() >= "20210517"
+	    if lMVCCustomer
+		  	FWLsPutAsyncInfo("LS006", RetCodUsr(), '05', "CRMA980")	
+		EndIf	
+		//Telemetria - MV_MVCSA1 - Modo de Utilização do Cadastro de Cliente		
+		FwCustomMetrics():setUniqueMetric("MATA030","faturamento-protheus_total-utilizacao-cadastro-cliente_total", IIf(lMVCCustomer,".T.",".F."), /*dDateSend*/, /*nLapTime*/,"MATA030")
+	EndIf
+EndIf
+
+Return lMVCCustomer
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} MA030BrwCfg
+Retorna as configurações adicionais do browse para cadastro de clientes.
+@return   	aBrwConfig - Array com configurações adicionais.
+@author 	Squad CRM / FAT
+@version	12.1.17 / Superior
+@since		19/05/2017
+/*/
+//------------------------------------------------------------------------------
+Function MA030BrwCfg()
+Return( aBrwConfig )
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLogUser
+    @description
+    Realiza o log dos dados acessados, de acordo com as informações enviadas, 
+    quando a regra de auditoria de rotinas com campos sensíveis ou pessoais estiver habilitada
+	Remover essa função quando não houver releases menor que 12.1.27
+    @type  Function
+    @sample FATPDLogUser(cFunction, nOpc)
+    @author Squad CRM & Faturamento
+    @since 06/01/2020
+    @version P12
+    @param cFunction, Caracter, Rotina que será utilizada no log das tabelas
+    @param nOpc, Numerico, Opção atribuída a função em execução - Default=0
+    @return lRet, Logico, Retorna se o log dos dados foi executado. 
+    Caso o log esteja desligado ou a melhoria não esteja aplicada, também retorna falso.
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDLogUser(cFunction, nOpc)
+
+	Local lRet := .F.
+
+	If FATPDActive()
+		lRet := FTPDLogUser(cFunction, nOpc)
+	EndIf 
+
+Return lRet  
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDActive
+    @description
+    Função que verifica se a melhoria de Dados Protegidos existe.
+    @type  Function
+    @sample FATPDActive()
+    @author Squad CRM & Faturamento
+    @since 17/12/2019
+    @version P12    
+    @return lRet, Logico, Indica se o sistema trabalha com Dados Protegidos
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDActive()
+
+    Static _lFTPDActive := Nil
+  
+    If _lFTPDActive == Nil
+        _lFTPDActive := ( GetRpoRelease() >= "12.1.027" .Or. !Empty(GetApoInfo("FATCRMPD.PRW")) )  
+    Endif
+
+Return _lFTPDActive
+
+/*/{Protheus.doc} ExpRotMt3
+	Apresenta uma tela informando que a rotina sera descontinuada
+	@type  Function
+	@author CRM/FAT
+	@since 17/03/2022
+	@version 1.0
+	@param cExpirFunc, caracter, nome da rotina que deve ser descontinuada
+	@param cDescrFunc, caracter, descricaod a rotina e nome da rotina que substitui a rotina descontinuada
+	@param cExpiraData, caracter, data de experira??o a ser informada deve estar no formato AAAAMMDD
+	@param cEndWeb, caracter, endere?o http referente a rotina que esta sendo descontinuada
+/*/
+Static Function ExpRotMt3(cExpirFunc as character, cDescrFunc as character, cEndWeb as character, cExpiraData as character, nPauseDays as numeric, cBlocData as character)
+Local dDate      as date
+Local oProfile   as object
+Local aLoad      as array
+Local cShow      as character
+Local lCheck     as logical
+
+
+// Data de expiração da rotina
+DEFAULT cExpiraData := "20220404"
+
+// numero de dias que pode ser desabilitada a mensagem
+DEFAULT nPauseDays := 30
+
+//Data a partir da qual a rotina está bloqueada
+Default cBlocData := '20220801'
+
+dDate := Date()
+oProfile := FwProFile():New()
+oProfile:SetTask("ESTExpired") //Nome da sessao
+oProfile:SetType(cExpirFunc) //Valor
+aLoad := oProfile:Load()
+If Empty(aLoad)
+	cShow := "00000000"
+Else
+	cShow := aLoad[1]
+Endif
+
+// reseta o controle de nPauseDays dias e volta apresentar a tela de advertencia
+If cShow <> "00000000" .and. STOD(cShow) + nPauseDays <= dDate
+	cShow := "00000000"
+	oProfile:SetProfile({cShow})
+	oProfile:Save()
+ENDIF
+
+If cShow == "00000000"
+	lCheck := DlgExpMt3(cExpiraData, nPauseDays, cDescrFunc, cEndWeb, cBlocData)
+
+	If lCheck
+		cShow := dtos(date())	
+		oProfile:SetProfile({cShow})
+		oProfile:Save()
+	EndIf
+
+EndIf
+
+oProfile:Destroy()
+oProfile := nil
+aLoad := aSize(aLoad,0)
+aLoad := nil
+
+RETURN
+
+/*/{Protheus.doc} DlgExpMt3
+	Apresenta uma tela informando que a rotina sera descontinuada
+	@type  Function
+	@author CRM/FAT
+	@since 17/03/2022
+	@version 1.0
+	@param cExpiraData, caracter, data de experiração a ser informada deve estar no formato AAAAMMDD
+	@param nPauseDays, numeric, numero de dias que a mensagem pode ser ocultada
+	@param cDescrFunc, caracter, descricaod a rotina e nome da rotina que substitui a rotina descontinuada
+	@param cEndWeb, caracter, endere?o http referente a rotina que esta sendo descontinuada
+	@return lCheck, logico, Verdadeiro se foi escolhido para desabilitar a mensagem por 3O dias
+/*/
+Static Function DlgExpMt3(cExpiraData as character, nPauseDays as numeric, cDescrFunc as character, cEndWeb as character, cBlocData as character)
+local oSay1    as object
+local oSay2    as object
+local oSay3    as object
+local oSay4    as object
+local oSay5    as object
+local oCheck1  as object
+local oModal   as object
+Local cMsg1    as character
+Local cMsg2    as character
+Local cMsg3    as character
+Local cMsg4    as character
+Local cMsg5    as character
+Local cRelease as character
+Local lCheck   as logical
+
+cRelease := GetRPORelease() 
+
+oModal := FWDialogModal():New()
+oModal:SetCloseButton( .F. )
+oModal:SetEscClose( .F. )
+oModal:setTitle(STR0200) //"Comunicado Ciclo de Vida de Sofware - TOTVS Linha Protheus"
+
+//define a altura e largura da janela em pixel
+oModal:setSize(180, 250)
+
+oModal:createDialog()
+
+oModal:AddButton( STR0008, {||oModal:DeActivate()}, STR0008, , .T., .F., .T., )
+
+oContainer := TPanel():New( ,,, oModal:getPanelMain() )
+oContainer:Align := CONTROL_ALIGN_ALLCLIENT
+If DToS(Date()) < cExpiraData
+	cMsg1 := i18n(STR0201,{cValToChar(stod(cExpiraData))}) // "Esta rotina será descontinuada e terá sua manutenção encerrada em #1[04/04/2022]#."
+Else
+	cMsg1 := i18n(STR0209,{cValToChar(stod(cExpiraData))}) // "Esta rotina foi descontinuada e teve sua manutenção encerrada em #1[04/04/2022]#."
+EndIf
+If cRelease == '12.1.027' .Or. cRelease == '12.1.033'
+	cMsg5 := i18n(STR0202,{cValToChar(stod(cBlocData))}) //"Sua utilização será bloqueada a partir de #1[01/08/2022]#, para o release 12.1.2210 e superiores."
+EndIf
+cMsg2 := i18n(STR0203, {cDescrFunc} ) //"A rotina que a substituirá é o #1[Cadastro de Cliente em MVC(CRMA980)]#, já disponivel em nosso produto através da configuração do parametro MV_MVCSA1"
+cMsg4 := STR0204 //"Para maiores informações, favor contatar o administrador do sistema ou seu ESN TOTVS.",)
+
+oSay1 := TSay():New( 10,10,{||cMsg1 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+oSay5 := TSay():New( 20,10,{||cMsg5 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+
+oSay2 := TSay():New( 40,10,{||cMsg2 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+
+cMsg3 := Alltrim(STR0205)+space(01) // "Para conhecer mais sobre a convergência entre essas rotinas, "
+If ! Empty(cEndWeb)
+	cMsg3 += "<b><a target='_blank' href='"+cEndWeb+"'> "
+	cMsg3 += Alltrim(STR0206) // "clique aqui"
+	cMsg3 += " </a></b>."
+	cMsg3 += "<span style='font-family: Verdana; font-size: 12px; color: #565759;' >" + ' ' +"</span>"
+	oSay3 := TSay():New(60,10,{||cMsg3},oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+	oSay3:bLClicked := {|| MsgRun( STR0207, "URL",{|| ShellExecute("open",cEndWeb,"","",1) } ) } // "Abrindo o link... Aguarde..."
+EndIf
+oSay4 := TSay():New( 80,10,{||cMsg4 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+
+lCheck := .F.
+oCheck1 := TCheckBox():New(100,10,i18n(STR0208,{strzero(nPauseDays,2)}) ,{|x|If(Pcount()==0,lCheck,lCheck:=x)},oContainer,220,21,,,,,,,,.T.,,,) // "Não apresentar esta mensagem nos próximos #1[30]# dias."
+
+oModal:Activate()
+
+Return lCheck

@@ -1,0 +1,1393 @@
+#INCLUDE "MATA030.CH"   
+#INCLUDE "PROTHEUS.CH" 
+#INCLUDE "FWEVENTVIEWCONSTS.CH"                            
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FWMVCDEF.CH"     
+#INCLUDE "XMLXFUN.CH"
+#INCLUDE "TBICONN.CH"
+#INCLUDE "CRMDEF.CH"
+
+#DEFINE YMF     2
+
+Static lIntegra   := SuperGetMv("MV_LJGRINT", .F., .F.) //Verifica se a integracao esta habilitada
+Static lAmbOffLn  := SuperGetMv("MV_LJOFFLN", Nil, .F.)	//Identifica se o ambiente esta operando em offline
+Static oIntegra   := Nil 									//Objeto do tipo LJCADAPXMLENVSA1
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mat030Oper
+
+Grava informacoes no arqv. de codigo do Operador Logistico
+
+@sample	Mat030Oper(cCod,cLoja,cCGC,cFilialAdm)
+
+@param		ExpC1 = Codigo do Cliente na Filial Corrente 
+			ExpC2 = Codigo da Loja do Cliente na Filial Corrente
+			ExpC3 = CGC do Cliente na Filial Corrente
+			ExpC4 = Filial do operador logistico 
+
+@return	Nil
+
+@author	Rodrigo de A. Sartorio    
+@since		03/07/2001
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Mat030Oper(cCod,cLoja,cCGC,cFilialAdm)
+
+Local cFilBack:=cFilAnt
+Local aArea:=GetArea()
+
+DEFAULT cFilialAdm := SuperGetMV("MV_APDLFOP",.F.,cFilAnt)
+
+cFilAnt:=cFilialAdm // Troca para a filial do operador logistico
+dbSelectArea("DCK")
+Reclock("DCK",.T.)
+	Replace DCK_FILIAL	With xFilial()// Filial do Arquivo no OL
+	Replace DCK_FILCLI	With cFilBack	// Codigo da Filial Corrente
+	Replace DCK_CODCLI	With cCod		// Codigo do Cliente na Filial Corrente
+	Replace DCK_LOJCLI	With cLoja 	// Codigo da Loja do Cliente na Filial Corrente
+	Replace DCK_CGC		With cCgc		// CGC do Cliente na Filial Corrente
+	Replace DCK_CODOPL	With ""		// Codigo do Cliente para a filial de administracao do OL
+	Replace DCK_LOJOPL	With ""		// Codigo da Loja do Cliente para a filial de administracao do OL
+MsUnlock()
+
+cFilAnt:=cFilBack // Troca para a filial de cliente do operador logistico
+
+RestArea(aArea)
+
+Return
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030WizFac
+
+Chamada da rotina que permite uma manutencao facil no cadastro
+
+@sample	A030WizFac()
+
+@return	Verdadeiro
+
+@author	Gustavo G. Rueda      
+@since		27/11/2007
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030WizFac()
+
+Local cCmps		 :=	""
+Local aPar		 :=	{}
+Local cMVA030FAC :=	GetNewPar("MV_A030FAC","")
+
+cCmps	:=	"A1_TIPO/A1_MUN/A1_EST/A1_NATUREZ/A1_ESTADO/A1_BAIRRO/A1_CEP/A1_CONTATO/A1_VEND/A1_COMIS/A1_REGIAO/"
+cCmps	+=	"A1_CONTA/A1_BCO1/A1_BCO2/A1_BCO3/A1_BCO4/A1_BCO5/A1_TRANSP/A1_TPFRET/A1_COND/A1_DESC/A1_PRIOR/A1_RISCO/A1_LC/A1_VENCLC/"
+cCmps	+=	"A1_CLASSE/A1_LCFIN/A1_MOEDALC/A1_CLASVEN/A1_MENSAGE/A1_RECISS/A1_SUFRAMA/A1_TABELA/A1_INCISS/A1_CXPOSTA/A1_ATIVIDA/"
+cCmps	+=	"A1_ALIQIR/A1_CALCSUF/A1_GRPTRIB/A1_BAIRROC/A1_CEPC/A1_MUNC/A1_ESTC/A1_BAIRROE/A1_CEPE/A1_MUNE/A1_ESTE/A1_CODLOC/A1_TPISSRS/"
+cCmps	+=	"A1_CODPAIS/A1_TPESSOA/A1_TIPCLI/A1_EMAIL/A1_CODMUN/A1_HPAGE/A1_CNAE/A1_CONDPAG/A1_DIASPAG/A1_DESCPAG/A1_OBS/A1_RECINSS/"
+cCmps	+=	"A1_RECCOFI/A1_RECCSLL/A1_RECPIS/A1_COD_MUN/A1_CONTAB/A1_GRPVEN/A1_MSBLQL/A1_VINCULO/A1_DTINIV/A1_DTFIMV/A1_SIMPLES/A1_CEINSS/"
+cCmps	+=	"A1_FRETISS/A1_CTARE/A1_ABATIMP/A1_RECIRRF/A1_RECFET/A1_CONTRIB/A1_TIPPRFL/A1_PRF_OBS/A1_PRF_VLD/"
+cCmps	+=	cMVA030FAC
+
+aAdd(aPar,{"SA1","A1_COD+' - '+A1_NOME", cCmps, ""})
+
+MATA984(aPar[1,1],aPar[1,2],aPar[1,3],,aPar[1,4])
+
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MA030OK
+
+Efetua validacoes apos a transacao	
+
+@sample	MA030OK(nOpc)
+
+@param		ExpN1 = Numero da operação 
+			
+@return	Nil
+
+@author	Vendas CRM    
+@since		14/12/2009
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function MA030OK(nOpc)
+	
+Local nMvTipACrd := SuperGetMV("MV_TIPACRD", .F., 1)			//Define tipo de analise de credito 
+Default nOpc 	:= 0											// opção de transação
+
+If nMvTipACrd == YMF
+	LJMsgRun(STR0054,,{||MA030Tools(nOpc)})//"Aguarde... Efetuando Analise de Crédito."
+EndIf
+	
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MA030Tools
+
+Efetua a analise de credito atraves do Intellector
+
+@sample	MA030Tools(nOpc)
+
+@param		ExpN1 = Numero da Operação 
+			
+@return	Nil
+
+@author	Vendas CRM
+@since		14/12/2009
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function MA030Tools(nOpc)
+
+Local cMVTolPoCl	:= ALLTRIM(SuperGetMv("MV_TOLPOCL", .F.,""))  //Politica de cliente para integracao com Intellector
+Local cMVTolTiCl	:= ALLTRIM(SuperGetMv("MV_TOLTICL", .F.,""))  //Tipo de politica de cliente para integracao com Intellector
+Local cMVTolLayo	:= ALLTRIM(SuperGetMv("MV_TOLLAYO", .F.,""))  //Layout da politica para integracao com Intellector
+Local nMvCrdTole	:= SuperGetMV("MV_CRDTOLE", .F., 1)			//Valor de tolerancia para liberacao de limite de credito
+Local nVlrTitAbe	:= 0											    //Valor dos titulos em aberto
+Local nVlrTitAtr	:= 0 											    //Valor dos titulos atrasados
+Local oRetYMF		:= NIL											    //Objeto do tipo Intellector
+Local oEntCli		:= NIL                                        //Entidade de cliente SA1
+Local cMessage		:= ""											//Mensagem a ser exibida apos a analise de credito
+	
+//Consulta os titulos em aberto
+nVlrTitAbe := SldCliente( SA1->A1_COD + SA1->A1_LOJA, Nil, Nil, .F.)
+//Consulta os titulos em atraso
+nVlrTitAtr := CrdXTitAtr(SA1->A1_COD + SA1->A1_LOJA, Nil, Nil, .F.)
+//Faz a analise de credito via Tools
+oRetYMF    := CrdXExecYMF(cMVTolPoCl  , cMVTolTiCl ,cMVTolLayo  ,SA1->A1_COD ,;
+SA1->A1_LOJA, nVlrTitAbe ,nMvCrdTole 	,0  		  ,;
+nVlrTitAtr)
+	
+oEntCli := LJCEntCliente():New()
+
+//Seta os valores da chave
+oEntCli:DadosSet("A1_COD", SA1->A1_COD)
+oEntCli:DadosSet("A1_LOJ", SA1->A1_LOJA)
+	
+//Politica nao executada no intellector por falta de: (Conexao, erro de pacote, etc...)
+If (ValType(oRetYMF) == "N" .AND. oRetYMF == -1)
+		
+	If nOpc == 3
+		//Alterar o cliente para risco maximo e limite de credito zerado
+		oEntCli:DadosSet("A1_RISCO", "E") //RISCO MAXIMO
+		oEntCli:DadosSet("A1_LC", 0)
+	EndIf
+		
+	//Limite de credito nao aprovado
+ElseIf (ValType(oRetYMF) == "O" .AND. !oRetYMF:lAprovado)
+		
+	If nOpc == 3
+		//Alterar o cliente para risco maximo e limite de credito zerado
+		oEntCli:DadosSet("A1_RISCO", "E") //RISCO MAXIMO
+		oEntCli:DadosSet("A1_LC", 0)
+	ElseIf nOpc == 4
+		//Alterar o cliente com limite de credito zerado
+		oEntCli:DadosSet("A1_LC", 0)
+	EndIf
+		
+	cMessage := STR0055 + " (" + oRetYMF:cMotBloq + ")" //"Analise de crédito não aprovado!"
+		
+	//Limite de credito aprovado
+ElseIf ValType(oRetYMF) == "O" .AND. oRetYMF:lAprovado
+		
+	oEntCli:DadosSet("A1_VENCLC", oRetYMF:dDtVctoLim)
+	oEntCli:DadosSet("A1_LC", oRetYMF:nValLimite)
+	oEntCli:DadosSet("A1_RISCO", "A") //RISCO MINIMO
+		
+	cMessage := STR0056 //"Analise de crédito aprovado!"
+EndIf
+	
+oEntCli:Alterar(1)
+	
+If !Empty(cMessage)
+	Alert(cMessage)
+EndIf
+	
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ma030AltOk
+
+Responsavel em enviar os dados do cliente para integracao 
+
+@sample	Ma030AltOk()
+
+@return	Nil
+
+@author	Nunzio Autorino Junior    
+@since		31/03/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ma030AltOk()
+
+Local cTipo 		:= ""											//Como os dados serao integrados no processo offline
+Local oProcessOff 	:= Nil											//Objeto do tipo LJCProcessoOffLine
+Local oModel		:= Nil
+Local lAmbOffLn 	:= SuperGetMv("MV_LJOFFLN", Nil, .F.)			//Identifica se o ambiente esta operando em offline
+Local nOperacao		:= 0
+
+//Verifica se o ambiente esta em off-line
+If lAmbOffLn
+	//Instancia o objeto LJCProcessoOffLine
+	oProcessOff := LJCProcessoOffLine():New("007")
+	
+	oModel	:= FWModelActive()
+	If ValType(oModel) == "O" .AND. oModel:GetId() == "CRMA980" 
+		nOperacao	:= oModel:GetOperation()
+		If nOperacao == 3
+			cTipo := "INSERT"
+		ElseIf nOperacao == 4
+			cTipo := "UPDATE"
+		Else
+			cTipo := "DELETE"
+			//Considera os registros deletados
+			SET DELETED OFF
+		EndIf
+	Else
+		If INCLUI
+			cTipo := "INSERT"
+		ElseIf ALTERA
+			cTipo := "UPDATE"
+		Else
+			cTipo := "DELETE"
+			//Considera os registros deletados
+			SET DELETED OFF
+		EndIf
+	Endif
+	
+	If !Empty(cTipo)
+		//Insere os dados do processo (registro da tabela)
+		oProcessOff:Inserir("SA1", xFilial("SA1") + SA1->A1_COD + SA1->A1_LOJA, 1, cTipo)
+		
+		//Processa os dados
+		oProcessOff:Processar()
+	EndIf
+	
+	//Desconsidera os registros deletados
+	SET DELETED ON
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} M030CGCCPF
+
+Responsavel em gerar o codigo do cliente atraves do CGC/CPF quando o ambiente 
+estiver off-line.             			  
+
+Esta funcao é chamada atraves do gatilho do campo A1_CGC  
+
+@sample	M030CGCCPF()
+
+@return	cRetorno
+
+@author	Nunzio Autorino Junior    
+@since		31/03/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function M030CGCCPF()
+
+Local aArea	   		:= GetArea()           	//Area atual
+Local aAreaSA1 		:= SA1->(GetArea())    //Area do SA1
+Local nTamCod		:= TamSx3("A1_COD")[1]	//Tamanho do campo
+Local cRetorno 		:= Space(nTamCod)		//Retorno da funcao
+Local cCGCCPFDoc	:= ""					//CGC ou CPF informado
+Local nDiv			:= 0                    //Numero utilizado para geracao do A1_COD
+Local nResto		:= 0                    //Guarda o resto da divisao
+Local cNumero		:= Space(nTamCod)		//Numero gerado
+Local lCgcCpf		:= .F.        			//Sinaliza se codigo sera gerado com base no Cpf/CNPJ
+Local nX			:= 0 					//controle do looping
+Local cDocNum		:= ""					//Apoio para converter somente numeros o documento de estrangeiro(A1_PFISICA)
+Local lContinua		:= .T.					//Tratamento duplicidade de Doc.Estrangeiro
+Local nAleatorio	:= -1  					//Apoio quando duplicidade no codigo gerado
+Local cLoja			:= ""                         	
+Local cIniCGCCPF	:= ""	
+Local lRegeraCOD  	:= .F.					// Caso ocorra a duplicidade no codigo, regera invertendo a ordem.
+
+//----------------------------------------------------------------
+// Verifica se a rotina automatica esta ativa                    
+//----------------------------------------------------------------							
+l030Auto := If(Type("l030Auto")=="U", .F., l030Auto)
+
+If  Type("M->A1_LOJA") == "C" .and. !Empty(M->A1_LOJA)
+	cLoja := M->A1_LOJA
+Else
+	cLoja := "1"
+	PadL(cLoja, SA1->(TamSx3("A1_LOJA")[1]), "0")
+EndIf
+
+If INCLUI
+	        
+	If (AllTrim(ReadVar()) == "M->A1_CGC") .OR. (AllTrim(ReadVar()) == "M->A1_PFISICA")
+	    
+		//Prioridade para calculo com base no Cpf/Cnpj
+		IF !Empty(M->A1_CGC)
+			cCGCCPFDoc := M->A1_CGC
+			lCgcCpf	   := .T.
+		ElseIf AllTrim(ReadVar()) == "M->A1_PFISICA" 	//Caso não tenha Cpf/Cnpj, verifica se informou A1_PFISICA
+			cCGCCPFDoc := M->A1_PFISICA	
+		EndIf
+			      
+		While lContinua .AND. !Empty(cCGCCPFDoc)
+			/*
+			Quando calculo com base num documento de estrangeiro, mantem apenas numero e valida se valor não é um CPF/CNPJ válido, 
+			evitando duplicidade. 
+			*/	
+			If !lCgcCpf .AND. AllTrim(Str(Val(cCGCCPFDoc)))  <> AllTrim(cCGCCPFDoc) 
+				For nX:= 1 To Len(cCGCCPFDoc)		    
+				    //Verifica se eh numero, nao utilizar Val() para converter
+					If SubStr(cCGCCPFDoc,nX,1) $ "012456789"      
+						cDocNum += SubStr(cCGCCPFDoc,nX,1)
+					EndIf				
+				Next nX
+				
+				cCGCCPFDoc := cDocNum  //Atualiza conteudo apenas com numeros, acrescenta o zero para validar CPF/CNPJ existente	
+			EndIf	
+			
+			/* 	
+			Quando o CPF/CNPJ comeca com zero, a funcao Val() o retira, deixando nDiv com menos digitos do que deveria,
+			possibilitando assim que esta funcao gere codigos duplicados.
+			Quando Doc estrangeiro utiliza rotina evitar que seja utilizado um doc com numero igual a um CNPJ/CPF
+			*/	
+		  
+			cIniCGCCPF := SubStr(cCGCCPFDoc,1,1) 	// Primeiro digito do CPF/CNPJ
+			
+			If cIniCGCCPF ==  "0" .OR. !lCgcCpf
+				cCGCCPFDoc := NoZeroVldCGC(cCGCCPFDoc,lCgcCpf)
+			EndIf     
+					
+			nDiv := If( Len(AllTrim(cCGCCPFDoc)) > 11, Val(cCGCCPFDoc), Val(SubStr(cCGCCPFDoc,1,Iif(lRegeraCOD,11,9))))	//Se > 11 = Pessoa Juridica ## Se <= 11 = Pessoa Fisica
+		
+			//Calcula codigo
+			While nDiv >= 35 .AND. Len(AllTrim(cNumero)) < 6
+				//Pega o inteiro do resto da divisao
+				nResto := int(nDiv % 35)
+				//Pega o valor inteiro da divisao
+				nDiv := int(nDiv / 35)
+				Iif(lRegeraCOD, cNumero+= AllTrim(IIf(nResto < 10, Str(nResto), Chr(nResto + 55))), cNumero:= AllTrim(IIf(nResto < 10, Str(nResto), Chr(nResto + 55))) + AllTrim(cNumero))
+			End
+		
+		 	//Quando codigo gerado for diferente do tamanho do campo A1_COD, realizado ajuste
+			If Len(AllTrim(cNumero)) <> nTamCod
+				cNumero := AllTrim(IIf(nResto < 10, Str(nResto), Chr(nResto + 55))) + AllTrim(cNumero)
+			EndIf
+		
+			cRetorno := Replicate("0", nTamCod - Len(AllTrim(cNumero))) + AllTrim(cNumero)
+
+			If (ValType(l030Auto)  == "U" .OR. !l030Auto)  .AND. ! ( (  Len(AllTrim(cCGCCPFDoc)) > 11 .AND. GetNewPar("MV_VALCNPJ","1") == "1" ) .And. ( Len(AllTrim(cCGCCPFDoc)) <= 11 .AND. GetNewPar("MV_VALCPF","1") == "1") )
+				
+				//No caso do codigo duplicado, soma posições ate que o codigo seja valido e contador dentro do limite
+				nX := 0
+				
+				SA1->(DbSetOrder(1))			
+				While ( SA1->(dbSeek(xFilial("SA1") + cRetorno + cLoja) ) ) .And. nX <= 300	
+					cRetorno := Soma1(cRetorno)
+					nX++				
+				EndDo
+			EndIf
+			
+			//Quando codigo gerado com base no doc estrangeiro(A1_PFISICA), verifica duplicidade de chave(PK)
+			lContinua := .F.
+			
+			SA1->(DbSetOrder(1))
+			If ( SA1->(dbSeek(xFilial("SA1") + cRetorno) ) )					
+				If !lCgcCpf
+					//Caso não consiga gerar novo codigo, emite aviso e sai da rotina
+					If nAleatorio >= 9
+						Help("",1,"HELP",,STR0075,1)	//"Não foi possível gerar o codigo para o cliente(A1_COD). O conteúdo do campo A1_PFISICA(RG/Cedf.Estr.) já foi utilizado em outro cadastro"
+					Else				
+						lContinua 	:= .T.
+						nAleatorio++
+						cCGCCPFDoc	:= Str(nAleatorio) + cCGCCPFDoc
+					EndIf
+				Elseif !lRegeraCOD	//Tenta regerar somente uma vez caso já exista duplicidade 
+					lContinua 	:= .T.
+					lRegeraCOD	:= .T. 
+					cNumero		:= ""
+				EndIf
+			EndIf
+		End
+	EndIf	
+Else
+	cRetorno := SA1->A1_COD
+EndIf
+
+//Restaura a area atual e do arquivo SA1
+RestArea(aAreaSA1)
+RestArea(aArea)
+	
+Return cRetorno
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ma030Int
+
+Responsavel em gerar os dados da integracao  
+
+@sample	Ma030Int(lAdmFinc, nOpc)
+
+@param		ExpL1  
+			ExpN1 = Numero da Operação 
+
+@return	Nil
+
+@author	Vendas CRM    
+@since		31/03/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ma030Int(lAdmFinc, nOpc)
+
+Local lRetorno	:= .T.					//Retorno da funcao
+Local cChave 	:= ""                  	//Chave do indice 1
+Local lRotAuto  := .F.					//Verifica se he rotina automatica
+    
+DEFAULT lAdmFinc := .F. 
+    
+//Verifica se he rotina automatica
+If !lAdmFinc
+   	lRotAuto := IIF(Type("l030Auto")=="L",.T.,.F.)
+EndIf
+  
+If lIntegra .AND. nOpc == 5 .AND. !lRotAuto
+	oIntegra :=	LJCADAPXMLENVSA1():New()	//Instancia o objeto LJCADAPXMLENVSA1
+	cChave 	:= xFilial("SA1") + SA1->A1_COD + SA1->A1_LOJA	//Prepara a chave
+	oIntegra:Inserir("SA1", cChave, "1", CVALTOCHAR(nOpc))	//Processa os dados da integracao
+	oIntegra:Gerar()	//Gera XML integracao
+EndIf
+	
+Return lRetorno
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ma30IntFim
+
+Responsavel em finalizar a integracao  
+
+@sample	Ma30IntFim(lAdmFinc, nOpc)
+
+@param		ExpL1  
+			ExpN1 = Numero da Operação 
+
+@return	Nil
+
+@author	Vendas CRM    
+@since		31/03/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Ma30IntFim(lAdmFinc, nOpc)
+	
+Local cChave 	:= ""                  	//Chave do indice 1 do vendedor
+Local lRotAuto  := .F.					//Verifica se he rotina automatica
+    
+DEFAULT lAdmFinc := .F. 
+    
+//Verifica se he rotina automatica
+If !lAdmFinc
+    lRotAuto := IIF(Type("l030Auto")=="L",.T.,.F.)
+EndIf
+	
+If lIntegra .AND. oIntegra <> Nil .AND. nOpc == 5 .AND. !lRotAuto 
+    oIntegra:Finalizar()	//Finaliza - Envia EAI
+ElseIf lIntegra .AND. !lRotAuto
+	If nOpc == 3 .OR. nOpc == 4
+		oIntegra :=	LJCADAPXMLENVSA1():New()	//Instancia o objeto LJCADAPXMLENVSA1
+   		cChave 	:= xFilial("SA1") + SA1->A1_COD + SA1->A1_LOJA	//Prepara a chave
+	    oIntegra:Inserir("SA1", cChave, "1", CVALTOCHAR(nOpc))	//Processa os dados da integracao
+		oIntegra:Gerar()	//Gera XML integracao
+    	oIntegra:Finalizar()	//Finaliza - Envia EAI
+	EndIf
+EndIf
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} IntegDef
+
+Funcao de tratamento para o recebimento/envio de mensagem unica de cadastro 
+de clientes. 
+
+@sample	IntegDef( cXML, nTypeTrans, cTypeMessage )
+
+@param		ExpC1 = Conteúdo XML 
+			ExpN1 = Tipo dtransação
+			ExpC2 = Tipo de Menssagem 
+
+@return	aRet
+
+@author	Marcelo C. Coutinho    
+@since		28/10/2011
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function IntegDef( cXML, nTypeTrans, cTypeMessage )
+
+Local aRet := {}
+//a funcao integdef original foi transferida para o fonte mati030, conforme novas regras de mensagem unica.
+aRet:= MATI030( cXml, nTypeTrans, cTypeMessage )
+
+Return aRet
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Hist
+
+Visualizacao do historico das alteracoes  
+
+@sample	A030Hist()
+
+@return	lRet
+
+@author	Wemerson Randolfo      
+@since		03/09/2012
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Hist()
+
+Local lRet
+
+lRet := HistOperFis("SS2",SA1->A1_COD,SA1->A1_NOME,"S2_COD")
+
+Return lRet
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30DelJUR
+
+Deleta o cliente no modulo Juridico                           
+
+@sample	A30DelJUR(aErrorJUR)
+
+@param		ExpA1 = Array de Erro 
+			
+@return	lRet
+
+@author	Vendas CRM    
+@since		06/06/2013
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function	A30DelJUR(aErrorJUR)
+Local aArea := GetArea()
+Local oModel
+Local lRet := .T.
+
+NUH->( dbSetOrder( 1 ) )
+
+If NUH->( dbSeek( xFilial( 'NUH' ) + SA1->A1_COD + SA1->A1_LOJA ) )
+	oModel := FWLoadModel( 'JURA148' )
+	oModel:SetOperation( MODEL_OPERATION_DELETE )
+	oModel:Activate()
+	
+	If oModel:VldData()
+		oModel:CommitData()
+	Else
+		lRet := .F.                
+		aErrorJUR := oModel:GetErrorMessage()
+	EndIf
+	oModel:Deactivate()
+EndIf
+
+RestArea( aArea )
+
+Return lRet
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Ma030Mile
+
+Importa layout do acelerador MILE referente ao adapter MATA030 (Cliente)
+
+@sample 	Ma030Mile() 
+
+@param		cCodLayout				Layout a ser importado
+	
+@return	Verdeiro ou Falso
+
+@author	Aline Kokumai
+@since		21/06/2013       
+@version	P11.80   
+/*/
+//------------------------------------------------------------------------------
+
+Function Ma030Mile(cCodLayout)
+
+Local lRetorno 	:= .T.			//Retorno da função
+Local cCode 	:= "" 			//Codigo do layout
+Local cDesc 	:= ""			//Descrição do layout
+Local cAdapter	:= 'MATA030'	//Nome do adapter
+Local cType		:= '1'			//Código tipo
+Local cAtivo	:= '1'			//Código ativo
+Local cLayout	:= ""
+
+If cCodLayout == "SA1LAY01"
+	FATPDLogUser('MA030MILE')	// Log de Acesso LGPD
+	Tk341SA1LAY(@cCode, @cDesc, @cLayout)
+EndIf
+
+DbSelectArea("XXJ")
+RecLock("XXJ",.T.)
+XXJ->XXJ_CODE 	:= cCode
+XXJ->XXJ_DESC 	:= cDesc
+XXJ->XXJ_ADAPT	:= cAdapter
+XXJ->XXJ_LAYOUT	:= cLayout
+XXJ->XXJ_TYPE	:= cType
+XXJ->XXJ_ACTIVE	:= cAtivo
+XXJ->(MsUnLock())
+
+Return(lRetorno)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Tk341SA1LAY
+
+Carrega o conteúdo XML do layout SA1LAY01.
+
+@sample 	Tk341SA1LAY(cCode, cDesc, cLayout) 
+
+@param		cCode				Codigo do layout	
+@param		cDesc				Descrição do layout
+@param		cLayout			Conteúdo XML do layout
+	
+@return	
+
+@author	Cristiane Nishizaka
+@since		29/10/2013       
+@version	P11.90   
+/*/
+//------------------------------------------------------------------------------
+
+Function Tk341SA1LAY(cCode, cDesc, cLayout)
+
+cCode	:= 'SA1LAY01' 							//Codigo do layout
+cDesc 	:= STR0079								//Descrição do layout: 'LAYOUT IMPORTACAO DE CLIENTE'
+
+cLayout := '<?xml version="1.0" encoding="UTF-8"?><CFGA600 Operation="4" version="1.01">'+;
+					'<XZ1MASTER modeltype="FIELDS" >'+;
+						'<XZ1_LAYOUT order="1"><value>SA1LAY01</value></XZ1_LAYOUT>'+;
+						'<XZ1_TYPE order="2"><value>1</value></XZ1_TYPE>'+;
+						'<XZ1_DESC order="3"><value>'+STR0079+'</value></XZ1_DESC>'+;
+						'<XZ1_ADAPT order="4"><value>MATA030</value></XZ1_ADAPT>'+;
+						'<XZ1_STRUC order="5"><value>2</value></XZ1_STRUC>'+;
+						'<XZ1_SEPARA order="6"><value>;</value></XZ1_SEPARA>'+;
+						'<XZ1_TYPEXA order="7"><value>1</value></XZ1_TYPEXA>'+;
+						'<XZ1_SEPINI order="8"><value>2</value></XZ1_SEPINI>'+;
+						'<XZ1_SEPFIN order="9"><value>2</value></XZ1_SEPFIN>'+;
+						'<XZ1_TABLE order="10"><value>SA1</value></XZ1_TABLE>'+;
+						'<XZ1_DESTAB order="11"><value>'+STR0084+'</value></XZ1_DESTAB>'+; //Clientes
+						'<XZ1_ORDER order="12"><value>1</value></XZ1_ORDER>'+;
+						'<XZ1_SOURCE order="13"><value>0000</value></XZ1_SOURCE>'+;
+						'<XZ1_TIPDAT order="18"><value>1</value></XZ1_TIPDAT>'+;
+						'<XZ1_DECSEP order="19"><value>2</value></XZ1_DECSEP>'+;
+						'<XZ1_EMULTC order="20"><value>2</value></XZ1_EMULTC>'+;
+						'<XZ1_DETOPC order="21"><value>2</value></XZ1_DETOPC>'+;
+						'<XZ1_IMPEXP order="23"><value>1</value></XZ1_IMPEXP>'+;
+						'<XZ1_VERSIO order="24"><value>1.0</value></XZ1_VERSIO>'+;
+						'<XZ1_MVCOPT order="25"><value>1</value></XZ1_MVCOPT>'+;
+						'<XZ1_MVCMET order="26"><value>1</value></XZ1_MVCMET>'+;
+					'<XZ2DETAIL modeltype="GRID">'+;
+						'<struct>'+;
+							'<XZ2_LAYOUT order="1"></XZ2_LAYOUT>'+;
+							'<XZ2_SEQ order="2"></XZ2_SEQ>'+;
+							'<XZ2_CHANEL order="3"></XZ2_CHANEL>'+;
+							'<XZ2_SUPER order="4"></XZ2_SUPER>'+;
+						'</struct>'+;
+							'<items>'+;
+								'<item id="1" deleted="0" >'+;
+									'<XZ2_SEQ>01</XZ2_SEQ>'+;
+									'<XZ2_CHANEL>01</XZ2_CHANEL>'+;
+										'<XZ3DETAIL modeltype="FIELDS" >'+;
+											'<XZ3_CHANEL order="2"><value>01</value></XZ3_CHANEL>'+;
+											'<XZ3_DESC order="3"><value>'+STR0085+'</value></XZ3_DESC>'+; //CANAL 01
+											'<XZ3_IDOUT order="4"><value>MASTER</value></XZ3_IDOUT>'+;
+											'<XZ3_OCCURS order="5"><value>1</value></XZ3_OCCURS>'+;
+										'</XZ3DETAIL>'+;
+										'<XZ4DETAIL modeltype="GRID" optional="1">'+;
+											'<struct>'+;
+												'<XZ4_LAYOUT order="1"></XZ4_LAYOUT>'+;
+												'<XZ4_CHANEL order="2"></XZ4_CHANEL>'+;
+												'<XZ4_SEQ order="3"></XZ4_SEQ>'+;
+												'<XZ4_FIELD order="4"></XZ4_FIELD>'+;
+												'<XZ4_TYPFLD order="5"></XZ4_TYPFLD>'+;
+												'<XZ4_EXEC order="6"></XZ4_EXEC>'+;
+												'<XZ4_COND order="7"></XZ4_COND>'+;
+												'<XZ4_NOVAL order="8"></XZ4_NOVAL>'+;
+												'<XZ4_DESC order="9"></XZ4_DESC>'+;
+												'<XZ4_OBS order="10"></XZ4_OBS>'+;
+												'<XZ4_SOURCE order="11"></XZ4_SOURCE>'+;
+											'</struct>'+;
+												'<items>'+;
+													'<item id="1" deleted="0" >'+;
+														'<XZ4_SEQ>001</XZ4_SEQ>'+;
+														'<XZ4_FIELD>A1_COD</XZ4_FIELD>'+;
+														'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+														'<XZ4_EXEC>GETSXENUM(&quot;SA1&quot;,&quot;A1_COD&quot;)</XZ4_EXEC>'+;
+														'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+														'<XZ4_DESC>'+Transform(RetTitle("A1_COD"), "@!")+'</XZ4_DESC>'+;
+														'<XZ4_SOURCE>0001</XZ4_SOURCE>'+;
+													'</item>'+;
+												'<item id="2" deleted="0" >'+;
+													'<XZ4_SEQ>002</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_LOJA</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_LOJA"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0002</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="3" deleted="0" >'+;
+													'<XZ4_SEQ>003</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_NOME</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_NOME"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0003</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="4" deleted="0" >'+;
+													'<XZ4_SEQ>004</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_NREDUZ</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_NREDUZ"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0004</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="5" deleted="0" >'+;
+													'<XZ4_SEQ>005</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_TIPO</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_TIPO"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0005</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="6" deleted="0" >'+;
+													'<XZ4_SEQ>006</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_END</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_END"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0006</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="7" deleted="0" >'+;
+													'<XZ4_SEQ>007</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_MUN</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_MUN"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0007</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="8" deleted="0" >'+;
+													'<XZ4_SEQ>008</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_EST</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_EST"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0008</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="9" deleted="0" >'+;
+													'<XZ4_SEQ>009</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_COD_MUN</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_COD_MUN"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0009</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="10" deleted="0" >'+;
+													'<XZ4_SEQ>010</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_COMPLEM</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_COMPLEM"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0010</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="11" deleted="0" >'+;
+													'<XZ4_SEQ>011</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_BAIRRO</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_BAIRRO"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0011</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="12" deleted="0" >'+;
+													'<XZ4_SEQ>012</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_CEP</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_EXEC>IIF(!Empty(xA),Strtran(Strtran(Strtran( xA, &quot;-&quot;, &quot;&quot; ),&quot;/&quot;,&quot;&quot;),&quot;.&quot;,&quot;&quot;),&quot;&quot;)</XZ4_EXEC>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_CEP"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0012</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="13" deleted="0" >'+;
+													'<XZ4_SEQ>013</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_PAIS</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_PAIS"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0013</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="14" deleted="0" >'+;
+													'<XZ4_SEQ>014</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_TPESSOA</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_TPESSOA"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0014</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="15" deleted="0" >'+;
+													'<XZ4_SEQ>015</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_DDI</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_DDI"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0015</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="16" deleted="0" >'+;
+													'<XZ4_SEQ>016</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_DDD</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_DDD"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0016</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="17" deleted="0" >'+;
+													'<XZ4_SEQ>017</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_TEL</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_TEL"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0017</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="18" deleted="0" >'+;
+													'<XZ4_SEQ>018</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_TELEX</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_TELEX"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0018</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="19" deleted="0" >'+;
+													'<XZ4_SEQ>019</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_FAX</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_FAX"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0019</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="20" deleted="0" >'+;
+													'<XZ4_SEQ>020</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_CONTATO</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_CONTATO"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0020</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="21" deleted="0" >'+;
+													'<XZ4_SEQ>021</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_EMAIL</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_EMAIL"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0021</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="22" deleted="0" >'+;
+													'<XZ4_SEQ>022</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_HPAGE</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_HPAGE"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0022</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="23" deleted="0" >'+;
+													'<XZ4_SEQ>023</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_ORIGCT</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_ORIGCT"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0023</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="24" deleted="0" >'+;
+													'<XZ4_SEQ>024</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_ENTORI</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_ENTORI"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0024</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="25" deleted="0" >'+;
+													'<XZ4_SEQ>025</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_CGC</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_EXEC>IIF(!Empty(xA),Strtran(Strtran(Strtran( xA, &quot;-&quot;, &quot;&quot; ),&quot;/&quot;,&quot;&quot;),&quot;.&quot;,&quot;&quot;),&quot;&quot;)</XZ4_EXEC>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_CGC"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0025</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="26" deleted="0" >'+;
+													'<XZ4_SEQ>026</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_PFISICA</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_PFISICA"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0026</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="27" deleted="0" >'+;
+													'<XZ4_SEQ>027</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_INSCR</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_INSCR"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0027</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="28" deleted="0" >'+;
+													'<XZ4_SEQ>028</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_INSCRM</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_INSCRM"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0028</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="29" deleted="0" >'+;
+													'<XZ4_SEQ>029</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_DTNASC</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>D</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_DTNASC"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0029</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="30" deleted="0" >'+;
+													'<XZ4_SEQ>030</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_CNAE</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_CNAE"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0030</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="31" deleted="0" >'+;
+													'<XZ4_SEQ>031</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_MSBLQL</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_MSBLQL"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0031</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="32" deleted="0" >'+;
+													'<XZ4_SEQ>032</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_INSCRUR</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_INSCRUR"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0032</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="33" deleted="0" >'+;
+													'<XZ4_SEQ>033</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_ALIFIXA</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_ALIFIXA"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0033</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="34" deleted="0" >'+;
+													'<XZ4_SEQ>034</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_NATUREZ</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_NATUREZ"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0034</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="35" deleted="0" >'+;
+													'<XZ4_SEQ>035</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_VEND</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>C</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_VEND"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0035</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="36" deleted="0" >'+;
+													'<XZ4_SEQ>036</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_COMIS</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>N</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_COMIS"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0036</XZ4_SOURCE>'+;
+												'</item>'+;
+												'<item id="37" deleted="0" >'+;
+													'<XZ4_SEQ>037</XZ4_SEQ>'+;
+													'<XZ4_FIELD>A1_CODSEG</XZ4_FIELD>'+;
+													'<XZ4_TYPFLD>N</XZ4_TYPFLD>'+;
+													'<XZ4_NOVAL>2</XZ4_NOVAL>'+;
+													'<XZ4_DESC>'+Transform(RetTitle("A1_CODSEG"), "@!")+'</XZ4_DESC>'+;
+													'<XZ4_SOURCE>0037</XZ4_SOURCE>'+;
+												'</item>'+;
+												'</items>'+;
+											'</XZ4DETAIL>'+;
+										'<XZ5DETAIL modeltype="GRID" optional="1">'+;
+											'<struct>'+;
+												'<XZ5_LAYOUT order="1"></XZ5_LAYOUT>'+;
+												'<XZ5_CHANEL order="2"></XZ5_CHANEL>'+;
+												'<XZ5_SEQ order="3"></XZ5_SEQ>'+;
+												'<XZ5_FIELD order="4"></XZ5_FIELD>'+;
+												'<XZ5_TYPFLD order="5"></XZ5_TYPFLD>'+;
+												'<XZ5_EXEC order="6"></XZ5_EXEC>'+;
+												'<XZ5_COND order="7"></XZ5_COND>'+;
+												'<XZ5_OBS order="8"></XZ5_OBS>'+;
+												'<XZ5_SOURCE order="9"></XZ5_SOURCE>'+;
+											'</struct>'+;
+										'</XZ5DETAIL>'+;
+									'</item>'+;
+								'</items>'+;
+							'</XZ2DETAIL>'+;
+						'</XZ1MASTER>'+;
+					'</CFGA600>'
+					
+Return				
+
+//-----------------------------------------------------
+/*/	Integra a tabela SA1(Protheus) com GU3(SIGAGFE) a cada registro novo
+@author Felipe Machado de Oliveira
+@param nOperation = 3 - Incluir
+                    4 - Alterar
+                    5 - Excluir
+@version P11
+@since 18/04/2013
+/*/
+//------------------------------------------------------
+Function InterGU3C(nOperation)
+
+Local aAreaGU3	:= GU3->( GetArea() )
+Local lRet			:=  .T.
+Local oModelGU3	:= FWLoadModel("GFEA015")
+Local nTpOpSetad
+Local cMsg			:= ""
+Local cIdClien           := ""
+Local cRet			:= "2"
+Local lNumProp   := Iif(FindFunction("GFEEMITMP"),GFEEMITMP(),.F.)      //Parametro Numeracao
+Local lHlpGfe	:= .F.
+Local lEAICodUnq := Iif(FindFunction("TMSCODUNQ"),TMSCODUNQ(),.F.)      //Codigo Unico
+
+If !lNumProp
+	cIdClien := RegraIdGU3(nOperation,@lRet,@cMsg) 
+ElseIf lEAICodUnq
+	cIdClien := Iif(nOperation == 5,SA1->A1_COD, M->A1_COD) 
+EndIf
+
+If lRet
+	If !lNumProp .Or. lEAICodUnq
+		dbSelectArea("GU3")
+		GU3->( dbSetOrder(1) )
+		GU3->( dbSeek( xFilial("GU3")+cIdClien ) )
+		If !GU3->( Eof() ) .And. GU3->GU3_FILIAL == xFilial("GU3") .And. AllTrim(GU3->GU3_CDEMIT) == AllTrim(cIdClien)
+			nTpOpSetad := If(nOperation == MODEL_OPERATION_DELETE,;
+			                 MODEL_OPERATION_DELETE,;
+							 MODEL_OPERATION_UPDATE)
+			oModelGU3:SetOperation( nTpOpSetad )
+		Else
+			oModelGU3:SetOperation( MODEL_OPERATION_INSERT )
+			nTpOpSetad := MODEL_OPERATION_INSERT
+		EndIf
+	Else
+		If FindFunction( "GFEM011COD")
+			cIdClien := If( nOperation == MODEL_OPERATION_INSERT .Or. nOperation == MODEL_OPERATION_UPDATE,;
+						AllTrim(GFEM011COD(M->A1_COD,M->A1_LOJA,1,,)),;
+						AllTrim(GFEM011COD(SA1->A1_COD,SA1->A1_LOJA,1,,)) )
+		EndIf			  
+		If Empty(cIdClien)
+			oModelGU3:SetOperation(MODEL_OPERATION_INSERT)
+			nTpOpSetad := MODEL_OPERATION_INSERT
+		Else
+			dbSelectArea("GU3")
+			GU3->( dbSetOrder(1) )
+			GU3->( dbSeek( xFilial("GU3")+cIdClien ) )
+			nTpOpSetad := If(nOperation == MODEL_OPERATION_DELETE,;
+			                 MODEL_OPERATION_DELETE,;
+							 MODEL_OPERATION_UPDATE)
+			oModelGU3:SetOperation( nTpOpSetad )
+		EndIf
+	EndIf
+
+	oModelGU3:Activate()
+
+	If nOperation <> MODEL_OPERATION_DELETE
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_NMEMIT', M->A1_NOME )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_NMFAN' , M->A1_NREDUZ )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_NATUR' , IIF(M->A1_TIPO <> 'X',M->A1_PESSOA,'X') )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_DTNASC', M->A1_DTNASC )
+		If !Empty(M->A1_CGC)
+			oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_EMFIL' , A030CLIFIL(M->A1_CGC) )
+		EndIf
+		oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CLIEN' , '1' )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_ENDER' , RTrim(M->A1_END) )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_COMPL' , M->A1_COMPLEM )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_BAIRRO', M->A1_BAIRRO )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CEP'   , M->A1_CEP )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_NRCID' , TMS120CDUF(M->A1_EST, '1') + M->A1_COD_MUN )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_NMCID' , SubStr(M->A1_MUN,1,50) )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_UF'    , M->A1_EST )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_IDFED' , IIF(M->A1_TIPO <> 'X',M->A1_CGC, '') )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_IE'    , M->A1_INSCR )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_IM'    , M->A1_INSCRM )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CXPOS' , SubStr(M->A1_CXPOSTA,1,10) )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_EMAIL' , M->A1_EMAIL )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_FONE1' , M->A1_TEL )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_FAX'   , M->A1_FAX )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_WSITE' , M->A1_HPAGE )
+		oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CONICM' ,IIF(Empty(M->A1_CONTRIB),'1',M->A1_CONTRIB ) )
+
+		If nTpOpSetad == MODEL_OPERATION_UPDATE
+			If nOperation == MODEL_OPERATION_INSERT .AND. GU3->GU3_SIT <> "1" .And. M->A1_MSBLQL <> "1"
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_SIT', "1" )
+			EndIf
+		Else
+			oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_FILIAL',  xFilial("SA1") )
+		
+			If lNumProp
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CDEMIT', If(lEAICodUnq, cIdClien, "ZZZZZZZZZ") )
+				oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CDERP' , M->A1_COD )
+				oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CDCERP', M->A1_LOJA )
+			Else
+				oModelGU3:SetValue( 'GFEA015_GU3', 'GU3_CDEMIT', cIdClien )
+			EndIf
+		
+			oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_ORIGEM', "2" )
+		EndIf
+		
+		If M->A1_MSBLQL == "1"
+			If lNumProp
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CLIEN' , '1' )
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_SIT', "2" )
+			Else
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CLIEN' , '2' )
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_SIT', "2" )
+			EndIf
+			If nTpOpSetad == MODEL_OPERATION_UPDATE .AND. GU3->GU3_FORN == "2" .And. GU3->GU3_EMFIL == "2" .And. GU3->GU3_TRANSP == "2" .And. GU3->GU3_AUTON == "2"
+				oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_SIT', "2" )
+			EndIf
+		Else
+			oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CLIEN' , '1' )
+			oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_SIT'   , '1' )
+		EndIf
+		
+	Else
+		If nTpOpSetad == MODEL_OPERATION_UPDATE
+			oModelGU3:LoadValue( 'GFEA015_GU3', 'GU3_CLIEN' , '2' )
+			cRet := IIF(GU3->GU3_FORN == "2" .And. GU3->GU3_EMFIL == "2" .And. GU3->GU3_TRANSP == "2" .And. GU3->GU3_AUTON == "2","2","1")
+
+			If cRet <> "1"
+				oModelGU3:LoadValue( "GFEA015_GU3", "GU3_SIT", cRet )
+			EndIf
+		EndIf
+	EndIf
+		
+	If oModelGU3:VldData()
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Contas a Receber deste cliente       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+		If A030GFESE1(nOperation)
+			oModelGU3:CommitData()
+		Else
+			lHlpGfe := .T.
+			lRet := .F.
+		EndIf
+	Else
+		cMsg := "Inconsistência com o Frete Embarcador (SIGAGFE): "+CRLF+CRLF+oModelGU3:GetErrorMessage()[6]+oModelGU3:GetErrorMessage()[4]
+		lRet := .F.
+	EndIf
+
+	oModelGU3:Deactivate()
+
+EndIf
+
+If !lRet .And. !lHlpGfe
+	Help( ,, STR0023,,cMsg, 1, 0 ) //"Atenção"
+EndIf
+
+RestArea( aAreaGU3 )
+
+Return lRet
+
+ //---------------------------------------------------------------------------------
+/*/	Verifica valores dos campos SA4 e retorna valor correspondente
+@author Felipe Machado de Oliveira
+@param nOperation = 3 - Incluir
+                    4 - Alterar
+                    5 - Excluir
+       lRet = retorno por referencia .T. ou .F.
+       cMsg = retorno por referencia mensagem de erro 
+@version P11
+@since 18/04/2013
+/*/
+//----------------------------------------------------------------------------------
+Static Function RegraIdGU3(nOperation,lRet,cMsg)
+	Local cRet := ""
+
+	If nOperation == 3
+		If M->A1_TIPO == "X"
+		cRet := AllTrim(M->A1_COD) + AllTrim(M->A1_LOJA)
+		Else
+			If Empty(M->A1_CGC)
+				cMsg := STR0080 //"Informe o campo CNPJ/CPF (A1_CGC)."
+				lRet := .F.
+			Else
+				cRet := M->A1_CGC
+			EndIf
+		EndIf
+
+	ElseIf nOperation == 4
+		If SA1->A1_TIPO == "X"
+			If SA1->A1_TIPO <> M->A1_TIPO
+				cMsg := STR0081 //"Não é possível alterar o Tipo para diferente de 'Exportação'."
+				lRet := .F.
+			Else
+				cRet := AllTrim(SA1->A1_COD) + AllTrim(SA1->A1_LOJA)
+			EndIf
+		Else
+			If M->A1_TIPO == "X"
+				cMsg := STR0082 //"Não é possível alterar o Tipo para 'Exportação'."
+				lRet := .F.
+			Else
+				If !Empty(SA1->A1_CGC)
+					If SA1->A1_CGC <> M->A1_CGC
+						cMsg := STR0083 //"CNPJ/CPF não pode ser alterado por servir como chave de identificação no SIGAGFE."
+						lRet := .F.
+					Else
+						cRet := SA1->A1_CGC
+					Endif
+				Else
+					If Empty(M->A1_CGC)
+						cMsg := STR0080 //"Informe o campo CNPJ/CPF (A1_CGC)."
+						lRet := .F.
+					Else
+						cRet := M->A1_CGC
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+
+	ElseIf nOperation == 5
+		cRet := If(SA1->A1_TIPO == "X",;
+		           AllTrim(SA1->A1_COD) + AllTrim(SA1->A1_LOJA),;
+				   SA1->A1_CGC)
+
+	EndIf
+
+Return cRet
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Cep
+
+Utilizacao dos dados fornecidos pelos correios 
+
+@sample	A030Cep(cTipo)
+
+@param		ExpC1 = CEP 
+			
+@return	Verdadeiro
+
+@author	Eduardo Riera    
+@since		30/11/2006
+@version	12
+/*/
+//-----------------------------------------------------------------------------
+Function A030Cep(cTipo)
+//Dummy function mantida devido a compatibilidade com o dicionário.
+Return .T.
+
+
+/*/	Verifica se existem títulos a receber
+@author Serviços
+@param nOperation = 3 - Incluir
+                    4 - Alterar
+                    5 - Excluir
+       lRet = retorno por referencia .T. ou .F.
+ 
+@version P12.1.7
+@since 23/01/2017
+/*/
+//----------------------------------------------------------------------------------
+Static Function A030GFESE1(nOperation)
+
+Local aArea		  := GetArea()
+Local lRet 		  := .T.
+Local aSM0CodFil  := {}
+Local aFiliais    := {}
+Local nRecnoSM0   := SM0->(RecNo())
+Local nBusca      := 0 
+
+If nOperation == MODEL_OPERATION_DELETE
+	// Preenche um array com as filiais
+	DbSelectArea("SM0")
+	DbGoTop()
+	Do While ! Eof()
+		If SM0->M0_CODIGO == cEmpAnt
+			Aadd(aSM0CodFil, FWGETCODFILIAL)
+		Endif
+		SM0->(dbSkip())
+	End	
+	DbGoto(nRecnoSM0)
+			
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existe Contas a Receber deste cliente       ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	DbSelectArea("SE1")      // Contas a receber
+	DbSetOrder(2)
+	
+	aFiliais := If(FWModeAccess("SE1",3)=="E" .AND. FWModeAccess("SA1",3)=="C", aClone(aSM0CodFil), {xFilial()})
+	For nBusca := 1 To Len(aFiliais)		
+		If DbSeek(aFiliais[nBusca]+SA1->A1_COD+SA1->A1_LOJA)
+			//Help(" ",1,"MA030TEMCR",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+			lRet := .F.
+			Exit
+		EndIf
+	Next nBusca
+EndIf
+
+RestArea(aArea)
+
+Return lRet
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDLogUser
+    @description
+    Realiza o log dos dados acessados, de acordo com as informações enviadas, 
+    quando a regra de auditoria de rotinas com campos sensíveis ou pessoais estiver habilitada
+	Remover essa função quando não houver releases menor que 12.1.27
+
+   @type  Function
+    @sample FATPDLogUser(cFunction, nOpc)
+    @author Squad CRM & Faturamento
+    @since 06/01/2020
+    @version P12
+    @param cFunction, Caracter, Rotina que será utilizada no log das tabelas
+    @param nOpc, Numerico, Opção atribuída a função em execução - Default=0
+
+    @return lRet, Logico, Retorna se o log dos dados foi executado. 
+    Caso o log esteja desligado ou a melhoria não esteja aplicada, também retorna falso.
+
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDLogUser(cFunction, nOpc)
+
+	Local lRet := .F.
+
+	If FATPDActive()
+		lRet := FTPDLogUser(cFunction, nOpc)
+	EndIf 
+
+Return lRet  
+
+//-----------------------------------------------------------------------------
+/*/{Protheus.doc} FATPDActive
+    @description
+    Função que verifica se a melhoria de Dados Protegidos existe.
+
+    @type  Function
+    @sample FATPDActive()
+    @author Squad CRM & Faturamento
+    @since 17/12/2019
+    @version P12    
+    @return lRet, Logico, Indica se o sistema trabalha com Dados Protegidos
+/*/
+//-----------------------------------------------------------------------------
+Static Function FATPDActive()
+
+    Static _lFTPDActive := Nil
+  
+    If _lFTPDActive == Nil
+        _lFTPDActive := ( GetRpoRelease() >= "12.1.027" .Or. !Empty(GetApoInfo("FATCRMPD.PRW")) )  
+    Endif
+
+Return _lFTPDActive

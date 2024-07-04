@@ -1,0 +1,5 @@
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+function PLSABF8M
+return

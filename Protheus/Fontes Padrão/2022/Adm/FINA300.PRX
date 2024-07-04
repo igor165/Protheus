@@ -1,0 +1,1932 @@
+#INCLUDE "FINA300.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+Static lFWCodFil	:= .T.
+Static _oFina3001
+Static lNewDetJ		:= NIL
+Static lFA300Rej	:= ExistBlock("FA300REJ")
+Static __ObjParc    := Nil
+//-------------------------------------------------------------------
+/*{Protheus.doc} Fina300
+Retorno do arquivo SISPAG 
+
+@author Pilar S Albaladejo
+@version P12
+@since   26/07/1995
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function Fina300(nPosArotina, lAutomato)
+Private aRotina   := MenuDef()
+PRIVATE dDataLanc := dDataBase,cPadrao := "530"
+PRIVATE cBcoDe    := CriaVar("E2_PORTADO"),cBcoAte := CriaVar("E2_PORTADO")
+PRIVATE dVencIni  := dDataBase,dVencFim := dDataBase,dBaixa := dDataBase,nJuros := 0
+PRIVATE nCorrecao := 0
+PRIVATE cCtBaixa  := GetMv("MV_CTBAIXA")
+PRIVATE cMarca    := GetMark( )  
+PRIVATE cLotefin  := Space( TamSX3("EE_LOTECP")[1] )
+  
+// Retorno Automatico via Job
+// parametro que controla execucao via Job utilizado para pontos de entrada que nao tem como passar o parametro
+PRIVATE lExecJob := IsBlind()
+
+// Define o cabe‡alho da tela de baixas
+PRIVATE cCadastro := STR0013  //"Sispag"
+
+// Verifica o n£mero do Lote
+Private cLote
+LoteCont( "FIN" )
+
+DEFAULT nPosArotina := 0
+Default lAutomato := .F.
+
+If !IsBlind()
+	If GetRpoRelease() >= "12.1.033" .and. FindFunction("MsgExpRot")
+		MsgExpRot("FINA300",;
+					STR0036,; // "Retorno CNAB a Pagar (FINA430)" 
+					"https://tdn.totvs.com/x/KGO5Jw",;
+					"20220820",,; 
+					"20220820" )
+		If Date() >= CTOD("20/08/2022")
+			MsgAlert(STR0037, STR0038) //"Rotina descontinuada" # "Alerta"
+			Return
+		Endif	
+	EndIf
+EndIf
+
+If !lExecJob .AND. GetHlpLGPD({"A2_NOME","A6_COD"})
+	Return .F.
+Endif
+             
+// Armazena a filial logada para processar os borderos somente desta filial e nao
+// da filial do titulo posicionado na mBrowse
+Fa300FilLog(.T.)
+
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+   dbSelectArea("SE2")
+   bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+   Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina, lAutomato)
+Else
+	mBrowse( 6, 1,22,75,"SE2",,,,,, Fa040Legenda("SE2"))
+Endif
+
+Return
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} fA300Ret
+Comunicação Bancária - Retorno SisPag
+
+@author Pilar S Albaladejo
+@version P12
+@since   26/07/1995
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function fA300Ret(cAlias, cRecno, nPosArotina, lAutomato)
+
+Local lPanelFin := IsPanelFin()
+LOCAL nOpca := 0
+LOCAL aSays:={}
+LOCAL aButtons:={}
+
+ProcLogIni( aButtons )
+
+Default lAutomato := .F.
+//--------------------------------------------
+// Carrega Função Pergunte
+// mv_par01 - Mostra lançamentos contábeis
+// mv_par02 - Aglutina lan‡amentos
+// mv_par03 - Atualiza moedas por
+// mv_par04 - Arquivo de entrada
+// mv_par05 - Arquivo de config
+// mv_par06 - C¢digo do banco
+// mv_par07 - C¢digo da agencia
+// mv_par08 - C¢digo da conta
+// mv_par09 - Sub-conta
+// mv_par10 - Abate desconto da comissão
+// mv_par11 - Contabiliza On-Line
+//--------------------------------------------
+SetKey (VK_F12,{|a,b| AcessaPerg("AFI300",.T.)})
+pergunte("AFI300",.F.)
+
+nOpca := 0
+AADD (aSays, STR0014 ) //"   Esta opção processa o Arquivo de retorno de Comunicação Bancária SisPag"
+AADD (aSays, STR0015)  //"Deverão ser verificados os parâmetros para correto processamento"
+
+If !lAutomato
+	If lPanelFin  //Chamado pelo Painel Financeiro			
+		aButtonTxt := {}				
+		AADD(aButtonTxt,{STR0001,STR0001, {||Pergunte("AFI300",.T. )}}) // Parametros						
+		FaMyFormBatch(aSays,aButtonTxt,{||nOpca:=1},{||nOpca:=0})	
+	Else
+		AADD(aButtons, { 1,.T.,{|o| nOpca:= 1,o:oWnd:End()}} )
+		AADD(aButtons, { 2,.T.,{|o| o:oWnd:End() }} )
+		AADD(aButtons, { 5,.T.,{|| Pergunte("AFI300",.T. ) } } )
+		FormBatch( STR0005, aSays, aButtons )  //"Retorno Arquivo SisPag"
+	Endif
+Else
+	nOpca := 1
+EndIf
+
+lDigita:=IIF(mv_par01 == 1,.T.,.F.)
+lAglut :=IIF(mv_par02 == 1,.T.,.F.)
+lContabiliza:= Iif(mv_par11 == 1,.T.,.F.)
+
+IF nOpca == 1
+	Processa({|lEnd| Fa300Processa(,,,lAutomato)})
+EndIF
+
+Return
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} fA300Processa
+Comunicação Bancária - Retorno SisPag
+
+@author Pilar S Albaladejo
+@version P12
+@since   26/07/1995
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Function fA300Processa(cAlias,cRecno,nPosArotina,lAutomato)
+
+Local cPadrao := "" , nC := 0 , lCabec := .f.
+Local cNumTit    := ""
+Local nRegistro := 0
+Local aHeadA := {}
+Local aHead1 := {}
+Local aHead2 := {}
+Local aDetA  := {}
+Local aDetB  := {}
+Local aDetJ  := {}
+Local aDetJ52:= {}
+Local aDetN  := {}
+Local aDetO  := {}
+Local aTrai1 := {}
+Local aTrai2 := {}
+Local aTraiA := {}
+Local nBytes := 0
+Local nTamArq := 0
+Local nLidos := 0
+Local cArqConf := ""
+Local cArqEnt := ""
+Local nHdlConf := 0
+Local nTotal := 0
+Local lFA300PA := ExistBlock("FA300PA")
+Local lF300FLT := ExistBlock("F300FLT")
+Local lF300VAR := ExistBlock("F300VAR")
+Local lF300SE5 := ExistBlock("F300SE5")
+LOCAL nValorTotal := 0
+Local lFa300Oco := ExistBlock("FA300OCO")
+Local lFa300Ren := ExistBlock("FA300Ren")
+Local aTipoSeq := {}
+Local nTamSeq	:= TamSX3("E5_SEQ")[1]
+Local cSequencia:= Replicate("0",nTamSeq)
+Local nTamPre	:= TamSX3("E2_PREFIXO")[1]
+Local nTamNum	:= TamSX3("E2_NUM")[1] 
+Local nTamParc := TamSx3("E2_PARCELA")[1]
+Local nTamTit  := TamSX3("E2_PREFIXO")[1]+TamSX3("E2_NUM")[1]+TamSX3("E2_PARCELA")[1]+TamSX3("E2_TIPO")[1]+TamSX3("E2_FORNECE")[1]
+Local nTamHist	:= TamSx3("FK5_HISTOR")[1]
+Local nTamRefB := TamSx3("EB_REFBAN")[1]
+Local nMulta := 0
+Local nAscan
+Local nLaco := 0
+Local cTipoImp := "01"
+Local nPos := 15
+Local nAcresc := 0
+Local nDecresc := 0
+Local nJurAux  := 0
+Local nDescAux := 0
+Local lF300Fil := ExistBlock("F300FIL")
+Local aCpos := {}
+Local cDesc1 := "DATA" 
+Local cDesc2 := "PRINCIPAL"     
+Local cDesc3 := "MULTA"
+Local cDesc4 := "JUROS"			
+Local lDataGrv := .F.      
+Local lDifPag := GetNewPar("MV_DIFPAG",.F.)
+Local lBxTxa := SuperGetMv("MV_BXTXA",.F.,"1") == "1"
+Local nValPadrao := 0
+Local nValPag := 0
+Local aCampos := {}
+Local nI := 0 
+Local nCpoTp := 0
+Local cTpDoc := ""
+Local cHistMov := ""
+Local cFilOrig   := cFilAnt	// Salva a filial para garantir que nao seja alterada em customizacao
+Local lPaMov := .F.
+Local cKeySE5 := ""
+Local lMultNat := IIF(mv_par13==1,.T.,.F.)
+Local aColsSEV := {}
+Local lOk := .F. //Controla se foi confirmada a distribuicao 
+Local nTotLtEZ := 0	//Totalizador da Bx Lote Mult Nat CC
+Local aFlagCTB		:= {}
+Local lUsaFlag		:= SuperGetMV( "MV_CTBFLAG" , .T. /*lHelp*/, .F. /*cPadrao*/)
+Local nHdlPrv := 0
+Local lF330TIT := SuperGetMV( "MV_F330TIT" , .F. , .F. )
+Local cMCusto := SuperGetMv( "MV_MCUSTO", .F. , " " )
+Local lSigaMNT 	:= SuperGetMv( "MV_NGMNTFI", .F., "N" ) == 'S' // Integracao Manutencao (MNT) com Financeiro (FIN)
+Local lNewLayout:= .F.	
+Local lAtuForn  := SuperGetMv("MV_ATUFORN",.F.,.T.)
+Local nMoedaBco := 1 
+Local nCentMd1	:= MsDecimais(1)
+Local nTxMoeda  := 0
+Local nCasDec   := TamSx3("E2_TXMOEDA")[2]	
+
+//--- Tratamento Gestao Corporativa
+Local lGestao   := Iif( lFWCodFil, FWSizeFilial() > 2, .F. )	// Indica se usa Gestao Corporativa
+Local cFilFwSE2 := IIF( lGestao , FwFilial("SE2") , xFilial("SE2") )
+Local cFilFwCT2 := IIF( lGestao , FwFilial("CT2") , xFilial("CT2") )
+Local lCtbExcl	:= !Empty( cFilFwCT2 )
+// Fluxo por natureza financeira
+Local lAllExc	:= Iif( lFWCodFil, FWModeAccess("SE5",3) == "E" , !Empty(xFilial("SE5")))
+
+//Reestruturação SE5
+Local oModelMov	:= Nil
+Local oSubFK2	:= Nil
+Local oSubFK5	:= Nil
+Local oSubFK6	:= ""
+Local oSubFKA	:= ""
+Local cLog		:= ""
+Local lRet		:= .T.
+Local cCamposE5	:= ""
+Local cChaveTit	:= ""
+Local cIDDoc	:= ""
+Local lBxCnab	:= GetMv("MV_BXCNAB") == "S"
+Local lRetorno	:= .F.
+Local cNatLote	:= FINNATMOV("P")
+Local cLocRec	:= SuperGetMV( "MV_LOCREC" , .F. , .F. )
+Local cIdFK2	:= ""
+Local lHelpDTBX	:= !lExecJob
+Local lBxDtFin	:= GetNewPar("MV_BXDTFIN","1") == "1" // Permite data de baixa menor que MV_DATAFIN 1=SIM / 2=NAO
+Local aDtMvFinOk := {} //Array para as datas de baixa válidas
+Local aDtMvFinNt := {} //Array para as datas de baixa inconsistentes com o parâmetro MV_DATAFIN
+Local cFilAtu	:= cFilAnt
+Local lJGrvBxPag:= FindFunction("JGrvBxPag")
+Local lPAG2TIT  := SuperGetMv("MV_PAG2TIT", .T., "2") == "1"
+Local nVlrPA    := 0
+Local aTitPA    := {}
+Local cParcelPA := ""
+Local cTipoAdt  := ""
+Local F050PAR05 := 0
+Local F050PAR09 := 0
+Local aAreaSE2  := {}
+
+Private cBanco
+Private cAgencia
+Private cConta
+Private lAut       := .F.
+Private nTotAbat   := 0
+Private cArquivo
+PRIVATE cLote      
+PRIVATE nValPgto    := 0 //Utilizado para compatibilizar com a rotina de rateio multinatureza 
+PRIVATE cTpDesc	    := "I"
+Private lMsErroAuto := .F.
+
+Default lAutomato := .F.
+VALOR := 0
+STRLCTPAD := " "
+
+cLotefin := If(Type("cLotefin") == "U", "", cLotefin) 
+
+If mv_par12 == 2 .and. mv_par11 == 1 .and. !lAutomato .and. lCtbExcl
+	// A Contabilidade está em modo exclusivo e foi solicitado o processamento de todas as filiais.
+	// Neste caso, o sistema não realiza a contabilização on-line. Confirma mesmo assim?		
+	If ! MsgYesNo( STR0027, STR0028 )
+		Return .F.
+	EndIf
+EndIf
+
+// Posiciona no Banco indicado
+cBanco  := mv_par06
+cAgencia:= mv_par07
+cConta  := mv_par08
+cSubCta := mv_par09
+
+SA6->( dbSeek(xFilial("SA6")+cBanco+cAgencia+cConta) )
+SEE->( dbSeek(xFilial("SEE")+cBanco+cAgencia+cConta+cSubCta) )
+
+// Buscar a Conta Oficial. Abaixo eu seto os novos valores e verifici se existe o banco cadastrado
+If !Empty(SEE->EE_CTAOFI)
+	cBanco		:= SEE->EE_CODOFI
+	cAgencia	:= SEE->EE_AGEOFI 
+	cConta		:= SEE->EE_CTAOFI
+Endif
+
+If !SEE->( found() )
+	Help(" ",1,"PAR150")
+	Return .F.
+Endif
+
+cTabela := Iif( Empty(SEE->EE_TABELA), "17" , SEE->EE_TABELA )
+
+// Verifica se a tabela existe
+If !SX5->( dbSeek( xFilial("SX5") + cTabela ) )
+	Help(" ",1,"PAR150")
+	Return .F.
+Endif
+
+// Verifica o numero do Lote Contabil
+LoteCont( "FIN" )
+
+// Abre arquivo de configuração
+cArqConf := mv_par05                        
+IF !FILE(cArqConf)
+	Help(" ",1,"NOARQPAR")
+	Return .F.
+Else
+	nHdlConf := FOPEN(cArqConf,0)
+EndIF
+
+nMoedaBco := Max( MoedaBco(cBanco,cAgencia,cConta), 1 )
+
+nTamArq := FSEEK(nHdlConf,0,2)
+FSEEK(nHdlConf,0,0)
+
+// Preenche os arrays de acordo com a Identificador            
+While nBytes < nTamArq // Leitura arquivo de configura‡?o
+	xBuffer := Space(85)
+	FREAD( nHdlConf, @xBuffer, 85 )
+	IF SubStr(xBuffer,1,1) == "A" .or. SubStr(xBuffer,1,1) == Chr(1)
+	
+		AADD(aHeadA,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60 ) } )
+		
+		//Verifica a versão do layout	
+		If Substr(xBuffer,17,3) == "015" .And. Substr(xBuffer,20,3) == "017" 	
+			If SubStr(xBuffer,25,3)== "081"
+				lNewLayout	:= .T.
+			Else 
+				lNewLayout	:= .F.
+			EndIf
+		EndIf
+		
+	ElseIf SubStr(xBuffer,1,1) == "B" .or. SubStr(xBuffer,1,1) == Chr(2)
+		AADD(aHead1,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60 ) } )
+	ElseIf SubStr(xBuffer,1,1) == "C" .or. SubStr(xBuffer,1,1) == Chr(3)
+		AADD(aHead2,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60 ) } )
+	Elseif SubStr(xBuffer,1,1) == "D" .or. SubStr(xBuffer,1,1) == Chr(4)
+		AADD(aTrai1,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "E" .or. SubStr(xBuffer,1,1) == Chr(5)
+		AADD(aTrai2,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "F" .or. SubStr(xBuffer,1,1) == Chr(6)
+		AADD(aTraiA,{  SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "G" .or. SubStr(xBuffer,1,1) == Chr(7)
+		AADD(aDetA,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "H" .or. SubStr(xBuffer,1,1) == Chr(8)
+		AADD(aDetB,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "J" .or. SubStr(xBuffer,1,1) == Chr(10)
+		AADD(aDetJ,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	ElseIf SubStr(xBuffer,1,1) == "5" .or. SubStr(xBuffer,1,1) == Chr(10)	// Segmento J52
+		AADD(aDetJ52,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "N" .or. SubStr(xBuffer,1,1) == Chr(16)
+		AADD(aDetN,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	Elseif SubStr(xBuffer,1,1) == "O" .or. SubStr(xBuffer,1,1) == Chr(17)
+		AADD(aDetO,{   SubStr(xBuffer,02,15) ,SubStr(xBuffer,17,03),;
+			SubStr(xBuffer,20,03) ,SubStr(xBuffer,23,01),;
+			SubStr(xBuffer,24,60) } )
+	EndIF
+	nBytes += 85
+EndDO
+IF Len(aHeadA) == 0  .And. Len(aHead1) == 0 .And. Len(aHead2) == 0 ;
+		.And. Len(aTrai1) == 0 .And. Len(aTrai2) == 0 ;
+		.And. Len(aDetA)  == 0 .And. Len(aDetB)  == 0 ;
+		.And. Len(aDetJ)  == 0 .And. Len(aDetN)  == 0 ;
+		.And. Len(aDetO)  == 0
+	HELP(" ",1,"AX044BCO")
+	Return
+ENDIF
+
+//Verifica se está com a nova estrutura do Segmento J que incluiu o Fator de Vencimento.
+If lNewDetJ == NIL
+	lNewDetJ := (Len(aDetJ) > 23 )
+EndIF
+
+// fecha arquivo de configuração
+fclose(nHdlConf)
+
+// Abre arquivo enviado pelo banco
+If Empty(cLocRec)		// MV_LOCREC  -Parâmetro onde será gravado o diretório
+	cArqEnt := mv_par04
+Else
+	// Verifica qual barra está o parâmetro , e o que está na ultima posição através do RAT
+	If AT("\",alltrim(cLocRec))>0 .and. RAT("\",SUBSTR(alltrim(cLocRec),LEN(alltrim(cLocRec)),1)) = 0
+		cArqEnt:=cLocRec+"\"+TRIM(mv_par04)
+	ElseIf AT("\",alltrim(cLocRec))>0 .and. RAT("\",SUBSTR(alltrim(cLocRec),LEN(alltrim(cLocRec)),1)) > 0
+		cArqEnt:=cLocRec+TRIM(mv_par04)
+	ElseIf AT("/",alltrim(cLocRec))>0 .and. RAT("/",SUBSTR(alltrim(cLocRec),LEN(alltrim(cLocRec)),1)) > 0
+		cArqEnt:=cLocRec+TRIM(mv_par04)
+	ElseIf AT("/",alltrim(cLocRec))>0 .and. RAT("/",SUBSTR(alltrim(cLocRec),LEN(alltrim(cLocRec)),1)) = 0
+		cArqEnt:=cLocRec+"/"+TRIM(mv_par04)
+	Endif
+Endif 
+
+// Validar as Inconsistências 
+If !Empty(cLocRec) .and. (Empty(mv_par04) .or. AT(":",mv_par04)>0 .or. (AT("/",mv_par04)>0 .or. AT("\",mv_par04)>0))
+	Help(" ",1,"F150ARQ",,STR0031,1,0) //"Nome do Arquivo de Saida Inválido
+	Return .F.
+Endif
+
+IF !FILE(cArqEnt)
+	Help(" ",1,"NOARQENT")
+	Return .F.
+Else
+	nHdlBco := FOPEN(cArqEnt,0)
+EndIF
+
+cArqEnt := PADR(cArqEnt,TamSx3("E5_ARQCNAB")[1])
+
+If lBxCnab // Baixar arquivo recebidos pelo CNAB aglutinando os valores
+	If Empty(SEE->EE_LOTECP)
+		cLoteFin := StrZero( 1, TamSX3("EE_LOTECP")[1] )
+	Else
+		cLoteFin := FinSomaLote(SEE->EE_LOTECP)
+	EndIf
+	cLoteFin := Iif(CheckLote("P",.F.),cLoteFin,GetNewLote())  
+EndIf
+
+//Le arquivo enviado pelo banco
+nLidos := 0
+FSEEK(nHdlBco,0,0)
+nTamArq := FSEEK(nHdlBco,0,2)
+FSEEK(nHdlBco,0,0)
+
+cPadrao := "532"
+lPadrao := VerPadrao(cPadrao)
+
+// Inicia processo de integracao com o SIGAPCO
+PCOIniLan("000022")	
+
+ProcRegua(nTamArq/242,24,06)
+
+// Gera arquivo de Trabalho
+AADD(aCampos,{"FILMOV","C",IIf( lFWCodFil, FWGETTAMFILIAL, 2 ),0})
+AADD(aCampos,{"DATAD","D",08,0})
+AADD(aCampos,{"NATURE","C",TamSX3("E2_NATUREZ")[1],0})
+AADD(aCampos,{"MOEDA","C",TamSX3("E2_MOEDA")[1],0})
+AADD(aCampos,{"TOTAL","N",17,2})
+
+If Select("TRB") > 0
+	dbSelectArea("TRB")
+	TRB->(dbCloseArea())
+	If _oFina3001 <> Nil
+		_oFina3001:Delete()
+		_oFina3001 := Nil
+	Endif
+EndIf
+
+If Select("TRB") == 0
+
+	If _oFina3001 <> Nil
+		_oFina3001:Delete()
+		_oFina3001 := Nil
+	Endif
+	
+	_oFina3001 := FWTemporaryTable():New( "TRB" )  
+	_oFina3001:SetFields(aCampos) 
+	_oFina3001:AddIndex("1", {"FILMOV","DATAD"})
+
+	//Criação da tabela temporaria
+	_oFina3001:Create()  
+
+Endif
+
+Begin Transaction
+	While nLidos <= nTamArq	
+		lRetorno := .F.
+		nVlrPA   := 0
+		//Le linha do arquivo retorno
+		xBuffer := Space(242)
+		FREAD(nHdlBco, @xBuffer, 242)
+		nLidos += 242
+		IncProc(24,6)
+		
+		//----------------------------------------
+		// Registro: 0 - Header de Arquivo
+		//           1 - Header de Lote
+		//           3 - Detalhes Variados
+		//           5 - Trailler de Lote
+		//           9 - Trailler de Arquivo
+		//----------------------------------------
+		cRegistro := Subst( xBuffer , Val(aHeada[3,2]) , 1+Val(aHeada[3,3])-Val(aHeada[3,2]))
+		
+		IF cRegistro == "0"
+			Loop
+		Endif
+
+		//---------------------------------------------------------------------------
+		// Retornos: 00-Cr‚dito efetuado BD-Pagamento Agendado  TA-Lote n„o aceito
+		// Retornos: BE-Pagto Agendado c/Forma Alterada p/ OP   RJ-Pagto Rejeitado
+		// Header de Lote - verificar se houve rejeição                          
+		//---------------------------------------------------------------------------
+		// Codigos de Rejeicao - TABELA=60                                        
+		//---------------------------------------------------------------------------
+		// AD - Forma de lancamento invalida (Forma X Segmento)                   
+		// AH - Numero sequencial do registro no lote invalido                    
+		// AJ - Tipo de movimento invalido                                        
+		// AL - Codigo do Banco do favorecido ou depositario invalido             
+		// AM - Agencia do cedente invalido                                       
+		// AN - Conta corrente do cedente invalido                                
+		// AO - Nome do cedente invalido                                          
+		// AP - Data de lancamento / pagamento invalida                           
+		// BC - Nosso numero invalido                                             
+		// IA - Remetente / Motivo invalido                                       
+		// IB - Valor do titulo invalido                                          
+		// IC - Valor do abatimento invalido                                      
+		// ID - Valor do desconto invalido                                        
+		// IE - Valor da mora invalido                                            
+		// IF - Valor da multa invalido                                           
+		// IG - Valor da deducao invalido                                         
+		// IH - Valor do acrescimo invalido                                       
+		// II - Data de vecnto invalida                                           
+		// IJ - Sequencia invalida de segmento                                    
+		// IK - Codigo de instrucao invalida                                      
+		// IL - Uso banco invalido para unibanco                                  
+		// IM - Tipo X Forma nao compativel                                       
+		// IN - Banco / Agencia nao pertence as pracas de compensacao ITAU        
+		// IO - Identificacao Tipo de Cheque invalido                             
+		// IP - Rejeicao do DAC do codigo de barras                               
+		//---------------------------------------------------------------------------
+		If cRegistro == "1"
+			cRetorno := Subst( xBuffer , Val(aDeta[Len(aDeta),2]) , 1+Val(aDeta[Len(aDeta),3] )-Val(aDeta[Len(aDeta),2]))
+			Loop
+		Endif
+
+		// Final do lote e arquivo - Sai da leitura
+		IF cRegistro $ "9"
+			Exit
+		Endif
+		
+		IF cRegistro # "3"
+			Loop
+		Endif
+
+		//-------------------------------------------------------------
+		// Segmentos opcionais : B e J52
+		// Obs: Segmentos A e J possuem informações sobre o retorno.                                             
+		//-------------------------------------------------------------
+		cSegmento	:= Subst( xBuffer , Val(aDeta[5,2]) , 1+Val(aDeta[5,3])-Val(aDeta[5,2]) )
+		
+		If cSegmento == "J" .And. !Empty(aDetJ52)
+			If Alltrim(Subst( xBuffer , Val(aDetJ52[7,2]) , 1+Val(aDetJ52[7,3])-Val(aDetJ52[7,2]) )) == "52" // Segmento J52
+				cSegmento := "J52"
+			EndIf
+		EndIf
+		
+		nJuros 		:= 0
+		nMulta		:= 0
+		nDescont	:= 0
+		nCorrecao	:= 0
+			
+		If cSegmento == "A"
+			cRetorno   := Subst( xBuffer, Val(aDeta[Len(aDeta),2]) , 1+Val(aDeta[Len(aDeta),3] )-Val(aDeta[Len(aDeta),2]))
+			cNumTit    := Subst( xBuffer, Val(aDeta[11,2])         , 1+Val(aDeta[11,3] )-Val(aDeta[11,2]))
+			cValPag    := Subst( xBuffer, Val(aDeta[15,2])         , 1+Val(aDeta[15,3] )-Val(aDeta[15,2]))
+			cData      := Substr( xBuffer,Val(aDeta[18,2])         , 1+Val(aDeta[18,3] )-Val(aDeta[18,2]))
+			cData      := ChangDate(cData,SEE->EE_TIPODAT)
+			dBaixa	   := Ctod(Substr(cData,1,2)+"/"+Substr(cData,3,2)+"/"+Substr(cData,5),"ddmm"+Replicate("y",Len(Substr(cData,5))))
+		ElseIf cSegmento == "J"
+
+			cRetorno   := Subst( xBuffer, Val(aDetJ[Len(aDetJ),2]) , 1+Val(aDetJ[Len(aDetJ),3])-Val(aDetJ[Len(aDetJ),2]))
+
+			If lNewDetJ		//aDetJ possui 24 posições (Fator de Vencimento)
+				cNumTit    := Subst( xBuffer, Val(aDetJ[21,2])         , 1+Val(aDetJ[21,3] )-Val(aDetJ[21,2]))
+				cValPag    := Subst( xBuffer, Val(aDetJ[19,2])         , 1+Val(aDetJ[19,3] )-Val(aDetJ[19,2]))
+				cValJur    := Subst( xBuffer, Val(aDetJ[17,2])         , 1+Val(aDetJ[17,3] )-Val(aDetJ[17,2]))
+				cValDes    := Subst( xBuffer, Val(aDetJ[16,2])         , 1+Val(aDetJ[16,3] )-Val(aDetJ[16,2]))		
+				cData      := Substr( xBuffer,Val(aDetJ[18,2])         , 1+Val(aDetJ[18,3] )-Val(aDetJ[18,2]))
+			Else
+				cNumTit    := Subst( xBuffer, Val(aDetJ[20,2])         , 1+Val(aDetJ[20,3] )-Val(aDetJ[20,2]))
+				cValPag    := Subst( xBuffer, Val(aDetJ[18,2])         , 1+Val(aDetJ[18,3] )-Val(aDetJ[18,2]))
+				cValJur    := Subst( xBuffer, Val(aDetJ[16,2])         , 1+Val(aDetJ[16,3] )-Val(aDetJ[16,2]))
+				cValDes    := Subst( xBuffer, Val(aDetJ[15,2])         , 1+Val(aDetJ[15,3] )-Val(aDetJ[15,2]))	
+				cData      := Substr( xBuffer,Val(aDetJ[17,2])         , 1+Val(aDetJ[17,3] )-Val(aDetJ[17,2]))
+			Endif		
+			
+			nJuros     := Val(cValJur)/100
+			nDescont   := Val(cValDes)/100
+			cData      := ChangDate(cData,SEE->EE_TIPODAT)
+			dBaixa     := Ctod(Substr(cData,1,2)+"/"+Substr(cData,3,2)+"/"+Substr(cData,5),"ddmm"+Replicate("y",Len(Substr(cData,5))))	
+		ElseIf cSegmento == "N"
+		
+			If !lDifPag
+				cRetorno := Subst( xBuffer, Val(aDetN[Len(aDetN),2]) , 1+Val(aDetN[Len(aDetN),3])-Val(aDetN[Len(aDetN),2]))
+			Else
+				nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))=="OCORRENCIAS"})                                                 
+				If nAscan > 0
+					cRetorno    := Subst( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2]))		
+				Else	
+					ApMsgAlert(STR0023+ "OCORRENCIAS" + STR0024) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador OCORRENCIAS utilizado para localizar, no arquivo retorno, o valor da multa.")
+				EndIf
+			EndIf
+			
+			// Procura a posicao do numero do titulo
+			nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))=="SEU NUMERO"})                                                 
+			If nAscan > 0
+				cNumTit    := Subst( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2]))		
+			Else	
+				ApMsgAlert(STR0018) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador "SEU NUMERO" utilizado para localizar, no arquivo retorno,o título a ser baixado.") 
+			EndIf
+			
+			If lDifPag //Retorno contem configuracao de campos de acordo com o tipo do tributo
+				//Verifico o tipo do imposto para saber qual posicao do array contem as posicoes dos campos com os dados do tributo
+				cTipoImp := Substr( xBuffer,Val(aDetN[07,2])         , 1+Val(aDetN[07,3] )-Val(aDetN[07,2]))		   
+			Do Case
+					Case cTipoImp == "01"		// 01 - GPS
+						cDesc1 := "DATA GPS" 
+						cDesc2 := "PRINCIPAL GPS"     
+						cDesc3 := "MULTA GPS"
+						cDesc4 := "JUROS GPS"			
+					Case cTipoImp == "02"		//02 - DARF
+						cDesc1 := "DATA DARF"
+						cDesc2 := "PRINCIPAL DARF"     
+						cDesc3 := "MULTA DARF"
+						cDesc4 := "JUROS DARF"
+					Case cTipoImp == "03"	//03 - DARF Simples
+						cDesc1 := "DATA SIMPLES"
+						cDesc2 := "PRINC. SIMPLES"	
+						cDesc3 := "MULTA SIMPLES"
+						cDesc4 := "JUROS SIMPLES"
+					Case cTipoImp == "04"	//04 - DARJ 
+						cDesc1 := "DATA DARJ"
+						cDesc2 := "PRINCIPAL DARJ"			
+						cDesc3 := "MULTA DARJ"
+						cDesc4 := "JUROS DARJ"
+					Case cTipoImp == "05"	//05 - ICMS SP
+						cDesc1 := "DATA ICMS"
+						cDesc2 := "PRINCIPAL ICMS"			
+						cDesc3 := "MULTA ICMS"
+						cDesc4 := "JUROS ICMS"
+					Case cTipoImp $ "07#08"	//07 - IPVA (SP e MG), 08 - DPVAT
+						cDesc1 := "DATA IPVA"
+						cDesc2 := "PRINCIPAL IPVA"			
+						cDesc3 := "MULTA IPVA"
+						cDesc4 := "JUROS IPVA"
+					Case cTipoImp $ "11"	//11 - FGTS
+						cDesc1 := "DATA FGTS"
+						cDesc2 := "PRINCIPAL FGTS"			
+				EndCase
+			Else
+				nPos := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))=="DATA"})
+				If nPos <= 0
+					cTipoImp := Substr( xBuffer,Val(aDetN[07,2])         , 1+Val(aDetN[07,3] )-Val(aDetN[07,2]))		
+					If cTipoImp == "01"			//GPS
+						nPos := 15
+					ElseIf cTipoImp == "02"		//DARF
+						nPos := 18			
+					ElseIf cTipoImp $ "03#04#05"	//03 - DARF Simples, 04 - DARJ e 05 - ICMS SP
+						nPos := 20			
+					ElseIf cTipoImp $ "11"	// 11 - FGTS	
+						nPos := 16
+					Endif
+				Endif
+				//Verifico o tipo do imposto para saber qual posicao do array contem as posicoes das datas de baixa.
+				cData      := Substr( xBuffer,Val(aDetN[nPos,2])         , 1+Val(aDetN[nPos,3] )-Val(aDetN[nPos,2]))
+				cData      := ChangDate(cData,SEE->EE_TIPODAT)
+				dBaixa     := Ctod(Substr(cData,1,2)+"/"+Substr(cData,3,2)+"/"+Substr(cData,5),"ddmm"+Replicate("y",Len(Substr(cData,5))))
+				lDataGrv   := .T.	   
+		EndIF
+			
+			// Procura a posicao da data do tributo		
+			If !lDataGrv .And. lDifPag 
+				nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))==cDesc1})
+				If nAscan > 0
+					cData	:= Substr( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2]))
+					cData	:= ChangDate(cData,SEE->EE_TIPODAT)
+					dBaixa	:= Ctod(Substr(cData,1,2)+"/"+Substr(cData,3,2)+"/"+Substr(cData,5),"ddmm"+Replicate("y",Len(Substr(cData,5))))
+				Else
+					ApMsgAlert(STR0023+ cDesc1 + STR0024) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador "+ cDesc1 +" utilizado para localizar, no arquivo retorno, o valor da multa.")
+				Endif	
+			EndIf
+		
+			// Procura a posicao do valor principal do tributo		
+			nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))==cDesc2})
+			If nAscan > 0
+				cValPag    := Subst( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2]))
+			Else
+				ApMsgAlert(STR0023+ cDesc2 + STR0024) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador "+ cDesc2 +" utilizado para localizar, no arquivo retorno, o valor da multa.")
+			Endif	
+
+			// Procura a posicao da multa do tributo
+			nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))==cDesc3})
+			If cTipoImp $ "11" //FGTS
+				nMulta := 0		
+			ElseIf nAscan > 0
+				nMulta := Round(Val(Subst( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2])))/100,2)
+			Else
+				ApMsgAlert(STR0023+ cDesc3 + STR0024) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador "+ cDesc3 +" utilizado para localizar, no arquivo retorno, o valor da multa.")
+			Endif	
+
+			// Procura a posicao do juros do tributo
+			nAscan := Ascan(aDetN, {|e| AllTrim(Upper(e[1]))==cDesc4})
+			If cTipoImp $ "11" //FGTS
+				nJuros := 0		
+			ElseIf nAscan > 0
+				cValJur    := Subst( xBuffer, Val(aDetN[nAscan,2])         , 1+Val(aDetN[nAscan,3] )-Val(aDetN[nAscan,2]))
+				nJuros	  := Val(cValJur)/100
+			Else
+				ApMsgAlert(STR0023+ cDesc4 + STR0024) //"Por favor, indique no registro detalhe do arquivo de configuração segmento N, no nome do campo, o identificador "+ cDesc4 +" utilizado para localizar, no arquivo retorno, o valor da multa.")
+			Endif	  
+
+		ElseIf cSegmento == "O"
+			cRetorno   := Subst( xBuffer, Val(aDetO[Len(aDetO),2]) , 1+Val(aDetO[Len(aDetO),3])-Val(aDetO[Len(aDetO),2]))
+			If lNewLayout
+				cNumTit    := Subst( xBuffer, Val(aDetO[18,2])         , 1+Val(aDetO[18,3] )-Val(aDetO[18,2]))
+			Else
+				cNumTit    := Subst( xBuffer, Val(aDetO[16,2])         , 1+Val(aDetO[16,3] )-Val(aDetO[16,2]))
+			EndIf
+			cValPag    := Subst( xBuffer, Val(aDetO[14,2])         , 1+Val(aDetO[14,3] )-Val(aDetO[14,2]))
+			cData      := Substr( xBuffer,Val(aDetO[13,2])         , 1+Val(aDetO[13,3] )-Val(aDetO[13,2]))
+			cData      := ChangDate(cData,SEE->EE_TIPODAT)
+			dBaixa     := Ctod(Substr(cData,1,2)+"/"+Substr(cData,3,2)+"/"+Substr(cData,5),"ddmm"+Replicate("y",Len(Substr(cData,5))))
+		Else
+			Loop
+		Endif
+		
+		//Verifica a data de baixa do arquivo em relação ao parâmetro MV_DATAFIN
+		If !lBxDtFin	
+			If AScan( aDtMvFinOk , dBaixa ) == 0 // data ok 
+				If AScan( aDtMvFinNt , dBaixa ) == 0  // data não ok 
+					If !DtMovFin( dBaixa , .F. )
+						aAdd( aDtMvFinNt , dBaixa )		
+						ProcLogAtu( "ERRO" , "DTMOVFIN" , Ap5GetHelp( "DTMOVFIN" ) + " " + DtoC( dBaixa ))
+						Loop
+					Else
+						aAdd( aDtMvFinOk , dBaixa )
+					EndIf
+				Else	
+					Loop
+				EndIf
+			EndIf	
+		EndIf  	
+
+		If lF330TIT .And. Empty( Substr( cNumTit , 1 , 10 ) )
+			Conout( STR0029 )
+			Loop
+		Endif
+
+		// Verifica se existe o titulo no SE2. Caso este titulo nã seja localizado, passa-se para a proxima linha do arquivo retorno.
+		// Guardo a filial corrente
+		cFilAtu := cFilAnt
+
+		//----------------------------------
+		//Estrutura do aValores
+		//----------------------------------
+		//01 - Filial atual   
+		//02 - Banco          
+		//03 - Agencia        
+		//04 - Conta          
+		//05 - Data da Baixa  
+		//06 - Numero do Titulo³
+		//07 - Valor Recebido 
+		//08 - Juros          
+		//09 - Multa          
+		//10 - Tipo de Imposto
+		//11 - Segmento       
+		//12 - Descricao1     
+		//13 - Descricao2
+		//14 - Descricao3
+		//15 - Descricao4
+		//16 - Linha inteira
+		//----------------------------------
+		aValores := ({cFilAtu,cBanco,cAgencia,cConta,dBaixa,cNumTit,cValPag,nJuros,nMulta,cTipoImp,cSegmento,cDesc1,cDesc2,cDesc3,cDesc4,xBuffer})
+
+		//PONTO DE ENTRADA PARA MANIPULACAO DOS DADOS DE RETORNO³
+		If lF300VAR
+			ExecBlock("F300VAR",.F.,.F.,{aValores})
+		Endif
+		
+		dbSelectArea("SE2")
+
+		If lF300Fil   
+			nRecTit	:= RecNo()
+			aCpos	:= {}
+			aAdd( aCpos, cNumTit )
+			aAdd( aCpos, nTamParc )
+			aAdd( aCpos, nTamTit )
+			aAdd( aCpos, nRecTit )
+
+			ExecBlock( "F300FIL", .F., .F., aCpos )
+		Else
+			If mv_par12 == 2 .And. !Empty( cFilFwSE2 )
+				//Busca por IdCnab (sem filial)
+				nRecTit := Recno()
+				SE2->(dbSetOrder(13)) // IdCnab
+				If SE2->(MsSeek(Substr(cNumTit,1,10)))
+					cFilAnt	:= SE2->E2_FILIAL
+					If lCtbExcl
+						mv_par11 := 2  //Desligo contabilizacao on-line
+					EndIf
+				EndIf
+			Else
+				//Busca por IdCnab
+				nRecTit := Recno()
+				SE2->(dbSetOrder(11)) // Filial+IdCnab
+				SE2->(MsSeek(xFilial("SE2")+	Substr(cNumTit,1,10)))
+			Endif
+
+			//Se nao achou, utiliza metodo antigo (titulo)
+			If SE2->(!Found())
+				//Busca pela chave antiga	
+				dbSetOrder(1)
+				If !dbSeek(xFilial("SE2")+Pad(cNumTit,nTamTit))
+					// Busca por chave antiga adaptada para o tamanho de 9 posicoes para numero de NF
+					// Isto ocorre quando titulo foi enviado com 6 posicoes para numero de NF e retornou com o
+					// campo ja atualizado para 9 posicoes
+					cNumTit := SubStr(cNumTit,1,nTamPre)+Padr(Substr(cNumTit,4,6),nTamNum)+SubStr(cNumTit,10)
+					If !dbSeek(xFilial("SE2")+Pad(cNumTit,nTamTit))
+						Help(" ",1,"NOESPECIE",,cNumTit,5,1)
+						dbGoTo(nRecTit)
+						Loop
+					Endif
+				Endif
+			Endif
+		Endif
+
+		If SE2->E2_SALDO = 0 
+			dbGoTo(nRecTit)
+			Loop
+		Endif
+		
+		//Verifica se data da baixa e valida                                   
+		IF Empty(dBaixa) .Or. dBaixa < SE2->E2_EMISSAO
+			If lHelpDTBX
+				Help( " ", 1, "DATAERRP" )
+				lHelpDTBX := .F.
+			EndIf
+			Loop
+		EndIf
+		
+		// Ponto de entrada para filtrar registro que esta sendo processado
+		If lF300FLT
+			If !ExecBlock( "F300FLT" ) // SE2 esta posicionado
+				Loop
+			EndIf
+		EndIf
+		
+		//Verifica a taxa de conversao da moeda
+		If nMoedaBco > 1 .And. SE2->E2_MOEDA != nMoedaBco  
+			nTxMoeda := RecMoeda(dBaixa, nMoedaBco)
+		ElseIf (SE2->E2_MOEDA == 1) .Or. (SE2->E2_TXMOEDA > 0 .And. Empty(SE2->E2_DTVARIA))
+			nTxMoeda := SE2->E2_TXMOEDA
+		Else
+			nTxMoeda := RecMoeda(dBaixa, SE2->E2_MOEDA)
+		Endif
+
+		//Gera movimento dos PAs e TXAs enviados ao banco via borderos
+		If SE2->E2_TIPO $ MVPAGANT .OR. (SE2->E2_TIPO $ MVTXA .AND. !lBxTxa)
+			lPaMov = .F.
+			dbSelectArea("SE5")
+			SE5->(DBSETORDER(2))  //E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO                   
+			cKeySE5 := xFilial("SE5")+IIF(SE2->E2_TIPO $ MVPAGANT,"PA","VL")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA)
+			cKeySE5 += IIF(SE2->E2_TIPO $ MVPAGANT,"PA ","TXA")
+			If SE5->(MsSeek(cKeySE5))
+				While !SE5->(EOF()) .and. SE5->(E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO) == cKeySE5
+					If SE2->(E2_FORNECE+E2_LOJA) == SE5->(E5_CLIFOR+E5_LOJA)
+						lPaMov = .T.
+						EXIT
+					Else
+						SE5->(dbSkip())
+					Endif
+				Enddo
+			Endif
+			
+			// Localiza o código de Rejeição cadastrado 
+			DbSelectArea("SEB")
+			SEB->( DbSetOrder(1) )
+			
+			// Valida se o titulo foi rejeitado
+			If SEB->( DbSeek( xFilial("SEB") + aValores[2] + PADR( cRetorno, nTamRefB ) + "R") )
+				// Reposicionar o SEB para uma chave diferente, que considere também, campos especificos criados no SEB.               
+				If lFa300Oco
+					ExecBlock( "FA300OCO", .F., .F. )
+				EndIf
+
+				If !( SEB->EB_OCORR $ "06|07|08" )
+					lRetorno := .T.
+					
+					DbSelectArea("SE2")
+					// Utilizado para gravacao de campos adicionais na SE2
+					If lFA300Rej
+						ExecBlock( "FA300REJ", .F., .F., { cRetorno } )
+					EndIf
+				EndIf
+			Else
+				Help(" ", 1, "NOCORR",,"Chave = " + cNumTit + CHR(10) + STR0016, 3, 1) //Falta ocorrencia SEB de controle do sistema
+				Loop
+			EndIf
+			
+			//Gravo Movimento do PA/TXA se necessario
+			// Grava se o título não foi rejeitado 
+			If !lPaMov .AND. !lRetorno
+
+				//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+				//Estrutura para o E5_CAMPOS: "{{'SE5->CAMPO', Valor}, {'SE5->CAMPO', Valor}}"
+				cCamposE5 := "{"
+				cCamposE5 += " {'E5_DTDIGIT', dDataBase  }"
+				cCamposE5 += ",{'E5_LOTE'	, '" + cLoteFin	 + "'}"
+				cCamposE5 += ",{'E5_TIPO'	, '" + If(SE2->E2_TIPO $ MVPAGANT,MVPAGANT,MVTXA)	 + "'}"
+				cCamposE5 += ",{'E5_BENEF'	, '" + RemoveAsp(Posicione('SA2',1,xFilial('SA2')+SE2->E2_FORNECE+SE2->E2_LOJA,'SA2->A2_NOME')) + "'}"
+				cCamposE5 += ",{'E5_PREFIXO', '" + SE2->E2_PREFIXO	+ "'}"
+				cCamposE5 += ",{'E5_NUMERO'	, '" + SE2->E2_NUM		+ "'}"
+				cCamposE5 += ",{'E5_PARCELA', '" + SE2->E2_PARCELA	+ "'}"
+				cCamposE5 += ",{'E5_CLIFOR'	, '" + SE2->E2_FORNECE	+ "'}"
+				cCamposE5 += ",{'E5_FORNECE', '" + SE2->E2_FORNECE	+ "'}"					
+				cCamposE5 += ",{'E5_LOJA'	, '" + SE2->E2_LOJA		+ "'}"
+				cCamposE5 += ",{'E5_MOTBX'	, 'NOR'}"
+				cCamposE5 += "}"
+
+				oModelMov := FWLoadModel("FINM030")					//Model de Movimento a Receber
+				oModelMov:SetOperation( MODEL_OPERATION_INSERT )	//Inclusao
+				oModelMov:Activate()
+				oModelMov:SetValue( "MASTER", "E5_GRV"		,.T.		)	//Informa se vai gravar SE5 ou não
+				oModelMov:SetValue( "MASTER", "NOVOPROC"	,.T.		)	//Informa que a inclusão será feita com um novo número de processo
+				oModelMov:SetValue( "MASTER", "E5_CAMPOS"	,cCamposE5 )	//Informa os campos da SE5 que serão gravados indepentes de FK5
+
+				oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+				oSubFKA := oModelMov:GetModel("FKADETAIL")
+
+				oSubFKA:SetValue( "FKA_IDORIG", FWUUIDV4() )
+				oSubFKA:SetValue( "FKA_TABORI", "FK5" )
+
+				//Dados da tabela auxiliar com o código do título a pagar
+				cChaveTit := xFilial("SE2") + "|" + SE2->E2_PREFIXO + "|" + SE2->E2_NUM 	+ "|" + SE2->E2_PARCELA + "|" + ;
+													SE2->E2_TIPO 	+ "|" + SE2->E2_FORNECE + "|" + SE2->E2_LOJA
+
+				cIDDoc := FINGRVFK7("SE2", cChaveTit)
+
+				//Informacoes do movimento
+				oSubFK5:SetValue( "FK5_ORIGEM"	, FunName() )
+				oSubFK5:SetValue( "FK5_DATA"	, dBaixa )
+				oSubFK5:SetValue( "FK5_VALOR"   , Round(NoRound(xMoeda(SE2->E2_VALOR,SE2->E2_MOEDA,nMoedaBco,SE2->E2_EMISSAO,3,SE2->E2_TXMOEDA),nCentMd1+1),nCentMd1))
+				oSubFK5:SetValue( "FK5_VLMOE2"  , SE2->E2_VALOR )
+				oSubFK5:SetValue( "FK5_MOEDA"   , Strzero(nMoedaBco,2))
+				oSubFK5:SetValue( "FK5_TXMOED"	, nTxMoeda )
+				oSubFK5:LoadValue( "FK5_NATURE"	, SE2->E2_NATUREZ	)
+				oSubFK5:SetValue( "FK5_RECPAG"	, "P" )
+				oSubFK5:SetValue( "FK5_TPDOC"	, If(SE2->E2_TIPO $ MVPAGANT,"PA","VL")	)
+				oSubFK5:SetValue( "FK5_HISTOR"	, SubStr(SE2->E2_HIST,1,nTamHist) )
+				oSubFK5:SetValue( "FK5_BANCO"	, cBanco )
+				oSubFK5:SetValue( "FK5_AGENCI"	, cAgencia )
+				oSubFK5:SetValue( "FK5_CONTA"	, cConta )
+				oSubFK5:SetValue( "FK5_DTDISP"	, dBaixa )
+				oSubFK5:SetValue( "FK5_FILORI"	, SE2->E2_FILORIG )
+				oSubFK5:SetValue( "FK5_IDDOC"   , cIDDoc )
+				oSubFK5:SetValue( "FK5_CCUSTO"  , SE2->E2_CCUSTO)
+				If SpbInUse()
+					oSubFK5:SetValue( "FK5_MODSPB"	, SE2->E2_MODSPB )
+				Endif
+				If SE2->E2_RATEIO == "S"
+					oSubFK5:SetValue( "FK5_RATEIO",  "1" )
+				Else
+					oSubFK5:SetValue( "FK5_RATEIO",  "2" )
+				EndIf
+
+				If oModelMov:VldData()
+					oModelMov:CommitData()
+					SE5->(dbGoto(oModelMov:GetValue( "MASTER", "E5_RECNO" )))
+				Else
+					lRet := .F.
+					cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+					cLog += cValToChar(oModelMov:GetErrorMessage()[6])
+					Help( ,,"M030_FA300Processa",,cLog, 1, 0 )
+				Endif
+				
+				oModelMov:DeActivate()
+				oModelMov:Destroy()
+				oModelMov:= NIL
+				
+				oSubFKA  := NIL
+				oSubFK5  := NIL	
+
+				If lUsaFlag //Armazena em aFlagCTB para atualizar no modulo Contabil
+					aAdd( aFlagCTB, { "E5_LA", "S", "SE5", SE5->( RecNo() ), 0, 0, 0} )
+				EndIf
+			
+				If lFA300PA
+					ExecBlock("FA300PA", .F., .F.)
+				Endif
+
+				AtuSalBco( cBanco,cAgencia,cConta,SE5->E5_DTDISPO,SE5->E5_VALOR,"-" )
+				
+				// Fluxo por Natureza Financeira
+				If SE2->E2_FLUXO == 'S'
+					AtuSldNat(SE2->E2_NATUREZ, SE2->E2_VENCREA, SE2->E2_MOEDA, "3", "P", SE2->E2_VALOR, SE2->E2_VLCRUZ, If(SE2->E2_TIPO $ MVABATIM, "-", "+"),,FunName(),"SE2",SE2->(Recno()),0)
+				EndIf
+			Endif
+
+			If SE2->E2_TIPO $ MVTXA
+				RecLock("SE2")
+				SE2->E2_OK := 'TA'
+				SE2->(MsUnlock())
+			EndIf
+
+			dbSelectArea("SE2")		
+			dbGoTo(nRecTit)
+			Loop
+
+		Endif
+
+		nRegistro := SE2->(Recno())
+
+		// Verifica código da ocorrência
+		dbSelectArea("SEB")
+		dbSeek(xFilial("SEB")+cBanco+Padr(Substr(cRetorno,1,3),3)+"R")
+
+		// PONTO DE ENTRADA
+		// Reposicionar o SEB para uma chave diferente, que considere também, campos especificos criados no SEB.               
+		If lFa300Oco
+			ExecBlock("FA300OCO", .F., .F.)
+		Endif
+		
+		dbSelectArea("SE2")
+
+		IF fa300rejei(cFilOrig)
+			Loop
+		Endif
+
+		IF !(LEFT(SEB->EB_OCORR,2) $ "06|07|08")  //Baixa do Titulo
+			Help(" ",1,"NOCORR",,"Chave="+cNumTit+CHR(10)+STR0016,3,1) //" Falta ocorrencia SEB de controle do sistema"
+			Loop
+		ENDIF
+		
+		//Monta Contabilização
+		If !lCabec .and. lPadrao .and. lContabiliza
+			nHdlPrv := HeadProva(cLote,"FINA300", substr(cUsuario, 7, 6), @cArquivo )
+			lCabec  := .T.
+		EndIf
+		
+		lDesconto   := Iif(mv_par10==1,.T.,.F.)
+		cHist070    := STR0017 //"Valor Pago s/ Titulo"
+		nSaldo      := SE2->E2_SALDO
+		nSaldoCru   := Moeda(SE2->E2_SALDO,1,"P")
+		cNumero     := SE2->E2_NUM
+		cPrefixo    := SE2->E2_PREFIXO
+		cParcela    := SE2->E2_PARCELA
+		cFornece    := SE2->E2_FORNECE
+		nTotAbat    := 0
+		nMoeda      := 2
+
+		//Trata os Titulos de Abatimentos                        
+		dbSelectArea( "SE2" )
+		dbSetOrder( 1 )
+		dbSeek( xFilial("SE2")+cPrefixo+cNumero+cParcela )
+		
+		While SE2->(!EOF()) .And. SE2->(E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA) == xFilial("SE2")+cPrefixo+cNumero+cParcela		
+			IF SE2->E2_TIPO$ MVABATIM .And. SE2->E2_SALDO > 0 .And. SE2->E2_FORNECE == cFornece
+				nTotAbat += Moeda(SE2->E2_SALDO, 1, "P")
+				
+				//Atualiza a Baixa do Titulo    
+				RecLock("SE2",.F.)
+				Replace E2_BAIXA   With dBaixa
+				Replace E2_SALDO   With 0
+				Replace E2_MOVIMEN With dDataBase
+				Replace E2_BCOPAG  With E2_PORTADO
+				Msunlock( )
+				PcoDetLan("000022","02","FINA300") //Grava o lançamento de integração com o SIGAPCO
+			EndIF
+			
+			SE2->(dbSkip())
+		Enddo
+		
+		dbSelectArea("SE2")
+		SE2->(dbGoTo(nRegistro))
+		nAcresc  := Round(Noround(xMoeda(SE2->E2_SDACRES,SE2->E2_MOEDA,1,dBaixa,3),3),2)
+		nDecresc := Round(Noround(xMoeda(SE2->E2_SDDECRE,SE2->E2_MOEDA,1,dBaixa,3),3),2)
+		
+		//Caso seja do Segmento 'N'(Impostos) ou 'J'(Pagamentos), ajusta acrescimos e decrescimos, pois
+		//o banco trata os valores atraves dos campos de Juros e Desconto
+		If cSegmento $ "N|J" .And. (nJuros+nDescont) > 0 
+			If nJuros > 0 // Valida se o banco retornou o juros no arquivo.
+				nJuros := nJuros - nAcresc
+			Endif
+			
+			If nDescont > 0 // Valida se o banco retornou desconto no arquivo.
+				nDescont := nDescont - nDecresc
+			Endif
+		Endif
+		
+		nValPag	 := Val(cValPag) / 100                     
+		nValPgto := nValPag  //Utilizado para compatibilizar com a rotina de rateio multinatureza
+		
+		//Carrega valores para efetuar a baixa	
+		nValPadrao := (nValPag - (nJuros+nMulta+nAcresc)) + (nDescont+nDecresc+nTotAbat)
+		nSaldo     := Round(nSaldo - nValPadrao, 2)
+		
+		If nSaldo < 0
+			If lPAG2TIT
+				nVlrPA := Abs(nSaldo)
+			EndIf
+			
+			nSaldo := 0	
+		Endif
+
+		cTpDesc := If( SE2->E2_TPDESC == "C", SE2->E2_TPDESC, "I" )
+
+		// Define o valor em moeda estrangeira
+		If SE2->E2_MOEDA == nMoedaBco
+			nValEstrang := nValPgto
+		ElseIf SE2->E2_MOEDA > 1 .And. nMoedaBco > 1
+			nValEstrang := xMoeda(nValPgto, nMoedaBco, SE2->E2_MOEDA, dBaixa, nCasDec, nTxMoeda, SE2->E2_TXMOEDA)
+		ElseIf SE2->E2_MOEDA == 1
+			nValEstrang := xMoeda(nValPgto, nMoedaBco, SE2->E2_MOEDA, dBaixa, nCasDec, nTxMoeda, 0)
+		Else
+			nValEstrang := xMoeda(nValPgto, nMoedaBco, SE2->E2_MOEDA, dBaixa, nCasDec, 0, nTxMoeda)
+		Endif
+		
+		nCorrecao:= fa091Correc(nMoedaBco)
+		
+		//Atualiza a Baixa do Titulo                
+		RecLock("SE2")
+		SE2->E2_BAIXA   := dBaixa
+		SE2->E2_VALLIQ  := nValPag
+		SE2->E2_SALDO   := nSaldo
+		SE2->E2_MOVIMEN := dDataBase
+		SE2->E2_BCOPAG  := E2_PORTADO
+		SE2->E2_JUROS   := nJuros + nAcresc
+		SE2->E2_DESCONT := nDescont + nDecresc
+		SE2->E2_CORREC  := nCorrecao
+		SE2->E2_MULTA   := nMulta
+		SE2->E2_SDACRES := 0
+		SE2->E2_SDDECRE := 0
+		SE2->(MsUnlock())
+		
+		If SE2->E2_SALDO <= 0
+			If !Empty( SE2->E2_IDDARF )
+				// Procura por títulos de DARF emitidos para baixa-los também caso existam
+				FI9->( DbSetOrder( 1 ) )
+				If FI9->( DbSeek( xFilial( "FI9" ) + SE2->E2_IDDARF + "A" ) )
+					RecLock( "FI9" )
+					FI9->FI9_STATUS := "B"
+					FI9->( MsUnlock() )
+				EndIf
+			ElseIf SE2->E2_PREFIXO $ "AGP|AGL"
+				//Força a baixa dos títulos aglutinados na FI9 caso eles já tenham sido baixados na SE2
+				FI9->( dbSetOrder( 3 ) )
+				If FI9->( dbSeek( xFilial( "FI9" ) + SE2->E2_FORNECE + SE2->E2_LOJA + SE2->E2_PREFIXO + SE2->E2_NUM + SE2->E2_PARCELA + SE2->E2_TIPO ) ) .And. FI9->FI9_STATUS <> "B"
+					RecLock( "FI9" )
+					FI9->FI9_STATUS := "B"
+					FI9->( MsUnlock() )
+				EndIf
+			EndIf
+			dbSelectArea( "SE2" )
+		EndIf
+		
+		If nVlrPA > 0
+			aAreaSE2 := SE2->(GetArea())
+			
+			If Empty(cTipoAdt)
+				cTipoAdt := Padr("PA ", Len(SE2->E2_TIPO), " ")
+				
+				If At(cTipoAdt, MVPAGANT) == 0
+					cTipoAdt := Substr(MVPAGANT, 1, Len(SE2->E2_TIPO))
+				EndIf
+			EndIf
+			
+			cParcelPA := GetParcela(SE2->E2_PREFIXO, SE2->E2_NUM, cTipoAdt, SE2->E2_FORNECE, SE2->E2_LOJA, SE2->E2_FILORIG)
+			
+			Aadd(aTitPA, {"E2_FILIAL",  xFilial("SE2") , Nil})
+			Aadd(aTitPA, {"E2_PREFIXO", SE2->E2_PREFIXO, Nil})
+			Aadd(aTitPA, {"E2_NUM",     SE2->E2_NUM,     Nil})
+			Aadd(aTitPA, {"E2_PARCELA", cParcelPA,       Nil})
+			Aadd(aTitPA, {"E2_TIPO",    cTipoAdt,        Nil})
+			Aadd(aTitPA, {"AUTBANCO",   mv_par06,        Nil})
+			Aadd(aTitPA, {"AUTAGENCIA", mv_par07,        Nil})
+			Aadd(aTitPA, {"AUTCONTA",   mv_par08,        Nil})
+			Aadd(aTitPA, {"E2_NATUREZ", SE2->E2_NATUREZ, Nil})
+			Aadd(aTitPA, {"E2_FORNECE", SE2->E2_FORNECE, Nil})
+			Aadd(aTitPA, {"E2_LOJA",    SE2->E2_LOJA,    Nil})
+			Aadd(aTitPA, {"E2_EMISSAO", Ddatabase,       Nil})
+			Aadd(aTitPA, {"E2_VENCTO" , Ddatabase,       Nil})
+			Aadd(aTitPA, {"E2_VENCREA", Ddatabase,       Nil})
+			Aadd(aTitPA, {"E2_VALOR",   nVlrPA,          Nil})
+			Aadd(aTitPA, {"E2_EMIS1",   dDatabase,       Nil})
+			Aadd(aTitPA, {"E2_VLCRUZ",  nVlrPA,          Nil})
+			Aadd(aTitPA, {"E2_HIST",    STR0035,         Nil}) 
+			Aadd(aTitPA, {"E2_ORIGEM", "FINA300",        Nil})
+			
+			Pergunte("FIN050", .F.)		
+			F050PAR05 := mv_par05
+			F050PAR09 := mv_par09
+			mv_par05  := 2
+			mv_par09  := 1
+			
+			MSExecAuto({|x, y, z| FINA050(x, y, z)}, aTitPA, Nil, 3)
+			mv_par05 := F050PAR05
+			mv_par09 := F050PAR09		
+			aTitPA   := {}
+			RestArea(aAreaSE2)
+			FwFreeArray(aAreaSE2)
+			Pergunte("AFI300", .F.)
+			
+			If lMsErroAuto
+				lBxCnab := .F.
+				
+				If !lExecJob
+					MostraErro()
+				EndIf
+				
+				DisarmTransaction()
+				exit
+			EndIf
+		EndIf
+		
+		//Grava o lançamento de integração com o SIGAPCO
+		PcoDetLan("000022","02","FINA300")
+		dbSelectArea("TRB")
+		
+		If !TRB->(DbSeek(xFilial("SE5")+Dtos(dBaixa)))
+			Reclock("TRB",.T.)
+			TRB->FILMOV := xFilial("SE5")
+			TRB->DATAD  := dBaixa
+			TRB->NATURE := cNatLote 
+			TRB->MOEDA  := StrZero(nMoedaBco, 2)
+		Else
+			Reclock("TRB",.F.)
+		Endif
+		
+		TRB->TOTAL += nValPag
+		TRB->(MsUnlock())
+		
+		//Para numerar as sequencias o sistema precisa procurar os registros com  tipodoc igual a VL ou BA.
+		aTipoSeq := { "VL","BA","CP" }
+		dbSelectArea("SE5")
+		SE5->(dbSetOrder(2))
+		
+		For nLaco := 1 to len(aTipoSeq)
+			SE5->(dbSeek(xFilial("SE5") + aTipoSeq[nLaco] + SE2->E2_PREFIXO + SE2->E2_NUM + SE2->E2_PARCELA + SE2->E2_TIPO) )
+
+			While !SE5->(Eof()) .And. ;
+					SE5->E5_FILIAL == xFilial("SE5") .And. ;
+					SE5->E5_TIPODOC == aTipoSeq[nLaco] .And. ;
+					SE5->E5_PREFIXO == SE2->E2_PREFIXO .And. ;
+					SE5->E5_NUMERO == SE2->E2_NUM .And. ;
+					SE5->E5_PARCELA == SE2->E2_PARCELA .And. ;
+					SE5->E5_TIPO == SE2->E2_TIPO
+
+				If SE5->(E5_CLIFOR+E5_LOJA) == SE2->(E2_FORNECE+SE2->E2_LOJA)
+					If PadL(AllTrim(cSequencia),nTamSeq,"0") < PadL(AllTrim(SE5->E5_SEQ),nTamSeq,"0")
+						cSequencia := SE5->E5_SEQ
+					EndIf
+				EndIf
+				SE5->( dbSkip() )
+			Enddo
+		Next
+		
+		If Len(AllTrim(cSequencia)) < nTamSeq
+			cSequencia := PadL(AllTrim(cSequencia),nTamSeq,"0")
+		Endif
+		
+		cSequencia := Soma1(cSequencia,nTamSeq)
+
+		// Somo os valores para gravacao do total nos registros bancarios
+		nJurAux := nJuros + nAcresc
+		
+		nDescAux := nDescont + nDecresc
+			
+		oModelMov := FWLoadModel("FINM020")					//Model de Movimento a Pagar
+		oModelMov:SetOperation( MODEL_OPERATION_INSERT )	//Inclusao
+		oModelMov:Activate()		
+		oModelMov:SetValue( "MASTER", "E5_GRV"		,.T.		)	//Informa se vai gravar SE5 ou não
+		oModelMov:SetValue( "MASTER", "NOVOPROC"	,.T.		)	//Informa que a inclusão será feita com um novo número de processo
+
+		oSubFK2 := oModelMov:GetModel("FK2DETAIL")
+		oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+		oSubFKA := oModelMov:GetModel("FKADETAIL")
+		oSubFK6 := oModelMov:GetModel("FK6DETAIL")
+
+		//Dados da tabela auxiliar com o código do título a pagar
+		cChaveTit := xFilial("SE2")+"|"+SE2->E2_PREFIXO+"|"+SE2->E2_NUM+"|"+SE2->E2_PARCELA+"|"+SE2->E2_TIPO+"|"+SE2->E2_FORNECE+"|"+SE2->E2_LOJA
+		cIdFK2    := FWUUIDV4()
+		cIDDoc    := FINGRVFK7("SE2", cChaveTit)	
+		cCamposE5 := ""
+		
+		For nI := 1 to 5
+			If nI == 1
+				nCpoTp := nValPag
+				cTpDoc := If(Empty(cLoteFin), "VL", "BA")
+				cHistMov := OemToAnsi( STR0009 ) //"Valor pago s /Titulo"
+			Elseif nI == 2
+				nCpoTp := nJurAux
+				cTpDoc := "JR"
+				cHistMov := OemToAnsi( STR0010 ) //"Juros s/Pgto de Titulo"
+			Elseif nI == 3
+				nCpoTp := nMulta
+				cTpDoc := "MT"
+				cHistMov := OemToAnsi( STR0026 ) //"Multa s/Pgto de Titulo"
+			Elseif nI == 4
+				nCpoTp := nDescAux
+				cTpDoc := "DC"
+				cHistMov := OemToAnsi( STR0011 ) //"Desconto s/Pgto de Titulo"
+			Elseif nI == 5
+				nCpoTp  := nCorrecao
+				cTpDoc  :="CM"
+				cHistMov:=OemToAnsi( STR0034 )//"Correcao Monet s/Receb.Titulo"
+			Endif
+
+			If nCpoTp != 0 .Or. nI == 1
+				//Define os campos que não existem nas FKs e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+				If !Empty(cCamposE5)
+					cCamposE5 += "|"
+				Endif
+				
+				cCamposE5 += "{"
+
+				//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+				//Estrutura para o E5_CAMPOS: "{{'SE5->CAMPO', Valor}, {'SE5->CAMPO', Valor}}"
+				cCamposE5 += " {'E5_DTDIGIT'	, dDatabase }"	
+				cCamposE5 += ",{'E5_LOTE'		, '" + cLoteFin				+ "'}"
+				cCamposE5 += ",{'E5_MOTBX'		, 'DEB'							}"
+				cCamposE5 += ",{'E5_TIPO'		, '" + SE2->E2_TIPO			+ "'}"
+				cCamposE5 += ",{'E5_PREFIXO'	, '" + SE2->E2_PREFIXO		+ "'}"
+				cCamposE5 += ",{'E5_NUMERO'		, '" + SE2->E2_NUM			+ "'}"			
+				cCamposE5 += ",{'E5_PARCELA'	, '" + SE2->E2_PARCELA		+ "'}"
+				cCamposE5 += ",{'E5_FORNECE'	, '" + SE2->E2_FORNECE		+ "'}"
+				cCamposE5 += ",{'E5_CLIFOR'		, '" + SE2->E2_FORNECE		+ "'}"
+				cCamposE5 += ",{'E5_LOJA'		, '" + SE2->E2_LOJA			+ "'}"
+				cCamposE5 += ",{'E5_BENEF'		, '" + RemoveAsp(SE2->E2_NOMFOR)+ "'}"
+				cCamposE5 += ",{'E5_ARQCNAB'	, '" + cArqEnt				+ "'}"
+				cCamposE5 += ",{'E5_TPDESC'		, '" + cTpDesc				+ "'}"
+
+				//Movimento principal (NF)
+				If nI == 1
+					//Valores acessorios no registro principal da baixa
+					cCamposE5 += ",{'E5_VLMULTA' ," + CValToChar(nMulta)	+ "}"
+					cCamposE5 += ",{'E5_VLDESCO' ," + CValToChar(nDescAux)	+ "}"
+					cCamposE5 += ",{'E5_VLJUROS' ," + CValToChar(nJurAux)	+ "}"
+					cCamposE5 += ",{'E5_VLACRES' ," + CValToChar(nAcresc)	+ "}"
+					cCamposE5 += ",{'E5_VLDECRE' ," + CValToChar(nDecresc)	+ "}"
+					cCamposE5 += ",{'E5_VLCORRE' ," + CValToChar(nCorrecao) + "}"
+					cCamposE5 += ",{'E5_BANCO'   , '"+ cBanco   +"' }"
+					cCamposE5 += ",{'E5_AGENCIA' , '"+ cAgencia +"' }"
+					cCamposE5 += ",{'E5_CONTA'   , '"+ cConta   +"' }"
+					cCamposE5 += ",{'E5_DTDISPO' , dBaixa }" 
+
+					//Relacionamento FKA X FK2
+					If !oSubFKA:IsEmpty()
+						oSubFKA:AddLine()
+						oSubFKA:GoLine( oSubFKA:Length())	
+					Endif		
+					
+					oSubFKA:SetValue('FKA_IDORIG', cIdFK2)			
+					oSubFKA:SetValue('FKA_TABORI', "FK2")					
+					
+					//Dados da baixa a pagar
+					oSubFK2:SetValue("FK2_IDDOC",  cIdDOC)
+					oSubFK2:SetValue("FK2_ORIGEM", FunName())
+					oSubFK2:SetValue("FK2_FILORI", SE2->E2_FILORIG)	
+					oSubFK2:SetValue("FK2_DATA",   SE2->E2_BAIXA)
+					oSubFK2:SetValue("FK2_VALOR",  nCpoTp)
+					oSubFK2:SetValue("FK2_VLMOE2", nValEstrang) 
+					oSubFK2:SetValue("FK2_MOEDA",  StrZero(nMoedaBco,2)) 
+					oSubFK2:SetValue("FK2_TXMOED", nTxMoeda) 
+					oSubFK2:LoadValue("FK2_NATURE", SE2->E2_NATUREZ)
+					oSubFK2:SetValue("FK2_RECPAG", "P")
+					oSubFK2:SetValue("FK2_TPDOC",  cTpDoc)
+					oSubFK2:SetValue("FK2_HISTOR", cHistMov)
+					oSubFK2:SetValue("FK2_DOC",    SE2->E2_NUMBOR)
+					oSubFK2:SetValue("FK2_MOTBX",  "DEB")
+					oSubFK2:SetValue("FK2_SEQ",    cSequencia)
+					oSubFK2:SetValue("FK2_LOTE",   cLoteFin)
+					oSubFK2:SetValue("FK2_ARCNAB", cArqEnt)
+					oSubFK2:SetValue("FK2_MULNAT", If(lMultNat .and. (SE2->E2_MULTNAT == "1"),"1","2"))
+					
+					If !lUsaFlag
+						oSubFK2:SetValue( "FK2_LA"	,If(lPadrao .and. lContabiliza .and. lCabec,"S","N"))
+					EndIf
+					
+					If FINVerMov(cTpDoc) //Verifica se o TIPODOC movimenta banco
+						//Relacionamento FKA X FK2
+						If !oSubFKA:IsEmpty()
+							//Inclui a quantidade de linhas necessárias
+							oSubFKA:AddLine()		
+							//Vai para linha criada
+							oSubFKA:GoLine( oSubFKA:Length() )	
+						Endif	
+						
+						oSubFKA:SetValue( 'FKA_IDORIG', FWUUIDV4() )
+						oSubFKA:SetValue( 'FKA_TABORI', 'FK5' )	
+						
+						//Dados do Movimento
+						oSubFK5:SetValue("FK5_ORIGEM", FunName())
+						oSubFK5:SetValue("FK5_FILORI", SE2->E2_FILORIG)
+						oSubFK5:SetValue("FK5_DATA",   SE2->E2_BAIXA)
+						oSubFK5:SetValue("FK5_VALOR",  nCpoTp)
+						oSubFK5:SetValue("FK5_VLMOE2", nValEstrang )		
+						oSubFK5:SetValue("FK5_MOEDA",  StrZero(nMoedaBco, 2))
+						oSubFK5:SetValue("FK5_TXMOED", nTxMoeda)
+						oSubFK5:LoadValue("FK5_NATURE", SE2->E2_NATUREZ)
+						oSubFK5:SetValue("FK5_RECPAG", "P")
+						oSubFK5:SetValue("FK5_TPDOC",  cTpDoc)
+						oSubFK5:SetValue("FK5_HISTOR", cHistMov)
+						oSubFK5:SetValue("FK5_DOC",    SE2->E2_NUMBOR)
+						oSubFK5:SetValue("FK5_SEQ",    cSequencia)			
+						oSubFK5:SetValue("FK5_BANCO",  cBanco)
+						oSubFK5:SetValue("FK5_AGENCI", cAgencia)
+						oSubFK5:SetValue("FK5_CONTA",  cConta)
+						oSubFK5:SetValue("FK5_DTDISP", dBaixa)
+						
+						If !lUsaFlag
+							oSubFK5:SetValue( "FK5_LA"	,If(lPadrao .and. lContabiliza .and. lCabec,"S","N") )
+						EndIf	
+					EndIf						
+				ElseIf cTpDoc $ "DC|JR|MT|CM" //VALORES ACESSORIOS (MULTA, JUROS, DESCONTO)
+					If !oSubFKA:SeekLine({{'FKA_TABORI',"FK2"}})
+						Loop
+					EndIf
+					
+					If !oSubFK6:IsEmpty()
+						//Inclui a quantidade de linhas necessárias
+						oSubFK6:AddLine()		
+						//Vai para linha criada
+						oSubFK6:GoLine( oSubFK6:Length() )	
+					Endif
+					
+					oSubFK6:SetValue("FK6_VALCAL", nCpoTp)
+					oSubFK6:SetValue("FK6_VALMOV", nCpoTp)
+					oSubFK6:SetValue("FK6_TPDESC", If(cTpDesc == "C", "2", "1") )
+					oSubFK6:SetValue("FK6_TPDOC",  cTpDoc )
+					oSubFK6:SetValue("FK6_RECPAG", "P" )
+					oSubFK6:SetValue("FK6_TABORI", "FK2" )
+					oSubFK6:SetValue("FK6_IDORIG", cIdFK2 )					
+					oSubFK6:SetValue("FK6_HISTOR", cHistMov )
+				EndIf
+				
+				If !Empty(cCamposE5)
+					cCamposE5 += "}"
+				Endif
+			EndIf
+		Next
+		
+		oModelMov:SetValue("MASTER", "E5_CAMPOS", cCamposE5)	//Informa os campos da SE5 que serão gravados indepentes de FK5
+		
+		If oModelMov:VldData()
+			oModelMov:CommitData()
+			SE5->(dbGoto(oModelMov:GetValue( "MASTER", "E5_RECNO" )))
+		Else
+			lRet := .F.
+			cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+			cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+			cLog += cValToChar(oModelMov:GetErrorMessage()[6])
+			Help( ,,"M030_FA300ProcBX",,cLog, 1, 0 )
+		Endif
+		
+		oModelMov:DeActivate()
+		oModelMov:Destroy()
+		oModelMov:=NIL
+		
+		oSubFKA  := nil
+		oSubFK2  := nil		
+		oSubFK5  := nil	
+		oSubFK6  := nil		
+
+		If lUsaFlag .AND. lPadrao .AND. lContabiliza .AND. lCabec // Armazena em aFlagCTB para atualizar no modulo Contabil
+			aAdd(aFlagCTB, { "E5_LA", "S", "SE5", SE5->( RecNo() ), 0, 0, 0} )
+		EndIf
+		
+		//Fluxo por Natureza Financeira
+		If SE2->E2_FLUXO == 'S'
+			AtuSldNat(SE2->E2_NATUREZ, SE2->E2_VENCREA, SE2->E2_MOEDA, "3", "P", FK2->FK2_VLMOE2, FK2->FK2_VALOR, If(SE2->E2_TIPO $ MVABATIM, "-", "+"),,FunName(),"SE2",SE2->(Recno()),0)
+		EndIf
+		
+		If Empty(cLoteFin)
+			AtuSalBco(cBanco,cAgencia,cConta,SE5->E5_DATA,SE5->E5_VALOR,"-")
+		Endif	
+
+		nValorTotal += SE5->E5_VALOR
+
+		// Grava o lançamento de integração com o SIGAPCO
+		PcoDetLan("000022","01","FINA300")
+		
+		If lF300SE5
+			ExecBlock("F300SE5",.F.,.F.)
+		Endif
+		
+		//Grava o lançamento de integração com o SIGAPFS
+		If lJGrvBxPag
+			JGrvBxPag(SE2->(Recno()), 3 , SE5->(Recno()))
+		EndIf
+		
+		//Integração SIGAMNT
+		If lSigaMNT .And. FindFunction("NGBAIXASE2")
+			NGBAIXASE2(1)
+
+			//--------------------------------------------
+			// Função que gera uma apropriação de débito
+			// da multa, (Integração SIGAFIN - SIGAMNT).
+			//---------------------------------------------
+			If FindFunction( "MNT765CONF" ) //Se for executado a baixa automática de pagaento da multa;
+				lPagAutFin := .F. //Variável utilizada em fonte especifico do SIGAMNT;
+				MNT765CONF( 3 ) 	//Executa a função que gera APD;
+			EndIf
+
+		Endif
+		
+		//Atualiza o Cadastro de Fornecedores    
+		dbSelectArea("SA2")
+		If lAtuForn .and. dbSeek(xFilial("SA2")+SE2->E2_FORNECE+SE2->E2_LOJA)
+			RecLock("SA2")
+			
+			IF nSaldoCru >= SA2->A2_SALDUP
+				nSalDup := 0
+			ELSE
+				nSalDup := SA2->A2_SALDUP - nSaldoCru
+			Endif
+			
+			Replace A2_SALDUP   With nSalDup
+			Replace A2_SALDUPM With A2_SALDUPM - xMoeda(nSaldoCru,SE2->E2_MOEDA,Val(cMCusto),SE2->E2_VENCREA)
+			MsUnlock( )
+		Endif
+			
+		// Verifica qual o Lançamento Padrão que ser utilizado     
+		dbSelectArea("SE2")
+		nC++
+
+		// Header do cProva
+		IF nC == 1 .And. lPadrao .and. lContabiliza
+			nHdlPrv := HeadProva(cLote, "FINA300", substr( cUsuario, 7, 6 ), @cArquivo)
+			lCabec := .T.
+		Endif
+		
+		//Contabiliza Rateio Multinatureza
+		If lMultNat .and. (SE2->E2_MULTNAT == "1")
+			MultNatB("SE2", .F., "1", @lOk, @aColsSEV, @lMultNat, .T.)
+			
+			If lOk
+				MultNatC("SE2", @nHdlPrv, @nTotal,;
+				@cArquivo, (mv_par11 == 1), .T., "1",;
+				@nTotLtEZ, lOk, aColsSEV, .T.)
+			Endif
+		Else
+			//Contabiliza o que nao possuir rateio multinatureza	
+			cPadrao := "532"
+			
+			If lPadrao .and. lContabiliza .and. lCabec
+				//Contabiliza pela variavel VALOR. Nao necessita de controle de flag.
+				nTotal += DetProva(nHdlPrv, cPadrao, "FINA300" /*cPrograma*/, cLote, /*nLinha*/, /*lExecuta*/, /*cCriterio*/,;
+									/*lRateio*/, /*cChaveBusca*/, /*aCT5*/, /*lPosiciona*/, @aFlagCTB, /*aTabRecOri*/, /*aDadosProva*/)
+			EndIf
+		Endif
+		
+		//Retorno Filial
+		cFilAnt := cFilAtu
+	Enddo
+End Transaction
+
+//Grava no SEE o n£mero do £ltimo lote recebido e gera movimentacao bancaria
+If !Empty(cLoteFin) .and. lBxCnab .And. TRB->(Reccount()) > 0
+	RecLock("SEE",.F.)
+	SEE->EE_LOTECP := cLoteFin
+	SEE->(MsUnLock())
+	
+	DbSelectArea("TRB")
+	TRB->(dbGotop())
+	
+	While TRB->(!Eof())
+		cFilAnt   := Iif(lAllExc, TRB->FILMOV, cFilAnt)
+		cCamposE5 := "{"		
+		cCamposE5 += " {'E5_DTDIGIT', dDataBase  }"
+		cCamposE5 += ",{'E5_LOTE'	,'" + cLoteFin + "'}"
+		cCamposE5 += "}"
+
+		oModelMov := FWLoadModel("FINM030")							//Model de Movimento Bancário
+		oModelMov:SetOperation( MODEL_OPERATION_INSERT )			//Inclusao
+		oModelMov:Activate()											//Ativa o modelo de dados
+		oModelMov:SetValue( "MASTER","E5_GRV"		,.T.		)	//Informa se vai gravar SE5 ou não
+		oModelMov:SetValue( "MASTER","NOVOPROC"	,.T.		)	//Informa que a inclusão será feita com um novo número de processo
+		oModelMov:SetValue( "MASTER","E5_CAMPOS"	,cCamposE5	)	//Informa os campos da SE5 que serão gravados indepentes de FK5 
+
+		oSubFK5 := oModelMov:GetModel( "FK5DETAIL" )
+		oSubFKA := oModelMov:GetModel( "FKADETAIL" )
+
+		oSubFKA:SetValue( 'FKA_IDORIG', FWUUIDV4() )
+		oSubFKA:SetValue( 'FKA_TABORI', 'FK5' )
+
+		//Informacoes do movimento
+		oSubFK5:SetValue("FK5_ORIGEM", FunName())
+		oSubFK5:SetValue("FK5_DATA",   TRB->DATAD)
+		oSubFK5:SetValue("FK5_VALOR",  TRB->TOTAL)
+		oSubFK5:SetValue("FK5_RECPAG", "P")
+		oSubFK5:SetValue("FK5_BANCO",  cBanco)
+		oSubFK5:SetValue("FK5_AGENCI", cAgencia)
+		oSubFK5:SetValue("FK5_CONTA",  cConta)
+		oSubFK5:SetValue("FK5_DTDISP", TRB->DATAD) 
+		oSubFK5:SetValue("FK5_HISTOR", STR0022 + cLoteFin) // "Bx p/Retorno SISPAG/Lote: "
+		oSubFK5:SetValue("FK5_TPDOC",  "VL")
+		oSubFK5:SetValue("FK5_NATURE", TRB->NATURE)
+		oSubFK5:SetValue("FK5_MOEDA",  TRB->MOEDA)
+		oSubFK5:SetValue("FK5_FILORI", cFilAnt )		
+		oSubFK5:SetValue("FK5_LOTE",   cLoteFin ) 	
+		
+		If SpbInUse()
+			oSubFK5:SetValue( "FK5_MODSPB", "1" )
+		Endif
+
+		If oModelMov:VldData()
+			oModelMov:CommitData()
+			SE5->(dbGoto(oModelMov:GetValue( "MASTER", "E5_RECNO" )))
+		Else
+			lRet := .F.
+			cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+			cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+			cLog += cValToChar(oModelMov:GetErrorMessage()[6])
+			Help( ,,"M030_FA300ProcMV",,cLog, 1, 0 )
+		Endif
+		
+		oModelMov:DeActivate()
+		oModelMov:Destroy()
+		oModelMov:=NIL
+		
+		oSubFKA  := nil
+		oSubFK5  := nil	
+		
+		// Grava o lançamento de integração com o SIGAPCO
+		PcoDetLan("000022","01","FINA300")
+		
+		// Atualiza saldo bancario.     
+		AtuSalBco(cBanco, cAgencia, cConta, SE5->E5_DATA, SE5->E5_VALOR, "-")
+		TRB->(DbSkip())
+	Enddo
+EndIf
+
+//Retorno Filial
+cFilAnt := cFilAtu
+
+oSubFKA  := nil
+oSubFK2  := nil		
+oSubFK5  := nil	
+oSubFK6  := nil		
+
+// Finaliza processo de integracao com SIGAPCO
+PCOFinLan("000022")
+
+If __ObjParc != Nil
+	__ObjParc:Destroy()
+	__ObjParc := Nil
+EndIf
+
+dbSelectArea("SE2")
+dbGoBottom()
+dbSkip()
+dbSelectArea("SE5")
+dbGoBottom()
+dbSkip()
+
+VALOR := nValorTotal
+
+If lPadrao .and. lContabiliza .and. lCabec
+	//Contabiliza pela variavel VALOR. Nao necessita de controle de flag.
+	nTotal += DetProva(nHdlPrv, cPadrao, "FINA300" /*cPrograma*/, cLote, /*nLinha*/, /*lExecuta*/, /*cCriterio*/,;
+	                    /*lRateio*/, /*cChaveBusca*/, /*aCT5*/, /*lPosiciona*/, @aFlagCTB, /*aTabRecOri*/, /*aDadosProva*/)
+Endif
+
+If lPadrao .and. lContabiliza .and. lCabec
+	RodaProva(nHdlPrv, nTotal)
+	cA100Incl(cArquivo, nHdlPrv, 2 /*nOpcx*/, cLote, mv_par01 == 1, mv_par02 == 1, /*cOnLine*/, /*dData*/, /*dReproc*/, @aFlagCTB, /*aDadosProva*/, /*aDiario*/ )
+	aFlagCTB := {}  // Limpa o coteudo apos a efetivacao do lancamento
+Endif
+
+VALOR := 0
+
+dbSelectArea("SE2")
+dbSeek(xFilial())
+
+dbSelectArea("SE5")
+dbSeek(xFilial())
+
+If Select("TRB") > 0
+	dbSelectArea("TRB")
+	TRB->(dbCloseArea())
+	If _oFina3001 <> Nil
+		_oFina3001:Delete()
+		_oFina3001 := Nil
+	Endif
+EndIf
+
+FCLOSE(nHdlBco)
+
+// Ponto de entrada Utilizado para renomear o arquivo processado       
+If lFa300Ren
+   ExecBlock("FA300REN", .F., .F.)
+End   
+
+cFilAnt := cFilOrig					// sempre restaura a filial original 
+
+lNewDetJ := NIL
+
+Return
+
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} fa300Rejei
+Comunicação Bancária - Retorno SisPag
+
+@author Vicente Sementilli
+@version P12
+@since   29/11/1995
+@return  Nil
+*/
+//-------------------------------------------------------------------
+Static Function fa300Rejei(cFilOrig)
+
+Local lRet		:= .T.
+Local cFilAux	:= ""
+
+Default cFilOrig := cFilAnt
+
+// 00-Crédito efetuado  CP-Confirmação de OP Cumprida  EM-Confirmação de OP Emitida
+If "00" $ cRetorno .Or. "CP" $ cRetorno .Or. "EM" $ cRetorno
+	lRet := .F.
+// BD-Pagamento Agendado  BE-Pagto Agendado c/Forma Alterada p/ OP
+ElseIf !("BD" $ cRetorno .or. "BE" $ cRetorno)
+
+	cFilAux := cFilAnt
+	cFilAnt := cFilOrig //Restauro a filial de origem que estava logada para posicionar o borderô correto
+
+	dbSelectArea("SEA")
+	dbSetOrder(1)
+	If MSSeek(xFilial()+SE2->E2_NUMBOR+SE2->E2_PREFIXO+SE2->E2_NUM+SE2->E2_PARCELA+SE2->E2_TIPO+SE2->E2_FORNECE+SE2->E2_LOJA)
+
+		FA590Canc()// Chamada Função FA590Canc para que o Título seja retirado corretamente do borderô Imp.
+		
+		// Utilizado para gravacao de campos adicionais na SE2
+		If lFA300Rej
+			ExecBlock("FA300REJ", .F., .F., {cRetorno})
+		EndIf
+
+	EndIf
+	cFilAnt := cFilAux
+EndIf      
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} MenuDef
+Utilizacao de menu Funcional
+
+Parametros do array aRotina
+1. Nome a aparecer no cabecalho
+2. Nome da Rotina associada
+3. Reservado
+4. Tipo de Transação a ser efetuada:
+	1 - Pesquisa e Posiciona em um Banco de Dados
+	2 - Simplesmente Mostra os Campos
+	3 - Inclui registros no Bancos de Dados
+	4 - Altera o registro corrente
+	5 - Remove o registro corrente do Banco de Dados
+5. Nivel de acesso
+6. Habilita Menu Funcional
+
+@author Ana Paula N. Silva
+@version P12
+@since   29/11/2006
+@return  Array com opcoes da rotina. 
+*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+Local aRotina := {{ OemToAnsi( STR0025 ), "AxPesqui"     , 0 , 1,,.F.},; //"Pesquisar"
+				  { OemToAnsi( STR0002 ), "AxVisual"     , 0 , 2} ,;  //"Visualiza"
+  				  { OemToAnsi( STR0012 ), "FA240Sis"     , 0 , 2} ,; //"Gerar Arquivo"
+            	  { OemToAnsi( STR0033 ), "FA040Legenda" , 0 , 2},; // "Legenda"    
+                  { OemToAnsi( STR0003 ), "fA300Ret"     , 0 , 3} }  //"Recebe Arquivo"
+Return(aRotina)
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} MenuDef
+Chamada semi-automatica utilizado pelo gestor financeiro
+
+@author Marcelo Celi Marques
+@version P12
+@since   31/08/2008
+@return  
+*/
+//-------------------------------------------------------------------
+Function FinA300T(aParam)
+	cRotinaExec := "FINA300"
+	ReCreateBrow("SE2",FinWindow)      		
+	FinA300(aParam[1])
+	ReCreateBrow("SE2",FinWindow)      	
+	dbSelectArea("SE2")
+	
+	INCLUI := .F.
+	ALTERA := .F.
+	
+Return .T.
+
+//-------------------------------------------------------------------
+/*{Protheus.doc} MenuDef
+Retorna a filial logada para processar os borderos desta filial e nao 
+da filial do titulo posicionado na mBrowse
+
+Usado FINA300 / FINA240   
+
+@author Gustavo Henrique
+@version P12
+@since   11/05/2012
+@return  
+*/
+//-------------------------------------------------------------------
+Function Fa300FilLog( lAtualiza )
+
+Static cFilLog
+
+Default lAtualiza := .F.
+
+If cFilLog == NIL .Or. lAtualiza
+	cFilLog := cFilAnt
+EndIf	
+
+Return( cFilLog )
+
+//------------------------------
+/*/{Protheus.doc}GetParcela
+Retorna a parcela disponível 
+para inclusão do adiantamento
+
+@param cPrefTit, Char, Prefixo do título
+@param cNumTit, Char, Número do título
+@param cTipTit, Char, Tipo do título
+@param cFornTit, Char, Código do fornecedor do título
+@param cLojaTit, Char, Loja do fornecedor 
+@param cFilOriTit, Char, Filial origem do título 
+@Return cParcela, Char, Parcela disponível para inclusão do adiantamento.
+
+@author Sivaldo Oliveira
+@since  07/05/2021
+@version 12
+/*/
+//------------------------------
+Static Function GetParcela(cPrefTit As Char, cNumTit As Char, cTipTit As Char, cFornTit As Char, cLojaTit As Char, cFilOriTit As Char) As Char
+	Local nTamParc As Numeric
+	Local cQuery   As Char
+	Local cParcela As Char
+	Local cTblTmp  As Char
+	
+	Default cPrefTit   := ""
+	Default cNumTit    := ""
+	Default cTipTit    := ""
+	Default cFornTit   := ""
+	Default cLojaTit   := ""
+	Default cFilOriTit := cFilAnt
+	
+	//Inicializa variáveis
+	nTamParc := TamSx3("E2_PARCELA")[1] 
+	cQuery   := ""
+	cParcela :=  STRZERO(1, nTamParc)
+	cTblTmp  := ""
+	
+	cPrefTit := Padr(cPrefTit, TamSx3("E2_PREFIXO")[1], " ")
+	cNumTit  := Padr(cNumTit,  TamSx3("E2_NUM")[1], " ")
+	cTipTit  := PadR(cTipTit,  TamSx3("E2_TIPO")[1], " ")
+	cFornTit := PadR(cFornTit, TamSx3("E2_FORNECE")[1], " ")
+	cLojaTit := PadR(cLojaTit, TamSx3("E2_LOJA")[1], " ")
+	
+	If __ObjParc == Nil
+		cQuery := "SELECT MAX(E2_PARCELA) AS PARCELA FROM "
+		cQuery += RetSqlName("SE2") + " WHERE "
+		cQuery += "E2_FILIAL = ? AND E2_PREFIXO = ? AND E2_NUM = ? "
+		cQuery += "AND E2_TIPO = ? AND E2_FORNECE = ? AND E2_LOJA = ? "
+		cQuery += "AND D_E_L_E_T_ = ' ' "
+		cQuery := ChangeQuery(cQuery)
+		__ObjParc := FWPreparedStatement():New(cQuery)
+	EndIf
+	
+	__ObjParc:SetString(1, xFilial("SE2", cFilOriTit))
+	__ObjParc:SetString(2, cPrefTit)
+	__ObjParc:SetString(3, cNumTit)
+	__ObjParc:SetString(4, cTipTit)
+	__ObjParc:SetString(5, cFornTit)
+	__ObjParc:SetString(6, cLojaTit)
+	
+	cQuery := __ObjParc:GetFixQuery()
+	cTblTmp := MpSysOpenQuery(cQuery)
+	
+	If !Empty((cTblTmp)->PARCELA)	
+		cParcela := Soma1((cTblTmp)->PARCELA, nTamParc, .T.)
+	EndIf
+	
+	(cTblTmp)->(DbCloseArea())
+Return cParcela

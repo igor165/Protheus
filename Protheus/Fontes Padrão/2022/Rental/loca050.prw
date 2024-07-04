@@ -1,0 +1,245 @@
+#INCLUDE "loca050.ch" 
+/*/{PROTHEUS.DOC} LOCA050.PRW
+ITUP BUSINESS - TOTVS RENTAL
+RETORNO / DISPONIBILIZAวรO DO EQUIPAMENTO
+@TYPE FUNCTION
+@AUTHOR FRANK ZWARG FUGA
+@SINCE 03/12/2020
+@VERSION P12
+@HISTORY 03/12/2020, FRANK ZWARG FUGA, FONTE PRODUTIZADO.
+/*/
+
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "TOPCONN.CH"                                                                                                   
+#INCLUDE "RWMAKE.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "MSMGADD.CH"                                                                                                              
+
+FUNCTION LOCA050()
+LOCAL _CUSER		:= RETCODUSR(SUBSTR(CUSUARIO,7,15))  		// RETORNA O CำDIGO DO USUมRIO
+
+LOCAL AAREA       := GETAREA() 
+LOCAL CFILTRO     := "" 
+LOCAL CQRYLEG     := 0 
+
+PRIVATE CCADASTRO := OEMTOANSI(STR0001) //"RETORNO / DISPONIBILIZAวรO DO EQUIPAMENTO"
+PRIVATE AROTINA   := {} 
+PRIVATE ACORES	  := {}
+PRIVATE CRET00    := ""
+PRIVATE CRET10    := ""
+PRIVATE CRET20    := ""
+PRIVATE CRET30    := ""
+PRIVATE CRET40    := ""
+PRIVATE CRET50    := ""
+PRIVATE CRET60    := ""
+PRIVATE CRET70    := ""
+PRIVATE CSTSANTI  := "" 
+PRIVATE CSTSNOVO  := "" 
+/*
+IF FQ1->(DBSEEK(XFILIAL("FQ1") + _CUSER + "LOCA050" , .T.)) 	// PROCURA O CำDIGO DE USUมRIO NA TABELA DE USUมRIOS ANALIZADORES DE PROMOวีES (SZ5)
+	_LUSER := .T. 
+ELSE
+	MSGALERT("SEU USUมRIO NรO POSSUI DIREITO PARA ACESSAR ESTA ROTINA, VERIFIQUE COM O ADMINISTRADOR DO SISTEMA. CADASTRO ROTINA NA TABELA Z_5." , "GPO - LOCT039.PRW") 
+	RETURN 
+ENDIF 
+*/
+/*
+EXEMPLO
+TQY_STATUS	TQY_DESTAT                    	FQ5_STTCTR
+----------  ----------------------------    ----------
+00        	DISPONIVEL                    	00
+DI        	DISPONIVEL (DI)               	00
+10        	CONTRATO GERADO               	10
+20        	NF DE REMESSA GERADA          	20
+30        	EM TRANSITO PARA ENTREGA      	30
+40        	ENTREGUE                      	40
+50        	RETORNO DE LOCACAO            	50
+RL        	RETORNO DE LOCACAO (RL)       	50
+60        	NF DE RETORNO GERADA          	60
+70        	EM MANUTENวรO                 	70
+*/
+IF SELECT("TMPLEG") > 0 
+	TMPLEG->( DBCLOSEAREA() ) 
+ENDIF 
+CQRYLEG := " SELECT TQY_STATUS , TQY_STTCTR "
+CQRYLEG += " FROM "+ RETSQLNAME("TQY") +" "
+CQRYLEG += " WHERE TQY_STTCTR IN ('00','10','20','30','40','50','60','70') AND D_E_L_E_T_ = '' "	
+TCQUERY CQRYLEG NEW ALIAS "TMPLEG" 
+WHILE TMPLEG->(!EOF()) 
+	IF     TMPLEG->TQY_STTCTR = "00" 		// --> 00 - DISPONIVEL               - VERDE 
+		CRET00 := CRET00 + TMPLEG->TQY_STATUS + "*" 
+		IF EMPTY(CSTSNOVO)
+			CSTSNOVO := TMPLEG->TQY_STATUS 
+		ENDIF 
+	ELSEIF TMPLEG->TQY_STTCTR = "10" 		// --> 10 - CONTRATO GERADO          - AMARELO 
+		CRET10 := CRET10 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "20" 		// --> 20 - NF DE REMESSA GERADA     - AZUL 
+		CRET20 := CRET20 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "30" 		// --> 30 - EM TRANSITO PARA ENTREGA - CINZA 
+		CRET30 := CRET30 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "40" 		// --> 40 - ENTREGUE                 - LARANJA 
+		CRET40 := CRET40 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "50" 		// --> 50 - RETORNO DE LOCACAO       - PRETO 
+		CRET50 := CRET50 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "60" 		// --> 60 - NF DE RETORNO GERADA     - VERMELHO 
+		CRET60 := CRET60 + TMPLEG->TQY_STATUS + "*" 
+	ELSEIF TMPLEG->TQY_STTCTR = "70" 		// --> 70 - EM MANUTENCAO            - ******** 
+		CRET70 := CRET70 + TMPLEG->TQY_STATUS + "*" 
+	ENDIF 
+	TMPLEG->(DBSKIP()) 
+ENDDO 
+
+ACORES := { {'ST9->T9_STATUS $ "'+CRET00+'"' , "BR_VERDE"   },;
+		    {'ST9->T9_STATUS $ "'+CRET10+'"' , "BR_AMARELO" },;
+		    {'ST9->T9_STATUS $ "'+CRET20+'"' , "BR_AZUL"    },;
+		    {'ST9->T9_STATUS $ "'+CRET30+'"' , "BR_CINZA"   },;
+		    {'ST9->T9_STATUS $ "'+CRET40+'"' , "BR_LARANJA" },;
+		    {'ST9->T9_STATUS $ "'+CRET50+'"' , "BR_PRETO"   },;
+		    {'ST9->T9_STATUS $ "'+CRET60+'"' , "BR_VERMELHO"},;
+		    {'ST9->T9_STATUS $ "'+CRET70+'"' , "BR_PINK"    } } 
+
+AADD( AROTINA , {STR0002 , "AXVISUAL"    , 0 , , 2 , NIL} ) //"VISUALIZAR"
+AADD( AROTINA , {STR0003     , "LOCA05001()" , 0 , , 4 , NIL} )  //"LIBERAR EQUIP."
+AADD( AROTINA , {STR0004	  , "LOCA05002()" , 0 , , 7 , NIL} )  //"LEGENDA"
+	
+ //	MBROWSE( <NLINHA1>, <NCOLUNA1>, <NLINHA2>, <NCOLUNA2>, <CALIAS>, <AFIXE>, <CCPO>, <NPAR>, <CCORFUN>, <NCLICKDEF>, <ACOLORS>, <CTOPFUN>, <CBOTFUN>, <NPAR14>, <BINITBLOC>, <LNOMNUFILTER>, <LSEEALL>, <LCHGALL>, <CEXPRFILTOP>, <NINTERVAL>, <UPAR22>, <UPAR23> )
+	MBROWSE( , , , , "ST9" , , , , , 02 , ACORES , , , , , , , , CFILTRO ) 
+
+
+RESTAREA( AAREA )
+
+RETURN
+
+
+
+// ======================================================================= \\
+FUNCTION LOCA05001() 					// AXALTERA 
+// ======================================================================= \\
+/*
+"00" 		// --> 00 - DISPONIVEL               - VERDE 
+"10" 		// --> 10 - CONTRATO GERADO          - AMARELO 
+"20" 		// --> 20 - NF DE REMESSA GERADA     - AZUL 
+"30" 		// --> 30 - EM TRANSITO PARA ENTREGA - CINZA 
+"40" 		// --> 40 - ENTREGUE                 - LARANJA 
+"50" 		// --> 50 - RETORNO DE LOCACAO       - PRETO 
+"60" 		// --> 60 - NF DE RETORNO GERADA     - VERMELHO 
+"70" 		// --> 70 - EM MANUTENCAO            - ******** 
+LOCAL ASITUA   := {"00 - DISPONIVEL" , "10 - CONTRATO GERADO" , "20 - NF DE REMESSA GERADA" , "30 - EM TRANSITO PARA ENTREGA" , "40 - ENTREGUE", "50 - RETORNO DE LOCACAO" , "60 - NF DE RETORNO GERADA" , "70 - EM MANUTENCAO"} 
+*/
+LOCAL _CUSER		:= RETCODUSR(SUBSTR(CUSUARIO,7,15))  		// RETORNA O CำDIGO DO USUมRIO
+LOCAL AAREA	   := GETAREA() 
+LOCAL CQRYZZZ  := "" 
+LOCAL NMRECZZZ := 0 
+
+CSTSANTI := ST9->T9_STATUS 
+
+IF (ST9->T9_STATUS $ CRET00) 
+	MSGALERT(STR0005+ST9->T9_STATUS+STR0006 , STR0007)  //"ESTE EQUIPAMENTO Jม ESTม COM O STATUS ["###"] - DISPONIVEL."###"GPO - LOCT039.PRW"
+	RETURN 
+ENDIF 
+
+
+IF FQ1->(DBSEEK(XFILIAL("FQ1") + _CUSER + "LOCA050" , .T.)) 	// PROCURA O CำDIGO DE USUมRIO NA TABELA DE USUมRIOS ANALIZADORES DE PROMOวีES (SZ5)
+	_LUSER := .T. 
+ELSE
+	_LUSER := .F. 
+ENDIF 
+
+_cTemps50 := ""
+_cTemps60 := ""
+TQY->(dbSetOrder(1))
+TQY->(dbGotop())
+While !TQY->(Eof())
+	If TQY->TQY_STTCTR == "60"
+		_cTemps60 := TQY->TQY_STATUS
+	EndIF
+	If TQY->TQY_STTCTR == "50"
+		_cTemps50 := TQY->TQY_STATUS
+	EndIF
+	TQY->(dbSkip())
+EndDo
+
+
+IF (ST9->T9_STATUS <> _cTemps60 .and. ST9->T9_STATUS <> _cTemps50) .AND. !_LUSER
+	MSGALERT(STR0008 , STR0007)  //"ESTE EQUIPAMENTO NรO ESTม COM O STATUS 60 - NF RETORNO GERADO."###"GPO - LOCT039.PRW"
+	RETURN 
+ENDIF 
+
+/*
+IF SELECT("TMPZZZ") > 0
+	TMPFQ4->( DBCLOSEAREA() )
+ENDIF 
+CQRYZZZ := " SELECT   R_E_C_N_O_ RECNOZZZ , * "
+CQRYZZZ += " FROM   "+ RETSQLNAME("FQ4") +" "
+CQRYZZZ += " WHERE    FQ4_CODBEM = '" + ST9->T9_CODBEM + "' AND D_E_L_E_T_ = '' "	
+CQRYZZZ += " ORDER BY R_E_C_N_O_ " 
+TCQUERY CQRYZZZ NEW ALIAS "TMPZZZ"
+
+WHILE TMPFQ4->(!EOF())
+	IF NMRECZZZ < TMPFQ4->RECNOZZZ 
+		NMRECZZZ := TMPFQ4->RECNOZZZ 
+	ENDIF 
+	TMPFQ4->( DBSKIP() ) 
+ENDDO
+
+TMPFQ4->( DBCLOSEAREA() )
+
+IF NMRECZZZ <> 0 
+	DBSELECTAREA("FQ4") 
+	FQ4->(DBGOTO(NMRECZZZ)) 		// --> BUSCA ULTIMO REGISTRO / STATUS DO EQUIPAMENTO.
+	IF FQ4->(!EOF()) 
+		IF !EMPTY(FQ4->FQ4_DOCUME) 	// --> POSSUI UMA NF DE REMESSA..
+			MSGALERT("O EQUIPAMENTO ["+ALLTRIM(ST9->T9_CODBEM)+"], VINCULADO AO PROJETO ["+ALLTRIM(FQ4->FQ4_PROJET)+"], POSSUI A NF REMESSA ["+ALLTRIM(FQ4->FQ4_DOCUME)+"]." + CHR(13)+CHR(10) + ; 
+			         "UTILIZE A ROTINA DE RETORNO VIA NF DE ENTRADA." , "GPO - LOCT039.PRW") 
+			RETURN NIL 
+		ENDIF 
+	ENDIF 
+ENDIF 
+*/
+
+IF MSGYESNO(STR0009+ALLTRIM(ST9->T9_CODBEM)+STR0010+ALLTRIM(FQ4->FQ4_PROJET)+STR0011+ST9->T9_STATUS+"] ???" , STR0007)  //"CONFIRMA A DISPONIBILIZAวรO DO EQUIPAMENTO ["###"], VINCULADO AO PROJETO ["###"], STATUS ATUAL ["###"GPO - LOCT039.PRW"
+	DBSELECTAREA("ST9") 
+	RECLOCK("ST9",.F.) 
+	ST9->T9_STATUS := CSTSNOVO 			// --> 00 - DISPONIVEL 
+	ST9->(MSUNLOCK()) 
+	//IF EXISTBLOCK("T9STSALT")			// --> PONTO DE ENTRADA ANTES DA ALTERAวรO DE STATUS DO BEM. 
+		// 									STATUS ANTIGO            STATUS NOVO               PROJETO           DOCUMENTO          SERIE 
+		//EXECBLOCK("T9STSALT" , .T. , .T. , {CSTSANTI /*T9_STATUS*/ , CSTSNOVO /*TQY_STATUS*/ , FQ4->FQ4_PROJET , "" /*FPA_NFRET*/ , "" /*FPA_SERRET*/}) 
+		LOCXITU21(CSTSANTI, CSTSNOVO, FQ4->FQ4_PROJET , "", "")
+	//ENDIF
+ENDIF 
+
+RESTAREA(AAREA)
+
+RETURN 
+
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+ฑฑษออออออออออัอออออออออออหอออออออัออออออออออออออออออออหออออออัออออออออออออปฑฑ
+ฑฑบFUNวรO	 ณ L139LEG   บ AUTOR ณ IT UP BUSINESS     บ DATA ณ 07/09/2016 บฑฑ
+ฑฑฬออออออออออุอออออออออออสอออออออฯออออออออออออออออออออสออออออฯออออออออออออนฑฑ
+ฑฑบDESCRICAO ณ LEGENDA.                                                   บฑฑ
+ฑฑศออออออออออฯออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผฑฑ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿
+*/
+FUNCTION LOCA05002()
+
+LOCAL _ALEGENDA := {}
+
+AADD(_ALEGENDA , {"BR_VERDE"    , STR0012	   })  //"DISPONอVEL"
+AADD(_ALEGENDA , {"BR_AMARELO"  , STR0013})  //"CONTRATO GERADO"
+AADD(_ALEGENDA , {"BR_AZUL"     , STR0014 })  //"REMESSA GERADA"
+AADD(_ALEGENDA , {"BR_CINZA"    , STR0015	   })  //"EM TRยNSITO"
+AADD(_ALEGENDA , {"BR_LARANJA"  , STR0016	   })  //"ENTREGUE"
+AADD(_ALEGENDA , {"BR_PRETO"    , STR0017})  //"RETORNO LOCACAO"
+AADD(_ALEGENDA , {"BR_VERMELHO" , STR0018 })  //"RETORNO GERADO"
+AADD(_ALEGENDA , {"BR_PINK"     , STR0019  })  //"EM MANUTENวรO"
+
+BRWLEGENDA(STR0020 , STR0004 , _ALEGENDA)  //"STATUS ATUAL"###"LEGENDA"
+
+RETURN

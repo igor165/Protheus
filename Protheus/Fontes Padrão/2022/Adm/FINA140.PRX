@@ -1,0 +1,397 @@
+#INCLUDE "FINA140.CH"
+#INCLUDE "PROTHEUS.CH"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINA140
+Programa de atualização de Ocorrencias para transmissão bancaria
+
+@author		Wagner Xavier
+@since		23/06/1992
+@version	P12
+@sample		Fina140()
+
+/*/
+//-------------------------------------------------------------------
+
+Function FINA140( aRotAuto, nOpcE, lAutomato )
+
+Local nPos	:= 0
+Local nPBco	:= 0
+Local nPRBco:= 0
+Local nPTipo:= 0
+Local nPMBco:= 0
+
+// Define Array contendo as Rotinas a executar do programa
+// ----------- Elementos contidos por dimensao ------------
+// 1. Nome a aparecer no cabecalho
+// 2. Nome da Rotina associada
+// 3. Usado pela rotina
+// 4. Tipo de Transação a ser efetuada
+//    1 - Pesquisa e Posiciona em um Banco de Dados
+//    2 - Simplesmente Mostra os Campos
+//    3 - Inclui registros no Bancos de Dados
+//    4 - Altera o registro corrente
+//    5 - Remove o registro corrente do Banco de Dados
+
+Private aRotina		:= MenuDef()
+Private lExecAuto	:= ( aRotAuto <> NIL )
+// Define o cabecalho da tela de atualizações
+Private cCadastro	:= STR0009  //"Atualização de Ocorrencias"
+Private aAutoCab	:= Nil
+Private nOpcAuto	:= 0
+
+Default aRotAuto	:= {}
+Default nOpcE		:= 3
+Default lAutomato	:= .F.
+
+If lExecAuto
+	nOpcAuto	:= nOpcE
+	If nOpcAuto <> Nil
+		aAutoCab	:= aRotAuto
+		
+		Do Case
+			Case nOpcAuto == 3
+				INCLUI := .T.
+				ALTERA := .F.
+			Case nOpcAuto == 4
+				INCLUI := .F.
+				ALTERA := .T.
+				
+			OtherWise
+				INCLUI := .F.
+				ALTERA := .F.
+		EndCase
+		//³ Chamada direta da funcao de Inclusao/Alteracao/Visualizacao/Exclusao³
+		nPos := Ascan( aRotina, { |x| x[4] == nOpcAuto } )
+
+		If ( nPos # 0 )
+			bBlock := &( "{ |x,y,z,k| " + aRotina[ nPos,2 ] + "(x,y,z,k) }" )
+			DbSelectArea("SEB")
+			SEB->( DbSetOrder(1) ) // EB_FILIAL + EB_BANCO + EB_REFBAN + EB_TIPO + EB_MOTBAN
+			
+			If nOpcAuto == 4 .OR. nOpcAuto == 5
+				nPBco	:= AScan( aAutoCab, { |x| AllTrim(x[1]) == "EB_BANCO"	} )
+				nPRBco	:= AScan( aAutoCab, { |x| AllTrim(x[1]) == "EB_REFBAN"	} )
+				nPTipo	:= AScan( aAutoCab, { |x| AllTrim(x[1]) == "EB_TIPO"	} )
+				nPMBco	:= AScan( aAutoCab, { |x| AllTrim(x[1]) == "EB_MOTBAN"	} )
+				
+				SEB->( DbSeek( xFilial("SEB") + aAutoCab[nPBco][2] + aAutoCab[nPRBco][2] + aAutoCab[nPTipo][2] + aAutoCab[nPMBco][2] ) )
+				
+			EndIf
+			Eval( bBlock, Alias(), SEB->(Recno()), nPos)
+		EndIf
+	EndIf
+	
+Else
+	If !GetHlpLGPD({'EB_BANCO'})
+		mBrowse( 6, 1,22,75,"SEB")
+	EndIf
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa140Inc
+Programa de inclusao de parametros CNAB
+
+@author		Pilar S. Albaladejo
+@since		19/02/1997
+@version	P12
+@sample		FA140Inc( cAlias, nReg, nOpc )
+
+/*/
+//-------------------------------------------------------------------
+
+Function FA140Inc( cAlias, nReg, nOpc )
+
+Local nOpca     := 0
+Local aCampoSEB := {}
+
+Private aTELA[0][0]
+Private aGETS[0]
+
+// Carrega matriz com campos que serao alterados neste cadastro
+DbSelectArea("SX3")
+SX3->( DbSetOrder(1) )
+SX3->( DbSeek("SEB") )
+
+While !EOF() .And. (X3_ARQUIVO == cAlias)
+
+	If X3USO(X3_USADO) .and. cNivel >= X3_NIVEL
+		AAdd(aCampoSEB,X3_CAMPO)
+	EndIF
+	DbSkip()
+	
+EndDO
+
+DbSelectArea(cAlias)
+
+If lExecAuto
+	lMsErroAuto := .F.
+	RegToMemory("SEB",.T.,.F.)
+
+	If EnchAuto( cAlias, aAutoCab, "FA140TudoK()", nOpc )
+
+		nOpca := AxIncluiAuto( cAlias, "FA140TudoK()", )
+		If nOpca == 0
+			lMsErroAuto := .T.
+		EndIf
+	Else
+		lMsErroAuto := .T.
+	EndIf
+Else
+	nOpca := AxInclui( cAlias, nReg, nOpc, aCampoSEB, , , "FA140TudoK()" )
+EndIf
+
+DbSelectArea(cAlias)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa140Inc
+Programa de inclusao de parametros CNAB
+
+@author		Pilar S. Albaladejo
+@since		19/02/1997
+@version	P12
+@sample		FA140Inc( cAlias, nReg, nOpc )
+
+/*/
+//-------------------------------------------------------------------
+
+Function Fa140Alt( cAlias, nReg, nOpc )
+
+Local nOpca     := 0
+Local aCampoSEB := {}
+
+Private aTELA[0][0]
+Private aGETS[0]
+
+If lExecAuto
+	lMsErroAuto := .F.
+	RegToMemory("SEB",.F.,.F.)
+	
+	If EnchAuto( cAlias, aAutoCab, , nOpc )
+		//EnchAuto(cAlias,aAutoCab,cTudoOk,nOpc)
+		//nOpcA := AxIncluiAuto( cAlias,				,cFunct,4,SE2->(RecNo()))
+		nOpca := AxIncluiAuto( cAlias, , , nOpc, nReg)
+		If nOpca == 0
+			lMsErroAuto := .T.
+		EndIf
+	Else
+		lMsErroAuto := .T.
+	EndIf
+Else
+	AxAltera( cAlias, SEB->(Recno()), nOpc, , , , )
+EndIf
+
+DbSelectArea(cAlias)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA140Delet
+Programa de exclusão de ocorrencias
+
+@author		Pilar S. Albaladejo
+@since		19/02/1997
+@version	P12
+@sample		FA140Delet( cAlias, nReg, nOpc )
+
+/*/
+//-------------------------------------------------------------------
+
+Function FA140Delet( cAlias, nReg, nOpc )
+
+Local nOpcA		:= 0
+Local oDlg		:= Nil
+Local nI		:= 0
+Local bCampo	:= Nil
+Local aSize		:= MsAdvSize()
+Local lEncerra	:= .F.
+
+// Monta a entrada de dados do arquivo
+Private aTELA[0][0]
+Private aGETS[0]
+
+// Verifica se o arquivo esta realmente vazio ou se esta posicionado em outra filial.
+If EOF() .OR. SEB->EB_FILIAL # xFilial("SEB")
+   HELP(" " , 1 , "ARQVAZIO")
+   lEncerra	:= .T.
+EndIf
+
+If lExecAuto .AND. !lEncerra
+	
+	// Inicio da protecao via TTS
+	BEGIN TRANSACTION
+		
+		DbSelectArea(cAlias)
+		RecLock( cAlias, .F., .T.)
+		DbDelete()
+	
+	//Final da protecao via TTS
+	END TRANSACTION
+	
+ElseIf !lExecAuto .AND. !lEncerra
+
+	oSize := FWDefSize():New(.T.)
+	oSize:AddObject( "ENCHOICE", 100, 100, .T., .T. ) // Adiciona enchoice
+	oSize:Process()
+	
+	aPos	:= {	oSize:GetDimension("ENCHOICE","LININI"),;
+					oSize:GetDimension("ENCHOICE","COLINI"),;
+					oSize:GetDimension("ENCHOICE","LINEND"),;
+					oSize:GetDimension("ENCHOICE","COLEND")	}
+	
+	While .T.
+		nOpca := 0
+		
+		// Envia para processamento dos Gets
+		DbSelectArea( cAlias )
+		bCampo := {|nCPO| Field(nCPO) }
+		
+		For nI := 1 TO FCount()
+			M->&( EVAL(bCampo,nI) ) := FieldGet(nI)
+		Next nI
+		nOpca := 1
+	   
+		DEFINE MSDIALOG oDlg TITLE cCadastro From aSize[7], 0 TO aSize[6], aSize[5] Of oMainWnd PIXEL
+		
+			EnChoice( cAlias, nReg, nOpc, ,"AC",OemToAnsi(STR0011),, aPos)  // "Quanto … exclus„o?" 
+	   
+		ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar( oDlg, { || nOpca := 2, oDlg:End() }, { || nOpca := 1, oDlg:End() } )
+	   
+		DbSelectArea(cAlias)
+	   
+		If nOpcA == 2
+			// Inicio da protecao via TTS
+			BEGIN TRANSACTION
+				
+				DbSelectArea(cAlias)
+				RecLock( cAlias, .F., .T.)
+				DbDelete()
+			
+			//Final da protecao via TTS
+			END TRANSACTION
+		Else
+			MsUnlock()
+		EndIf
+		
+		Exit
+	EndDo
+	
+EndIf
+
+DbSelectArea(cAlias)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa140Tudok
+Verifica se os campos estao OK
+
+@author		Pilar S. Albaladejo
+@since		19/02/1997
+@version	P12
+@sample		Fa140Tudok()
+
+/*/
+//-------------------------------------------------------------------
+
+Function Fa140TudOk()
+
+Local lRet		:=  .T.
+Local cAlias	:= Alias()
+Local nOrder	:= IndexOrd()
+
+If !Empty(M->EB_REFBAN) 
+	
+	If SubStr( M->EB_REFBAN, 1, 1 ) == " "
+		M->EB_REFBAN := AllTrim( M->EB_REFBAN )
+	EndIf
+	
+	If !Empty(M->EB_OCORR)
+	
+		If Empty(M->EB_MOTBAN) .And. Empty(M->EB_MOTSIS)
+			
+			DbSelectArea("SEB")
+			SEB->(DbSetOrder(1))
+			
+			If SEB->( DbSeek( cFilial + M->EB_BANCO + M->EB_REFBAN + M->EB_TIPO ) )
+
+				Help(" ",1,STR0010,,STR0012,2)//Já existe uma ocorrência cadastrada o mesmo (Banco + Ocorr.Bco + Tipo)
+				lRet := .F.
+
+			EndIf
+			
+		ElseIf Empty(M->EB_MOTBAN) .And. !Empty(M->EB_MOTSIS)
+			
+			Help(" ",1,"EB_REGIS")
+			lRet := .F.
+			
+		ElseIf !Empty(M->EB_MOTBAN) .And. Empty(M->EB_MOTSIS)
+			
+			Help(" ",1,"EB_REGIS")
+			lRet := .F.
+			
+		ElseIf !Empty(M->EB_MOTBAN) .And. !Empty(M->EB_MOTSIS)
+			
+			DbSelectArea("SEB")
+			SEB->(DbSetOrder(1))
+			
+			If SEB->( DbSeek( cFilial + M->EB_BANCO + M->EB_REFBAN + M->EB_TIPO + M->EB_MOTBAN ) )
+
+				Help(" ",1,STR0010,,STR0013,2)//Já existe uma ocorrência cadastrada para o mesmo (Banco + Ocorr.Bco + Tipo + Mot.Bco)
+				lRet := .F.
+
+			EndIf
+					
+		EndIf
+		
+	EndIf
+		
+EndIf
+
+DbSelectArea(cAlias)
+DbSetOrder(nOrder)
+
+Return lRet               
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa140Tudok
+Utilizacao de menu Funcional
+
+@author		Pilar S. Albaladejo
+@since		22/11/2006
+@version	P12
+@sample		Fa140Tudok()
+
+@return		aRotina - Array com opcoes da rotina.
+
+/*/
+//-------------------------------------------------------------------
+
+Static Function MenuDef()
+
+/*
+Estrutura do aRotina 
+	1. Nome a aparecer no cabecalho
+	2. Nome da Rotina associada
+	3. Reservado
+	4. Tipo de Transa‡„o a ser efetuada:
+		1 - Pesquisa e Posiciona em um Banco de Dados
+		2 - Simplesmente Mostra os Campos
+		3 - Inclui registros no Bancos de Dados
+		4 - Altera o registro corrente
+		5 - Remove o registro corrente do Banco de Dados
+	5. Nivel de acesso
+	6. Habilita Menu Funcional
+*/
+
+PRIVATE aRotina	:= {	{ OemToAnsi(STR0004), "AxPesqui",	0 , 1, , .F.	}, ;	// "Pesquisar"
+						{ OemToAnsi(STR0005), "AxVisual",	0 , 2 			}, ;	// "Visualizar"
+						{ OemToAnsi(STR0006), "Fa140Inc",	0 , 3 			}, ;	// "Incluir"
+						{ OemToAnsi(STR0007), "Fa140Alt",	0 , 4 			}, ;	// "Alterar"
+						{ OemToAnsi(STR0008), "fA140Delet",	0 , 5, 3		}	}	// "Excluir"
+						
+Return(aRotina)

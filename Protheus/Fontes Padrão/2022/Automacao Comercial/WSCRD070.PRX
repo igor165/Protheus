@@ -1,0 +1,857 @@
+#INCLUDE "wscrd070.ch"
+#INCLUDE "APWEBSRV.CH"
+#INCLUDE "PROTHEUS.CH"
+       
+Static cUsrSessionID := ""
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Metodo	 ³GetBloqueio³ Autor ³ Viviane Fernandes    ³ Data ³21/07/2003³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+WSSTRUCT WSBLOQUEIO
+	WSDATA Cartao		AS String
+	WSDATA Mensagem		AS String
+ENDWSSTRUCT
+
+WSSTRUCT WSDADOSCLI
+	WSDATA Codigo		AS String
+	WSDATA Loja			AS String
+	WSDATA Nome			AS String
+	WSDATA CPF			AS String	
+ENDWSSTRUCT
+
+WSSTRUCT WSDADOSCART
+	WSDATA Cartao		AS String
+	WSDATA Situacao		AS String
+ENDWSSTRUCT
+
+WSSTRUCT WSCARTOES
+	WSDATA DadosCart	AS ARRAY of WSDADOSCART
+	WSDATA DadosCli		AS WSDADOSCLI
+ENDWSSTRUCT
+
+WSSERVICE CRDCARTAO DESCRIPTION STR0034      //"Serviço de Bloqueio/Desbloqueio de Cartão (<b>Crédito</b>)"
+	WSDATA UsrSessionID	AS String         
+	WSDATA Cartao		AS String OPTIONAL
+    WSDATA CPF			AS String OPTIONAL
+	WSDATA Solicit  	AS String 
+	WSDATA Motivo		AS String 
+    WSDATA aConfirm		AS ARRAY of WSBLOQUEIO
+    WSDATA Cartoes		AS WSCARTOES
+
+	WSMETHOD GetBloqueio
+	WSMETHOD GetCartao
+ENDWSSERVICE
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Metodo	 ³GetBloqueio³ Autor ³ Viviane Fernandes    ³ Data ³21/07/2003³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+WSMETHOD GetBloqueio WSRECEIVE UsrSessionID, Cartao, Solicit, Motivo WSSEND aConfirm WSSERVICE CRDCARTAO
+Local aRet		:= { 0, "", "", {} }
+Local aDadosCli	:= {}
+Local lRet 		:= .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica a validade e integridade do ID de login do usuario         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !IsSessionVld( ::UsrSessionID )
+	lRet := .F.
+	Return .F.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a pesquisa dos titulos em aberto para o cliente                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet
+	aAdd( aDadosCli,{ ::Cartao , ::Solicit , ::Motivo } )
+	
+	aRet := WSCRD070( aDadosCli )
+	If aRet[1] == 0
+		::aConfirm 				:= Array(1)
+		::aConfirm[1]			:= WSClassNew("WSBLOQUEIO")
+		::aConfirm[1]:Cartao	:= aRet[4][1][1] 
+		::aConfirm[1]:Mensagem	:= aRet[4][1][2] 
+	Else
+		SetSoapFault(aRet[2], aRet[3])
+		Return .F.
+	Endif
+Endif
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Metodo	 ³GetCartao  ³ Autor ³ Andre Veiga          ³ Data ³29/08/2003³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+WSMETHOD GetCartao WSRECEIVE UsrSessionID, CPF, Cartao WSSEND Cartoes WSSERVICE CRDCARTAO
+Local aRet		:= { 0, "", "", {} }
+Local lRet 		:= .T.
+Local aCartoes	:= {}
+Local aCliente 	:= {}
+Local nX 		:= 0
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica a validade e integridade do ID de login do usuario         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !IsSessionVld( ::UsrSessionID )
+	lRet := .F.
+	Return .F.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a pesquisa dos cartoes para o cliente                           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet
+	
+	aRet := Crd70ConsCartao( ::CPF, ::Cartao ) 
+	
+	If aRet[1] == 0
+		aCartoes 	:= aClone(aRet[4][1])
+		aCliente 	:= aClone(aRet[4][2])
+		           
+		::Cartoes					:= WSClassNew("WSCARTOES")
+		If !Empty(aCartoes)	                
+			::Cartoes:DadosCart		:= Array(Len(aCartoes))	
+			For nX := 1 to Len(aCartoes) 
+				::Cartoes:DadosCart[nX]				:= WSClassNew("WSDADOSCART")
+				::Cartoes:DadosCart[nX]:Cartao		:= aCartoes[nX][1]
+				::Cartoes:DadosCart[nX]:Situacao	:= aCartoes[nX][2]
+			Next nX
+            
+
+			::Cartoes:DadosCli			:= WSClassNew("WSDADOSCLI")
+			::Cartoes:DadosCli:Codigo	:= aCliente[1]
+			::Cartoes:DadosCli:Loja		:= aCliente[2]
+			::Cartoes:DadosCli:Nome		:= aCliente[3]
+			::Cartoes:DadosCli:CPF		:= aCliente[4]
+
+		Endif  
+		
+	Else
+		SetSoapFault(aRet[2], aRet[3])
+		Return .F.
+	Endif
+Endif
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³WSCrd070  ºAutor  ³Andre Veiga         º Data ³  08/07/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Funcao para bloqueio e desbloqueio do cartao                º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³aExp1 := WSCrd070( aExp2 )                                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³aExp2 - Array contendo:                                     º±±
+±±º          ³        [1] - Numero do cartao                              º±±
+±±º          ³        [2] - Solicitacao                                   º±±
+±±º          ³              1 = Desbloquear                               º±±
+±±º          ³              2 = Bloquear                                  º±±
+±±º          ³              3 = Cancelar                                  º±±
+±±º          ³        [3] - Motivo                                        º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºRetorno   ³aExp1 - Array contendo:                                     º±±
+±±º          ³        [1] - nRetorno (0 = Ok, Diferente de zero = Erro)   º±±
+±±º          ³        [2] - Msg (Titulo da janela)                        º±±
+±±º          ³        [3] - Msg de erro                                   º±±
+±±º          ³        [4] - Array com o retorno da funcao                 º±±
+±±º          ³              [1] - Numero do cartao                        º±±
+±±º          ³              [2] - Codigo de retorno                       º±±
+±±º          ³              [3] - Mensagem de retorno                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºObservacao³Essa rotina poderah ser executada via Web Service ou direta-º±±
+±±º          ³mente via Protheus                                          º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Sistema de Credito, Venda Assistida e Frontloja             º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function WSCrd070( aCartoes )
+Local aRet 			:= { 0, "", "", {} }
+Local aRetCartao	:= {}
+Local nX 			:= 0
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³O campo MA6_SITUA pode ter o conteudo como                          ³
+//³1 - Ativo                                                           ³
+//³2 - Bloqueado                                                       ³
+//³3 - Cancelado                                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Efetua os bloqueios e desbloqueios de cartao                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+dbSelectArea("MA6")
+dbSetOrder( 1 ) 	// Filial + Num
+
+For nX := 1 to Len(aCartoes)
+	If dbSeek( xFilial("MA6") + aCartoes[nX][1] )
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se o cartao pode ser bloqueado ou desbloqueado             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If  CA030VLDOCS(MA6->MA6_CODCLI, MA6->MA6_LOJA, 2 )
+		
+			If MA6->MA6_SITUA == "3" // Cancelado
+				aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0002 } ) //"O cartão "###" está cancelado e não poderá ser reutilizado."
+				aRet[1] := 1
+				aRet[2] := "erro"
+				aRet[3] := STR0001 + aCartoes[nX][1] + STR0002
+			Else
+			
+				If aCartoes[nX][2]	== "1"	// Desbloqueia
+					If MA6->MA6_SITUA == "2"
+						RecLock("MA6",.F.)
+						MA6->MA6_SITUA 	:= "1"
+						MA6->MA6_MOTIVO	:= aCartoes[nX][3]
+						MA6->MA6_DTEVE  := dDatabase
+						MsUnlock()
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0003 } ) //"O cartão "###" foi desbloqueado."
+						
+					Else
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0004 } ) //"O cartão "###" já está desbloqueado."
+						aRet[1] := 2
+						aRet[2] := "erro"
+						aRet[3] := STR0001 + aCartoes[nX][1] + STR0004
+
+					Endif
+				ElseIf aCartoes[nX][2] == "2"	// Bloqueia
+					If MA6->MA6_SITUA == "1"
+						RecLock("MA6",.F.)
+						MA6->MA6_SITUA 	:= "2"
+						MA6->MA6_MOTIVO	:= aCartoes[nX][3]
+						MA6->MA6_DTEVE  := dDatabase
+						MsUnlock()
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0005 } ) //"O cartão "###" foi bloqueado."
+						
+					Else
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0006 } ) //"O cartão "###" já está bloqueado."
+						aRet[1] := 3
+						aRet[2] := "erro"
+						aRet[3] := STR0001 + aCartoes[nX][1] + STR0006
+						
+					Endif
+				ElseIf aCartoes[nX][2] == "3"	// Cancela
+					If MA6->MA6_SITUA $ "12"
+						RecLock("MA6",.F.)
+						MA6->MA6_SITUA 	:= "3"
+						MA6->MA6_MOTIVO	:= aCartoes[nX][3]
+						MsUnlock()
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0007 } ) //"O cartão "###" foi cancelado."
+					Else
+						aAdd( aRetCartao, { aCartoes[nX][1], STR0001 + aCartoes[nX][1] + STR0008 } ) //"O cartão "###" já está cancelado."
+						aRet[1] := 4
+						aRet[2] := "erro"
+						aRet[3] := STR0001 + aCartoes[nX][1] + STR0008
+					Endif
+				Endif
+			Endif
+			
+		Else
+		
+		// exibir mensagem ao usuário de que ele possui documentos para serem entregues na secao de crediario
+			aAdd( aRetCartao, { aCartoes[nX][1],  STR0033 } ) //"Existem documentos a serem entregues. Por favor dirija-se ao setor de Crediário."
+			aRet[1] := 5		
+			aRet[2] := "erro"
+			aRet[3] := STR0035	// "Cliente possui documentos para serem entregues no crediário"
+		EndIf	
+	Endif
+Next nX
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Alimenta a array de retorno                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aRet[4] := aClone( aRetCartao )
+
+Return aRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Crd70ConsCºAutor  ³Andre Veiga         º Data ³  08/07/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Consulta os cartoes do cliente informado                    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³aExp1 := Crd70ConsCartao( cExp2 )                           º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³cExp2 - CPF do cliente                                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºRetorno   ³aExp1 - Array contendo:                                     º±±
+±±º          ³        [1] - nRetorno (0 = Ok, Diferente de zero = Erro)   º±±
+±±º          ³        [2] - Msg (Titulo da janela)                        º±±
+±±º          ³        [3] - Msg de erro                                   º±±
+±±º          ³        [4] - Array com o retorno da funcao                 º±±
+±±º          ³              [1] - Numero do cartao                        º±±
+±±º          ³              [2] - Situacao                                º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Crd70ConsCartao( cCPF, cCartao )
+Local aRet 			:= { 0, "", "", {} }
+Local aCartoes		:= {}
+Local aCliente 		:= {}
+Local lContinua		:= .T.
+Local cAliasTrb		:= ""
+                    
+Default cCPF		:= ""
+Default cCartao 	:= ""
+
+If !Empty( cCartao )
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Faz a pesquisa direto pelo cartao                                   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("MA6")
+	dbSetOrder( 1 )	// Filial + Num
+	If !dbSeek( xFilial("MA6")+cCartao )
+		aRet := { 1, STR0009, STR0001 + cCartao + STR0011, {} } //"Cliente nao encontrado" // "O cartão " // " nao foi encontrado na base de dados."
+		lContinua := .F.
+	Else
+		dbSelectArea("SA1")
+		dbSetOrder( 1 )
+		If !dbSeek( xFilial("SA1")+MA6->MA6_CODCLI+MA6->MA6_LOJA )
+			aRet := { 1, STR0009, STR0010 + cCPF + STR0011, {} } //"Cliente nao encontrado"###"O cliente de CPF: "###" nao foi encontrado na base de dados."
+			lContinua := .F.
+		Endif
+	Endif
+ElseIf !Empty( cCPF )
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Faz a pesquisa do codigo do cliente                                 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea( "SA1" )
+	dbSetOrder( 3 ) // Filial + CGC
+	If !dbSeek( xFilial("SA1") + cCPF )
+		aRet := { 1, STR0009, STR0010 + cCPF + STR0011, {} } //"Cliente nao encontrado"###"O cliente de CPF: "###" nao foi encontrado na base de dados."
+		lContinua := .F.
+	Endif
+Else
+	aRet := { 1, STR0013, STR0014, {} } // "Parâmetros incorretos" // "Erro na passagem de parâmetros para a função Crd70ConsCartao()"
+	lContinua := .F.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Pesquisa os cartoes do cliente                                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lContinua
+	
+	#IFDEF TOP
+		
+		cQuery := "SELECT * "
+		cQuery += "FROM " + RetSQLName("MA6") + " MA6 "
+		cQuery += "WHERE "
+		cQuery += "MA6.MA6_CODCLI = '" + SA1->A1_COD + "' AND "
+		cQuery += "MA6.MA6_LOJA = '" + SA1->A1_LOJA + "' AND "
+		If !Empty(cCartao)
+			cQuery += "MA6.MA6_NUM = '" + cCartao + "' AND "
+		Endif
+		cQuery += "MA6.D_E_L_E_T_ <> '*'"
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Faz o tratamento/compatibilidade com o Top Connect    		 ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cQuery := ChangeQuery(cQuery)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pega uma sequencia de alias para o temporario.               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cAliasTrb := GetNextAlias()
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Cria o ALIAS do arquivo temporario                     		 ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbUseArea(.T.,"TOPCONN", TCGENQRY(,,cQuery),cAliasTrb, .F., .T.)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Deixa selecionado o arquivo filtrado                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea( cAliasTrb )
+		
+	#ELSE
+		
+		cQuery := "MA6->MA6_FILIAL == '" + xFilial( "MA6" ) + "' .And. "
+		If !Empty(cCartao)
+			cQuery += "MA6->MA6_NUM = '" + cCartao + "' .And. "
+		Endif
+		cQuery += "MA6->MA6_CODCLI == '" + SA1->A1_COD + "' .And. "
+		cQuery += "MA6->MA6_LOJA == '" + SA1->A1_LOJA + "' "
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Filtra o arquivo de cartoes                                               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cAliasTrb := CriaTrab( Nil, .F. )
+		dbSelectArea("MA6")
+		dbSetOrder(1)	// Filial + Num
+		IndRegua( "MA6", cAliasTrb, IndexKey(),, cQuery, STR0012 ) //"Selecionando os cartões ..."
+		nIndex := RetIndex("MA6")
+		
+		#IFNDEF TOP
+			dbSetIndex( cAliasTrb + OrdBagExt() )
+		#ENDIF
+		
+		dbSetOrder(nIndex+1)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Deixa selecionado o arquivo filtrado                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("MA6")
+		
+	#ENDIF
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Monta a array de retorno com os cartoes                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbGoTop()
+	While !Eof()
+		aAdd( aCartoes, { MA6_NUM, MA6_SITUA } )
+		dbSkip()
+	Enddo
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Grava a array do extrato na array de retorno da funcao       ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aAdd( aCliente, SA1->A1_COD )
+	aAdd( aCliente, SA1->A1_LOJA )
+	aAdd( aCliente, SA1->A1_NOME )
+	aAdd( aCliente, SA1->A1_CGC )
+
+	aRet := { 0, "", "", { aCartoes, aCliente } }
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Fecha a area de trabalho e deleta os arquivos temporarios    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	#IFDEF TOP
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Fecha a area de trabalho                                     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea(cAliasTrb)
+		dbCloseArea()
+	#ELSE
+		RetIndex("MA6")
+		FErase(cAliasTrb+GetDbExtension())
+		FErase(cAliasTrb+OrdBagExt())
+	#ENDIF
+	
+Endif
+
+Return aRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³CrdABloqueºAutor  ³Andre Veiga         º Data ³  11/06/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Possibilita o bloqueio e desbloqueio do cartao do cliente   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³void  CrdaBloque( ExpL1 )                                   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³ExpL1 - Informa se eh para executar a rotina via webservice º±±
+±±º          ³        ou nao                                              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºRetorno   ³Nenhum                                                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³Generico / Integracao com o sistema de Credito              º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function CrdABloque( lWebService )
+Local oDlgCartao, oCliente, oCPF, oCartoes, oOperacao				// Objetos para manipulacao da interface com o usuario
+Local aBloqueio		:= {}											
+Local lRet 			:= .T.											// Retorno do WebService
+Local lWSBloqueio 	:= .T.
+Local lWSCartao		:= .T.
+Local cCPF			:= Space(11)									// Controle do CPF
+Local nX			:= 0											// Variavel para controle de loop (for/next)
+Local nY			:= 0											// Variavel para controle de loop (for/next)
+Local cCartao  		:= TamSx3("MA6_NUM")[1]
+Local cCliente 		:= ""
+Local aCartoes 		:= {}
+Local aAcao			:= {STR0015, STR0016, STR0017}					// "Desbloquear", "Bloquear", "Cancelar"
+Local oOk 			:= LoadBitmap(GetResources(), "LBOK")
+Local oNo 			:= LoadBitmap(GetResources(), "LBNO")
+Local nOperacao 	:= 1
+Local aStatus 		:= {}
+Local aRet			:= {}
+Local lConfirma		:= .F. 											// Variavel de controle dos botoes da interface com o usuario
+Local cMsg			:= ""											// Mensagem do retorno do WebService de bloq/desbloq dos cartoes
+Local aMotivo		:= {}
+
+Local oSvc	
+Local cSoapFCode
+Local cSoapFDescr
+Local cSenha		:= "******"
+
+Default lWebService	:= .F.											// Indica se a rotina eh para ser executada via WebService
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Se nao foi passada as informacoes do cliente abre a tela para solicitar ³
+//³os dados ao usuario                                                     ³
+//³                                                                        ³
+//³aRetCart[1] ->Retorna o tipo do cartao                                  ³
+//³             1 - Magnetico                                              ³
+//³             2 - Não Magnético                                          ³
+//³             3- CPF                                                     ³
+//³             4- Abandona                                                ³
+//³aRetCart[2] -> Retorna o numero do cartao ou do CPF                     ³
+//³             1,2 -> Numero do cartão                                    ³
+//³             3 -> numero do cpf                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aRetCart := aClone(L010TCart())
+If (aRetCart[1] == 4) .Or. (Empty(aRetCart[1]))
+	Return Nil
+	
+ElseIf aRetCart[1] == 1 .or. aRetCart[1] == 2
+	cCartao	:= aRetCart[2]
+	cCPF	:= ""
+	
+ElseIf aRetCart[1] == 3
+	cCPF	:= aRetCart[2]
+	cCartao := ""
+	
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a consulta dos cartoes do cliente                                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lWebService
+
+	oSvc := WSCRDCARTAO():New()
+	iIf(ExistFunc("LjWsGetAut"),LjWsGetAut(@oSvc),Nil) //Monta o Header de Autenticação do Web Service
+	oSvc:_URL := "http://"+AllTrim(LJGetStation("WSSRV"))+"/CRDCARTAO.apw"
+	
+	lWSCartao := .T.
+	While lWSCartao
+		
+		LJMsgRun( STR0018,, {|| lRet := oSvc:GetCartao( cUsrSessionID, cCPF, cCartao ) } )	// "Aguarde... Pesquisando os cartoes ..."
+		If !lRet
+			cSvcError := GetWSCError()
+			If Left(cSvcError,9) == "WSCERR048"
+				
+				cSoapFCode  := Alltrim(Substr(GetWSCError(3),1,At(":",GetWSCError(3))-1))
+				cSoapFDescr := Alltrim(Substr(GetWSCError(3),At(":",GetWSCError(3))+1,Len(GetWSCError(3))))
+				
+				// Se necessario efetua outro login antes de chamar o metodo GetCartao novamente
+				If cSoapFCode $ "-1,-2,-3"
+					cUsrSessionID := WSCrdLogin( cUserName, cSenha )
+					lWSCartao := .T.
+				Else
+					MsgStop(cSoapFDescr, "Error " + cSoapFCode)
+					lWSCartao := .F.	// Nao chama o metodo GetCartao novamente
+				Endif
+				
+			Else
+				MsgStop(GetWSCError(), STR0019) 	//"FALHA INTERNA"
+				lWSCartao := .F. // Nao chama o metodo GetCartao novamente
+			EndIf
+		Else
+			
+			cCliente 	:= Alltrim(oSvc:oWSGETCARTAORESULT:oWSDADOSCLI:cNome)
+			cCPF		:= oSvc:oWSGETCARTAORESULT:oWSDADOSCLI:cCPF
+			
+			For nX := 1 to Len(oSvc:oWSGETCARTAORESULT:oWSDADOSCART:OWSWSDADOSCART)
+				aAdd( aCartoes, { 	oSvc:oWSGETCARTAORESULT:oWSDADOSCART:OWSWSDADOSCART[nX]:cCartao,;
+									oSvc:oWSGETCARTAORESULT:oWSDADOSCART:OWSWSDADOSCART[nX]:cSituacao, 0, "" } )
+			Next nX
+			lWSCartao := .F.
+
+		EndIf
+	Enddo
+
+Else
+	
+	LJMsgRun( STR0018,, {|| aRet := Crd70ConsCartao( cCPF, cCartao ) } )	// "Aguarde... Pesquisando os cartoes ..."
+	If !Empty( aRet )
+		cCliente 	:= aRet[4][2][3]
+		cCPF		:= aRet[4][2][4]
+		For nX := 1 to Len( aRet[4][1] )
+			aAdd( aCartoes, { aRet[4][1][nX][1], aRet[4][1][nX][2], 0, "" } )
+		Next nX
+	Endif
+
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Estrutura da aCartoes                                                   ³
+//³aCartoes[1] - Numero do Cartao (Caracter)                               ³
+//³aCartoes[2] - Situacao (Caracter)                                       ³
+//³              1 - Ativo                                                 ³
+//³              2 - Bloqueado                                             ³
+//³              3 - Cancelado                                             ³
+//³aCartoes[3] - Acao (Numerico)                                           ³
+//³              1 - Bloquear                                              ³
+//³              2 - Desbloquear                                           ³
+//³              3 - Cancelar                                              ³
+//³aCartoes[4] - Motivo (Caracter)                                         ³
+//³                                                                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If !Empty(aCartoes)
+	
+	aStatus := RetSx3Box( Posicione("SX3", 2, PadR("MA6_SITUA",10), "X3CBox()" ),,, 1 )	
+	aMotivo:= {}
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Monta interface com usuario                                             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DEFINE MSDIALOG oDlgCartao FROM 0,0 TO 268,500 TITLE STR0020 PIXEL	//"Bloqueio e desbloqueio de cartão"
+	
+	@ 03,05 TO 40,245 PIXEL
+	@ 10,10 SAY STR0021 OF oDlgCartao PIXEL 	//"Cliente: "
+	@ 10,40 MSGET oCliente VAR cCliente SIZE 190,08 WHEN .F. OF oDlgCartao PIXEL
+	
+	@ 25,10 SAY STR0022 OF oDlgCartao PIXEL		//"CPF: "
+	@ 25,40 MSGET oCPF VAR cCPF SIZE 60,08 PICTURE "@R 999.999.999-99" WHEN .F. OF oDlgCartao PIXEL
+	                         
+	@ 45,05 LISTBOX oCartoes FIELDS HEADER STR0023,STR0024,STR0025,STR0026 FIELDSIZES 75,45,50,100 SIZE 240,65 PIXEL OF oDlgCartao //"No.Cartão"/"Status"/"Ação"/"Motivo"
+	oCartoes:SetArray(aCartoes)
+	oCartoes:bLDblClick := {|| (aRet := DadosCart( aCartoes[oCartoes:nAt][1], aCartoes[oCartoes:nAt][2] ),; 
+								If(!Empty(aRet),;
+								(aCartoes[oCartoes:nAt][3] := aRet[2] ,;
+								aCartoes[oCartoes:nAt][4] := aRet[3]),) )}
+	oCartoes:bLine := {|| {aCartoes[oCartoes:nAt][1],;
+							If(Val(aCartoes[oCartoes:nAt][2])<>0.And.Val(aCartoes[oCartoes:nAt][2])<=Len(aStatus),aStatus[Val(aCartoes[oCartoes:nAt][2])][3]," "),;
+							If(aCartoes[oCartoes:nAt][3]<>0.And.aCartoes[oCartoes:nAt][3]<=Len(aAcao),aAcao[aCartoes[oCartoes:nAt][3]]," "),;
+							aCartoes[oCartoes:nAt][4] }}
+	
+	DEFINE SBUTTON FROM 113, 188 TYPE 1 ACTION (lConfirma:=.T.,oDlgCartao:End()) ENABLE PIXEL OF oDlgCartao
+	DEFINE SBUTTON FROM 113, 218 TYPE 2 ACTION (lConfirma:=.T.,oDlgCartao:End()) ENABLE PIXEL OF oDlgCartao
+	
+	ACTIVATE MSDIALOG oDlgCartao CENTERED
+	
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Limpa a array aCartoes deixando somente os cartoes que serao processados³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nX := 1
+While nX <= Len( aCartoes )
+	If Empty( aCartoes[nX][3] )
+		aDel( aCartoes, nX )
+		aSize( aCartoes, Len(aCartoes)-1 )
+	Else
+		nX ++
+	Endif
+Enddo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Processa os cartoes                                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lConfirma .And. !Empty(aCartoes)
+
+	If lWebService
+	
+		If ValType( oSvc ) <> "O"	
+			oSvc := WSCRDCARTAO():New()
+			iIf(ExistFunc("LjWsGetAut"),LjWsGetAut(@oSvc),Nil) //Monta o Header de Autenticação do Web Service
+			oSvc:_URL := "http://"+AllTrim(LJGetStation("WSSRV"))+"/CRDCARTAO.apw"
+		Endif
+	        
+		For nX := 1 to Len( aCartoes )
+			lWSBloqueio := .T.
+			While lWSBloqueio
+			
+				LJMsgRun( STR0027,, {|| lRet := oSvc:GETBLOQUEIO( cUSRSESSIONID,aCartoes[nX][1],Str(aCartoes[nX][3],1,0),aCartoes[nX][4] )  } ) //"Aguarde... Efetuando as alterações nos cartões ..."
+				If !lRet
+					cSvcError := GetWSCError()
+					If Left(cSvcError,9) == "WSCERR048"
+						
+						cSoapFCode  := Alltrim(Substr(GetWSCError(3),1,At(":",GetWSCError(3))-1))
+						cSoapFDescr := Alltrim(Substr(GetWSCError(3),At(":",GetWSCError(3))+1,Len(GetWSCError(3))))
+						
+						// Se necessario efetua outro login antes de chamar o metodo GetExtrato novamente
+						If cSoapFCode $ "-1,-2,-3"
+							cUsrSessionID := WSCrdLogin( cUserName, cSenha )
+							lWSBloqueio := .T.
+						Else
+							MsgStop(cSoapFDescr, "Error " + cSoapFCode)
+							lWSBloqueio := .F.	// Nao chama o metodo GetExtrato novamente
+						Endif
+						
+					Else
+						MsgStop(GetWSCError(), STR0019) 	//"FALHA INTERNA"
+						lWSBloqueio := .F. // Nao chama o metodo GetExtrato novamente
+					EndIf
+				Else
+					For nY := 1 to Len(oSvc:oWSGETBLOQUEIORESULT:oWSWSBLOQUEIO)
+						aAdd( aBloqueio, oSvc:oWSGETBLOQUEIORESULT:oWSWSBLOQUEIO[nY]:cMensagem )
+					Next
+					lWSBloqueio := .F.	// Nao chama o metodo GetExtrato novamente
+				EndIf
+			Enddo		
+		Next nX
+	
+	Else
+	
+		For nX := 1 to Len( aCartoes )
+			LJMsgRun( STR0027,, {|| aRet := WSCRD070( {{ aCartoes[nX][1], Str(aCartoes[nX][3],1,0), aCartoes[nX][4] }} ) } ) // "Aguarde... Efetuando as alterações nos cartões ..."
+			If !Empty( aRet )
+				For nY := 1 to Len( aRet[4] )
+					aAdd( aBloqueio, aRet[4][nX][2] )
+				Next nY
+			Endif
+		Next nX
+			
+	Endif
+	
+	If !Empty(aBloqueio)
+		cMsg := ""
+		For nX := 1 to Len( aBloqueio )
+			cMsg += aBloqueio[nX] + Chr(10)
+		Next nX
+		MsgInfo( cMsg )
+	Endif
+
+EndIf
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³DadosCart ºAutor  ³Andre Veiga         º Data ³  15/09/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Funcao responsavel pela manutencao do cartao (bloqueio /    º±±
+±±º          ³Desbloqueio                                                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³aExp1 := DadosCart( cExp2, cExp3 )                          º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºParametros³cExp2 - Numero do cartao                                    º±±
+±±º          ³cExp3 - Situacao                                            º±±
+±±º          ³        1 - Ativo                                           º±±
+±±º          ³        2 - Bloqueado                                       º±±
+±±º          ³        3 - Cancelado                                       º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºRetorno   ³aExp1 - Array contendo                                      º±±
+±±º          ³        [1] - Numero do cartao                              º±±
+±±º          ³        [2] - Acao                                          º±±
+±±º          ³              1 - Desbloquear                               º±±
+±±º          ³              2 - Bloquear                                  º±±
+±±º          ³              3 - Cancelar                                  º±±
+±±º          ³        [3] - Motivo                                        º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºSintaxe   ³void  CrdaBloque()                                          º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function DadosCart( cCartao, cSitua )
+Local oCartao, oAcao, oMotivo, oDescMotivo
+Local aRet 			:= {}
+Local nAcao			:= 1
+Local aAcao			:= { STR0015, STR0016, STR0017 }	// "Desbloquear", "Bloquear", "Cancelar"
+Local cMotivo 		:= Space(1)
+Local cDescMotivo 	:= Space(50)
+Local lConfirma 	:= .F.
+Local lContinua		:= .T.
+Local aMotivoAux 	:= RetSx3Box( Posicione("SX3", 2, PadR("MA6_MOTIVO",10), "X3CBox()" ),,, 1 )	
+Local aMotivo		:= {}
+
+Default cCartao 	:= ""
+Default cSitua 		:= ""
+
+If Empty(cCartao) .or. Empty(cSitua)
+	
+	MsgStop( STR0013, STR0028+ProcName() ) 	// "Parâmetros incorretos"/"Função:"
+	
+ElseIf cSitua == "3"
+	
+	MsgStop( STR0029, STR0028+ProcName() ) //"O cartão já foi cancelado e seu status não poderá mais ser alterado."
+	
+Else
+	
+	While lContinua
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Inicializa a lConfirma com False para o caso do usuario sair da tela  ³
+		//³com ESC                                                               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		lConfirma := .F.
+		                 	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Alimenta o array aMotivo                                              ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aMotivo := {}
+		aEval( aMotivoAux, { |x| aAdd( aMotivo, x[1] ) } )
+			
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Monta a tela para a acao do usuario referente aos cartoes             ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		DEFINE MSDIALOG oDlgDadosCart FROM 0,0 TO 185,280 TITLE STR0020 PIXEL	//"Bloqueio e desbloqueio de cartão"
+		
+		@ 03,05 TO 78,137 PIXEL
+		
+		@ 10,10 SAY STR0030 OF oDlgDadosCart PIXEL 	// "Cartão: "
+		@ 10,40 MSGET oCartao VAR cCartao SIZE 80,08 WHEN .F. OF oDlgDadosCart PIXEL
+		
+		// Analisa o status do cartão para permitir somente a acao correta
+		@ 25,40 RADIO oAcao VAR nAcao 3D SIZE 60,10 PROMPT aAcao[1], aAcao[2], aAcao[3] OF oDlgDadosCart PIXEL ON CHANGE AllwaysTrue()
+		If cSitua == "1"		// Ativo
+			nAcao := 2
+			oAcao:Disable(1)
+			oAcao:Enable(2)
+			oAcao:Enable(3)
+		ElseIf cSitua == "2"	// Bloqueado
+			nAcao := 1
+			oAcao:Enable(1)
+			oAcao:Disable(2)
+			oAcao:Enable(3)
+		Endif
+		
+		@ 59,10 SAY STR0031 OF oDlgDadosCart PIXEL	//"Motivo: "
+		@ 59,40 MSCOMBOBOX oMotivo VAR cMotivo ITEMS aMotivo SIZE 60,08 OF oDlgDadosCart PIXEL
+		
+		@ 61,57 SAY oDescMotivo VAR cDescMotivo SIZE 120,08 OF oDlgDadosCart PIXEL
+		
+		DEFINE SBUTTON FROM 080, 080 TYPE 1 ACTION (lConfirma:=.T.,oDlgDadosCart:End()) ENABLE PIXEL OF oDlgDadosCart
+		DEFINE SBUTTON FROM 080, 110 TYPE 2 ACTION (lConfirma:=.F.,oDlgDadosCart:End()) ENABLE PIXEL OF oDlgDadosCart
+		
+		ACTIVATE MSDIALOG oDlgDadosCart CENTERED
+		
+		If lConfirma
+			If Empty(cMotivo)
+				MsgStop(STR0032)	//"Faltou informar o motivo."
+				aRet		:= {}
+				lContinua 	:= .T.
+			Else				
+				aRet := { cCartao, nAcao, aMotivoAux[Val(cMotivo)][3] }
+				lContinua := .F.
+			Endif
+		Else
+			lContinua := .F.
+		Endif
+	Enddo
+Endif
+
+Return aRet

@@ -1,0 +1,771 @@
+// 17/08/2009 -- Filial com mais de 2 caracteres
+#INCLUDE "CTBA090.CH"
+#INCLUDE "PROTHEUS.CH" 
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Program   ³ CTBA090  ³ Autor ³ Pilar S. Albaladejo   ³ Data ³ 12.05.00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Programa de Manutencao de Relacionamentos                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ CTBA090()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ Nenhum                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGACTB                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ Nenhum                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+FUNCTION Ctba090()
+
+PRIVATE aRotina := MenuDef()
+
+PRIVATE cCadastro := OemToAnsi(STR0006) //"Cadastro de Relacionamentos"
+
+If ( !AMIIn(34) )		// Acesso somente pelo SIGACTB
+	Return
+EndIf
+
+//Realiza o carregamento da tabela CTL
+MsgRun( STR0054 ,, {|| CtbIncCTL() } ) //"Atualizando tabela de Relacionamentos, Por favor Aguarde ..."
+
+mBrowse( 6, 1,22,75,"CTL")
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³ Paulo Carnelossi      ³ Data ³09/03/07  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±     
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³		1 - Pesquisa e Posiciona em um Banco de Dados         ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef()
+
+Local aRotina := {	{OemToAnsi(STR0001), "AxPesqui"	, 0 , 1,,.F.},;	// "Pesquisar" 
+					{OemToAnsi(STR0002), "AxVisual"	, 0 , 2},; 	// "Visualizar"
+					{OemToAnsi(STR0003), "AxInclui"	, 0 , 3},;	// "Incluir"   
+					{OemToAnsi(STR0004), "AxAltera"	, 0 , 4},;	// "Alterar"   
+					{OemToAnsi(STR0005), "AxDeleta"	, 0 , 5} }	// "Excluir"   
+
+Return(aRotina)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Program   ³ CtbIncCTL  ³ Autor ³ Arnaldo R. Junior     ³ Data ³ 24.04.10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Verifica a existencia dos registros no CTL                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ CtbIncCTL()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ Nenhum                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function CtbIncCTL()
+
+Local aArea		:= GetArea()
+Local cFilCTL		:= xFilial("CTL")
+Local nLanguage		:= 0
+Local nInc		:= 0
+Local nCol		:= 0
+Local aCTL 		:= {}
+Local aEstrut		:= {}
+Local aSM0 		:= AdmAbreSM0()
+Local nSM0		:= 0
+Local cTitleRem:= GetDescRem()
+Local cInd AS Character
+Local cIndNum AS Character
+Local cIdioma := Upper(Left(FWRetIdiom(), 2))
+
+Do Case 
+	Case cIdioma == "EN"
+		nLanguage := 3
+	Case cIdioma == "ES"
+		nLanguage := 2
+	Otherwise
+		nLanguage := 1
+EndCase
+
+aEstrut := { "CTL_LP","CTL_KEY","CTL_ORDER","CTL_DESC","CTL_EXECUT","CTL_ALIAS"}
+
+aAdd(aEstrut,"CTL_QCDATA")
+aAdd(aEstrut,"CTL_QCDOC")
+aAdd(aEstrut,"CTL_QCMOED")
+aAdd(aEstrut,"CTL_QCVLRD")
+aAdd(aEstrut,"CTL_QCCORR")
+
+If nLanguage == 1
+	aADD(aCTL,{'500','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','IMPLANTACAO DO CONTAS A RECEBER','','SE1'})
+	aADD(aCTL,{'501','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','IMPLANTACAO CONTAS RECEBER ADIANTAMENTO','','SE1'})
+	aADD(aCTL,{'502','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','CANCEL. IMPLANT.CONTAS RECEBER ADIANTAM.','','SE1'})
+	aADD(aCTL,{'505','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','CANCELAMENTO IMPLANTACAO CONTAS RECEBER','','SE1'})
+	aADD(aCTL,{'510','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','IMPLANTACAO DO CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'511','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','RATEIOS CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'512','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','CANCELMENTO RATEIO CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'513','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','IMPLANT.CONTAS A PAGAR ADIANTAMENTO','','SE2'})
+	aADD(aCTL,{'514','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','CANCEL.ADIANTAMENTO CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'515','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','CANCELAMENTO IMPLANTACAO CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'520','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','BAIXAS A RECEBER','CTBBAIXARC()','SE5'})
+	aADD(aCTL,{'521','E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','1','BAIXAS DE TITULOS COBRANCA SIMPLES','','SE1'})
+	aADD(aCTL,{'527','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','CANCEL.BAIXAS A RECEBER-COBR SIMPLES','CTBBAIXARC()','SE5'})
+	aADD(aCTL,{'530','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','BAIXAS A PAGAR','CTBBAIXAPG()','SE5'})
+	aADD(aCTL,{'531','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','CANCEL.BAIXAS A PAGAR','CTBBAIXAPG()','SE5'})
+	aADD(aCTL,{'532','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','BAIXA DO TITULO A PAGAR','CTBBAIXAPG()','SE5'})
+	aADD(aCTL,{'540','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'541','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'542','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'543','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'544','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'545','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'546','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'555','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','TRANSFERENCIA DO CONTAS A RECEBER','CTBTRANSF()','SE1'})
+	aADD(aCTL,{'560','E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)','3','TRANSFERENCIA ORIGEM','','SE5'})
+	aADD(aCTL,{'561','E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)','3','TRANSFERENCIA DESTINO','','SE5'})
+	aADD(aCTL,{'562','E5_FILIAL+E5_DOCUMEN','10','MOVIMENTO BANCARIO A PAGAR','','SE5'})
+	aADD(aCTL,{'563','E5_FILIAL+E5_DOCUMEN','10','MOVIMENTO BANCARIO A RECEBER','','SE5'})
+	aADD(aCTL,{'564','E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)','3','CANCEL.MOVIMENTO BANCARIO A PAGAR','','SE5'})
+	aADD(aCTL,{'565','E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)','3','CANCEL.MOVIMENTO BANCARIO A RECEBER','','SE5'})
+	aADD(aCTL,{'567','EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM','1','CHEQUES AVULSO','','SEF'})
+	aADD(aCTL,{'568','EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM','1','CANCELAMENTO DE CHEQUES AVULSO','','SEF'})
+	aADD(aCTL,{'572','EU_FILIAL+EU_NUM','1','MOVIMENTO DO CAIXINHA','','SEU'})
+	aADD(aCTL,{'573','EU_FILIAL+EU_NUM','1','MOV. DE REPOSICAO BANCO/CAIXINHA','','SEU'})
+	aADD(aCTL,{'577','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','DESDOBRAMENTO CONTAS A PAGAR','','SE2'})
+	aADD(aCTL,{'578','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','CANCELAMENTO DESDOBRAMENTO CONTAS PAGAR','','SE2'})
+	aADD(aCTL,{'587','E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA','1','FATURAS A PAGAR','CTBFATPG()','SE2'})
+	aADD(aCTL,{'588','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','CANCELAMENTO COMPENSACAO A RECEBER','CTBCOMPRC()','SE5'})
+	aADD(aCTL,{'589','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','CANCELAMENTO COMPENSACAO A PAGAR','CTBCOMPPG()','SE5'})
+	aADD(aCTL,{'590','EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM','1','BAIXAS A PAGAR - CHEQUE','CTBBAIXAPG()','SEF'})
+	aADD(aCTL,{'591','EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM','1','BAIXAS A PAGAR - CHEQUE','CTBBAIXAPG()','SEF'})
+	aADD(aCTL,{'594','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','COMPENSACAO ENTRE CARTEIRAS','','SE5'})
+	aADD(aCTL,{'595','E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO','2','FATURAS A RECEBER','CTBFATRC()','SE1'})
+	aADD(aCTL,{'596','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','COMPENSACAO A RECEBER','CTBCOMPRC()','SE5'})
+	aADD(aCTL,{'597','E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ','2','COMPENSACAO A PAGAR','CTBCOMPPG()','SE5'})
+	aADD(aCTL,{'610','D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM','3','ITENS DA NOTA FISCAL DE SAIDA','MC090VISUAL()','SD2'})
+	aADD(aCTL,{'620','F2_FILIAL+F2_DOC+F2_SERIE+F2_CLIENTE+F2_LOJA','1','DOCUMENTO DE SAIDA','MC090VISUAL()','SF2'})
+	aADD(aCTL,{'630','D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM','3','CANCELAMENTO ITENS NF SAIDA','','SD2'})
+	aADD(aCTL,{'640','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','ITENS DA NOTA FISCAL DE ENTRADA - DEV.',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SD1'})
+	AAdd(aCTL,{"641","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"641",1,"")),"A103NFISCAL('SF1',SF1->(RECNO()),1)","SD1"})
+	aADD(aCTL,{'650','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','ITENS NOTA FISCAL DE ENTRADA',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SD1'})
+	aADD(aCTL,{'651','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','ITENS DA NOTA FISCAL DE ENTRADA - RATEIO',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SD1'})
+	aADD(aCTL,{'655','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','ITENS NOTA FISCAL DE ENTRADA',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SD1'})
+	aADD(aCTL,{'656','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','ITENS NOTA FISCAL DE ENTRADA',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SD1'})
+	aADD(aCTL,{'660','F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO','1','DOCUMENTO DE ENTRADA',"A103NFISCAL('SF1',SF1->(RECNO()),1)",'SF1'})
+	aADD(aCTL,{'666','D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ','7','REQUISICAO DE ESTOQUE','','SD3'})
+	aADD(aCTL,{'668','D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ','7','DEVOLUCAO AO ESTOQUE','','SD3'})
+	aADD(aCTL,{'678','D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM','3','CUSTO DA MERCADORIA DE VENDAS','','SD2'})
+	aADD(aCTL,{'682','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1','TRANSF.MATERIAL AO ESTOQUE','','SD1'})
+        
+ElseIF nLanguage == 2 .AND. cPaisLoc != "BRA"
+
+	AAdd(aCTL,{"500","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0007,"","SE1"})   //"INCLUSAO DE TITULOS A RECEBER           "
+	AAdd(aCTL,{"501","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0008,"","SE1"})   //"INCLUSAO DE RECEBIMENTO ANTECIPADO(RA)  "
+	AAdd(aCTL,{"502","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0009,"","SE1"})   //"CANCELAMENTO DE RECEBIMENTO ANTECIPADO  "
+	AAdd(aCTL,{"505","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0010,"","SE1"})   //"CANCELAMENTO DE TITULOS A RECEBER       "
+	AAdd(aCTL,{"510","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0011,"","SE2"})   //"INCLUSAO DE TITULOS A PAGAR             "
+	AAdd(aCTL,{"511","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0012,"","SE2"})   //"INCLUSAO DE TITULOS A PAGAR-RATEIO      "
+	AAdd(aCTL,{"512","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0013,"","SE2"})   //"CANCELAMENTO DE TITULOS A PAGAR-RATEIO  "
+	AAdd(aCTL,{"513","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0014,"","SE2"})   //"INCLUSAO DE PAGAMENTO ANTECIPADO(PA)    "
+	AAdd(aCTL,{"514","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0015,"","SE2"})   //"CANCELAMENTO DE PAGAMENTO ANTECIPADO    "
+	AAdd(aCTL,{"515","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA"                    ,"1",STR0016,"","SE2"})   //"CANCELAMENTO DE TITULOS A PAGAR         "
+	AAdd(aCTL,{"535","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","7",STR0017,"","SE5"})   //"CANCELAMENTO DE COMPENSACAO ENTRE CART. "
+	AAdd(aCTL,{"548","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                   ,"5",STR0018,"","SE1"})   //"INCLUSAO DE BORDERO                     "
+	AAdd(aCTL,{"554","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                   ,"5",STR0019,"","SE1"})   //"CANCELAMENTO DE BORDERO                 "
+	AAdd(aCTL,{"560","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0020,"","SE5"})   //"TRANSFERENCIA FINANCEIRA - SAIDA        "
+	AAdd(aCTL,{"561","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0021,"","SE5"})   //"TRANSFERENCIA FINANCEIRA - ENTRADA      "
+	AAdd(aCTL,{"562","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0022,"","SE5"})   //"MOVIMENTO BANCARIO - PAGAR              "
+	AAdd(aCTL,{"563","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0023,"","SE5"})   //"MOVIMENTO BANCARIO - RECEBER            "
+	AAdd(aCTL,{"564","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0024,"","SE5"})   //"CANCELAMENTO MOVIMENTO BANCARIO - PAGAR "
+	AAdd(aCTL,{"565","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ"                      ,"1",STR0025,"","SE5"})   //"CANCELAMENTO MOVIMENTO BANCARIO - RECEBE"
+	AAdd(aCTL,{"570","EK_FILIAL+EK_ORDPAGO+EK_TIPODOC+EK_PREFIXO+EK_NUM+EK_PARCELA+EK_TIPO"                 ,"1",STR0026,"CTBORDPAGO()","SEK"})   //"INCLUSAO DE ORDEM DE PAGO               "
+	AAdd(aCTL,{"571","EK_FILIAL+EK_ORDPAGO+EK_TIPODOC+EK_PREFIXO+EK_NUM+EK_PARCELA+EK_TIPO"                 ,"1",STR0027,"CTBORDPAGO()","SEK"})   //"CANCELAMENTO DE ORDEM DE PAGO	       "
+	AAdd(aCTL,{"575","EL_FILIAL+EL_RECIBO+EL_TIPODOC+EL_PREFIXO+EL_NUMERO+EL_PARCELA+EL_TIPO"               ,"1",STR0028,"CTBRECIBO() ","SEL"})	//"INCLUSAO DE RECIBO                      "
+	AAdd(aCTL,{"576","EL_FILIAL+EL_RECIBO+EL_TIPODOC+EL_PREFIXO+EL_NUMERO+EL_PARCELA+EL_TIPO"               ,"1",STR0029,"CTBRECIBO() ","SEL"})	//"CANCELAMENTO DE RECIBO                  "
+	AAdd(aCTL,{"588","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",STR0030,"","SE5"})   //"CANCELAMENTO DE COMPENSACAO CTAS RECEBER"
+	AAdd(aCTL,{"589","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",STR0031,"","SE5"})   //"CANCELAMENTO DE COMPENSACAO CTAS PAGAR  "
+	AAdd(aCTL,{"594","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","7",STR0032,"","SE5"})   //"COMPENSACAO ENTRE CARTEIRAS             "
+	AAdd(aCTL,{"596","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",STR0033,"","SE5"})   //"COMPENSACAO DE CONTAS A RECEBER         "
+	AAdd(aCTL,{"597","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",STR0034,"","SE5"})   //"COMPENSACAO DE CONTAS A PAGAR           "
+	AAdd(aCTL,{"610","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE"                      ,"2",STR0035,"CTBDOCSAIDA()","SF2"})	  //"INCLUSAO DE DOCUMENTOS DE SAIDA - ITEM  "
+	AAdd(aCTL,{"620","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE"                      ,"2",STR0036,"CTBDOCSAIDA()","SF2"})	  //"INCLUSAO DE DOCUMENTOS DE SAIDA - TOTAL "
+	AAdd(aCTL,{"635","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE"                      ,"2",STR0037,"CTBDOCSAIDA()","SF2"})	  //"EXCLUSAO DE DOCUMENTOS DE SAIDA - TOTAL "
+	AAdd(aCTL,{"640","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0038,"CTBDOCENT()  ","SF1"})	  //"INCLUSAO DE NCC/NDE - ITEM              "
+	AAdd(aCTL,{"641","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"641",1,"")),"CTBDOCENT()","SD1"})
+	AAdd(aCTL,{"650","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0039,"CTBDOCENT()  ","SF1"})	  //"INCLUSAO DE DOCUMENTOS DE ENTRADA - ITEM"
+	AAdd(aCTL,{"655","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM"       ,"1",STR0040,"CTBDOCENT()  ","SD1"})	  //"EXCLUSAO DE DOCUMENTOS DE ENTRADA - ITEM"
+	AAdd(aCTL,{"660","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0041,"CTBDOCENT()  ","SF1"})	  //"INCLUSAO DE DOCUMENTOS DE ENTRADA-TOTAL "
+	AAdd(aCTL,{"665","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0042,"CTBDOCENT()  ","SF1"})	  //"EXCLUSAO DE DOCUMENTOS DE ENTRADA-TOTAL "
+	AAdd(aCTL,{"630","D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_TIPO+D2_COD+D2_ITEM+D2_ESPECIE"       ,"3",STR0043,"CTBDOCSAIDA()","SD2"})	  //"EXCLUSAO DE DOCUMENTOS DE SAIDA - ITEM  "
+	AAdd(aCTL,{"642","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0044,"CTBDOCENT()  ","SF1"})	  //"INCLUSAO DE NCC/NDE - TOTAL             "	
+	AAdd(aCTL,{"521","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0045,"","SE1"})   //"RECEBIMENTO DE CHEQUES                  "                      
+	AAdd(aCTL,{"520","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ"           ,"7",STR0046,"","SE5"})   //"DEVOLUCAO DE CHEQUES                    "                      	
+	AAdd(aCTL,{"527","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0047,"","SE1"})   //"CANCELAMENTO DE RECEBIMENTO DE CHEQUES  "                      			
+	AAdd(aCTL,{"547","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO"                                       ,"1",STR0048,"","SE1"})   //"DEVOLUCAO DE CHEQUES/TRANSFERENCIA CAIXA"                                     	
+	AAdd(aCTL,{"710","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE"                      ,"2",STR0049+Upper(cTitleRem)+STR0052,"CTBDOCSAIDA()","SF2"})	  //"ENVIO DE "###" DE TRANSFERENCIA - TOTAL"	    
+	AAdd(aCTL,{"720","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE"                      ,"2",STR0049+Upper(cTitleRem)+STR0053,"CTBDOCSAIDA()","SF2"})	  //"ENVIO DE "###" DE TRANSFERENCIA - ITEM "	    
+	AAdd(aCTL,{"750","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE"                      ,"1",STR0050+Upper(cTitleRem)+STR0051,"CTBDOCENT()  ","SF1"})	  //"RECEBIMENTO "###" TRANSFERENCIA - TOTAL"				
+
+Endif
+
+ChkFile("CVA")
+//acrescentados novos lancamentos para todos os paises em 05/09/2011 - Responsavel Fernando Radu Muscalu
+AAdd(aCTL,{"5B1","FIN_FILIAL+FIN_PREFIX+FIN_NUM+FIN_PARCEL+FIN_TIPO+FIN_CLIENT+FIN_LOJA+FIN_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B1",1,"")),"","FIN"})
+AAdd(aCTL,{"5B2","FIN_FILIAL+FIN_PREFIX+FIN_NUM+FIN_PARCEL+FIN_TIPO+FIN_CLIENT+FIN_LOJA+FIN_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B2",1,"")),"","FIN"})
+AAdd(aCTL,{"5B5","FIN_FILIAL+FIN_PREFIX+FIN_NUM+FIN_PARCEL+FIN_TIPO+FIN_CLIENT+FIN_LOJA+FIN_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B5",1,"")),"","FIN"})
+AAdd(aCTL,{"5B7","FIN_FILIAL+FIN_PREFIX+FIN_NUM+FIN_PARCEL+FIN_TIPO+FIN_CLIENT+FIN_LOJA+FIN_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B7",1,"")),"","FIN"})
+AAdd(aCTL,{"5B3","FIQ_FILIAL+FIQ_PREFIX+FIQ_NUM+FIQ_PARCEL+FIQ_TIPO+FIQ_FORNEC+FIQ_LOJA+FIQ_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B3",1,"")),"","FIQ"})
+AAdd(aCTL,{"5B4","FIQ_FILIAL+FIQ_PREFIX+FIQ_NUM+FIQ_PARCEL+FIQ_TIPO+FIQ_FORNEC+FIQ_LOJA+FIQ_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B4",1,"")),"","FIQ"})
+AAdd(aCTL,{"5B6","FIQ_FILIAL+FIQ_PREFIX+FIQ_NUM+FIQ_PARCEL+FIQ_TIPO+FIQ_FORNEC+FIQ_LOJA+FIQ_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B6",1,"")),"","FIQ"})
+AAdd(aCTL,{"5B8","FIQ_FILIAL+FIQ_PREFIX+FIQ_NUM+FIQ_PARCEL+FIQ_TIPO+FIQ_FORNEC+FIQ_LOJA+FIQ_SEQ","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"5B8",1,"")),"","FIQ"})
+AAdd(aCTL,{"621","C5_FILIAL+C5_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"621",1,"")),"","SC5"})
+AAdd(aCTL,{"636","C5_FILIAL+C5_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"636",1,"")),"","SC5"})
+AAdd(aCTL,{"612","C6_FILIAL+C6_NUM+C6_ITEM+C6_PRODUTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"612",1,"")),"","SC6"}) 
+AAdd(aCTL,{"632","C6_FILIAL+C6_NUM+C6_ITEM+C6_PRODUTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"632",1,"")),"","SC6"}) 
+AAdd(aCTL,{"657","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"657",1,"")),"","SC7"})
+AAdd(aCTL,{"658","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"658",1,"")),"","SC7"}) 
+AAdd(aCTL,{"659","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"659",1,"")),"","SC7"}) 
+AAdd(aCTL,{"65A","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"65A",1,"")),"","SC7"}) 
+AAdd(aCTL,{"65B","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"65B",1,"")),"","SC7"})
+AAdd(aCTL,{"65C","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"65C",1,"")),"","SE2"})
+AAdd(aCTL,{"65D","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"65D",1,"")),"","SE2"})
+AAdd(aCTL,{"652","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"652",1,"")),"","SC7"})
+AAdd(aCTL,{"651","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"651",1,"")),"A103NFISCAL('SF1',SF1->(RECNO()),1)","SD1"})
+AAdd(aCTL,{"656","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"656",1,"")),"A103NFISCAL('SF1',SF1->(RECNO()),1)","SD1"})
+AAdd(aCTL,{"681","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"681",1,"")),"","SD1"}) 
+AAdd(aCTL,{"678","D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM","3",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"678",1,"")),"","SD2"})
+AAdd(aCTL,{'682','D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM','1',CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"682",1,"")),"","SD1"})
+
+AAdd(aCTL,{"666","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"666",1,"")),"","SD3"})
+AAdd(aCTL,{"667","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"667",1,"")),"","SD3"})
+AAdd(aCTL,{"668","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"668",1,"")),"","SD3"})
+AAdd(aCTL,{"669","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"669",1,"")),"","SD3"})
+AAdd(aCTL,{"670","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"670",1,"")),"","SD3"})
+AAdd(aCTL,{"672","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"672",1,"")),"","SD3"})
+AAdd(aCTL,{"674","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"674",1,"")),"","SD3"})
+AAdd(aCTL,{"676","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"676",1,"")),"","SD3"})
+AAdd(aCTL,{"679","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"679",1,"")),"","SD3"})
+AAdd(aCTL,{"680","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"680",1,"")),"","SD3"})
+AAdd(aCTL,{"503","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"503",1,"")),"","SE1"})
+AAdd(aCTL,{"504","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"504",1,"")),"","SE1"})
+AAdd(aCTL,{"506","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"506",1,"")),"","SE1"})
+AAdd(aCTL,{"507","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"507",1,"")),"","SE1"})
+AAdd(aCTL,{"508","EZ_FILIAL+EZ_PREFIXO+EZ_NUM+EZ_PARCELA+EZ_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"508",1,"")),"","SEZ"})
+AAdd(aCTL,{"509","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"509",1,"")),"","SE1"})
+AAdd(aCTL,{"51A","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"51A",1,"")),"","SE1"})
+AAdd(aCTL,{"522","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"522",1,"")),"","SE1"})
+AAdd(aCTL,{"523","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"523",1,"")),"","SE1"})
+AAdd(aCTL,{"524","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"524",1,"")),"","SE1"})
+AAdd(aCTL,{"525","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"525",1,"")),"","SE1"})
+AAdd(aCTL,{"526","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"525",1,"")),"","SE1"})
+AAdd(aCTL,{"528","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"528",1,"")),"","SE1"})
+AAdd(aCTL,{"529","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"529",1,"")),"","SE1"})
+AAdd(aCTL,{"540","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"540",1,"")),"CTBTRANSF()"			,"SE1"})    
+AAdd(aCTL,{"541","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"541",1,"")),"CTBTRANSF()"			,"SE1"})    
+AAdd(aCTL,{"542","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"542",1,"")),"CTBTRANSF()"			,"SE1"})    
+AAdd(aCTL,{"543","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"543",1,"")),"CTBTRANSF()"			,"SE1"})  
+AAdd(aCTL,{"544","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"544",1,"")),"CTBTRANSF()"			,"SE1"})    
+AAdd(aCTL,{"545","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"545",1,"")),"CTBTRANSF()"			,"SE1"})  
+AAdd(aCTL,{"546","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"546",1,"")),"CTBTRANSF()"			,"SE1"})    
+AAdd(aCTL,{"549","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"549",1,"")),""						,"SE1"})
+AAdd(aCTL,{"550","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"550",1,"")),""						,"SE1"})
+AAdd(aCTL,{"551","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"551",1,"")),""						,"SE1"})  
+AAdd(aCTL,{"552","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"552",1,"")),""						,"SE1"})  
+AAdd(aCTL,{"553","E1_FILIAL+E1_NUMBOR+E1_NOMCLI+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"553",1,"")),""						,"SE1"})
+AAdd(aCTL,{"555","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"555",1,"")),"CTBTRANSF()"			,"SE1"})
+AAdd(aCTL,{"556","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"556",1,"")),"CTBTRANSF()"		,"SE1"})
+AAdd(aCTL,{"57A","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"57A",1,"")),"","SE1"})                                                                           
+AAdd(aCTL,{"57B","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"57B",1,"")),"","SE1"})                                                              
+AAdd(aCTL,{"592","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"592",1,"")),"","SE1"})                                                                             
+AAdd(aCTL,{"595","E1_FILIAL+E1_CLIENTE+E1_LOJA+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"595",1,"")),"CTBFATRC()","SE1"})                                           
+AAdd(aCTL,{"518","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"518",1,"")),"","SE2"})
+AAdd(aCTL,{"519","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"519",1,"")),"","SE2"})
+AAdd(aCTL,{"533","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"533",1,"")),"","SE2"})
+AAdd(aCTL,{"577","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"577",1,"")),"","SE2"})
+AAdd(aCTL,{"578","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"578",1,"")),"","SE2"})
+AAdd(aCTL,{"57C","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"57C",1,"")),"","SE2"})
+AAdd(aCTL,{"57D","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"57D",1,"")),"","SE2"})
+AAdd(aCTL,{"587","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"587",1,"")),"CTBFATPG()","SE2"})
+AAdd(aCTL,{"593","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"593",1,"")),"","SE2"})
+AAdd(aCTL,{"605","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"605",1,"")),"","SE2"})
+AAdd(aCTL,{"606","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"606",1,"")),"","SE2"})
+AAdd(aCTL,{"607","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"607",1,"")),"","SE2"})
+AAdd(aCTL,{"608","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"608",1,"")),"","SE2"})
+AAdd(aCTL,{"661","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"661",1,"")),"","SE2"})
+AAdd(aCTL,{"516","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"516",1,"")),"","SE5"})            
+AAdd(aCTL,{"517","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"517",1,"")),"","SE5"})            
+AAdd(aCTL,{"530","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"530",1,"")),"CTBBAIXAPG()","SE5"})                    
+AAdd(aCTL,{"531","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"531",1,"")),"CTBBAIXAPG()","SE5"})      
+AAdd(aCTL,{"532","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"532",1,"")),"CTBBAIXAPG()","SE5"})
+AAdd(aCTL,{"557","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"557",1,"")),"","SE5"})        
+AAdd(aCTL,{"558","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"558",1,"")),"","SE5"})        
+AAdd(aCTL,{"559","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"559",1,"")),"","SEF"})
+AAdd(aCTL,{"56A","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"56A",1,"")),"","SE5"})        
+AAdd(aCTL,{"56B","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"56B",1,"")),"","SE5"})        
+AAdd(aCTL,{"580","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"580",1,"")),"","SE5"})        
+AAdd(aCTL,{"581","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"581",1,"")),"","SE5"})        
+AAdd(aCTL,{"582","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"582",1,"")),"","SE5"})        
+AAdd(aCTL,{"584","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"584",1,"")),"","SE5"})      
+AAdd(aCTL,{"585","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"585",1,"")),"","SE5"})        
+AAdd(aCTL,{"586","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"586",1,"")),"","SE5"})        
+AAdd(aCTL,{"598","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"598",1,"")),"","SE5"})        
+AAdd(aCTL,{"599","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"599",1,"")),"","SE5"})       
+AAdd(aCTL,{"59A","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","7",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"59A",1,"")),"","SE5"})       
+AAdd(aCTL,{"567","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"567",1,"")),"","SEF"})        
+AAdd(aCTL,{"568","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"568",1,"")),"","SEF"})        
+AAdd(aCTL,{"569","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"569",1,"")),"","SEF"})        
+AAdd(aCTL,{"590","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"590",1,"")),"CTBBAIXAPG()","SEF"})
+AAdd(aCTL,{"591","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"591",1,"")),"CTBBAIXAPG()","SEF"})
+AAdd(aCTL,{"572","EU_FILIAL+EU_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"572",1,"")),"","SEU"})
+AAdd(aCTL,{"573","EU_FILIAL+EU_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"573",1,"")),"","SEU"})
+AAdd(aCTL,{"579","EU_FILIAL+EU_NUM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"579",1,"")),"","SEU"})
+
+If cPaisLoc == "RUS"
+	cInd :=	"N4_FILIAL+N4_UID"
+	cIndNum	:= "10"
+Else
+	cInd	:=	"N4_FILIAL+N4_CBASE+N4_ITEM+N4_TIPO+DTOS(N4_DATA)+N4_OCORR+N4_SEQ"
+	cIndNum	:= "1"
+EndIf
+AAdd(aCTL,{"807",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"807",1,"")),"","SN4"})
+AAdd(aCTL,{"808",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"808",1,"")),"","SN4"})
+AAdd(aCTL,{"80A",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80A",1,"")),"","SN4"})
+AAdd(aCTL,{"80B",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80B",1,"")),"","SN4"})
+AAdd(aCTL,{"80C",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80C",1,"")),"","SN4"})
+AAdd(aCTL,{"80D",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80D",1,"")),"","SN4"})
+AAdd(aCTL,{"815",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"815",1,"")),"","SN4"})
+AAdd(aCTL,{"816",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"816",1,"")),"","SN4"})
+AAdd(aCTL,{"81A",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"81A",1,"")),"","SN4"})
+AAdd(aCTL,{"81B",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"81B",1,"")),"","SN4"})
+AAdd(aCTL,{"81C",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"81C",1,"")),"","SN4"})
+AAdd(aCTL,{"81D",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"81D",1,"")),"","SN4"})
+AAdd(aCTL,{"821",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"821",1,"")),"","SN4"})
+AAdd(aCTL,{"822",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"822",1,"")),"","SN4"})
+AAdd(aCTL,{"827",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"827",1,"")),"","SN4"})
+AAdd(aCTL,{"830",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"830",1,"")),"","SN4"})
+AAdd(aCTL,{"831",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"831",1,"")),"","SN4"})
+AAdd(aCTL,{"832",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"832",1,"")),"","SN4"})
+AAdd(aCTL,{"836",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"836",1,"")),"","SN4"})
+AAdd(aCTL,{"845",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"845",1,"")),"","SN4"})
+AAdd(aCTL,{"846",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"846",1,"")),"","SN4"})
+AAdd(aCTL,{"847",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"847",1,"")),"","SN4"})
+AAdd(aCTL,{"848",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"848",1,"")),"","SN4"})
+AAdd(aCTL,{"850",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"850",1,"")),"","SN4"})
+AAdd(aCTL,{"851",cInd,cIndNum,CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"851",1,"")),"","SN4"})
+
+If cPaisLoc == "RUS"
+	AAdd(aCTL,{"80E",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80E",1,"")),"","SN4"})
+	AAdd(aCTL,{"80F",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80F",1,"")),"","SN4"})
+	AAdd(aCTL,{"80G",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80G",1,"")),"","SN4"})
+	AAdd(aCTL,{"80H",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"80H",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A2",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A2",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A3",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A3",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A6",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A6",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A7",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A7",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A8",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A8",1,"")),"","SN4"})
+	AAdd(aCTL,{"8A9",cInd,cIndNum,CV3->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"8A9",1,"")),"","SN4"})
+EndIf
+
+AAdd(aCTL,{"890","NS_FILIAL+NS_CODIGO+NS_REVISAO+NS_IDMOVTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"890",1,"")),"","SNS"})
+AAdd(aCTL,{"891","NS_FILIAL+NS_CODIGO+NS_REVISAO+NS_IDMOVTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"891",1,"")),"","SNS"})
+AAdd(aCTL,{"892","NS_FILIAL+NS_CODIGO+NS_REVISAO+NS_IDMOVTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"892",1,"")),"","SNS"})
+AAdd(aCTL,{"893","NS_FILIAL+NS_CODIGO+NS_REVISAO+NS_IDMOVTO","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"893",1,"")),"","SNS"})
+
+AAdd(aCTL,{"9D0","NV3_FILIAL+NV3_COD","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"9D0",1,"")),"","NV3"})
+AAdd(aCTL,{"9D1","NV3_FILIAL+NV3_COD","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"9D1",1,"")),"","NV3"})
+AAdd(aCTL,{"9D2","NV3_FILIAL+NV3_COD","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"9D2",1,"")),"","NV3"})
+
+AAdd(aCTL,{"T00","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T00",1,"")),"","G4C"})
+AAdd(aCTL,{"T01","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T01",1,"")),"","G4C"})
+AAdd(aCTL,{"T02","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T02",1,"")),"","G4C"})
+AAdd(aCTL,{"T03","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T03",1,"")),"","G4C"})
+AAdd(aCTL,{"T04","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T04",1,"")),"","G4C"})
+AAdd(aCTL,{"T05","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T05",1,"")),"","G4C"})
+AAdd(aCTL,{"T06","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T06",1,"")),"","G4C"})
+AAdd(aCTL,{"T07","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T07",1,"")),"","G4C"})
+AAdd(aCTL,{"T08","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T08",1,"")),"","G4C"})
+AAdd(aCTL,{"T09","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T09",1,"")),"","G4C"})
+AAdd(aCTL,{"T10","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T10",1,"")),"","G4C"})
+AAdd(aCTL,{"T11","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T11",1,"")),"","G4C"})
+AAdd(aCTL,{"T12","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T12",1,"")),"","G4C"})
+AAdd(aCTL,{"T13","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T13",1,"")),"","G4C"})
+AAdd(aCTL,{"T14","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T14",1,"")),"","G4C"})
+AAdd(aCTL,{"T15","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T15",1,"")),"","G4C"})
+
+AAdd(aCTL,{"T20","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T20",1,"")),"","G85"})
+AAdd(aCTL,{"T21","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T21",1,"")),"","G85"})
+AAdd(aCTL,{"T22","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T22",1,"")),"","G85"})
+AAdd(aCTL,{"T23","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T23",1,"")),"","G85"})
+AAdd(aCTL,{"T24","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T24",1,"")),"","G85"})
+AAdd(aCTL,{"T25","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T25",1,"")),"","G85"})
+AAdd(aCTL,{"T26","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T26",1,"")),"","G85"})
+AAdd(aCTL,{"T27","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T27",1,"")),"","G85"})
+AAdd(aCTL,{"T28","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T28",1,"")),"","G85"})
+AAdd(aCTL,{"T29","G85_FILIAL+G85_PREFIX+G85_NUMFAT+G85_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T29",1,"")),"","G85"})
+
+AAdd(aCTL,{"T30","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T30",1,"")),"","G4C"})
+AAdd(aCTL,{"T31","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T31",1,"")),"","G4C"})
+AAdd(aCTL,{"T32","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T32",1,"")),"","G4C"})
+AAdd(aCTL,{"T33","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T33",1,"")),"","G4C"})
+AAdd(aCTL,{"T34","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T34",1,"")),"","G4C"})
+AAdd(aCTL,{"T35","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T35",1,"")),"","G4C"})
+AAdd(aCTL,{"T36","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T36",1,"")),"","G4C"})
+AAdd(aCTL,{"T37","G4C_FILIAL+G4C_IDIF","2",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T37",1,"")),"","G4C"})
+
+AAdd(aCTL,{"T40","G81_FILIAL+G81_IDIFA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T40",1,"")),"","G81"})
+AAdd(aCTL,{"T41","G81_FILIAL+G81_IDIFA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T41",1,"")),"","G81"})
+AAdd(aCTL,{"T42","G81_FILIAL+G81_IDIFA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T42",1,"")),"","G81"})
+AAdd(aCTL,{"T43","G81_FILIAL+G81_IDIFA","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T43",1,"")),"","G81"})
+AAdd(aCTL,{"T44","G6L_FILIAL+G6L_CODAPU","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T44",1,"")),"","G6L"})
+AAdd(aCTL,{"T45","G6L_FILIAL+G6L_CODAPU","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T45",1,"")),"","G6L"})
+
+AAdd(aCTL,{"T50","G91_FILIAL+G91_CODIGO+G91_NUMFAT+G91_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T50",1,"")),"","G91"})
+AAdd(aCTL,{"T51","G91_FILIAL+G91_CODIGO+G91_NUMFAT+G91_ITEM","1",CVA->(GetAdvFVal("CVA","CVA_DESCRI",xFilial("CVA")+"T51",1,"")),"","G91"})
+
+
+InNewDataCTL(aCTL,aEstrut)
+DbSelectArea( "CTL" )
+DbSetOrder( 1 ) // CTL_FILIAL + CTL_LP
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³inclusao dos novos itens na tabela³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nSM0 := 1 To Len( aSM0 )
+	If Alltrim(aSM0[nSM0][1]) == Alltrim(cEmpAnt) 
+		cFilCTL := aSM0[nSM0][2]
+		For nInc := 1 To Len( aCTL )
+			If !CTL->( DbSeek( xFilial("CTL", cFilCTL) + aCTL[nInc][1]))
+				RecLock( "CTL", .T. )
+				CTL->CTL_FILIAL := xFilial("CTL", cFilCTL)
+				For nCol := 1 To Len( aCTL[nInc] )
+					If cPaisLoc != 'BRA'		
+						If nCol <= Len(aEstrut) .And. CTL->(FieldPos( aEstrut[nCol] )) > 0
+							CTL->(CTL->(FieldPut( CTL->(FieldPos( aEstrut[nCol] )), aCTL[nInc][nCol] )))
+						EndIf
+					Else
+						If CTL->(FieldPos( aEstrut[nCol] )) > 0
+							FieldPut( FieldPos( aEstrut[nCol] ), aCTL[nInc][nCol] )
+						EndIf
+					EndIf
+				Next nCol
+				CTL->(MsUnLock())
+				CTL->(DbCommit())
+			Else
+				Reclock("CTL",.f.)
+				
+				For nCol := 1 To Len( aCTL[nInc] )
+					If cPaisLoc != 'BRA'
+						If nCol <= Len(aEstrut) .And. Empty(CTL->(FieldGet(CTL->(FieldPos(aEstrut[nCol])))))
+							CTL->(CTL->(FieldPut( CTL->(FieldPos( aEstrut[nCol] )), aCTL[nInc][nCol] )))
+						Endif
+					Else
+						If Empty(CTL->(FieldGet(CTL->(FieldPos(aEstrut[nCol])))))
+							CTL->(CTL->(FieldPut( CTL->(FieldPos( aEstrut[nCol] )), aCTL[nInc][nCol] )))
+						Endif
+					EndIf
+				Next nCol        
+				
+				CTL->(DbCommit())
+				CTL->(MSUnlock()) 
+			EndIf
+		Next nInc
+	EndIf
+Next nSM0                               
+dbSelectArea("CTL")
+dbSetOrder(1)
+CTL->(dbSeek(xFilial("CTL")+"681"))                                                       
+If Alltrim(CTL->CTL_KEY) =   "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM+D1_ESPECIE"
+	RecLock("CTL")
+	CTL->CTL_KEY:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"		
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif
+If Alltrim(CTL->CTL_QCDOC) =   "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM+D1_ESPECIE"
+	RecLock("CTL")
+	CTL->CTL_QCDOC:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"		
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif	
+
+CTL->(dbSeek(xFilial("CTL")+"641"))  
+If Alltrim(CTL->CTL_KEY) =   "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM+D1_ESPECIE"
+	RecLock("CTL")
+	CTL->CTL_KEY:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"		
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif	
+If Alltrim(CTL->CTL_QCDOC) =   "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM+D1_ESPECIE"
+	RecLock("CTL")
+	CTL->CTL_QCDOC:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"		
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif			
+
+CTL->(dbSeek(xFilial("CTL")+"682"))                                                       
+If Alltrim(CTL->CTL_KEY) = "D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM"
+	RecLock("CTL")
+	CTL->CTL_KEY	:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"
+	CTL->CTL_ALIAS	:= "SD1" 
+	CTL->CTL_QCVLRD	:= "D1_TOTAL" 
+	CTL_ORDER		:= '1'
+	CTL_QCDATA		:= "D1_EMISSAO"
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif
+If Alltrim(CTL->CTL_QCDOC) = "D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM"
+	RecLock("CTL")
+	CTL->CTL_QCDOC	:= "D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM"	
+	CTL->CTL_ALIAS	:= "SD1" 		
+	CTL->CTL_QCVLRD	:= "D1_TOTAL"
+	CTL_ORDER		:= '1'
+	CTL_QCDATA		:= "D1_EMISSAO"
+	CTL->(MsUnLock())
+	CTL->(DbCommit())
+Endif	
+                      
+RestArea(aArea)
+
+Return
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³InNewDataCTL	 ³ Autor ³Fernando Radu Muscalu ³ Data ³ 06/09/11   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Atuliza o conteudo dos campos:								    ³±±
+±±³          ³	- CTL_QCDATA												    ³±±
+±±³          ³	- CTL_QCDOC								 					    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³InNewDataCTL(aCTL,aEstrutCTL)										³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³																	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nil																³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGACTB                                                         	³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function InNewDataCTL(aCTL,aEstrutCTL)
+
+Local lAborta	:= .f.
+
+Local nI		:= 0
+Local nP		:= 0
+Local nZ		:= 0
+Local nW		:= 0
+
+Local nPAlias   := aScan(aEstrutCTL,"CTL_ALIAS")	
+
+Local aConteudo		:= UpdVlDataCTL()	
+Local aNewFields	:= {"CTL_QCDATA","CTL_QCDOC","CTL_QCMOED","CTL_QCVLRD","CTL_QCCORR"}
+
+aEval(aNewFields,{|x| IIf( aScan(aEstrutCTL,x) == 0, lAborta := .t.,nil) })
+
+If !lAborta
+
+	aSort(aCTL,,,{|x,y| x[nPAlias] < y[nPAlias]})
+	
+	For nI := 1 to len(aConteudo)
+				
+		If Len(aConteudo[nI,2]) > 1
+			For nZ := 1 to len(aConteudo[nI,2])
+				nP := aScan(aCTL,{|x| alltrim(x[1]) == alltrim(aConteudo[nI,2,nZ,1]) })	
+				If nP > 0 
+					For nW := 2 to len(aConteudo[nI,2,nZ])
+						aAdd(aCTL[nP],aConteudo[nI,2,nZ,nW])
+					Next nW	
+				Endif
+			Next nZ
+		Else                    
+			nP := aScan(aCTL,{|x| alltrim(x[nPAlias]) == Alltrim(aConteudo[nI,1]) })
+			
+			If nP > 0
+				For nZ := nP to len(aCTL)
+					If Alltrim(aCTL[nZ,nPAlias]) == Alltrim(aConteudo[nI,1])
+						For nW := 2 to len(aConteudo[nI,2,1])
+							aAdd(aCTL[nZ],aConteudo[nI,2,1,nW])	
+						Next nW
+					Endif
+				Next nZ
+			Endif	
+		Endif
+		
+	Next nI
+Endif
+
+Return()
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³CTBC66leg		 ³ Autor ³Fernando Radu Muscalu ³ Data ³ 29/08/11   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Montagem da tela de legenda									    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³CTBC66leg()														³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³																	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nil																³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGACTB                                                         	³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function UpdVlDataCTL()
+
+Local aAliases	:= {}
+Local aDetalhes	:= {}
+
+aAdd(aDetalhes,{"5B1","FIN_DTAVP","FIN_FILIAL+FIN_PREFIX+FIN_NUM+FIN_PARCEL+FIN_TIPO+FIN_CLIENT+FIN_LOJA+FIN_SEQ","","FIN_VLRAVP",""})
+aAdd(aAliases,{"FIN",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"5B3","FIQ_DTAVP","FIQ_FILIAL+FIQ_PREFIX+FIQ_NUM+FIQ_PARCEL+FIQ_TIPO+FIQ_FORNEC+FIQ_LOJA+FIQ_SEQ","","FIQ_VLRAVP",""})
+aAdd(aAliases,{"FIQ",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"621","C5_EMISSAO","C5_FILIAL+C5_NUM","C5_MOEDA","",""})
+aAdd(aAliases,{"SC5",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"612","","C6_FILIAL+C6_NUM+C6_ITEM+C6_PRODUTO","","C6_VALOR",""})
+aAdd(aAliases,{"SC6",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"657","C7_EMISSAO","C7_FILIAL+C7_NUM+C7_ITEM+C7_SEQUEN","C7_MOEDA","C7_TOTAL","C7_NODIA"})
+aAdd(aAliases,{"SC7",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"641","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})
+aAdd(aDetalhes,{"650","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})
+aAdd(aDetalhes,{"651","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})                   
+aAdd(aDetalhes,{"655","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_TIPO+D1_COD+D1_ITEM","","D1_TOTAL",""})
+aAdd(aDetalhes,{"656","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})                   
+aAdd(aDetalhes,{"681","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})
+aAdd(aAliases,{"SD1",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"630","D2_EMISSAO","D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_TIPO+D2_COD+D2_ITEM+D2_ESPECIE","","D2_TOTAL",""})
+aAdd(aDetalhes,{"678","D2_EMISSAO","D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA+D2_COD+D2_ITEM","","D2_TOTAL",""})
+aAdd(aDetalhes,{"682","D1_EMISSAO","D1_FILIAL+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA+D1_COD+D1_ITEM","","D1_TOTAL",""})
+
+aAdd(aAliases,{"SD2",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"666","D3_EMISSAO","D3_FILIAL+D3_COD+D3_LOCAL+DTOS(D3_EMISSAO)+D3_NUMSEQ","'01'","D3_CUSTO1","	D3_NODIA"})
+aAdd(aAliases,{"SD3",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"500","E1_EMISSAO","E1_FILIAL+E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO","E1_MOEDA","E1_VALOR","E1_NODIA"})
+aAdd(aAliases,{"SE1",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"510","E2_EMISSAO","E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO","E2_MOEDA","E2_VALOR","E2_NODIA"})
+aAdd(aAliases,{"SE2",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"516","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"517","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"520","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"530","E5_DATA","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"531","E5_DATA","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"532","E5_DATA","E5_FILIAL+E5_TIPODOC+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+DTOS(E5_DATA)+E5_CLIFOR+E5_LOJA+E5_SEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"535","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_IDENTEE","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"557","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"558","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"560","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"561","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"562","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"563","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"564","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"565","E5_DATA","E5_FILIAL+DTOS(E5_DATA)+E5_BANCO+E5_AGENCIA+E5_CONTA+E5_NUMCHEQ","E5_MOEDA","E5_VALOR","E5_NODIA"})
+aAdd(aDetalhes,{"56A","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"56B","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"580","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"581","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"582","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"583","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"584","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"585","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"586","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"588","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"589","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"594","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"596","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"597","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"598","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"599","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aDetalhes,{"59A","E5_DATA","E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA+E5_SEQ+E5_DOCUMEN","E5_MOEDA","E5_VALOR","E5_NODIA"})  
+aAdd(aAliases,{"SE5",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"567","EF_DATA","EF_FILIAL+EF_BANCO+EF_AGENCIA+EF_CONTA+EF_NUM","","EF_VALOR",""})
+aAdd(aAliases,{"SEF",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"570","EK_EMISSAO","EK_FILIAL+EK_ORDPAGO+EK_TIPODOC+EK_PREFIXO+EK_NUM+EK_PARCELA+EK_TIPO","EK_MOEDA","EK_VALOR","EK_NODIA"})
+aAdd(aAliases,{"SEK",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"575","EL_EMISSAO","EL_FILIAL+EL_RECIBO+EL_TIPODOC+EL_PREFIXO+EL_NUMERO+EL_PARCELA+EL_TIPO","EL_MOEDA","EL_VALOR","EL_NODIA"})
+aAdd(aAliases,{"SEL",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"572","EU_EMISSAO","EU_FILIAL+EU_NUM","EU_MOEDA","EU_VALOR","EU_NODIA"})
+aAdd(aAliases,{"SEU",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"640","F1_EMISSAO","F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO+F1_ESPECIE","F1_MOEDA","F1_VALBRUT","F1_NODIA"})
+aAdd(aAliases,{"SF1",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"610","F2_EMISSAO","F2_FILIAL+F2_CLIENTE+F2_LOJA+F2_DOC+F2_SERIE+F2_TIPO+F2_ESPECIE","F2_MOEDA","F2_VALBRUT","F2_NODIA"})
+aAdd(aAliases,{"SF2",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"801","N4_DATA","N4_FILIAL+N4_CBASE+N4_ITEM+N4_TIPO+DTOS(N4_DATA)+N4_OCORR+N4_SEQ","'01'","N4_VLROC1","N4_NODIA"})
+aAdd(aAliases,{"SN4",aDetalhes})
+aDetalhes := {}
+
+aAdd(aDetalhes,{"890","NS_DATA","NS_FILIAL+NS_CODIGO+NS_REVISAO+NS_IDMOVTO","'01'","NS_VLRMOV1",""})
+aAdd(aAliases,{"SNS",aDetalhes})
+aDetalhes := {}
+
+Return(aAliases)
+
+//aEval(aDetalhes,{|x| Iif( len(aDetalhes[x]) > 0, nCont++, nil )})

@@ -1,0 +1,1988 @@
+#include "TBICONN.CH"
+#INCLUDE "LOJA300.CH"
+#INCLUDE "PROTHEUS.CH"
+
+#define __FILIAL	1
+#define __F2EMISSAO	2
+#define __DOC		3
+#define __SERIE		4
+#define __CLIENTE	5
+#define __LOJA		6
+#define __PDV		7
+#define __MAPA		8
+#define __CF		9
+#define __EST		10
+#define __D2EMISSAO 11
+#define __PaLivrDoc 64
+
+STATIC lLegislacao := LjAnalisaLeg(43)[1] .AND. cPaisLoc == "BRA" .AND. AliasInDic("MDL")
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ LOJA300  ³ Autor ³ Vendas Clientes       ³ Data ³ 28/11/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Gera livros fiscais para Emissor de Cupom Fiscal.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGALOJA                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function LOJA300( cEmp, cFilTrab )
+Local oDlg														// Objeto
+Local nOpca		:= 0											// Opcao de escolha
+Local lWorkFlow := (! cEmp == NIL .AND. ! cFilTrab == NIL)		// Se trabalha com Workflow
+Local lEcf		:= .F.											// Variavel para verificar se o campo F3_ECF existe
+Local aArraySD2 := {}											// Array que guarda as informacoes do arquivo SD2
+Local lEstadoDF	:= SuperGetMV("MV_ESTADO") == "DF"				// Se o estado eh "DF"
+
+If SF3->( FieldPos ( "F3_ECF" ) ) > 0
+	lEcf	:= .T.
+EndIf
+	
+If lWorkFlow
+	
+	If Select("SX6") == 0
+		PREPARE ENVIRONMENT EMPRESA cEmp FILIAL cFilTrab TABLES "SA1" , "SD2" , "SF2" , "SF3" , "SF4" , "SFI"
+	Else
+		ChkFile("SA1")
+		ChkFile("SD2")
+		ChkFile("SF2")
+		ChkFile("SF3")
+		ChkFile("SF4")
+		ChkFile("SFI")
+	EndIf
+	
+	mv_par01 := dDataBase
+	mv_par02 := dDataBase
+	
+	ConOut("LOJA300 - Start - "+DTOC(dDataBase))
+Else
+	mv_par01 := dDataBase
+	mv_par02 := dDataBase
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Protege rotina para que seja usada apenas no SIGALOJA / Front Loja³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !AmIIn(12,23,72)
+		Return(.F.)
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Reprocessamento Fiscal³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DEFINE MSDIALOG oDlg TITLE STR0001 FROM  165,145 TO 315,495 PIXEL OF oMainWnd
+	
+	@ 10, 10 SAY STR0002 SIZE 157, 07 OF oDlg PIXEL  // Esta rotina ir  reprocessar os Livros Fiscais referente ao per¡odo
+	@ 20, 10 SAY STR0003 SIZE 151, 07 OF oDlg PIXEL  // informado para Emissores de Cupom Fiscal.
+	@ 30, 10 SAY STR0004 SIZE 158, 07 OF oDlg PIXEL  // Este processamento dever  ser executado em mono-usu rio.
+	
+	DEFINE SBUTTON FROM 50, 109 TYPE 1 ACTION (nOpca:=IIf(Pergunte("LJA300",.T.),1,0),oDlg:End())    ENABLE OF oDlg
+	DEFINE SBUTTON FROM 50, 140 TYPE 2 ACTION oDlg:End()	  ENABLE OF oDlg
+	
+	ACTIVATE MSDIALOG oDlg
+	
+	If ! nOpca == 1
+		Return (.F.)
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ mv_par01 - Data Inicial										   ³
+	//³ mv_par02 - Data Final										   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica ultima data para operacoes fiscais 				 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	If ! FisChkDt(mv_par01) .OR. ! FisChkDt(mv_par02)
+		Return (.F.)
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Modificacao da rotina de reprocessamento de livro fiscal para		   ³
+	//³ nao acumular valores quando o Cupom fiscal tiver gerado nota fiscal,   ³
+	//³ pois a mesma deve ser destacada na observacao. 		 	 			   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ O processamento foi dividido em dois passos:						   ³
+	//³	nProc = 1 --> Processa os ECF's que podem serem acumulados.		       ³
+	//³	nProc = 2 --> Processa os ECF's que nao podem serem acumulados, pois   ³
+	//³ 			  gerou-se Nota Fiscal e esta deve constar na Observacao.  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Limpa o SF3 para nao duplicar informacoes      	   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Aten‡„o, os registros de ECF desse per¡odo ser„o exclu¡dos do SF3. Continua ?³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	If ! MsgYesNo(STR0006)
+		Return (.F.)
+	EndIf
+	
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Deleta o SF3 no periodo informado³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+LJ300DelF3(lEcf)
+
+If lWorkFlow
+	
+	If ! SuperGetMV("MV_MAPARES") == "N"
+		If lEstadoDF
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Cria a aArraSD2 e gera a query temporaria do SD2   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			LOJA301(.T., mv_par01, mv_par02, @aArraySD2 )
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Gera informacoes para a aArraySD2             	   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			LOJA301( .F., Nil, Nil, @aArraySD2 )
+		EndIf
+
+		R930MResumo( lWorkFlow, @aArraySD2 )
+		LJ300Proc(.T.,lWorkFlow)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Apaga o temporario criado no LOJA301³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		
+		If lEstadoDF
+			TMPSD2->(dbCloseArea())
+		EndIf
+	Else
+		LJ300Proc(.F.,lWorkFlow)
+	EndIF
+	
+	ConOut("LOJA300 - End - "+DTOC(dDataBase))
+	
+Else
+	
+	If ! SuperGetMV("MV_MAPARES") == "N"
+		If lEstadoDF
+			LOJA301(.T., mv_par01, mv_par02, @aArraySD2 )
+			LOJA301( .F., Nil, Nil, @aArraySD2 )
+			
+		EndIf
+
+		Processa({|lEnd| R930MResumo( Nil, @aArraySD2 )})
+		Processa({|lEnd| LJ300Proc(.T.)})
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Apaga o temporario criado no LOJA301³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lEstadoDF
+			TMPSD2->(dbCloseArea())
+		EndIf
+	Else
+		Processa({|lEnd| LJ300Proc()})
+	EndIF
+	
+EndIF
+
+Return (.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ LJ300Proc³ Autor ³Vendas Clientes	    ³ Data ³ 23/08/00 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡ao ³ Gera livros fiscais para Emissor de Cupom Fiscal.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGALOJA                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function LJ300Proc( lISS , lWorkFlow )
+
+Local nAuxLvr	:= 0						   				// Auxiliar do For no array do aLivros
+Local nAuxFix	:= 0						   				// Auxiliar do For no array do aFixos
+Local nItmLvr	:= 0						   				// Varre o item do array do aLivros
+Local nContCmp	:= 0						   				// Conta os campos ateh o FCount()
+Local nProc		:= 0						   				// Valida quantas vezes foi processado
+Local aLivro	:= {}										// Array com os dados para gravacao do Livro fiscal
+Local aCopiaSF3	:= {}										// Caso nao gere mapa resumo, o array tem a copia do SF3
+Local aSeek		:= {"" , ctod("") , "" , "" , "" , "" , "" , "" , "" , "" , ctod("")}	//Guarda as informacoes do SF2
+Local cExprA	:= ""						   				// Variavel que contem a expressao do SD2, para ser utilizada no while
+Local cExprB	:= ""						   				// Variavel que contem a expressao do SD2, para ser utilizada no while
+Local nVlrTotal	:= 0						  				// Totalizador do livro fiscal
+Local cDocAnt	:= ""						   				// Variavel para pegar o Documento Anterior
+Local nAliqBus	:= 0						   				// Aliquota de ICM
+Local nPosLvr	:= 0						   				// Posicao do aLivro de acordo com o aScan
+Local nVlrCtb	:= 0						   				// Variavel com o valor contabil
+Local aFixos	:= MatxAfixos()				  				// Array que contem os dados da funcao MatxAfixos
+Local lGravaF3	:= .F.						  				// Valida se grava o SF3
+Local lZfranca	:= .F.						  				// Valida se eh zona Franca
+Local lConsFinal:= .F.						   				// Valida se eh consumidor final
+Local cNotaAte	:= ""						  				// Variavel que guarda ateh qual nota foi processada
+Local nRecSD2	:= 0						  				// Variavel para gravar o recno do SD2
+Local cVariavel	:= ""                          				// Variavel auxiliar
+Local cNFCPAnt	:= ""								  		// Variavel que contem o F2_NFCUPOM
+Local nBItemIPI	:= 0										// Calcula base do IPI
+Local lIPIBruto	:= (SuperGetMV( "MV_IPIBRUT" ) == "S")		//Valida se calcula IPI Bruto
+Local nDescItem	:= 0										// Desconto do item
+Local lLjGrvSf3	:= Existblock("LJGRVSF3")					// Valida ponto de entrada para gravar campo no SF3
+Local lProcessa	:= .T.						   				// Valida se processa livro
+Local cEspecie	:= ""						   				// Grava a especie da ECF (via cupom) ou NF (via NF)
+Local nValNeg	:= 0										// Valor Negativo
+Local cNotaCup	:= ""						   				// Grava NF originada sobre cupom
+Local cSerieCup	:= ""										// Grava Serie da NF originada sobre cupom
+Local cExpr		:= ""										// Valida a expressao que sera procurada no SF3
+Local nRecoSD2  := ""										// Nr. do registro (recno) do SD2
+Local aCFO		:= {}										// Array auxiliar contendo os CFOs do cupom e da NF sobre cupom
+Local aGravaFT  := {}										// Array com as informacoes para gravacao no SFT
+Local nLinFT	:= 1										// Linha do SFT
+Local lGravaFT	:= .F.										// Se ira gerar SFT
+Local aAreaSF3												// Area do SF3
+Local aAreaSF2												// Area do SF2
+Local dDtEmisNf := dDataBase								// Data de emissao da NF sobre Cupom
+Local cNumNfCf  := ""						   				// Numero da Nf sobre Cupom
+Local cSerNfCf  := ""										// Serie da Nf sobre Cupom
+Local nTamF2_DOC:= TamSX3("F2_DOC")[1]						// Tamanho do Campo F2_DOC 
+Local nX 		:= 0										// Contador de For
+Local nY 		:= 0										// Contador de For
+Local aBkpFT	:= {}										// Bkp FT
+Local nSeq		:= 0										// Sequencia
+Local nRecnoSF2 := 0 										// Guarda o recno do SF2 para que ele nao se desposicione durante o processamento
+Local aBkpLivro := {} 										// Array sobre informacoes a aLivro
+Local cMapaResumo 	:= Alltrim(SuperGetMV("MV_MAPARES"))	// Conteudo parametro MV_MAPARES
+Local aGrvSf3       := {}									// Array para compatibilizar a passagem de parametros para o PE LjGrvSf3
+Local nProcCount	:= 2									// Processamentos
+
+Default lISS 	 := .F.										// Default de parametro recebido. Se for .T. considera somente registros com ISS quando executada a rotina de mapa resumo
+Default lWorkFlow:= .F.										// Default de parametro recebido. Identifica se rotina esta sendo executada apartir do agendamento do workflow
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Posiciona ordens do arquivos 					   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SD2")
+DbSetOrder(7)
+
+DbSelectArea("SF2")
+DbSetOrder(3)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Desenha cursor da Gauge de processamento 		   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If ! lWorkFlow
+	ProcRegua(RecCount())
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Strutura - aGravaFT      ³
+//³1 - Filial               ³
+//³2 - Data Entrada         ³
+//³3 - Data de emissao      ³
+//³4 - Nota Fiscal          ³
+//³5 - Serie                ³
+//³6 - Cliente              ³
+//³7 - Loja                 ³
+//³8 - Estado               ³
+//³9 - PDV                  ³
+//³10 - Especie             ³
+//³11 - Produto             ³
+//³12 - Item                ³
+//³13 - Tipo movimento      ³
+//³14 - CFOP                ³
+//³15 - Aliquota de ICMS    ³
+//³16 - Valor contabil      ³
+//³17 - Base ICMS           ³
+//³18 - Valor ICMS          ³
+//³19 - Isencao ICMS        ³
+//³20 - Outro ICMS          ³
+//³21 - Base IPI            ³
+//³22 - Valor IPI           ³
+//³23 - Isencao IPI         ³
+//³24 - Outro IPI           ³
+//³25 - Observacao          ³
+//³26 - ICMS retido         ³
+//³27 - TIPO                ³
+//³28 - ICMS Com            ³
+//³29 - Codigo ISS          ³
+//³30 - Obs IPI             ³
+//³31 - Numero Livro        ³
+//³32 - Icms auto           ³
+//³33 - Base retencao       ³
+//³34 - Formula             ³
+//³35 - Formula             ³
+//³36 - Despesas            ³
+//³37 - Diferenca Icms      ³
+//³38 - Trf Icms            ³
+//³39 - Observacao Icms     ³
+//³40 - Observacao solidario³
+//³41 - Sol. trib.          ³
+//³42 - CFOExt              ³
+//³43 - IssSt               ³
+//³44 - Rec Iss             ³
+//³45 - Iss Sub             ³
+//³46 - Livro de ISS no ICMS³
+//³47 - Credito estatual    ³
+//³48 - CRDEst              ³
+//³49 - Identificao SF3     ³
+//³50 - Aliquota IPI        ³
+//³51 - Base PS3            ³
+//³52 - Aliq PS3            ³
+//³53 - Val PS3             ³
+//³54 - Base CF3            ³
+//³55 - Aliq CF3            ³
+//³56 - Val CF3             ³
+//³57 - Desconto            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If cMapaResumo == "N" .AND. SuperGetMV("MV_LJ300PR",,.F.)
+	nProcCount := 1
+EndIf
+
+For nProc := 1 to nProcCount
+
+	DbSelectArea("SF2")
+	DbSetOrder(3)	
+	DbSeek(xFilial("SF2")+"S"+dTos(mv_par01),.T.)
+	
+	While !Eof() .AND. xFilial("SF2") == F2_FILIAL .AND. F2_ECF=="S" .AND. F2_EMISSAO <= mv_par02
+
+		nRecnoSF2 := SF2->( Recno() ) // Guardo recno do SF2 p/ evitar seu desposicionamento no processamento
+		
+		If if(nProc == 1,!Empty(F2_NFCUPOM),Empty(F2_NFCUPOM))
+			dbskip()
+			loop
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Inicializa array para utilizacao do Livro Fiscal³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		
+		aLivro := Array(1,Len(aFixos))
+		aCFO   := Array(1,3)
+		For nAuxFix:=1 To Len(aFixos)
+			aLivro[1][nAuxFix] := aFixos[nAuxFix][2]
+		Next nAuxFix
+		Aadd( aLivro[1], space(nTamF2_DOC) )	// Cria um elemento a mais para armazenar o num. da NF
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Totaliza itens SF2 de mesma Serie e Mapa 		³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		
+		cNotaAte := ""
+		lGravaF3 := .F.
+
+		cEspecie := SF2->F2_ESPECIE
+		cDocAnt	 := SF2->F2_DOC
+		cNFCPAnt := SF2->F2_NFCUPOM
+		aSeek[__FILIAL]		:= xFilial("SF2")
+		aSeek[__F2EMISSAO]	:= SF2->F2_EMISSAO
+		aSeek[__DOC]		:= SF2->F2_DOC
+		aSeek[__SERIE]		:= SF2->F2_SERIE
+		aSeek[__CLIENTE]	:= SF2->F2_CLIENTE
+		aSeek[__LOJA]		:= SF2->F2_LOJA
+		aSeek[__PDV]		:= SF2->F2_PDV
+		aSeek[__MAPA]		:= SF2->F2_MAPA
+		aSeek[__EST]		:= Lj300PosCli(SF2->F2_CLIENTE,SF2->F2_LOJA)
+			
+		While !Eof() .AND. xFilial("SF2")==F2_FILIAL .AND. dtos(aSeek[__F2EMISSAO])+aSeek[__SERIE]+aSeek[__PDV]+aSeek[__MAPA]==dTOS(F2_EMISSAO)+F2_SERIE+F2_PDV+F2_MAPA
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Movimenta a Regua de processamento  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			
+			IncProc(STR0005) // Reprocessando os registros de sa¡das - ECF
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Carrega valores de itens negativos (item desconto)						 ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			
+			cDocAnt := SF2->F2_DOC
+			nValNeg := 0
+			DbSelectArea("SD2")
+			DbSeek(xFilial("SD2")+SF2->F2_PDV+SF2->F2_SERIE+SF2->F2_DOC+SF2->F2_CLIENTE+SF2->F2_LOJA)
+			cExprA  := xFilial("SD2")+D2_PDV+D2_SERIE+D2_DOC+D2_CLIENTE+D2_LOJA
+			cExprB  := "SD2->D2_PDV+SD2->D2_SERIE+SD2->D2_DOC+SD2->D2_CLIENTE+SD2->D2_LOJA"
+			
+			nRecSD2 := Recno()
+			While !Eof() .AND. cExprA == xFilial("SD2")+&cExprB
+				If D2_TOTAL<0
+					nValNeg+=Abs(D2_TOTAL)
+				EndIf
+				dbSkip()
+			End
+			dbGoto(nRecSD2)
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Definicao variaveis para Rotina Saida   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			
+			aSeek[__CF] 		:= SD2->D2_CF
+			aSeek[__D2EMISSAO]	:= SD2->D2_EMISSAO
+			
+			While !Eof() .AND. cExprA == xFilial("SD2")+&cExprB
+				
+				
+				If lISS 
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Sendo MV_MAPARES = "O", somente processa³
+					//³se tiver Nota Fiscal sobre Cupom Fiscal ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If Empty(SF2->F2_NFCUPOM)
+						lProcessa := .F.
+					Else
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Se houver maparesumo, e houver ISS eh gravada a especie como NF no SF3³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						lProcessa	:= .T.
+						cEspecie	:= "NF"
+					EndIf
+				Else
+					lProcessa := .T.
+				EndIf
+				
+				If lProcessa
+
+					Aadd(aGravaFT,(LjxCpsSft()))
+					
+					aGravaFT[nLinFT][1][2]  := xFilial("SD2")
+					aGravaFT[nLinFT][2][2]  := SD2->D2_EMISSAO
+					aGravaFT[nLinFT][3][2]  := SD2->D2_EMISSAO				
+					aGravaFT[nLinFT][4][2]  := SD2->D2_DOC
+					aGravaFT[nLinFT][5][2]  := SD2->D2_SERIE
+					aGravaFT[nLinFT][6][2]  := SD2->D2_CLIENTE
+					aGravaFT[nLinFT][7][2]  := SD2->D2_LOJA
+					aGravaFT[nLinFT][8][2]  := SD2->D2_EST				
+					aGravaFT[nLinFT][9][2]  := SD2->D2_PDV
+					aGravaFT[nLinFT][10][2] := SF2->F2_ESPECIE
+					aGravaFT[nLinFT][11][2] := SD2->D2_COD
+					aGravaFT[nLinFT][12][2] := SD2->D2_ITEM				
+					aGravaFT[nLinFT][13][2] := "S"
+
+					SF4->(DbSeek(xFilial()+SD2->D2_TES))
+					
+					If Val(SD2->D2_DOC)>Val(cNotaAte)
+						cNotaAte  := SD2->D2_DOC
+					EndIf
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Posiciona Ponteiros dos Arquivos de Cliente    ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					DbSelectArea("SA1")
+					DbSetOrder(1)
+					DbSeek(xFilial("SA1")+SF2->F2_CLIENTE+SF2->F2_LOJA)
+					lZfranca   := (!Empty(SA1->A1_SUFRAMA) .AND. !SA1->A1_CALCSUF=="N")
+					lConsFinal := (SA1->A1_TIPO=='F')
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Posiciona Arq. Tes para este item	    ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					DbSelectArea("SF4")
+					DbSetOrder(1)
+					DbSeek(xFilial("SF4")+SD2->D2_TES)
+					
+					// ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					// ³ Monta Array para gravacao dos Livros Fiscais     ³
+					// ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					If Empty(SD2->D2_CODISS)
+						nAliqBus := If(SF4->F4_BASEICM > 0.00 .AND. !Consumo(SD2->D2_CF), SD2->D2_PICM , IIf( SF4->F4_LFICM == "T" , SD2->D2_PICM , 0 ) )
+						nAliqBus := If(lZfranca,0,nAliqBus)
+						If !Empty(SF2->F2_NFCUPOM)
+							nPosLvr := Ascan(aLivro,{|x|x[1] == SD2->D2_CF .AND. Empty(x[18]) .AND. x[20] == SF4->F4_NRLIVRO .AND. x[24] == SF4->F4_FORMULA})		
+						Else
+							nPosLvr := Ascan(aLivro,{|x|x[1] == SD2->D2_CF .AND. x[2] == nAliqBus .AND. Empty(x[18]) .AND. x[20] == SF4->F4_NRLIVRO .AND. x[24] == SF4->F4_FORMULA})
+						EndIf
+					Else
+						nAliqBus := SD2->D2_PICM
+						nPosLvr      := Ascan(aLivro,{|x|x[18] == SD2->D2_CODISS .AND. x[2] == nAliqBus .AND. x[20] == SF4->F4_NRLIVRO .AND. x[24] == SF4->F4_FORMULA})
+					EndIf
+					
+					IF nPosLvr == 0 .AND. Empty(aLivro[1][1])
+						nPosLvr := 1
+					Elseif nPosLvr == 0
+						AADD(aLivro,Array(Len(aFixos)))
+						aAdd(aCFO, Array(3) )
+						nPosLvr := Len(aLivro)
+						For nAuxFix :=1 To Len(aFixos)
+							aLivro[nPosLvr][nAuxFix] := aFixos[nAuxFix][2]
+						Next nAuxFix
+						Aadd( aLivro[ Len(aLivro) ] , space(nTamF2_DOC) )	//Cria um elemento p/ armazenar num. da NF
+					EndIf
+					
+					aLivro[nPosLvr][20] := SF4->F4_NRLIVRO
+					aLivro[nPosLvr][24] := SF4->F4_FORMULA
+
+					aGravaFT[nLinFT][31][2] := SF4->F4_NRLIVRO
+					aGravaFT[nLinFT][35][2] := SF4->F4_FORMULA
+
+					// ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					// ³ Desconto no item							      ³
+					// ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ					
+					aGravaFT[nLinFT][57][2] := SD2->D2_DESCON+SD2->D2_DESCZFR
+					
+					//ÉÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ»
+					//º				Atualiza as Colunas de acordo com o TES do Item.		     º
+					//ÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼
+					
+					If SF4->F4_LFICM $ 'ZTIO' .OR. SF4->F4_LFIPI $ 'ZTIO' .OR. SF4->F4_LFISS $ 'TIO'
+                             
+						aLivro[nPosLvr][01] := SD2->D2_CF
+						aLivro[nPosLvr][Len(aLivro[1])] := SD2->D2_DOC	//Guarda num. NF. p/ usar na gravacao do SF3
+						
+						aGravaFT[nLinFT][14][2] := SD2->D2_CF
+						
+						nRecoSD2 := SD2->( recno())
+						DbSelectArea("SD2")
+						DbSetOrder(3)
+						if !EMPTY(cNFCPAnt) .AND. dbSeek( xFilial("SD2") + SUBS(cNFCPAnt,4, nTamF2_DOC ) + SUBS(cNFCPAnt,1, 3 ) + aSeek[__CLIENTE] + aSeek[__LOJA] + SD2->D2_COD )
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³usar o CFO da NF sobre cupom e nao o CFO da nf de origem³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Guarda no array aCFO os CFOs usados p/ atualizar depois ³
+							//³ o campo F3_CFO na gravacao do item da NF sobre cupom    ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							aCFO[nPosLvr][1] := aLivro[nPosLvr][01]						//CFO do cupom 
+							aCFO[nPosLvr][2] := SD2->D2_CF	//CFO da NF sobre cupom
+							                    
+							DbSelectArea("SF4")
+							DbSetOrder(1)
+							If DbSeek(xFilial("SF4")+SD2->D2_TES)
+								aCFO[nPosLvr][3] := SF4->F4_FORMULA
+							EndIf
+
+							DbSelectArea("SD2")
+														
+							DbSetOrder(7)
+							DbGoto(nRecoSD2)
+						Else
+							DbSetOrder(7)
+							DbGoto(nRecoSD2)
+						EndIf
+					
+						DbSelectArea("SF4")
+
+						nVlrCtb := SD2->D2_TOTAL + if(lConsFinal,0,SD2->D2_ICMSRET) + SD2->D2_VALIPI
+						
+						aGravaFT[nLinFT][16][2] := nVlrCtb
+						
+						If Empty(SD2->D2_CODISS) // Nao trata notas de Servico
+							aLivro[nPosLvr][03] += nVlrCtb
+						EndIf
+						aLivro[nPosLvr][13]+= SD2->D2_DESCON+SD2->D2_DESCZFR
+	
+					EndIf
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³				  Tratamento das Colunas do Livro Fiscal (ICM)			 ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					IF ! SF4->F4_LFICM $ 'NZ'
+						If SF4->F4_BASEICM == 0.00
+							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Sem Base Reduzida de ICMS 						 ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							
+							If SF4->F4_LFICM == 'T' .AND. Empty(SD2->D2_CODISS)
+								aLivro[nPosLvr][02] := nAliqBus
+								aGravaFT[nLinFT][15][2] := nAliqBus
+								If lZFranca
+									aLivro[nPosLvr][06] += SD2->D2_BASEICM
+									aGravaFT[nLinFT][19][2] := SD2->D2_BASEICM
+								Else
+									aLivro[nPosLvr][04] += SD2->D2_BASEICM    
+									aGravaFT[nLinFT][17][2] := SD2->D2_BASEICM
+								EndIf
+								aLivro[nPosLvr][05] += SD2->D2_VALICM
+								aGravaFT[nLinFT][18][2] := SD2->D2_VALICM
+							ElseIf SF4->F4_LFICM == 'I'
+								aLivro[nPosLvr][06] += SD2->D2_BASEICM        
+								aGravaFT[nLinFT][19][2] := SD2->D2_BASEICM
+							ElseIf SF4->F4_LFICM == 'O'
+								aLivro[nPosLvr][07] += SD2->D2_BASEICM
+								aGravaFT[nLinFT][20][2] := SD2->D2_BASEICM
+							EndIf
+							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Joga a diferenca entre o V.C e B.C conf. coluna  ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							
+							If SF4->F4_LFICM == "I"
+								aLivro[nPosLvr][06] += SD2->D2_TOTAL - SD2->D2_BASEICM
+								aGravaFT[nLinFT][19][2] := SD2->D2_TOTAL - SD2->D2_BASEICM
+							ElseIf SF4->F4_LFICM == "O"
+								aLivro[nPosLvr][07] += SD2->D2_TOTAL - SD2->D2_BASEICM
+								aGravaFT[nLinFT][20][2] := SD2->D2_TOTAL - SD2->D2_BASEICM
+							EndIf
+						Else
+							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Com Base Reduzida de ICMS 						 ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							
+							If (SF4->F4_LFICM=='T'.OR. SF4->F4_BASEICM > 0.00) .AND. ! Consumo(SD2->D2_CF)
+								
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Com Base Reduzida de ICM por Exclusao de Acrescimo	 ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								
+								aLivro[nPosLvr][02] := nAliqBus    
+								aGravaFT[nLinFT][15][2] := nAliqBus
+
+								aLivro[nPosLvr][04] += SD2->D2_BASEICM
+								aGravaFT[nLinFT][17][2] := SD2->D2_BASEICM
+
+								aLivro[nPosLvr][05] += SD2->D2_VALICM
+								aGravaFT[nLinFT][18][2] := SD2->D2_VALICM
+
+							ElseIf SF4->F4_LFICM == 'I' .AND. !Consumo(SD2->D2_CF)
+								aLivro[nPosLvr][06] += SD2->D2_BASEICM
+								aGravaFT[nLinFT][19][2] := SD2->D2_BASEICM
+							ElseIf SF4->F4_LFICM == 'O' .AND. !Consumo(SD2->D2_CF)
+								aLivro[nPosLvr][07] += SD2->D2_BASEICM
+								aGravaFT[nLinFT][20][2] := SD2->D2_BASEICM
+							EndIf
+							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Joga a diferenca entre o V.C e B.C conf. coluna  ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							
+							If SF4->F4_LFICM == "I"
+								aLivro[nPosLvr][06] += SD2->D2_TOTAL - SD2->D2_BASEICM
+								If Consumo(SD2->D2_CF)
+									aLivro[nPosLvr][07] += SD2->D2_BASEICM
+									aGravaFT[nLinFT][20][2] := SD2->D2_BASEICM
+								EndIf
+							ElseIf SF4->F4_LFICM == "O"
+								aLivro[nPosLvr][07] += SD2->D2_TOTAL - SD2->D2_BASEICM
+								aGravaFT[nLinFT][20][2] := SD2->D2_TOTAL - SD2->D2_BASEICM
+							EndIf
+							
+						EndIf
+						
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Grava ICMS Solidario no Livro Fiscal no SF3 	     ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						
+						If (SD2->D2_ICMSRET > 0.00 .OR. SuperGetMV("MV_RETZERO") =="S") .AND. SD2->D2_PICM > 0
+							aLivro[nPosLvr][14] += SD2->D2_ICMSRET                        
+							aGravaFT[nLinFT][26][2] := SD2->D2_ICMSRET
+							
+							aLivro[nPosLvr][22] += SD2->D2_BRICMS     
+							aGravaFT[nLinFT][26][2] := SD2->D2_ICMSRET							
+						EndIf
+						
+					EndIf
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Grava IPI no Livro Fiscal - SF3 	 	   			 ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Calcula base de IPI do item			   ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					nDescItem := SD2->D2_DESCON + SD2->D2_DESCZFR
+					
+					If lIPIBruto .AND. SF4->F4_TPIPI $ "B "
+						nBItemIPI := SD2->D2_TOTAL + nDescItem
+					Else
+						nBItemIPI := SD2->D2_TOTAL
+					EndIf
+					
+					If SF4->F4_BASEIPI > 0
+						nBItemIPI := (nBItemIPI * (SF4->F4_BASEIPI/100))
+					EndIf
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Se calcula IPI³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If SF4->F4_IPI == "S"
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Se na TES nao houver % reducao de Base de IPI³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ					
+						If SF4->F4_BASEIPI = 0
+							
+							If SF4->F4_LFIPI == "T" 		// IPI Tributado
+								aLivro[nPosLvr][08] += nBItemIPI
+								aGravaFT[nLinFT][21][2] := nBItemIPI
+					
+								aLivro[nPosLvr][09] += SD2->D2_VALIPI
+								aGravaFT[nLinFT][22][2] := SD2->D2_VALIPI
+								
+								aLivro[nPosLvr][10] += SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+								aGravaFT[nLinFT][23][2] := SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+								
+							ElseIf SF4->F4_LFIPI == "I"	// Isento de IPI
+								aLivro[nPosLvr][10] += nBItemIPI
+								aGravaFT[nLinFT][23][2] := nBItemIPI
+								
+								aLivro[nPosLvr][19] += SD2->D2_VALIPI
+								aGravaFT[nLinFT][30][2] := SD2->D2_VALIPI
+								
+							ElseIf SF4->F4_LFIPI == "O"	// Outros de IPI
+								aLivro[nPosLvr][11] += nBItemIPI
+								aGravaFT[nLinFT][24][2] := nBItemIPI
+
+								aLivro[nPosLvr][19] += SD2->D2_VALIPI
+								aGravaFT[nLinFT][30][2] := SD2->D2_VALIPI
+							EndIf
+							
+						Else
+							
+							aLivro[nPosLvr][08] += nBItemIPI
+							aGravaFT[nLinFT][21][2] := nBItemIPI
+							
+							aLivro[nPosLvr][09] += SD2->D2_VALIPI
+							aGravaFT[nLinFT][22][2] := SD2->D2_VALIPI
+
+							If SF4->F4_LFIPI == "I"		// Isento de IPI
+								If SF4->F4_IPI == "R"		// Comerciante nao atacadista
+									aLivro[nPosLvr][11] += SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+									aGravaFT[nLinFT][24][2] := SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+								Else
+									aLivro[nPosLvr][10] += SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+									aGravaFT[nLinFT][23][2] := SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+		
+									aLivro[nPosLvr][19] += SD2->D2_VALIPI
+									aGravaFT[nLinFT][30][2] := SD2->D2_VALIPI
+								EndIf
+							Else
+								aLivro[nPosLvr][11] += SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+								aGravaFT[nLinFT][24][2] := SD2->D2_TOTAL + IIf( lIPIBruto .AND. SF4->F4_TPIPI $ "B ", nDescItem, 0 ) - nBItemIPI
+								
+								aLivro[nPosLvr][19] += SD2->D2_VALIPI
+								aGravaFT[nLinFT][30][2] := SD2->D2_VALIPI
+							EndIf
+							
+						EndIf
+						
+					EndIf
+					
+
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Grava os Registros Fiscais para ISS no SF3. NF Saida Manual  ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					
+					If Val(Subs(SD2->D2_CF,1,1)) >= 5 .AND. !Empty(SD2->D2_CODISS)
+						aLivro[nPosLvr][03] += SD2->D2_TOTAL
+						aGravaFT[nLinFT][16][2] := SD2->D2_TOTAL
+
+						If SD2->D2_TOTAL < 0
+							aLivro[nPosLvr][13] += Abs(SD2->D2_TOTAL)
+						EndIf
+
+						If SF4->F4_LFISS=="T"
+							aLivro[nPosLvr][02] := nAliqBus
+							aGravaFT[nLinFT][15][2] := nAliqBus
+	
+							aLivro[nPosLvr][04] += SD2->D2_TOTAL
+							aGravaFT[nLinFT][17][2] := SD2->D2_TOTAL
+	
+							aLivro[nPosLvr][05] += SD2->D2_VALICM
+							aGravaFT[nLinFT][18][2] := SD2->D2_VALICM
+
+						ElseIf SF4->F4_LFISS=="I"
+							aLivro[nPosLvr][02] := nAliqBus
+							aGravaFT[nLinFT][15][2] := nAliqBus
+							
+							aLivro[nPosLvr][06] += SD2->D2_TOTAL
+							aGravaFT[nLinFT][19][2] := SD2->D2_TOTAL
+
+						ElseIf SF4->F4_LFISS=="O"
+							aLivro[nPosLvr][02] := nAliqBus
+							aGravaFT[nLinFT][15][2] := nAliqBus
+
+							aLivro[nPosLvr][07] += SD2->D2_TOTAL
+							aGravaFT[nLinFT][20][2] := SD2->D2_TOTAL
+						EndIf
+						aLivro[nPosLvr][18] := SD2->D2_CODISS       
+						aGravaFT[nLinFT][29][2] := SD2->D2_CODISS       
+
+						aLivro[nPosLvr][16] := "S"
+						aGravaFT[nLinFT][27][2] := "S"
+
+					EndIf
+					
+					lGravaF3 := .T.
+					lGravaFT := .T.		
+					nLinFT++	
+				EndIf
+				
+				DbSelectArea("SD2")
+				MsUnlockALL()
+				dbSkip()
+			End
+			
+			DbSelectArea("SF2")
+			dbSkip()
+			nRecnoSF2 := SF2->( Recno() ) // Guardo recno do SF2 p/ evitar seu desposicionamento no processamento
+			
+			If !(cMapaResumo == "N" .AND. SuperGetMV("MV_LJ300PR",,.F.))
+				If !((Val(cDocAnt)+1)==Val(F2_DOC)) .OR. nproc == 2 .OR. (nProc == 1 .AND. !Empty(F2_NFCUPOM))
+					Exit
+				EndIf
+			EndIf
+		End
+		
+		nVlrTotal   := 0
+		AEval(aLivro,{ |x| nVlrTotal+=IIf(x[3]+x[4]+x[5]+x[6]+x[7]+x[9]+x[10]+x[11]>0,x[3]+x[4]+x[5]+x[6]+x[7]+x[9]+x[10]+x[11],0) })
+		
+		If lGravaF3 .AND. nVlrTotal > 0
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava arquivo de Livros Fiscais (SF3)  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea("SF3")
+			DbSetOrder(1)
+			
+			Asort(aLivro,,,{|x,y|x[1]<y[1]})
+			If !Empty(cNFCpAnt)
+				aSort(aCFO,,,{|x,y|x[1]<y[1]})
+			EndIf
+			
+			For nAuxLvr:=1 To Len(aLivro)
+				If !Empty(aLivro[nAuxLvr][1])
+					cSerieCup	:= Subs(cNFCPAnt,1,3)
+					cNotaCup	:= Subs(cNFCPAnt,4,nTamF2_DOC)
+
+					cExpr := aSeek[__FILIAL]	+ DTOS( aSeek[__F2EMISSAO] )	+ aLivro[nAuxLvr][Len(aLivro[nAuxLvr])]
+					cExpr := cExpr				+ aSeek[__SERIE]				+ aSeek[__CLIENTE]
+					cExpr := cExpr				+ aSeek[__LOJA]					+ aLivro[nAuxLvr][1]
+					cExpr := cExpr				+ Str( aLivro[nAuxLvr][2],5,2 )
+
+					If ! DbSeek( cExpr ) // Verifica se ja exsite registro do Cupom
+						SF3->(DbSetOrder(4)) //verifica se existe registro de nota sobre o Cupom
+						If (IIf(!Empty(cNFCPAnt), !DbSeek(aSeek[__FILIAL] + aSeek[__CLIENTE] + aSeek[__LOJA] + cNotaCup + cSerieCup), .T.))
+							RecLock("SF3",.T.)
+							Replace	F3_FILIAL  With xFilial("SF3")
+							Replace	F3_ENTRADA With aSeek[__F2EMISSAO]
+							REPLACE	F3_NFISCAL WITH aLivro[nAuxLvr][Len(aLivro[nAuxLvr])]
+							Replace	F3_SERIE   With aSeek[__SERIE]
+							Replace	F3_CLIEFOR With aSeek[__CLIENTE]
+							Replace	F3_LOJA	   With aSeek[__LOJA]
+							Replace F3_CFO     With aLivro[nAuxLvr][1]
+							Replace F3_ALIQICM With aLivro[nAuxLvr][2]
+							Replace	F3_ESPECIE With cEspecie
+	
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³Grava o F3_ECF como tipo 1, que é tipo ECF³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							If SF3->( FieldPos ( "F3_ECF" ) ) > 0
+								Replace	F3_ECF With "1"
+							EndIf
+						Else 
+							RecLock("SF3",.F.)
+						EndIf	
+					Else
+						RecLock("SF3",.F.)
+					EndIf
+					
+					If SF3->F3_REPROC $ "S " .AND. (SF3->F3_SERIE==aSeek[__SERIE] .OR. Empty(SF3->F3_SERIE+SF3->F3_NFISCAL))
+					
+						For nAuxFix := 1 to Len(aFixos)
+						                          
+							cvariavel := Trim(aFixos[nAuxFix][1])
+							
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Grava Observacoes no Livro Fiscal (Complem/Devol.)   ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							If cvariavel == 'F3_OBSERV'
+								aLivro[nAuxLvr][12]:= ""
+								If ! Empty(cNFCPAnt)
+									aLivro[nAuxLvr][12]:= "NF/SERIE:" + SubStr(cNFCPAnt,4,Len(cNFCPAnt)) + "/" + SubStr(cNFCPAnt,1,3) +  " ECF:" + aSeek[__PDV]
+								EndIf
+							EndIf
+							
+							Replace &cvariavel. With aLivro[nAuxLvr][nAuxFix]
+						Next nAuxFix
+						If !Empty(cNFCPAnt)
+							Replace	F3_OBSERV  With ""
+						Else
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³Tratamento especifico para o Ceara³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							If LjAnalisaLeg(29)[1]
+								Replace	F3_OBSERV With Lj300Observ(aSeek[__F2EMISSAO],aSeek[__PDV],cMapaResumo)
+							EndIf
+						EndIf							
+										
+						Replace	F3_ESTADO  With aSeek[__EST]
+						Replace	F3_EMISSAO With aSeek[__D2EMISSAO]
+						If ! cNotaAte == F3_NFISCAL
+							Replace	F3_DOCOR   With cNotaAte
+						EndIf
+						Replace	F3_ESPECIE With cEspecie
+						Replace	F3_PDV	   With aSeek[__PDV]
+						Replace F3_TIPO    With "L"
+						If aLivro[nAuxLvr][16] == "S"
+							REPLACE F3_TIPO With "S"
+							REPLACE F3_OBSERV With Padr("NOTA FISCAL DE SERVICO",TamSx3("F3_OBSERV")[1]," ")
+						EndIf
+					EndIf
+					If lLjGrvSf3			// permite gravar algum campo de usuario no SF3
+						Execblock("LJGRVSF3" ,.F.,.F. , { aGrvSf3 , "1" })
+					EndIf
+				EndIf
+				MSUnLock()
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Caso hava NF sobre Cupom, gravara um novo registro,³
+				//³no entanto, esse ultimo devera ter os valores      ³
+				//³zerados                                            ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		
+				If !Empty(cNFCPAnt)
+					aCopiaSF3 := {}
+                    
+					aAreaSF3 := SF3->( GetArea() )
+
+					aAreaSF2 := SF2->( GetArea() )					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Recupera a data de emissao da NF³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					DbSelectArea("SF2")
+					DbSetOrder(1)
+					If DbSeek( xFilial("SF2") + cNotaCup + cSerieCup )
+						dDtEmisNf := SF2->F2_EMISSAO
+					EndIf
+
+					RestArea(aAreaSF2)
+
+					DbSelectArea("SF3")
+					DbSetOrder(1)
+					
+					RestArea(aAreaSF3)
+					  
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//| copia o registro do SF3 anterior	³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If cMapaResumo == "N" 
+						For nContCmp := 1 to FCount()
+						   aadd(aCopiaSF3,FieldGet(nContCmp))
+						Next nContCmp
+												
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Verifica se o registro ja existe no SF3   ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						SF3->(DbSetOrder(5))
+						If SF3->(DbSeek( xFilial("SF3") + cSerieCup + cNotaCup ))
+							RecLock("SF3",.F.)
+						Else
+							RecLock(Alias(),.T.)
+
+							For nContCmp := 1 to FCount()
+							   FieldPut(nContCmp,aCopiaSF3[nContCmp])
+							Next nContCmp
+						EndIf						
+
+					Else                    
+						RecLock(Alias(),.F.)
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Zera quando for nota sobre cupom, inclusive se  for servico (ISS)  ³
+					//³ somente apos gravar o ultimo registro (NF sobre cupom fical) 	   ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If cMapaResumo $ "N|O|S|T|U"
+						For nItmLvr := 1 To Len(aLivro[nAuxLvr])
+					
+							If ValType(aLivro[nAuxLvr][nItmLvr]) == "N"
+								aLivro[nAuxLvr][nItmLvr] := 0
+							EndIf
+						
+						Next nItmLvr
+					EndIf
+
+					For nAuxFix := 1 to Len(aFixos)
+							                          
+						cvariavel := Trim(aFixos[nAuxFix][1])
+								
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Grava Observacoes no Livro Fiscal (Complem/Devol.)   ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If cvariavel == 'F3_OBSERV'
+							aLivro[nAuxLvr][12]:= ""
+							If ! Empty(cNFCPAnt)
+								
+								If !(lLegislacao)
+									aLivro[nAuxLvr][12]:= "CF/SERIE:" + aLivro[nAuxLvr][Len(aLivro[nAuxLvr])] + "/" + aSeek[__SERIE] +  " ECF:" + aSeek[__PDV]
+								Else
+									aLivro[nAuxLvr][12]:= "F - Simples Faturamento"
+								EndIf
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³Grava a data de emissao da Nota Fiscal sobre³
+								//³Cupom Fiscal                                ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								If !Empty(dDtEmisNf)
+									Replace	F3_EMISSAO With dDtEmisNf
+									Replace	F3_ENTRADA With dDtEmisNf								
+								EndIf
+							EndIf
+						EndIf
+						
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Grava o CFO da NF sobre cupom fiscal  ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If cvariavel == "F3_CFO" .AND. !Empty(cNFCPAnt)
+							Replace &cvariavel. With  aCFO[nAuxLvr][2]
+						ElseIf cvariavel == "F3_FORMULA" .AND. !Empty(cNFCPAnt)
+							Replace &cvariavel. With  aCFO[nAuxLvr][3]
+						Else
+							Replace &cvariavel. With aLivro[nAuxLvr][nAuxFix]
+						EndIf
+					Next nAuxFix
+					If !Empty(cNFCPAnt)
+						Replace	F3_NFISCAL With cNotaCup
+						Replace	F3_SERIE   With cSerieCup
+						Replace F3_ESPECIE With "NF"
+						Replace F3_PDV	   With ""
+						Replace F3_ECF 	   With ""
+						Aadd(aBkpLivro,{aLivro[nAuxLvr][Len(aLivro[nAuxLvr])],aSeek[__SERIE],cNotaCup,cSerieCup,;
+										dDtEmisNf,"CF/SERIE:" + aLivro[nAuxLvr][Len(aLivro[nAuxLvr])] + "/" + aSeek[__SERIE] +  " ECF:" + aSeek[__PDV],;
+										aCFO[nAuxLvr][2] })
+					EndIf
+					
+					MsUnLock()			
+
+				EndIf
+														
+			Next nAuxLvr
+			
+		EndIf
+		
+		DbSelectArea("SF2")
+		DbSetOrder(3)			// Restauro a ordem do SF2 utilizado pelo laco (While)
+		DbGoto(nRecnoSF2)		// Reposiciono o ponteiro no registro, que foi guardado anteriormente p/ evitar seu desposicionamento durante o processamento
+		If Eof() .OR. xFilial("SF2") <> F2_FILIAL .OR. F2_ECF<>"S" .OR. F2_EMISSAO > mv_par02
+			Exit			
+		EndIf		
+	End
+	
+	If lGravaFT
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿             
+		//³Estrutura aBkpLivro:      ³
+		//³1 - Documento             ³
+		//³2 - Serie                 ³
+		//³3 - Nº Nota Sobre Cupom   ³
+		//³4 - Serie Nota sobre Cupom³
+		//³5 - Data de Emissão       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+  	    If Len(aBkpLivro) > 0
+			nLinFT := 1			
+			For nX := 1 To Len(aBkpLivro)
+				For nY := 1 To Len(aGravaFT)
+					If aGravaFT[nY][4][2] == aBkpLivro[nX][1] .AND. aGravaFT[nY][5][2] == aBkpLivro[nX][2]
+						
+						If cMapaResumo == "O"
+
+							aGravaFT[nY][2][2] := aBkpLivro[nX][5]
+							aGravaFT[nY][3][2] := aBkpLivro[nX][5]
+							aGravaFT[nY][4][2] := aBkpLivro[nX][3]
+							aGravaFT[nY][5][2] := aBkpLivro[nX][4]
+							aGravaFT[nY][14][2] := IIF(Empty(aGravaFT[nY][29][2]),aBkpLivro[nX][7],aGravaFT[nY][14][2])
+							aGravaFT[nY][25][2] := IIF(Empty(aGravaFT[nY][29][2]),aBkpLivro[nX][6],"NOTA FISCAL DE SERVICO")
+						Else
+							Aadd(aBkpFT,aClone(aGravaFT[nY]))
+							
+							aBkpFT[nLinFT][2][2] := aBkpLivro[nX][5]
+							aBkpFT[nLinFT][3][2] := aBkpLivro[nX][5]
+							aBkpFT[nLinFT][4][2] := aBkpLivro[nX][3]
+							aBkpFT[nLinFT][5][2] := aBkpLivro[nX][4]
+							aBkpFT[nLinFT][14][2] := IIF(Empty(aBkpFT[nLinFT][29][2]),aBkpLivro[nX][7],aBkpFT[nLinFT][14][2])
+							aBkpFT[nLinFT][25][2] := IIF(Empty(aBkpFT[nLinFT][29][2]),aBkpLivro[nX][6],"NOTA FISCAL DE SERVICO")
+	
+							nLinFT++
+						EndIf
+						
+					EndIf
+				Next nY
+			Next nX
+
+			If cMapaResumo == "O"
+				For nX := 1 To Len(aGravaFT)
+					For nY := 1 To Len(aGravaFT[nX])
+						If ValType(aGravaFT[nX][nY][2]) == "N"
+							aGravaFT[nX][nY][2]	 := 0
+						EndIf				
+					Next nY			
+				Next nX
+	    	Else
+				For nX := 1 To Len(aBkpFT)
+					For nY := 1 To Len(aBkpFT[nX])
+						If ValType(aBkpFT[nX][nY][2]) == "N"
+							aBkpFT[nX][nY][2]	 := 0
+						EndIf				
+					Next nY			
+				
+					Aadd(aGravaFT,aClone(aBkpFT[nX]))
+				
+				Next nX
+
+	    	EndIf
+	    EndIf
+		LjxGerSft(	aGravaFT )
+		lGravaFT := .F.
+	EndIf	
+
+Next nProc
+Return (.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³R930MResumo   ³Autor ³ Vendas Clientes      ³Data³ 05/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Alimenta o arquivo de trabalho com os dados do Mapa         ³±±
+±±³          ³Resumo ECF.                                                 ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function R930MResumo(lWorkFlow, aArraySD2)
+
+Local cMapaResumo   := SuperGetMV("MV_MAPARES")			//Verifica se gera Mapa Resumo de acordo com o parametro
+Local lMapaResumo 	:= (cMapaResumo == "O")				//Se gerar mapa resumo, seta como .T.
+Local aMapaResumo 	:= {}								//Array com as informacoes, caso gere mapa resumo, para gravar no SFI
+Local nPos 			:= 0								//Retorna a posicao do mapa resumo no aScan
+Local i				:= 0								//Contador do For, para verificar todas as bases de calculo de ICMS
+Local cPdvAnt 		:= ""								//Pdv Antigo
+Local dDataAnt 		:= Space(8)							//Espaco
+Local nValImp		:= 0								//Imposto
+Local nDifImp		:= 0								//Diferenca Imposto
+Local nPosPDV 		:= 0								//PDV
+Local nValBase      := 0                           		//Valor base do imposto 
+Local nValorImp     := 0                           		//Valor do imposto
+Local lLjGrvSf3     := Existblock("LJGRVSF3")			//Ponto de Entrada
+Local lZerado 		:= .T.								//Zerado
+Local cSerie 		:= ""								//Serie
+Local cCFO			:= ""								//CFO
+Local cAliq 		:= ""								//Aliquota
+Local nAliq			:= 0								//Aliquota
+Local cEstado 		:= SuperGetMV("MV_ESTADO")			//Estado
+Local cCampo		:= ""								//Campo
+Local lAchouF3		:= .F.								//Verifica se ja existe registro gravado no F3, com a data e o numero da NF
+Local lTemFI_OBS    := SFI->(FieldPos("FI_OBS"))>0 		//Verifica se tem o campo FI_OBS
+Local aDadosSD2		:= {}								// Guarda as informacoes geradas a aprtir do SF3
+Local nSeq			:= 0								// Sequencia do campo IDENTFT
+Local cMvEstado     := SuperGetMV("MV_ESTADO")			// Retorna o estado corrente			
+Local lLjSimpNac 	:= SuperGetMV("MV_LJSIMPN",,.F.)	//Verifica se a empresa e optante do Simples Nacional
+Local cI			:= ""								// Variavel auxiliar que contem o numero da iteracao
+Local aCfop 		:= {} 							    //Usado para buscar Cfop padrao na função LjBuscaCFo
+
+Default lWorkFlow	:= .F.
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o arquivo SFI esta em uso                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Select("SFI") == 0
+	ChkFile("SFI")
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Processa os dados do SFI                                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SFI")
+If ! lWorkFlow
+	ProcRegua(Reccount())
+EndIf
+
+If lMapaResumo .OR. cMapaResumo == "T"
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Aqui faz o processamento para os clientes que sao obrigados a ³
+	//³emitir o Mapa Resumo                                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³aMapaResumo                   ³
+	//³[01] - Data                   ³
+	//³[02] - Aliquota               ³
+	//³[03] - Tributo (TSFNI)        ³
+	//³[04] - Valor Base             ³
+	//³[05] - Valor Imposto          ³
+	//³[06] - Numero do Mapa Resumo  ³
+	//³[07] - Num. do ECF (PDV)      ³
+	//³[08] - Num. do Cupom Inicial  ³
+	//³[09] - Num. do Cupom Final    ³
+	//³[10] - Valor Desconto         ³
+	//³[11] - Observacao             ³
+	//³[12] - Base do ISS            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aMapaResumo := {}
+	DbSelectArea("SFI")
+	DbSeek(xFilial("SFI")+Dtos(mv_par01),.T.)
+	While !Eof() .AND. (SFI->FI_FILIAL == xFilial("SFI")) .AND. (SFI->FI_DTMOVTO <= mv_par02)
+		IncProc(STR0005) // Reprocessando os registros de sa¡das - ECF
+		lZerado := .T.
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os campos de Impostos ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		For i:=1 to 9999
+			cCampo := "FI_BAS"+Alltrim(Str(i))
+			cI	   := AllTrim(Str(i))			
+			If FieldPos( cCampo ) > 0
+				If FieldGet( FieldPos( cCampo ) ) > 0
+					lZerado := .F.
+					If cMapaResumo == "T"
+						nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+Alltrim(Str(x[2])) == Dtos(SFI->FI_DTMOVTO)+cI})
+					Else
+						nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+Alltrim(Str(x[2]))+x[7] == Dtos(SFI->FI_DTMOVTO)+cI+SFI->FI_PDV })
+					EndIf
+					If nPos > 0
+						aMapaResumo[nPos][4] += FieldGet( FieldPos(cCampo) )
+						aMapaResumo[nPos][5] := Round(aMapaResumo[nPos][4]*aMapaResumo[nPos][2]/100,2)
+					Else
+					    nValBase   := NoRound(FieldGet( FieldPos(cCampo) ),2)
+					    nValorImp  := NoRound(FieldGet(FieldPos(cCampo))*Val(LJ300PerAliq(i))/100,2)
+						aAdd( aMapaResumo, {SFI->FI_DTMOVTO                    , IIf(SubStr(cI, Len(cI) ,1) == "0" , (i/100) , i)		, "T"            , ;
+						                    nValBase                            , nValorImp    , SFI->FI_NUMERO, ;
+						                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, ;
+						                    SFI->FI_DESC                        , ""           , 0              } )
+					EndIf
+				EndIf
+			EndIf
+		Next i
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Trata lancamento na aliq. 0,01 (Garantido Integral ECF - Mato Grosso) ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cCampo := "FI_BAS001"
+		If FieldPos(cCampo) > 0
+			i := 0.01	//Aliquota
+			If FieldGet( FieldPos( cCampo ) ) > 0
+				lZerado := .F.
+				If cMapaResumo == "T"
+					nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+Str(x[2],5,2) == Dtos(SFI->FI_DTMOVTO)+Str(i,5,2)})
+				Else
+					nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+Str(x[2],5,2)+x[7] == Dtos(SFI->FI_DTMOVTO)+Str(i,5,2)+SFI->FI_PDV })
+				EndIf
+				If nPos > 0
+					aMapaResumo[nPos][4] += FieldGet( FieldPos(cCampo) )
+					aMapaResumo[nPos][5] := Round(aMapaResumo[nPos][4]*aMapaResumo[nPos][2]/100,2)
+				Else
+					aAdd( aMapaResumo, {SFI->FI_DTMOVTO, i, "T", NoRound(FieldGet( FieldPos(cCampo) ),2), Round(FieldGet(FieldPos(cCampo))*Val(LJ300PerAliq(i))/100,2), SFI->FI_NUMERO, If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, SFI->FI_DESC, "" ,0  } )
+				EndIf
+			EndIf
+		EndIf		
+		
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os campos de subst.Tribut., Isentos e Nao Trib.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_SUBTRIB > 0
+			lZerado := .F.
+			If cMapaResumo == "T"
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3] == Dtos(SFI->FI_DTMOVTO)+"F" })
+			Else
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[7] == Dtos(SFI->FI_DTMOVTO)+"F"+SFI->FI_PDV })
+			EndIf
+			If nPos > 0
+				aMapaResumo[nPos][4] += SFI->FI_SUBTRIB
+			Else
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO                     , 0            , "F"            , ;
+				                    SFI->FI_SUBTRIB                     , 0            , SFI->FI_NUMERO , ;
+				                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM , ;
+				                    SFI->FI_DESC                        , ""           , 0               } )
+			EndIf
+		EndIf
+		
+		If SFI->FI_ISENTO > 0
+			lZerado := .F.
+			If cMapaResumo == "T"
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3] == Dtos(SFI->FI_DTMOVTO)+"I" })
+			Else
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[7] == Dtos(SFI->FI_DTMOVTO)+"I"+SFI->FI_PDV })
+			EndIf
+			If nPos > 0
+				aMapaResumo[nPos][4] += SFI->FI_ISENTO
+			Else
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO                    , 0             , "I"           , ;
+				                    SFI->FI_ISENTO                      , 0            , SFI->FI_NUMERO, ;
+				                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, ;
+				                    SFI->FI_DESC                        , ""           , 0             } )
+			EndIf
+		EndIf
+		
+		If SFI->FI_NTRIB > 0
+			lZerado := .F.
+			If cMapaResumo == "T"
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3] == Dtos(SFI->FI_DTMOVTO)+"N" })
+			Else
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[7] == Dtos(SFI->FI_DTMOVTO)+"N"+SFI->FI_PDV })
+			EndIf
+			If nPos > 0
+				aMapaResumo[nPos][4] += SFI->FI_NTRIB
+			Else						
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO                    , 0             , "N"           , ;
+				                    SFI->FI_NTRIB                       , 0            , SFI->FI_NUMERO, ;
+				                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, ;
+				                    SFI->FI_DESC                        , ""           , 0             } )
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Tratamento de outros recebimentos³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_OUTROSR > 0
+			lZerado := .F.
+			If cMapaResumo == "T"
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3] == Dtos(SFI->FI_DTMOVTO)+"O" })
+			Else
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[7] == Dtos(SFI->FI_DTMOVTO)+"O"+SFI->FI_PDV })
+			EndIf
+			If nPos > 0
+				aMapaResumo[nPos][4] += SFI->FI_OUTROSR
+			Else							
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO                    ,  0            , "O"           , ;
+				                    SFI->FI_OUTROSR                     , 0            , SFI->FI_NUMERO, ;
+				                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, ;
+				                    SFI->FI_DESC                        , ""           , 0             } )
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Tratamento para o campo de ISS   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_ISS > 0
+			lZerado := .F.
+			If cMapaResumo == "T"
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3] == Dtos(SFI->FI_DTMOVTO)+"S" })
+			Else
+				nPos := aScan( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[7] == Dtos(SFI->FI_DTMOVTO)+"S"+SFI->FI_PDV })
+			EndIf
+			If nPos > 0
+				aMapaResumo[nPos][12] += SFI->FI_ISS
+			Else
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO                     , SuperGetMV("MV_ALIQISS")      , "S"           , ;
+				                    0                                   , 0                              , SFI->FI_NUMERO, ;
+				                    If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI                  , SFI->FI_NUMFIM, ;
+				                    SFI->FI_DESC                        , "Registro Resumo da Reducao Z" , SFI->FI_ISS    } )
+			EndIf
+		EndIf
+		
+		If lZerado		
+			aAdd( aMapaResumo, {SFI->FI_DTMOVTO                     , 0            , "T", ;
+			                     0                                   , 0            , SFI->FI_NUMERO, ;
+			                     If(cMapaResumo=="T","",SFI->FI_PDV),SFI->FI_NUMINI, SFI->FI_NUMFIM, ;
+			                     SFI->FI_DESC                        , ""           , 0              } )
+		EndIf
+		
+		DbSelectArea("SFI")
+		DbSkip()
+	End
+	
+Else
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Aqui faz o processamento para os clientes que nao fazem       ³
+	//³a emissao do Mapa Resumo                                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³aMapaResumo                  ³
+	//³[1] - Data                   ³
+	//³[2] - Aliquota               ³
+	//³[3] - Tributo (TSFNI)        ³
+	//³[4] - Valor Base             ³
+	//³[5] - Valor Imposto          ³
+	//³[6] - Numero COO inicial     ³
+	//³[7] - Numero COO final       ³
+	//³[8] - Numero do ECF (PDV)    ³
+	//³[9] - GT (Totalizador Geral) ³
+	//³[10] - Numero do Cont.Red. Z ³
+	//³[11] - Observacao            ³
+	//³[12] - Base do ISS           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	aMapaResumo := {}
+	DbSelectArea("SFI")
+	DbSeek(xFilial("SFI")+DTos(mv_par01),.T.)
+	While !Eof() .AND. (SFI->FI_FILIAL == xFilial("SFI")) .AND. (SFI->FI_DTMOVTO <= mv_par02)
+		lZerado := .T.
+		IncProc(STR0005) // Reprocessando os registros de sa¡das - ECF
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os campos de Impostos ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		For i:=1 to 9999
+			cCampo := "FI_BAS"+Alltrim(Str(i))
+			If FieldPos( cCampo ) > 0
+				If FieldGet( FieldPos( cCampo ) ) > 0
+					lZerado := .F.
+					If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+Alltrim(Str(x[2]))+x[8] == Dtos(SFI->FI_DTMOVTO)+AllTrim(Str(i))+SFI->FI_PDV }) ) > 0
+						aMapaResumo[nPos][4] += FieldGet( FieldPos(cCampo) )
+						aMapaResumo[nPos][5] := Round(aMapaResumo[nPos][4]*aMapaResumo[nPos][2]/100,2)
+					Else
+					    nValBase   := NoRound(FieldGet( FieldPos(cCampo) ))
+					    nValorImp  := Round(FieldGet(FieldPos(cCampo))*Val(LJ300PerAliq(i))/100,2)
+						aAdd( aMapaResumo, {SFI->FI_DTMOVTO, i                              , "T"            , ;
+						                    nValBase        , nValorImp                      , SFI->FI_NUMINI , ;
+						                    SFI->FI_NUMFIM  , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+						                    SFI->FI_NUMREDZ , IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )
+					EndIf
+				EndIf
+			EndIf
+		Next i
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Trata lancamento na aliq. 0,01 (Garantido Integral ECF - Mato Grosso) ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cCampo := "FI_BAS001"
+		If FieldPos(cCampo) > 0
+			i := 0.01	//Aliquota
+			If FieldGet( FieldPos( cCampo ) ) > 0
+				lZerado := .F.
+				If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+Str(x[2],5,2)+x[8] == Dtos(SFI->FI_DTMOVTO)+Str(i,5,2)+SFI->FI_PDV }) ) > 0
+					aMapaResumo[nPos][4] += FieldGet( FieldPos(cCampo) )
+					aMapaResumo[nPos][5] := Round(aMapaResumo[nPos][4]*aMapaResumo[nPos][2]/100,2)
+				Else
+					aAdd( aMapaResumo, {SFI->FI_DTMOVTO, i, "T", NoRound(FieldGet( FieldPos(cCampo) )), Round(FieldGet(FieldPos(cCampo))*Val(LJ300PerAliq(i))/100,2), SFI->FI_NUMINI, SFI->FI_NUMFIM, SFI->FI_PDV, SFI->FI_GTFINAL, SFI->FI_NUMREDZ, IIF(SFI->(FieldPos("FI_OBS"))>0,SFi->FI_OBS,""), 0 } )
+				EndIf
+			EndIf
+		EndIf		
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica os campos de subst.Tribut., Isentos e Nao Trib.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_SUBTRIB > 0
+			lZerado := .F.
+			If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[8] == Dtos(SFI->FI_DTMOVTO)+"F"+SFI->FI_PDV }) ) > 0
+				aMapaResumo[nPos][4] += SFI->FI_SUBTRIB
+			Else			
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO , 0                             , "F"            , ;
+				                    SFI->FI_SUBTRIB , 0                             , SFI->FI_NUMINI , ;
+				                    SFI->FI_NUMFIM  , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+				                    SFI->FI_NUMREDZ ,IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )
+			EndIf
+		EndIf
+		
+		If SFI->FI_ISENTO > 0
+			lZerado := .F.
+			If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[8] == Dtos(SFI->FI_DTMOVTO)+"I"+SFI->FI_PDV }) ) > 0
+				aMapaResumo[nPos][4] += SFI->FI_ISENTO
+			Else			
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO, 0                             , "I"            , ;
+				                    SFI->FI_ISENTO , 0                             , SFI->FI_NUMINI , ;
+				                    SFI->FI_NUMFIM , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+				                    SFI->FI_NUMREDZ,IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )
+			EndIf
+		EndIf
+		
+		If SFI->FI_NTRIB > 0
+			lZerado := .F.
+			If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[8] == Dtos(SFI->FI_DTMOVTO)+"N"+SFI->FI_PDV }) ) > 0
+				aMapaResumo[nPos][4] += SFI->FI_NTRIB
+			Else			
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO, 0                             , "N"            , ;
+				                    SFI->FI_NTRIB  , 0                             , SFI->FI_NUMINI , ;
+				                    SFI->FI_NUMFIM , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+				                    SFI->FI_NUMREDZ,IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Tratamento de outros recebimentos³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_OUTROSR > 0
+			lZerado := .F.
+			If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[8] == Dtos(SFI->FI_DTMOVTO)+"O"+SFI->FI_PDV }) ) > 0
+				aMapaResumo[nPos][4] += SFI->FI_OUTROSR
+			Else			
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO , 0                             , "O"            , ;
+				                    SFI->FI_OUTROSR , 0                             , SFI->FI_NUMINI , ;
+				                    SFI->FI_NUMFIM  , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+				                    SFI->FI_NUMREDZ ,IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )
+			EndIf
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Tratamento para o campo de ISS   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SFI->FI_ISS > 0
+			lZerado := .F.
+			If ( nPos := ASCAN( aMapaResumo, {|x| Dtos(x[1])+x[3]+x[8] == Dtos(SFI->FI_DTMOVTO)+"S"+SFI->FI_PDV }) ) > 0
+				aMapaResumo[nPos][12] += SFI->FI_ISS
+			Else
+				aAdd( aMapaResumo, {SFI->FI_DTMOVTO, SuperGetMV("MV_ALIQISS")       , "S"            , ;
+				                     0              , 0                              , SFI->FI_NUMINI , ;
+				                     SFI->FI_NUMFIM , SFI->FI_PDV                   , SFI->FI_GTFINAL, ;
+				                     SFI->FI_NUMREDZ,IIF(lTemFI_OBS,SFI->FI_OBS,""), SFI->FI_ISS    } )
+			EndIf
+		EndIf		
+
+		If lZerado
+			aAdd( aMapaResumo, {SFI->FI_DTMOVTO, 0                             , "T"            , ;
+			                     0              , 0                             , SFI->FI_NUMINI, ;
+			                     SFI->FI_NUMFIM , SFI->FI_PDV                  , SFI->FI_GTFINAL, ;
+			                     SFI->FI_NUMREDZ,IIF(lTemFI_OBS,SFI->FI_OBS,""), 0              } )			
+		EndIf
+		
+		DbSelectArea("SFI")
+		DbSkip()
+	End
+	
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a checagem do arredondamento dos impostos.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SFI")
+DbSetOrder(1)
+i := 1
+
+If lMapaResumo
+	nPosPDV := 7
+Else                               
+	nPosPDV := 8
+EndIf
+
+While i<= Len(aMapaResumo)
+	If ! cMapaResumo == "T"
+		cPdvAnt 	:= aMapaResumo[i][nPosPDV]
+	EndIF
+	dDataAnt 	:= aMapaResumo[i][1]
+	nValImp 	:= 0
+	nDifImp 	:= 0
+	While dDataAnt == aMapaResumo[i][1] .AND. If(cMapaResumo="T",.T.,cPdvAnt == aMapaResumo[i][nPosPDV])
+		nValImp += aMapaResumo[i][5]
+		i ++
+		If i > Len(aMapaResumo)
+			Exit
+		EndIf
+	End
+	if cMapaResumo == "T"
+		If SFI->(DbSeek(xFilial("SFI")+DTOS(dDataAnt)))
+			While SFI->FI_FILIAL == xfilial("SFI") .AND. SFI->FI_DTMOVTO == dDataAnt .AND. ! EOF()
+				nDifImp +=	SFI->FI_IMPDEBT
+				SFI->(DbSkip())
+			End
+			nDifImp := nValImp - nDifImp
+			If nDifImp <> 0
+				If ( nPos := ASCAN(aMapaResumo,{|x| DTOS(x[1])+x[3] == DTOS(dDataAnt)+"T" }) ) > 0
+					aMapaResumo[nPos][5] -= nDifImp
+				EndIf
+			EndIf
+		EndIf
+	Else
+		If SFI->(DbSeek(xFilial("SFI")+DTOS(dDataAnt)+cPdvAnt))
+			nDifImp := nValImp - SFI->FI_IMPDEBT
+			If nDifImp <> 0
+				If ( nPos := ASCAN(aMapaResumo,{|x| DTOS(x[1])+x[nPosPDV]+x[3] == DTOS(dDataAnt)+cPdvAnt+"T" }) ) > 0
+					aMapaResumo[nPos][5] -= nDifImp
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+End
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Faz a gravacao do Livro Fiscal com base na array aMapaResumo           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Len(aMapaResumo) > 0
+	aCFOP := LjBuscaCFo() // Busca CFOPs Padrão/Parametrizados
+	DbSelectArea("SF3")
+	DbSetOrder(1)	// F3_FILIAL+DTOS(F3_ENTRADA)+F3_NFISCAL+F3_SERIE+F3_CLIEFOR+F3_LOJA+F3_CFO+STR(F3_ALIQICM,5,2)
+	For i:=1 to Len(aMapaResumo)
+		IncProc(STR0005) // Reprocessando os registros de sa¡das - ECF
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Definicao das variaveis para o seek no SF3              ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cSerie 	:= Padr( Iif(lMapaResumo .OR. cMapaResumo="T","ECF",aMapaResumo[i][8]),TamSx3("F3_SERIE")[1] )
+		cCFO := ""
+        If Ascan(aCFOP,{|x|x[1] == aMapaResumo[i][3] } ) > 0  
+			cCFO 	:= Padr( aCFOP[Ascan(aCFOP,{|x|x[1] == aMapaResumo[i][3]})][2] , TamSx3("F3_CFO")[1] )
+		EndIf
+
+		If Alltrim(cCFO) == ""    	
+			cCFO 	:= Padr( IIf(aMapaResumo[i][3] == "F","5405","5102"), TamSx3("F3_CFO")[1] )
+		EndIf
+		
+		If aMapaResumo[i][3] $ "NIF"
+			nAliq 	:= 0
+		ElseIf aMapaResumo[i][3] == "S"		// Se for servico
+			nAliq 	:= SuperGetMV("MV_ALIQISS")
+		Else
+			nAliq 	:= Val(LJ300PerAliq(aMapaResumo[i][2]))
+		EndIf
+		cAliq 	:= Str( nAliq ,TamSx3("F3_ALIQICM")[1],TamSx3("F3_ALIQICM")[2])
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Faz a checagem para gravacao e nao duplicar linhas com a mesma ³
+		//³ aliquota. Neste caso os lancamentos F (Subst.Tribut.), N (nao  ³
+		//³ incidencia de ICMS) e I (Isento) deverao sair no mesmo registro³
+		//³ do SF3                                                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se jah existe registro no SF3 com a mesma data e NF³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF3->( DbSeek( xFilial("SF3") + DTOS(aMapaResumo[i][1]) + PadR(aMapaResumo[i][6],TamSx3("F3_NFISCAL")[1]) +cSerie ))
+			lAchouF3	:= .T.
+		Else
+			lAchouF3	:= .F.
+		EndIf
+
+		If DbSeek( xFilial("SF3")+DTOS(aMapaResumo[i][1])+PadR(aMapaResumo[i][6],TamSx3("F3_NFISCAL")[1])+cSerie+Space(TamSx3("F3_CLIEFOR")[1])+	Space(TamSx3("F3_LOJA")[1])+cCFO+cAliq )
+			RecLock("SF3",.F.)
+		Else
+			RecLock("SF3",.T.)
+			nSeq := 0
+			Replace F3_FILIAL	With xFilial("SF3")
+			Replace F3_ESPECIE 	With "CF"
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Se for o estado de Piaui, grava ECF³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If LjAnalisaLeg(18)[1]
+				Replace F3_ESPECIE 	With "ECF"
+			EndIf
+			Replace F3_SERIE 	With cSerie 
+			Replace F3_NFISCAL 	With aMapaResumo[i][6]
+			Replace F3_DOCOR 	With Iif(lMapaResumo,aMapaResumo[i][6],aMapaResumo[i][7])
+			Replace F3_ENTRADA 	With aMapaResumo[i][1]
+			Replace F3_EMISSAO 	With aMapaResumo[i][1]
+			Replace F3_TIPO		With "L"
+			Replace F3_CFO 		With cCFO
+			Replace F3_ESTADO   With cEstado 
+			Replace	F3_CLIEFOR  With SuperGetMV("MV_CLIPAD")
+			Replace	F3_LOJA	    With SuperGetMV("MV_LOJAPAD")
+			++nSeq
+			If FieldPos("F3_IDENTFT") > 0
+				Replace	F3_IDENTFT 	With StrZero(nSeq, 6)
+			EndIf
+			
+			If !lMapaResumo .AND. cMapaResumo <> "T"
+				If Empty( aMapaResumo[i][11] )
+					Replace F3_OBSERV 	With "GT = " + Alltrim(Transform(aMapaResumo[i][9],"@E 999999,999.99")) + ;
+					                         " Red.Z = "+Transform(aMapaResumo[i][10],"@E 999999")
+				Else
+					Replace F3_OBSERV 	With aMapaResumo[i][11]
+				EndIf
+				Replace F3_PDV 		With aMapaResumo[i][8]
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Gravacao dos campos F3_NUMINI e F3_NUMFIM, cupom inicial e final³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If SF3->(FieldPos("F3_NUMINI")) > 0
+					Replace F3_NUMINI	With aMapaResumo[i][6]
+				EndIf
+				If SF3->(FieldPos("F3_NUMFIM")) > 0
+					Replace F3_NUMFIM	With aMapaResumo[i][7]
+				EndIf											
+			Else
+				Replace F3_PDV 		With aMapaResumo[i][7]
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Se nao existir F3 com a mesma da e NF, grava o desconto³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !lAchouF3
+					Replace F3_VALOBSE	With aMapaResumo[i][10]
+				EndIf                                                         
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Gravacao dos campos F3_NUMINI e F3_NUMFIM, cupom inicial e final³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If SF3->(FieldPos("F3_NUMINI")) > 0
+					Replace F3_NUMINI	With aMapaResumo[i][8]
+				EndIf
+				If SF3->(FieldPos("F3_NUMFIM")) > 0
+					Replace F3_NUMFIM	With aMapaResumo[i][9]
+				EndIf							
+			EndIf
+			
+			If !Empty( aMapaResumo[i][12] ) .AND. !lLjSimpNac
+				Replace F3_TIPO		With "S"
+				Replace F3_CODISS	With SuperGetMV("MV_LJCISS",,"08915")
+				Replace F3_ALIQICM	With aMapaResumo[i][2]
+				Replace F3_BASEICM 	With F3_BASEICM + aMapaResumo[i][12]
+				Replace F3_VALCONT 	With F3_VALCONT + aMapaResumo[i][12]
+				Replace F3_VALICM 	With Round(aMapaResumo[i][12]*aMapaResumo[i][2]/100,2)
+				If Empty(F3_OBSERV)
+				   Replace F3_OBSERV	With aMapaResumo[i][11]				
+				EndIf   
+			EndIf
+		EndIf
+
+		Replace F3_VALCONT 	With F3_VALCONT + aMapaResumo[i][4]
+		If aMapaResumo[i][3] $ "NI"
+			Replace F3_ISENICM 	With F3_ISENICM + aMapaResumo[i][4]
+		ElseIf aMapaResumo[i][3] == "F"
+			If SuperGetMV( "MV_LJSTMR", .F., .F. )
+				Replace F3_OUTRICM  With F3_OUTRICM + aMapaResumo[i][4]
+			Else
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Analisa se for a legislacao de Piaui e quando for Substituicao Tributaria³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If LjAnalisaLeg(18)[1]
+					Replace F3_ICMSRET 	With 0
+					Replace F3_OUTRICM  With aMapaResumo[i][4]
+				Else
+					Replace F3_ICMSRET  With F3_ICMSRET + aMapaResumo[i][4]
+				EndIf
+			EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Outros recebimentos / Optante do Simples Nacional³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		ElseIf ( aMapaResumo[i][3] == "O" .AND. LjAnalisaLeg(16)[1] ) .OR. lLjSimpNac
+			Replace F3_OUTRICM  With F3_OUTRICM + aMapaResumo[i][4]
+		Else
+			Replace F3_ALIQICM 	With Val(LJ300PerAliq(aMapaResumo[i][2]))
+			Replace F3_BASEICM 	With F3_BASEICM + aMapaResumo[i][4]
+			Replace F3_VALICM 	With F3_VALICM + aMapaResumo[i][5]
+		EndIf
+		
+		If lLjGrvSf3			// permite gravar algum campo de usuario no SF3
+			Execblock("LJGRVSF3", .F. , .F. , { aMapaResumo , "2" })
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Grava o F3_ECF como tipo 1, que é tipo ECF³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SF3->( FieldPos ( "F3_ECF" ) ) > 0
+			Replace	F3_ECF With "1"
+		EndIf
+		If cMvEstado == "DF"
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava as informacoes no SFT                    	   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			LOJA301(.F., Nil, Nil, aArraySD2, aMaparesumo[I, 3])
+		EndIf
+		SF3->( MsUnlock() )
+	Next i
+EndIf
+
+Return NIL
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³LJ300PerAlºAutor  ³Vendas Clientes     º Data ³ 10/09/2003  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Gera o percentual de Aliquota em String                    º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ LOJA300                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function LJ300PerAliq( nAliq )
+Local cAliq   := ""   			//percentual para retorno
+Default nAliq := 0				//Valor da aliquota
+
+If nAliq >= 100 .AND. nAliq <= 999 //Caso seja fracionaria com 3 digitos
+	cAliq := AllTrim(Str( nAliq ))
+	cAliq := SubStr( cAliq,1,1 )+ "." + SubStr( cAliq,2 )
+ElseIf nAliq >= 1000 .AND. nAliq <= 9999 //Caso seja fracionaria com 4 digitos
+	cAliq := AllTrim(Str( nAliq ))
+	cAliq := SubStr( cAliq,1,2 )+ "." + SubStr( cAliq,3 )
+Else
+	cAliq := AllTrim(Str( nAliq ))
+EndIf
+
+Return cAliq
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³LJ300DelF3ºAutor  ³Vendas Clientes     º Data ³ 12/12/2006  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Deleta o SF3 no periodo informado nos parametros mv_par01  º±±
+±±º          ³ e mv_par02.                                                º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ LOJA300                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function LJ300DelF3(lEcf)
+
+Local dDataIni 	:= mv_par01				// Data inicial 
+Local dDataFim 	:= mv_par02				// Data final
+Local lContinua := .T.					// Continua Loop
+Local lExistSLX := AliasInDic("SLX")	// Verifica se existe o arquivo SLX
+
+While dDataIni <= dDataFim .AND. lContinua
+	DbSelectArea("SF3")
+	DbSetOrder(1)
+	If DbSeek(xFilial()+DTOS(dDataIni),.T.)
+		lContinua := .F.		
+		While SF3->F3_FILIAL == xfilial() .AND. ! SF3->(EOF()) .AND. SF3->F3_ENTRADA >= dDataIni .AND. SF3->F3_ENTRADA <= dDataFim
+			If ( ( SF3->F3_SERIE == "ECF" .OR. !Empty( F3_PDV ) ) .AND. Alltrim( SF3->F3_OBSERV ) <> "NF CANCELADA" )
+				SF3->(RecLOCK("SF3",.F.))
+				SF3->(dbDelete())
+				SF3->(MsUnlock())
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Se o registro for originado de ECF, deve ser deletado³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			ElseIf lEcf
+				If SF3->F3_ECF == "1"
+					SF3->(RecLOCK("SF3",.F.))
+					SF3->(dbDelete())
+					SF3->(MsUnlock())
+				EndIf
+			EndIf
+			SF3->(DbSkip())
+		End
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Apos deletar o registro no SF3, deleta os itens no SFT³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If (cPaisLoc == "BRA" .AND. AliasInDic("SFT"))
+			DbSelectArea("SFT")
+			DbSetOrder(2)
+			If DbSeek(xFilial("SFT") + "S" + DTOS(dDataIni),.T.)
+				While 	SFT->FT_FILIAL == xfilial("SFT") .AND. ! SFT->(EOF()) .AND. SFT->FT_ENTRADA >= dDataIni .AND. ;
+						SFT->FT_ENTRADA <= dDataFim
+					If !Empty( SFT->FT_PDV ) 
+						If lExistSLX 
+							RecLock("SFT",.F.)
+							dbDelete()
+							MsUnlock()
+						Else
+							If Alltrim( SFT->FT_OBSERV ) <> "NF CANCELADA" 
+								RecLock("SFT",.F.)
+								dbDelete()
+								MsUnlock()
+							EndIf
+						EndIf
+					EndIf
+					DbSkip()
+					Loop
+				End
+			EndIf
+		EndIf
+	Else
+		dDataIni := dDataIni + 1
+		Loop	
+	EndIf
+End
+
+Return NIL
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³LJ300ObserºAutor  ³Vendas Clientes     º Data ³ 23/10/2007  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Grava observacao especifico para o Ceara.                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ LOJA300                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Lj300Observ( dDataSFI, cPdvSFI, cMapaResumo )
+
+Local cRet := ""						// Retorno da Funcao
+Local aAreaSF3 := GetArea()				// Guarda a area atual
+
+Default dDataSFI 	:= Ctod("  /  /  ")	// Data do SFI
+Default cMapaResumo := ""				// Conteudo do MV_MAPARES
+Default cPdvSFI		:= ""				// PDV
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Realiza para o Mapa Resumo igual a N³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cMapaResumo == "N"
+
+	DbSelectArea("SFI")
+	DbSetOrder(1)
+	If DbSeek( xFilial("SFI") + Dtos(dDataSFI) + cPdvSFI )
+		//" Red.Z = "
+		cRet := STR0007 + Transform(SFI->FI_NUMREDZ,"@E 999999")	
+		
+	EndIf
+EndIf
+
+RestArea(aAreaSF3)
+
+Return (cRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³LJ300PosClºAutor  ³   Vendas Clientes  º Data ³ 10/11/2007  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Retorna o estado do cliente da venda.                      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ LOJA300                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Lj300PosCli(cCliPos,cLojPos)           
+
+Local cRet 		:= SuperGetMV("MV_ESTADO")		// Retorno da funcao
+Local aAreaSF3 	:= GetArea()				// Guarda a area atual
+
+Default cCliPos := ""							// Cliente posicionado
+Default cLojPos	:= ""							// Loja posicionado
+
+DbSelectArea("SA1")
+DbSetOrder(1)
+If DbSeek(xFilial("SA1")+cCliPos+cLojPos)
+	cRet := SA1->A1_EST
+EndIf
+
+RestArea(aAreaSF3)
+
+Return (cRet)
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³LjBuscaCFoºAutor  ³Vendas Clientes     º Data ³ 14/06/2012  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Retorna CFOP cadastrados no parametro MV_LJCFOP            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ SIGALOJA                                                   º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Function LjBuscaCFo()
+
+Local cTiposCfop 	:= SuperGetMV("MV_LJCFOP",,"F=5405")        // CFOP     
+Local nCount        := 0                                        // Contador para montar Array
+Local cCfoLin 		:= ""                                       // CFOP por Linha , pois sempre será mais um CFOP no Parametro
+Local nPosSign 		:= 0                                
+Local cSigla   		:= ""
+Local cCfopTmp 		:= ""
+Local nPosCFOP      := 0 
+Local aCfop 		:= {} 									     // Retorno com os CFOP's validados
+
+If !Empty(cTiposCfop)  
+	cTiposCfop	:= StrTran( cTiposCfop, ";", CHR(13)+CHR(10))     
+
+	For nCount := 1 TO MLCount( cTiposCfop )
+		cCfoLin  := AllTrim( StrTran( MemoLine( cTiposCfop,, nCount ), CHR(13), CHR(10) ) )
+		nPosSign := Rat( "=", cCfoLin)
+		cSigla   := Substr(cCfoLin,1,1)
+		cCfopTmp := Substr(cCfoLin,nPosSign+1,Len(cCfoLin))     
+
+		If Substr(cCfopTmp,1,1) # '5' 
+			Conout("LjBuscaCFo - Parametro MV_LJCFOP com valor invalido ("+ cCfopTmp+ "). Valor nao inicado com '5' ")
+			Loop
+		Else 
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Realiza a busca do CFO para verificar se existe³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea("SX5")
+			DbSetOrder(1)
+			If !DbSeek(xFilial() + "13" + cCfopTmp)
+				Conout("LjBuscaCFo - Parametro MV_LJCFOP não cadastrado na tabela SX5")
+				Loop
+			EndIf
+		EndIf
+        nPosCFOP := Ascan(aCFOP,{|x|x[1] == cSigla} ) 
+        If nPosCFOP > 0 
+			aCFOP[nPosCFOP][2] := cCfopTmp
+ 		Else
+			aadd(aCFOP,{cSigla,cCfopTmp})
+		EndIf	
+
+	Next nCount
+	
+EndIF 
+
+Return aCFOP
+
+

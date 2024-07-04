@@ -1,0 +1,864 @@
+<% 
+#DEFINE cBrwGridGuia 	"BrwGridGuia"
+#DEFINE cBrwGridProc 	"BrwGridProc"
+#DEFINE nLarBrw 		"655"
+#DEFINE nAltBrw 		"250"
+#DEFINE nTamFs  		"660"
+
+Local oHtml		:= WCHtml():New() 
+Local aStatG	:= {"1=Guia","2=Beneficiário"}
+%>
+
+<%=oHtml:getDType(.T.,.T.,,,HttpSession->cDtJs)%>
+
+<script language="JavaScript">
+<!--
+var cBrwGridGuia	= <%="'"+cBrwGridGuia+"'"%> 
+var cBrwGridProc 	= <%="'"+cBrwGridProc+"'"%>
+var oBrwGridGuia;
+var oBrwGridProc;
+var cChave;
+var cRecno;
+var cAlitab;
+var lAnexou = false;
+var lRespo = false; 
+var cNumeroGuiaCanc = "";
+var cErroAudit	= "<p>Ocorreu algum erro no retorno do processamento das observações de auditoria. Recarregue a página.</p>"
+    cErroAudit	+= "<p> Caso o erro persista, entre em contato com a Operadora.</p> <p> Função: "
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³ Muda a label do campo e sua máscara
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+function fChangeLabMask() { 
+var nTipo = document.querySelector("#Field_OPCBUSCA").selectedOptions[0].value;
+if (nTipo == '1') {
+	document.querySelector("#Field_GUIAMAT").parentElement.getElementsByTagName("label")[0].childNodes[0].textContent = 'Guia';
+	document.getElementById('Field_GUIAMAT').value = ''
+	$("#Field_GUIAMAT").unmask().mask("9999.9999.99-99999999"); 
+ }
+ else {
+	document.querySelector("#Field_GUIAMAT").parentElement.getElementsByTagName("label")[0].childNodes[0].textContent = 'Matrícula';
+	document.getElementById('Field_GUIAMAT').value = ''
+	$("#Field_GUIAMAT").unmask();
+}
+	
+}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Mostra procedimentos da guia										   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+function pesqGuia(cBotGui) {
+	var cNumGui = document.getElementById('Field_GUIAMAT').value;
+	var cTipoBusca = document.getElementById('Field_OPCBUSCA').value;
+	var cWhere 	= "Field_GUIAMAT=" + cNumGui + "|" + "Field_OPCBUSCA=" + cTipoBusca;
+	var nPagina = 0;
+
+	
+	//controla o acesso a tela de upload de anexos
+	lAnexou = false;
+	lRespo = false;
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se foi informado											   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	if (cNumGui == "") {
+      //alert("Informe o numero da guia");
+		modalBS('<i class="fa fa-exclamation-triangle" style="font-weight: bold; color: #000; text-shadow: 0 1px 0 #fff; filter: alpha(opacity=20); opacity: .2;"></i>&nbsp;&nbsp;&nbsp;Alerta', '<p>Informar o número da Guia ou a Matrícula do beneficiário!</p>', "@OK~closeModalBS();", "white~ #f8c80a", "large");	
+		return;
+    }
+	setDisable("BProcCanc",true);
+	
+	//-----------------------------------------------------------
+	// Limpa o browse de Guias
+	//-----------------------------------------------------------
+	if (wasDef( typeof(oBrwGridGuia) ) ) {
+		oBrwGridGuia.setEmptyDiv();
+	}
+
+	if (wasDef( typeof(oBrwGridProc) ) ) {
+		oBrwGridProc.setEmptyDiv();
+	}
+	//-----------------------------------------------------------
+	// verifica se foi chamado pela navegacao
+	//-----------------------------------------------------------
+	var cBuscaTReg = "1";
+
+	if(cBotGui == "-1"){
+		nPagina = 0; //Busca por guia sempre terá apenas uma pagina.
+		
+		if(wasDef(numeroPaginaTemp)){
+			numeroPaginaTemp = 1;
+		}
+		if(wasDef(numeroPaginaTemp)){
+			nQtdRegTemp = 0;
+		}
+	}
+	else
+		nPagina = getField(cBrwGridGuia+'nPagina');		
+	
+	//-----------------------------------------------------------
+	// web function que vai executar a query do grid						   
+	//-----------------------------------------------------------
+	Ajax.open("W_PPLGDGRID.APW?cFunName=PLSMOSSOL&nPagina=" + nPagina + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg, {
+				callback: carregaGridGuia, 
+				error: exibeErro} );
+} 
+
+//-----------------------------------------------------------
+// callback da função que pega os dados para preencher o grid
+//-----------------------------------------------------------
+function carregaGridGuia(v) { 
+
+	var aResult = v.split("|");
+	//-----------------------------------------------------------
+	// Se existe registro define propriedades
+	//-----------------------------------------------------------
+	var nData		= 4
+	var nStatus		= 5	
+	var nCancel		= 6	
+	var nTipoGui	= 7	
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nRegPagGuia	= aResult[3];
+    var aDadGuia 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+	//----------------------------------------------------------------------------
+	// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+	//----------------------------------------------------------------------------
+	if (lContinua) {		
+		//-----------------------------------------------------------
+		// Cria objeto do browse
+		//-----------------------------------------------------------
+		oBrwGridGuia = new gridData(cBrwGridGuia);
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{ 
+			cData = aDadGuia[nFor][nData].value
+			aDadGuia[nFor][nData].value = cData.substr(6,2)+"/"+cData.substr(4,2)+"/"+cData.substr(0,4)		
+		}
+
+
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{ 
+			if (aDadGuia[nFor][nStatus].value == "1")
+			{
+				aDadGuia[nFor][nStatus].value = "Autorizada";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "2" )
+			{
+				aDadGuia[nFor][nStatus].value = "Em Análise";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "3" )
+			{
+				aDadGuia[nFor][nStatus].value = "Negada";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "5")
+			{
+				aDadGuia[nFor][nStatus].value = "Aguardando documentação do prestador";
+				lRespo= true;
+			}
+			else if (aDadGuia[nFor][nCancel].value == "0" && aDadGuia[nFor][nStatus].value == "6") 
+			{
+				aDadGuia[nFor][nStatus].value = "Em Análise";
+			}
+
+			else if (aDadGuia[nFor][nCancel].value == "1" && aDadGuia[nFor][nStatus].value == "6")
+			{
+				aDadGuia[nFor][nStatus].value = "Cancelada";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "7") 
+			{
+				aDadGuia[nFor][nStatus].value = "Autorizado parcialmente";
+			}
+			else
+			{
+				aDadGuia[nFor][nStatus].value = "Entre em contato com a Operadora"
+			}			
+		}
+
+
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{ 
+			if (aDadGuia[nFor][nStatus].value == "1" &&  ( (aDadGuia[nFor][nTipoGui].value == "07") || (aDadGuia[nFor][nTipoGui].value == "08") || (aDadGuia[nFor][nTipoGui].value == "07")) )
+			{
+				aDadGuia[nFor][nStatus].value = "Autorizada";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "2" && ( (aDadGuia[nFor][nTipoGui].value == "07") || (aDadGuia[nFor][nTipoGui].value == "08") || (aDadGuia[nFor][nTipoGui].value == "07")) )
+			{
+				aDadGuia[nFor][nStatus].value = "Autorizada Parcialmente";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "3" && ( (aDadGuia[nFor][nTipoGui].value == "07") || (aDadGuia[nFor][nTipoGui].value == "08") || (aDadGuia[nFor][nTipoGui].value == "07")) )
+			{
+				aDadGuia[nFor][nStatus].value = "Não Autorizada";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "4" && ( (aDadGuia[nFor][nTipoGui].value == "07") || (aDadGuia[nFor][nTipoGui].value == "08") || (aDadGuia[nFor][nTipoGui].value == "07")) )
+			{
+				aDadGuia[nFor][nStatus].value = "Aguardando finalização atendimento";
+			}
+			else if (aDadGuia[nFor][nStatus].value == "5" && ( (aDadGuia[nFor][nTipoGui].value == "07") || (aDadGuia[nFor][nTipoGui].value == "08") || (aDadGuia[nFor][nTipoGui].value == "07")) )
+			{
+				aDadGuia[nFor][nStatus].value = "Aguardando Liq. Titulo a Receber";
+			}
+		}
+		
+		
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{ 
+			if (aDadGuia[nFor][nCancel].value == "0" || aDadGuia[nFor][nCancel].value == '')
+			{
+				aDadGuia[nFor][nCancel].value = "Não";
+			}
+			else 
+			{
+				aDadGuia[nFor][nCancel].value = "Sim";
+			}
+		}
+		
+		
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{ 
+			if (aDadGuia[nFor][nTipoGui].value == "01")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Consulta";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "02")
+			{
+				aDadGuia[nFor][nTipoGui].value = "SADT/Odontologia";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "03")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Internação";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "04")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Reembolso";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "05")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Resumo Internação";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "06")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Honorário";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "07")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Quimioterapia";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "08")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Radioterapia";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "09")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Solicitação de OPME";
+			}
+			else if (aDadGuia[nFor][nTipoGui].value == "11")
+			{
+				aDadGuia[nFor][nTipoGui].value = "Prorrogação de internação";
+			}
+		}
+
+		//-----------------------------------------------------------
+		// Monta Browse 
+		//-----------------------------------------------------------
+		oBrwGridGuia.load({fFunName:'pesqGuia',
+							nRegPagina:nRegPagGuia,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							lOverflow:true,
+							lShowLineNumber:false,
+							lChkBox:false,
+							aBtnFunc:"[{info:'Visualizar Procedimentos',img:'items.png',funcao:'fGetProc'},{info:'Editar',img:'lapis.gif',funcao:'fAltera'},{info:'Cancelar',img:'004.gif',funcao:'fCancela'}]",
+							aHeader: aHeader,							
+							aCols: aDadGuia});
+		for (var nFor=0;nFor<aDadGuia.length;nFor++)
+		{	
+			var oTable = oBrwGridGuia.getObjCols();
+			var oCell = oTable.rows[nFor].cells[7];
+			if((oCell.innerHTML).search("lapis.gif") != -1){
+				imgEdit = $(oCell).find("img[src$='lapis.gif']")[0];
+				imgEdit.style.display = 'none';
+			}
+			if ((aDadGuia[nFor][nTipoGui].value == "Consulta") && ((aDadGuia[nFor][nStatus].value == "Autorizada") || (aDadGuia[nFor][nStatus].value == "Autorizada Parcialmente"))){
+
+				if((oCell.innerHTML).search("lapis.gif") != -1){
+					imgEdit = $(oCell).find("img[src$='lapis.gif']")[0];
+					imgEdit.style.display = 'none';
+				}
+			}
+			if ((aDadGuia[nFor][nTipoGui].value == "SADT/Odontologia") && ((aDadGuia[nFor][nStatus].value == "Autorizada") || (aDadGuia[nFor][nStatus].value == "Autorizada Parcialmente"))){
+				if((oCell.innerHTML).search("lapis.gif") != -1){
+					imgEdit = $(oCell).find("img[src$='lapis.gif']")[0];
+					imgEdit.style.display = 'none';
+				}
+			}										
+		}	
+	}					
+	//-----------------------------------------------------------
+	//³ Mensagem de erro
+	//-----------------------------------------------------------
+	if ( !isEmpty(cMsg) ) alert(cMsg);
+}
+
+//-----------------------------------------------------------
+// Função que exibe a grid de itens da solicitação
+//-----------------------------------------------------------
+function fGetProc(cDados) {	
+	cDados = cDados.split("~");
+	cChave = cDados[0];		
+	cLiberacao = cDados.length > 1 ? cDados[1] : "0";
+	var cWhere 		= "Field_CodGuia="+cChave+"|Field_TipoGuia="+cDados[1];
+
+	//controla o acesso a tela de upload de anexos
+	lAnexou = false; 
+
+	var oTable = oBrwGridGuia.getObjCols();
+	
+	if(cLiberacao.length  > 1 ){
+		for (var nFor=0;nFor < oTable.rows.length ;nFor++)
+		{
+			
+			if(oTable.rows[nFor].cells[0].innerHTML == cLiberacao){
+				if(oTable.rows[nFor].cells[6].innerHTML == "Execução"){
+					cLiberacao = 0;
+				}else{
+					cLiberacao = 1;
+				}
+			}
+					
+		} 
+	}
+	//-----------------------------------------------------------
+	// Limpa o browse de beneficiários
+	//-----------------------------------------------------------
+	if (wasDef( typeof(oBrwGridProc) ) ) {
+		oBrwGridProc.setEmptyDiv();
+	}
+	//-----------------------------------------------------------
+	// verifica se foi chamado pela navegacao
+	//-----------------------------------------------------------
+	var cBuscaTReg = getGridCall(cBrwGridProc,'fGetProc');
+	
+	//-----------------------------------------------------------
+	// web function que vai executar a query do grid						   
+	//-----------------------------------------------------------
+	Ajax.open("W_PPLGDGRID.APW?cFunName=PLSMOSPRO&nPagina=" + getField(cBrwGridProc+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg + "&cCampoCustom=" + cLiberacao, {
+				callback: carregaGridProc, 
+				error: exibeErro} );
+} 
+
+//-----------------------------------------------------------
+// Callback da função que carrega os itens da solitação
+//-----------------------------------------------------------
+function carregaGridProc(v) { 
+	var aResult = v.split("|"); 
+	//-----------------------------------------------------------
+	// Se existe registro define propriedades
+	//-----------------------------------------------------------
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nRegPagProc	= aResult[3];
+    var aDadProc 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+	var aBtnFunc 	= "[{info:'Interação',img:'message.png',funcao:'fChamaInteracao'},{info:'Anexo',img:'anexo.jpg',funcao:'fAnexo'},{info:'Obs. Auditoria',img:'infoclip.png',funcao:'ObsAuditoria'}]";		
+	//----------------------------------------------------------------------------
+	// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+	//----------------------------------------------------------------------------
+	if (lContinua) {		
+		//-----------------------------------------------------------
+		// Cria objeto do browse
+		//-----------------------------------------------------------
+		oBrwGridProc = new gridData(cBrwGridProc);
+		//-----------------------------------------------------------
+		// Monta Browse 
+		//-----------------------------------------------------------
+		oBrwGridProc.load({fFunName:'fGetProc',
+							nRegPagina:nRegPagProc,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							aBtnFunc:aBtnFunc,
+							lOverflow:true,
+							lShowLineNumber:true,
+							lChkBox:false,
+							aHeader: aHeader,							
+							aCols: aDadProc});
+
+		//variavel que vai controlar a qtde de interações respondidas;
+		var nQtdePend = 0;
+		var lAnexoOb = false;
+		var strAnexo = "";
+		var oProcAnexo = '{ "procedimentos" : [';
+		for(var i=0; i < oBrwGridProc.aCols.length; i++){
+			nQtdePend += parseInt(getObjects(oBrwGridProc.aCols[i], "field", "CODOPE+ANOAUT+MESAUT+NUMAUT+SEQUEN+chr(126)+ALLTRIM(STR(QTD_INTE))+chr(126)+ALITAB")[0].value.split("~")[1]);
+			strAnexo = getObjects(oBrwGridProc.aCols[i], "field",  "CODOPE+ANOAUT+MESAUT+NUMAUT+SEQUEN+chr(126)+ALLTRIM(STR(IDENLINHA))+chr(126)+ALITAB+chr(126)+ANEXO")[0].value.split("~");
+			lAnexoOb = strAnexo[3].toLowerCase() == "obrigat"; //preencho o objeto com somente os procedimentos que são obrigatorio o anexo
+			if (lAnexoOb){ 	oProcAnexo += '{ "sequen":"' + strAnexo[0].slice(strAnexo[0].length-3, strAnexo[0].length) + '" , "anexado": false },'; } 
+		}
+
+		if(oProcAnexo.slice(oProcAnexo.length-1, oProcAnexo.length) == ",")
+			oProcAnexo = oProcAnexo.slice(0, -1);
+
+		oProcAnexo += ']}';
+
+		//tenho que criar um hidden para poder utilizar no jspls
+		var input = document.createElement("input");
+					input.setAttribute("type", "hidden");
+					input.setAttribute("name", "nQtdePend");
+					input.setAttribute("id", "nQtdePend");
+					input.setAttribute("value", nQtdePend);
+					document.forms[0].appendChild(input);
+
+		input = 	document.createElement("input");
+					input.setAttribute("type", "hidden");
+					input.setAttribute("name", "oProcAnexo");
+					input.setAttribute("id", "oProcAnexo");
+					input.setAttribute("value", oProcAnexo);
+					document.forms[0].appendChild(input);
+
+		parent.$("body").animate({
+                    scrollTop: $("#"+oBrwGridProc.cConteiner).offset().top - $('html, body').offset().top + $('html, body').scrollTop()
+        }, 1000)
+							
+	}					
+	//-----------------------------------------------------------
+	//³ Mensagem de erro
+	//-----------------------------------------------------------
+	if ( !isEmpty(cMsg) ) alert(cMsg);
+}
+
+function fChamaInteracao(x){
+   var aResult = x.split("~");
+   
+   var cPubl   = "P";
+   var cOperad = aResult[0].substring(0, 4);
+   var cAno    = aResult[0].substring(4, 8);
+   var cMes    = aResult[0].substring(8, 10); 
+   var cNumGu  = aResult[0].substring(10, 18);
+   var cSequen = aResult[0].substring(18, 21);  
+   var cAlias  = aResult[2];  
+   
+	if ( !lRespo ){
+		modalBS("Atenção", "<p>Não há Informações solicitadas pela operadora</p>", "@Fechar~closeModalBS();", "white~#960000");
+		return;
+	}
+	
+   Ajax.open("W_PPLSMNTITE.APW?cAlias="+cAlias+"&cTpPublico="+cPubl+"&cCodOpe="+cOperad+"&cAnoAut="+cAno+"&cMesAut="+cMes+"&cNumAut="+cNumGu+"&cSeqProc="+cSequen, {callback: CarregaGrideInteracao, error: ExibeErro} );
+}
+
+function CarregaGrideInteracao(v){
+	var aParams = v.split("|");
+	var cTitulo = aParams[0];
+	var cConteudo = aParams[1];
+	var aBotoes = aParams[2];
+	
+	closeModalBS();
+	modalBS(cTitulo, cConteudo, aBotoes);
+}	
+
+
+//Funções para chamada do Upload Genérico
+function fAnexo(x){
+	var aResult = x.split("~");
+	cChave  = aResult[0];
+	cRecno  = aResult[1];
+	cAlitab = aResult[2];
+	var cAnexo  = aResult[3].toLowerCase();
+	
+	if(cAnexo != "false" && !lAnexou) 
+		Ajax.open("W_PPLUPGEN.APW?cModo=2&cRecno="+cRecno+"&cChave="+cChave+"&NumInd=1&cAlitab="+cAlitab, {callback: mostraUpload, error: exibeErro});
+	else
+		modalBS("Atenção", "<p>Não há pendências com anexos solicitados pela operadora</p>", "@Fechar~closeModalBS();", "white~#960000");
+}
+
+function mostraUpload(v) {
+	var divIframe = document.querySelector("#iframeDiv");
+	divIframe.innerHTML = v;
+	var oProcAnexo = JSON.parse(document.querySelector("#oProcAnexo").value);
+	//encontro o procedimento que os anexos foram confirmados
+	var proc = getObjects(oProcAnexo.procedimentos, "sequen", cChave.substring(18, 21) )[0];
+	var cBotoes = oProcAnexo.procedimentos.length <= 0 || !proc.anexado ? "@Confirmar anexos~window.frames[0].fConfirmarAnexo();" : "";
+	cBotoes += "@Fechar~closeModalBS();";
+	modalBS("<i style='color:#639DD8;' class='fa fa-paperclip fa-lg'></i>&nbsp;&nbsp;Anexos", "<form name='frmUpl' id='frmUpl' action='' method='post'>" + divIframe.innerHTML  + "</form>", cBotoes, "white~#84CCFF");	
+
+	//pego o botão da tela de anexos genericas e faço o click para carregar a grid de documentos
+	parent.document.getElementById("btn_Oculto").style.display="none";
+	parent.document.getElementById("btn_Oculto").click();
+		
+}  
+
+function fConfirmarAnexo(){
+	var cTexto = "Os documentos anexados pertencem a todas interações atuais deste procedimento, ";
+	cTexto 	  += "ao confirmar os anexos não será possivel anexar mais documentos a este procedimento, deseja confirmar?";
+	modalBS('<i class="fa fa-exclamation-triangle" style="font-weight: bold; color: #000; text-shadow: 0 1px 0 #fff; filter: alpha(opacity=20); opacity: .2;"></i>&nbsp;&nbsp;&nbsp;Atenção', "<p>" + cTexto + "</p>", "@Sim~window.frames[0].fSalvaAnexoInt();@Não~closeModalBS();", "white~ #f8c80a");
+	
+} 
+
+function fSalvaAnexoInt(){
+	//encontro o procedimento que os anexos foram confirmados
+	var nQtdePend = parseInt(document.querySelector("#nQtdePend").value);
+	var oProcAnexo = JSON.parse(document.querySelector("#oProcAnexo").value);
+	
+	if(oProcAnexo.procedimentos.length > 0 && getObjects(oProcAnexo.procedimentos, "sequen", cChave.substring(18, 21) ) > 0){
+		var proc = getObjects(oProcAnexo.procedimentos, "sequen", cChave.substring(18, 21) )[0];
+		proc.anexado = true;
+	}else{
+		var temp = new Object();
+    	temp["sequen"] = cChave.substring(18, 21);
+    	temp["anexado"] = true;
+	}
+
+	closeModalBS();
+	document.querySelector("#oProcAnexo").value = JSON.stringify(oProcAnexo);
+
+	Ajax.open("W_PPLFLAINT.APW?&cChave="+cChave.substring(0, 18)+"&cAlias="+cAlitab+"&lPendente="+lAnexou+"&cSequen="+cChave.substring(18, 21), {callback: alteraStatus, error: exibeErro} );
+	
+	//controla o acesso a tela de upload de anexos
+	lAnexou = true; 
+
+}  
+
+function alteraStatus(v){
+
+var aResult = v.split("|");
+	
+	if(aResult.length > 1 && aResult[1] == "STTISS"){
+		modalBS("Sucesso", "Todas as pendências com as interações foram respondidas, a guia foi alterada para o status 'Em análise'!<br/><br/>Clique no botão <b>Pesquisar</b> para atualizar a tela.", "@Fechar~closeModalBS();", "white~#009652", "large");
+		
+	}else if(aResult.length > 1 && aResult[1] == "PENDENDESCRI" /*pendencia descritiva*/){
+		modalBS("Atenção", aResult[0], "@Fechar~closeModalBS();", "white~#960000", "large");
+
+	}else{
+		modalBS("Sucesso", aResult[0], "@Fechar~closeModalBS();", "white~#009652", "large");
+	}
+
+}
+
+//-----------------------------------------------------------
+// Função que exibe a grid de itens da solicitação
+//-----------------------------------------------------------
+function fAltera(cDados) {
+	var aResult = cDados.split("~");	
+	Ajax.open("W_PPLSDADUSR.APW?TrilhaCard="+aResult[0]+"&lPreAten=false&cRda="+aResult[1]+"&cCodLoc="+aResult[3], {callback: fAltGui(cDados), error: exibeErro} );
+} 
+function fAltGui(cDados) {
+	var aResult = cDados.split("~");
+	cPagina  = "W_PPLCHAATE.APW";
+ 	cTipoOri = "AltCmp" 
+
+ 	document.forms[0].action = cPagina + "?cRda="+aResult[1]+"&cCodLoc="+aResult[3]+"&cTp="+aResult[2]+"&cTipAltG="+cTipoOri+"&cNumGOB="+aResult[4];
+ 	document.forms[0].submit();
+} 
+
+
+
+//Função para verificar conteudo digitado
+function fConteudo(retorno){
+   var conteudo ="abcdefghyjklmnopqrstuvwxyz0123456789@,*!%;:/\#&''$-()<>[]||+.=";
+   retorno = retorno.toLowerCase();
+   for(i=0; i<retorno.length; i++){
+      if (conteudo.indexOf(retorno.charAt(i),0)!=-1){
+         return 1;
+      }
+   }
+   return 0;
+}
+
+
+//Função para cancelar Guia
+function fCancela(cNumGui) {
+
+    cNumeroGuiaCanc = cNumGui;
+    var cStatus = "";
+    var aElem = window.oBrwGridGuia.aCols;
+	var cTipoDesc = "";
+	var cTipo = "0"; 
+	var cDigOff = "Não";	
+	var cMotivo = "";
+
+    for (var nFor = 0; nFor < aElem.length; nFor++) {
+        if (aElem[nFor][2].value == cNumeroGuiaCanc) {
+            cStatus = aElem[nFor][5].value;
+			cTipoDesc = aElem[nFor][7].value;
+			cDigOff = aElem[nFor][10].value;
+        }
+    }
+		
+	if(cTipoDesc == "Prorrogação de internação")
+		cTipo = "11";
+ 	else if (cTipoDesc == "Solicitação de OPME")
+		cTipo = "9";
+	else if (cTipoDesc == "Radioterapia")
+		cTipo = "8";
+	else if (cTipoDesc == "Quimioterapia")
+		cTipo = "7";
+	else  if (cTipoDesc == "Internação")
+		cTipo = "3";
+	else  if (cTipoDesc == "Consulta")
+		cTipo = "1";
+	else 
+		cTipo = "2"; 	
+
+    if (cStatus == "Cancelada") {
+        alert("Guia já está cancelada!");
+        return;
+    }
+
+	if (cDigOff == "Sim") {
+		cMotivo = "RECOFF"; }
+	else {	
+		cMotivo = prompt("Informe o motivo do cancelamento");	
+	}
+
+    if (cMotivo != null) {
+        if (fConteudo(cMotivo) == 0) {
+            alert("Motivo não informado!");
+            return;
+        }
+        else {
+            if (confirm("Confirma o cancelamento da guia?")) {
+                //Monta campos conforme processamento da rdas							   
+                Ajax.open("W_PPLCANGUI.APW?cNumGui=" + cNumGui + "&cMotivo=" + cMotivo + "&cTipo=" + cTipo, {
+                    callback: CarregaCancela,
+                    error: ExibeErro
+                });
+            }
+        }
+    }
+}
+
+//Resposta do Cancelamento
+function CarregaCancela(v) {                                            
+   
+	var cResult	= v.split("|");                                                   
+    
+    if ( cResult == 'SIM' ) {
+    	
+		var tab = document.getElementById("tab"+cBrwGridGuia);
+		var numRows = tab.rows.length;
+		for(var n=0; n<numRows;n++){
+			if(tab.rows[n].cells[0].innerText == cNumeroGuiaCanc){
+				tab.rows[n].cells[3].innerText = "Cancelada";
+			}
+		}
+		alert("Guia cancelada com Sucesso");
+		
+    } else {
+
+    	alert("Ocorreu um erro.")
+
+    }	                            
+   
+}
+
+
+//-------------------------------------------------------------------
+/*/{JavaScript} ObsAuditoria
+Função para buscar os dados da auditoria, caso existam.
+@since   12/2021
+/*/
+//-------------------------------------------------------------------
+function ObsAuditoria(cBusca){
+var aResult 	= [];
+var cOperadora 	= '';
+var cAnoGuia    = '';
+var cMesGuia    = '';
+var cNumGuia  	= '';
+var cSeqGuia 	= '';
+var cRecItem	= '';
+var cAliasGuia  = '';
+
+	if ( isEmpty(cBusca) || !wasDef(cBusca) ) {
+		modalBS("Atenção", cErroAudit + " ObsAuditoria </p>", "@Fechar~closeModalBS();", "white~#960000");
+		return;	
+	} else {
+		aResult 	= cBusca.split("~");
+		cOperadora 	= aResult[0].substring(0, 4);
+		cAnoGuia    = aResult[0].substring(4, 8);
+		cMesGuia    = aResult[0].substring(8, 10); 
+		cNumGuia  	= aResult[0].substring(10, 18);
+		cSeqGuia 	= aResult[0].substring(18, 21);
+		cRecItem	= aResult[1]; 
+		cAliasGuia  = aResult[2];  	
+	}
+
+	Ajax.open("W_PPLObsAudA.APW?cAlias=" + cAliasGuia + "&cCodOpe=" + cOperadora + "&cAnoAut=" + cAnoGuia + "&cMesAut=" + cMesGuia + "&cNumAut=" + cNumGuia + "&cSeqProc=" + cSeqGuia, {callback: ExibeObsAuditoria, error: ExibeErro} );
+
+}
+
+
+//-------------------------------------------------------------------
+/*/{JavaScript} ObsAuditoria
+Função para buscar os dados da auditoria, caso existam.
+@since   12/2021
+/*/
+//-------------------------------------------------------------------
+function ExibeObsAuditoria(cRetTexto){
+var lErroRet 	= ( isEmpty(cRetTexto) || !wasDef(cRetTexto) ) ? true : false
+var cTitModal	= ( lErroRet ) ? "Atenção" : "Observações da Auditoria"
+var cTexModal	= ( lErroRet ) ? cErroAudit + " ExibeObsAuditoria </p>" : cRetTexto
+var cCorModal	= ( lErroRet ) ? "white~#960000" : "white~#ffa500"
+ 
+	modalBS(cTitModal, cTexModal, "@Fechar~closeModalBS();", cCorModal);
+	return;
+
+}
+
+
+</script>
+<%
+
+//-------------------------------------------------------------------
+//	Instanciando o form
+//-------------------------------------------------------------------
+
+oForm := WCForm():New("Form1")  
+oForm:setTitle("Status da Autorização/Cancelamento de Guia")
+
+//-------------------------------------------------------------------
+//	Tabela principal
+//-------------------------------------------------------------------
+
+oTabela := WCTable():New()
+
+//-------------------------------------------------------------------
+//	Criando uma linha
+//-------------------------------------------------------------------
+oLiGuia := WCLine():New()
+//-------------------------------------------------------------------
+//		Criando um fieldset para os campos
+//-------------------------------------------------------------------
+oFSPar := WCFieldSet():New("Selecionar Beneficiário/Guia",nTamFs,"10","10")
+
+oCHTM	:= WCComponent():new('CHTM')
+oCHTM:setValue("<div id='iframeDiv' style='display:none'></div>")
+oFSPar:setAddCFS(oCHTM) 
+		    			
+oOpcBusca := WCComponent():New("C","Field_OPCBUSCA","Selecione o tipo de busca","160")
+oOpcBusca:setArrCombo(aStatG)
+oOpcBusca:setObrigat(.T.)
+oOpcBusca:setJSChange("fChangeLabMask();")
+oOpcBusca:setXS("12")
+oOpcBusca:setSM("4")
+oOpcBusca:setMD("4")
+oOpcBusca:setLG("4")
+oOpcBusca:setDefCB("0")
+oFSPar:setAddCFS(oOpcBusca)
+				
+//-------------------------------------------------------------------
+// Campo de nro da guia ou matricula do beneficiário
+//-------------------------------------------------------------------
+oGuiaMat := WCComponent():New("F","Field_GUIAMAT","Guia","21","21")
+oGuiaMat:setXS("12")
+oGuiaMat:setSM("6")
+oGuiaMat:setMD("3")
+oGuiaMat:setLG("3")
+oFSPar:setAddCFS(oGuiaMat)
+				
+//-------------------------------------------------------------------
+//	Botão Pesquisar
+//-------------------------------------------------------------------
+oBPesq := WCComponent():New("B","BProcPesq","Pesquisar")
+oBPesq:setJsFunc("pesqGuia('-1');")   
+oBPesq:setOpenGrp(.T.)
+oBPesq:setCloseGrp(.f.)
+oBPesq:setInlineB(.T.)
+oBPesq:setXS("12")
+oBPesq:setSM("12")
+oBPesq:setMD("12")
+oBPesq:setLG("4")
+oFSPar:setAddCFS(oBPesq)
+
+//-------------------------------------------------------------------
+//	Botão Cancelar
+//-------------------------------------------------------------------
+oBCanc := WCComponent():New("B","BProcCanc","Cancelar")
+oBCanc:setJsFunc("cancGuia();")   
+oBCanc:setOpenGrp(.f.)
+oBCanc:setCloseGrp(.T.)
+oFSPar:setAddCFS(oBCanc)
+			
+//-------------------------------------------------------------------
+//	 Adicionando o fieldset na linha
+//-------------------------------------------------------------------
+oLiGuia:setAddComp(oFSPar)
+
+//-------------------------------------------------------------------
+//	Adicionando a linha na tabela principal
+//-------------------------------------------------------------------
+oTabela:setAddLine(oLiGuia)
+		
+//-------------------------------------------------------------------
+//	Criando outra linha
+//-------------------------------------------------------------------
+oLiGrid := WCLine():New()
+		
+//-------------------------------------------------------------------
+//	 Fieldset
+//-------------------------------------------------------------------
+oFSGriBen := WCFieldSet():New("Guias",nTamFs,"10","10")
+			
+//-------------------------------------------------------------------
+//	Browse (grid) de Guias
+//-------------------------------------------------------------------
+cGrid := WCComponent():New("BW",cBrwGridGuia)
+cGrid:setBrWidth(nLarBrw)
+oFSGriBen:setAddCFS(cGrid)  
+
+//-------------------------------------------------------------------
+//	Adicionando o fieldset na linha
+//-------------------------------------------------------------------
+oLiGrid:setAddComp(oFSGriBen)
+
+//-------------------------------------------------------------------
+//	 Adicionando a linha na tabela principal
+//-------------------------------------------------------------------
+oTabela:setAddLine(oLiGrid)	
+
+//-------------------------------------------------------------------
+//	Criando nova linha
+//-------------------------------------------------------------------
+oLiProc := WCLine():New()
+
+//-------------------------------------------------------------------
+//	 Fieldset
+//-------------------------------------------------------------------
+oFSGriPro := WCFieldSet():New("Procedimentos",nTamFs,"10","10")
+		
+//-------------------------------------------------------------------
+//	Browse (grid) de Procedimentos
+//-------------------------------------------------------------------
+cGridPro := WCComponent():New("BW",cBrwGridProc)
+cGridPro:setBrWidth(nLarBrw)
+oFSGriPro:setAddCFS(cGridPro)  
+			
+//-------------------------------------------------------------------
+//	Adicionando o fieldset na linha
+//-------------------------------------------------------------------
+oLiProc:setAddComp(oFSGriPro)
+
+//-------------------------------------------------------------------
+//	Adicionando a linha na tabela principal
+//-------------------------------------------------------------------
+oTabela:setAddLine(oLiProc)
+	
+//-------------------------------------------------------------------
+//	Adicionando a tabela principal no form
+//-------------------------------------------------------------------
+oForm:setAddTables(oTabela)
+
+//-------------------------------------------------------------------
+//	Adicionando o form no HTML
+//-------------------------------------------------------------------
+oHtml:setObj(oForm)
+
+%>
+
+<%=oHtml:loadWC()%> 
+<script language="JavaScript">
+	//Desabilita os botões para o estado inicial da tela
+	document.getElementById('BProcCanc').disabled = true;
+</script>

@@ -1,0 +1,219 @@
+#Include 'Protheus.ch'
+#Include 'FWMVCDef.ch'
+#Include 'FINA330VA.ch'
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA330VACAL
+Calcula o valor acessório do título
+@type Function
+@author renato.ito
+@since 18/09/2019
+@version 12
+@return nVa, numeric, retorna o valor acessório 
+/*/
+//-------------------------------------------------------------------
+Function FA330VACAL(oModelVA) As Numeric
+	Local oFKD		As Object
+	Local nLin		As Numeric
+	Local cChaveTit	As Character
+	Local cIdDoc	As Character
+	Local aArea		As Array
+	Local lIsDel	As Logical	
+	Private nVa As Numeric // variável utilizada dentro do model
+	
+	oFKD	:= Nil
+	nLin	:= 0
+	nVa		:= 0
+	aArea	:= GetArea()
+	cChaveTit := xFilial("SE1") + "|" + SE1->E1_PREFIXO + "|" + SE1->E1_NUM + "|" + SE1->E1_PARCELA + "|" + SE1->E1_TIPO + "|" + SE1->E1_CLIENTE + "|" + SE1->E1_LOJA
+	cIdDoc := FINGRVFK7('SE1', cChaveTit)
+	lIsDel := .F.
+	
+	DbSelectArea("FKD")
+	DbSetOrder(2)
+	If MsSeek(xFilial("FKD", SE1->E1_FILIAL)+cIdDoc) // so carrega o model se existir VA para o título
+		
+		oModelVA:SetOperation( MODEL_OPERATION_UPDATE )
+		oModelVA:Activate()
+		oFKD := oModelVA:GetModel("FKDDETAIL")
+		//Tratamento para calcular apenas os tipos que se caracterizam acréscimo ou decréscimo
+		If !oFKD:IsEmpty()
+			For nLin := 1 to oFKD:Length()
+				oFKD:GoLine(nLin)
+				If !oFKD:IsDeleted()
+					If oFKD:GetValue("FKD_TPVAL") <> '2' .Or. oFKD:GetValue("FKD_PERIOD") <> '1'
+						nVa -= oFKD:GetValue("FKD_VLCALC")
+						oFKD:LoadValue("FKD_VLCALC", 0)
+						oFKD:LoadValue("FKD_VLINFO", 0)
+					EndIf
+				Else
+					lIsDel := .T.
+					Exit	
+				Endif
+			Next
+			If oModelVA:VldData() .AND. !lIsDel
+				FWFormCommit( oModelVA )
+			EndIf
+		EndIf
+			
+		oModelVa:Deactivate()
+	
+	EndIf
+
+	RestArea(aArea)
+
+Return nVa
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA330VACAN
+Cancelamento de valor acessório
+@type Function
+@author renato.ito
+@since 18/09/2019
+@version 12
+@param cFilSe5, Character, filial da SE5 da baixa que está sendo cacelada
+@param cIdOrig, Character, E5_IDORIG da baixa 
+@param nRecSe1, Numeric, recno SE1 para o estorno do saldo
+@param nOpc, Numeric, estorno ou exclusão
+@return 
+/*/
+//-------------------------------------------------------------------
+Function FA330VACAN(cFilSe5 As Character, cIdOrig As Character, nRecSe1 As Numeric ,nOpc As Numeric)
+	Local aAreaSe5	As Array
+	Local aAreaSe1	As Array
+	Local aArea		As Array
+	
+	aAreaSe5 	:= SE5->(GetArea())
+	aAreaSe1	:= SE1->(GetArea())
+	aArea		:= GetArea()
+
+	If !Empty(cIdOrig)
+		DbSelectArea("SE5")
+		SE5->(DbSetOrder(21))
+		If SE5->(DbSeek(cFilSe5 + cIdOrig + "VA"))
+			SE1->(dbGoto(nRecSe1))
+			While !SE5->(EOF()) .And. SE5->E5_IDORIG = cIdOrig
+				If SE5->E5_TIPODOC $ "VA"
+					If nOpc = 4	//Exlusão retorna o saldo e marca como deletado na SE5
+						RecLock("SE1", .F.)
+						SE1->E1_SALDO -= SE5->E5_VALOR
+						SE1->(MsUnlock())
+						RecLock("SE5", .F.)
+						SE5->(dbDelete())
+						SE5->(MsUnlock())
+					ElseIf nOpc = 5 // Estorno retorna o saldo
+						//Cancelo os registros de valores acessoriso (Multas, Juros etc)
+						RecLock("SE1", .F.)
+						SE1->E1_SALDO -= SE5->E5_VALOR
+						SE1->(MsUnlock())
+						RecLock("SE5")
+						SE5->E5_SITUACA := "C"
+						SE5->E5_DTCANBX := dDataBase
+						SE5->(MsUnlock())
+					EndIf
+				EndIf
+				SE5->(DbSkip())
+			EndDo
+		ElseIf SE5->(DbSeek(cFilSe5 + cIdOrig))
+			SE1->(dbGoto(nRecSe1))
+			While !SE5->(EOF()) .And. SE5->E5_IDORIG = cIdOrig
+				If SE5->E5_TIPODOC $ "DC" // Retornar o saldo do acessório gerado pelo MV_TOLERPG
+					If nOpc = 4	//Exlusão retorna o saldo e marca como deletado na SE5
+						RecLock("SE5", .F.)
+						SE5->(dbDelete())
+						SE5->(MsUnlock())
+					ElseIf nOpc = 5 // Estorno retorna o saldo
+						//Cancelo os registros de valores acessoriso (Desconto, Juros etc)
+						RecLock("SE5")
+						SE5->E5_SITUACA := "C"
+						SE5->E5_DTCANBX := dDataBase
+						SE5->(MsUnlock())
+					EndIf
+				EndIf
+				SE5->(DbSkip())
+			EndDo
+		EndIf
+	EndIf
+
+	RestArea(aAreaSe5)
+	RestArea(aAreaSe1)
+	RestArea(aArea)
+
+Return 
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA330VAFKD
+Atualiza a FKD na baixa
+@type Function
+@author renato.ito
+@since 18/09/2019
+@version 12
+@param cIdDoc, Character, IDDOC 
+@param cCodVa, Character, Código do VA 
+@param cIdFKD, Character, FKD_IDKFD a set atualizado
+@param dDtBaixa, Date, data da baixa
+@param nValVa, Numeric, Valor do VA
+@return 
+/*/
+//-------------------------------------------------------------------
+Function FA330VAFKD(cIdDoc As Character, cCodVa As Character, cIdFKD As Character, dDtBaixa As Date, nValVa As Numeric)
+	
+	Local cFilOriTit	As Character
+	Local cChaveFKD		As Character
+	
+	cFilOriTit	:= xFilial("SE1",SE1->E1_FILORIG)
+	
+	DbSelectArea("FKD")
+	If !Empty(cIdFKD)
+		FKD->( DbSetOrder(3) ) //FKD_FILIAL+FKD_IDFKD
+		cChaveFKD := cFilOriTit+cIdFKD
+	Else
+		FKD->( DbSetOrder(2) ) // FKD_FILIAL+FKD_IDDOC+FKD_CODIGO
+		cChaveFKD := cFilOriTit+cIdDoc+cCodVa
+	EndIf
+
+	If !Empty(cCodVa) .Or. !Empty(cIdFKD)
+			
+		If FKD->(DbSeek(cChaveFKD))
+			RecLock("FKD")
+			FKD->FKD_DTBAIX	:= dDtBaixa
+			If	!Empty(cIdFKD)		//Controle de saldo somente com se existir no dicionário o campo IDFKD na FKD e FK6
+				FKD->FKD_SALDO	+= nValVa
+			EndIf
+            FKD->(MSUnlock())
+		EndIf
+		
+	EndIf
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA330VACON
+Tela de consulta do valor acessório na compensação CR
+@type  Function
+@author renato.ito
+@since 24/09/2019
+@version 12
+@param aTitulos, Array, array do grid de seleção posicionado no título;
+O array deve ter na posição
+[13] filial
+[1] prefixo
+[2] numero
+[3] parcela
+[4] tipo
+/*/
+//-------------------------------------------------------------------
+Function FA330VACON(aTitulos As Array)
+	
+	Local aEnableButtons As Array
+	
+	aEnableButtons := {{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.T.,Nil},{.T.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil},{.F.,Nil}} //"Confirmar"###"Fechar"
+	
+	DbSelectArea("SE1")
+	DbSetOrder(1)
+	If SE1->(DbSeek(aTitulos[13] + aTitulos[1] + aTitulos[2] + aTitulos[3] + aTitulos[4]))
+		FVAAuto(.T.) //Indica que, ao ativar o model FINA070VA, os VAs não serão calculados
+		FWExecView( STR0002 + " - " + STR0001,"FINA070VA", MODEL_OPERATION_VIEW,/**/,/**/,/**/,,aEnableButtons )//"Visualizar"
+		FVAAuto(.F.)
+	EndIf
+
+Return 

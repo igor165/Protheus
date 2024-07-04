@@ -1,0 +1,685 @@
+#INCLUDE "loca057.ch" 
+/*/{PROTHEUS.DOC} LOCA057.PRW
+ITUP BUSINESS - TOTVS RENTAL
+ROTINA DE APROVAวรO DE PROJETOS
+@TYPE FUNCTION
+@AUTHOR FRANK ZWARG FUGA
+@SINCE 03/12/2020
+@VERSION P12
+@HISTORY 03/12/2020, FRANK ZWARG FUGA, FONTE PRODUTIZADO.
+/*/
+#INCLUDE "PROTHEUS.CH"                                                                                                                     
+#INCLUDE "RWMAKE.CH"
+#INCLUDE "TOPCONN.CH"
+
+FUNCTION LOCA057()
+LOCAL   _CCODUSR	:= RETCODUSR() 
+LOCAL   _CFILATU	:= SM0->M0_CODFIL 
+
+LOCAL   _CUSRINC    := SPACE(06) 
+LOCAL   _CUSRALT    := SPACE(06) 
+
+Local   _CNMEINC := SUBSTR(ALLTRIM(USRFULLNAME(ALLTRIM(_CUSRINC))),1,30) 
+Local   _CNMEALT := SUBSTR(ALLTRIM(USRFULLNAME(ALLTRIM(_CUSRALT))),1,30) 
+
+PRIVATE CCADASTRO	:= STR0001 //"APROVAวรO DE PROJETOS"
+PRIVATE _CMARCA		:= GETMARK()
+PRIVATE CPERG		:= "LOCP029"
+PRIVATE _LCAL		:= {}
+PRIVATE _NCOL01		:= 0
+PRIVATE _NCOL02		:= 0
+PRIVATE _NCOL03		:= 0
+PRIVATE _NLIMITE	:= 0
+PRIVATE _MOBS		:= ""
+PRIVATE AROTINA 	:= {}
+PRIVATE ACAMPOS 	:= {}
+PRIVATE AFIELDS		:= {}
+PRIVATE _ARESUMO	:= {}
+PRIVATE ACAMPOZA0	:= {}
+
+//IF !LOCA061() 								// --> VALIDAวรO DO LICENCIAMENTO (WS) DO GPO 
+	//RETURN 
+//ENDIF 
+
+// U_AJREMOCAO()								// CRIA PARยMETROS, TABELAS, CONSULTAS E ETC - DESCONTINUADO, POIS ESTม NO WIZARD DE INSTALAวรO.
+
+IF ! GETMV("MV_LOCX020")
+	MSGALERT(STR0002+CCADASTRO+STR0003 , STR0004)  //"ROTINA '"###"' DESABILITADA, VERIFIQUE MV_LOCX020"###"GPO - LOCT067.PRW"
+	RETURN NIL
+ENDIF
+IF _CCODUSR != "000000" .AND. ! FPR->(DBSEEK(XFILIAL("FPR") + _CCODUSR))
+	MSGALERT(STR0005 , STR0004)  //"ATENวรO: VOCส NรO POSSUI AUTORIZAวรO PARA EFETUAR APROVAวรO DE PROJETOS."###"GPO - LOCT067.PRW"
+	RETURN .F.
+ENDIF
+/*
+MV_PAR01 = PROJETO DE
+MV_PAR02 = PROJETO ATษ
+MV_PAR03 = PERอODO DE
+MV_PAR04 = PERอODO ATษ
+MV_PAR05 = TIPO DO SERVIวO
+*/
+//VALIDPERG(CPERG)								// CRIA PERGUNTAS SE NรO EXISTIR
+
+IF ! PERGUNTE(CPERG,.T.)
+	RETURN NIL
+ENDIF
+
+If MV_PAR05 == 1
+	MV_PAR05 := "L"
+EndIf
+
+//MV_PAR05 := UPPER(MV_PAR05) 
+
+// ALTERO O PARยMETRO INFORMADO PARA O TIPO A SER USADO
+IF MV_PAR05 $ "T;E;L"
+	_CDESCSE := ALLTRIM(CAPITAL(POSICIONE("SX5",1,XFILIAL("SX5")+"78" + MV_PAR05,"X5_DESCRI")))
+ELSE
+	MSGALERT(STR0006 , STR0004)  //"ATENวรO: TIPO DE SERVIวO NรO IDENTIFICADO OU VAZIO."###"GPO - LOCT067.PRW"
+	RETURN .F.
+ENDIF
+
+IF _CCODUSR != "000000" .AND. !FPR->(DBSEEK(XFILIAL("FPR") + _CCODUSR + MV_PAR05)) 
+	MSGALERT(STR0007 + _CDESCSE , STR0004) //"ATENวรO: VOCส NรO POSSUI AUTORIZAวรO PARA EFETUAR APROVAวรO DE PROJETOS DE "###"GPO - LOCT067.PRW"
+	RETURN .F. 
+ENDIF 
+
+_NLIMITE := IIF( _CCODUSR == "000000" , 999999999999999 , POSICIONE("FPR",1,XFILIAL("FPR") + _CCODUSR + MV_PAR05 , "FPR_LIMITE") )
+
+AADD(AROTINA , {STR0008     , "LOCA05701(1)"                , 0 , 4})		// APROVAวรO DO PROJETO //"APROVA"
+AADD(AROTINA , {STR0009    , "LOCA05701(2)"                , 0 , 4})		// REPROVAวรO DO PROJETO //"REPROVA"
+AADD(AROTINA , {STR0010     , "LOCA05701(3)"                , 0 , 4})		// DETALHES DO PROJETO //"RESUMO"
+AADD(AROTINA , {"VISUALIZAR" , "LOCA00110(TRB->FP0_PROJET)" , 0 , 2})   	// VISUALIZAR PROJETO
+
+IF SELECT("QRY") > 0
+     QRY->(DBCLOSEAREA())
+ENDIF
+_CQUERY := "SELECT * "
+_CQUERY += "FROM   " + RETSQLNAME("FP0") + " ZA0 "
+_CQUERY += "WHERE  ZA0.D_E_L_E_T_ = '' AND "
+_CQUERY += "       ZA0.FP0_FILIAL = '" + _CFILATU + "' AND "
+_CQUERY += "       ZA0.FP0_PROJET BETWEEN '" +      MV_PAR01  + "' AND '" +      MV_PAR02  + "' AND "
+_CQUERY += "       ZA0.FP0_DATINC BETWEEN '" + DTOS(MV_PAR03) + "' AND '" + DTOS(MV_PAR04) + "' AND "
+_CQUERY += "       ZA0.FP0_STATUS = '2' AND "								// EM APROVAวรO
+_CQUERY += "       ZA0.FP0_TIPOSE = '" + MV_PAR05 + "' "					// TIPO DO SERVIวO
+_CQUERY := CHANGEQUERY(_CQUERY)
+DBUSEAREA(.T. , "TOPCONN" , TCGENQRY(,, _CQUERY) , "QRY" , .T. , .T.) 
+
+ACAMPOS := {}
+ATAM    := TAMSX3("RA_OKTRANS")
+AADD(ACAMPOS , {"FP0_OK"     , ATAM[3] , ATAM[1] , ATAM[2]}) 
+
+ATAM    := TAMSX3("FP0_PROJET")
+AADD(ACAMPOS , {"FP0_PROJET" , ATAM[3] , ATAM[1] , ATAM[2]}) 
+
+ATAM    := TAMSX3("FP0_CLINOM")
+AADD(ACAMPOS , {"FP0_CLINOM" , ATAM[3] , ATAM[1] , ATAM[2]}) 
+
+ATAM    := TAMSX3("FP0_VALCON")
+AADD(ACAMPOS , {"FP0_COL01"  , "C"     , 18      , 0      })
+AADD(ACAMPOS , {"FP0_COL02"  , "C"     , 18      , 0      })
+AADD(ACAMPOS , {"FP0_COL03"  , "C"     , 18      , 0      })
+
+AADD(ACAMPOS , {"FP0_USERGI" , "C"     , 30      , 0      }) 
+
+AADD(ACAMPOS , {"FP0_USERGA" , "C"     , 30      , 0      })
+
+// --> CRIA ARQUIVO DE TRABALHO PARA O BROWSE INICIAL
+//CNOMARQ := CRIATRAB(ACAMPOS)
+IF (SELECT("TRB") <> 0)
+	DBSELECTAREA("TRB")
+	DBCLOSEAREA()
+ENDIF
+//DBUSEAREA(.T. , , CNOMARQ , "TRB" , NIL , .F.) 
+//INDREGUA("TRB" , CNOMARQ , "ZA0_PROJET" , , , "SELECIONANDO REGISTROS...") 
+
+CT67  := "T67"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+CTI67 := "TI67"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+IF TCCANOPEN(CT67)
+   	TCDELFILE(CT67)
+ENDIF
+DBCREATE(CT67, ACAMPOS, "TOPCONN")
+DBUSEAREA(.T., "TOPCONN", CT67, ("TRB"), .F., .F.)
+DBCREATEINDEX(CTI67, "FP0_PROJET"         , {|| FP0_PROJET         })
+TRB->( DBCLEARINDEX() ) //FORวA O FECHAMENTO DOS INDICES ABERTOS
+DBSETINDEX(CTI67) //ACRESCENTA A ORDEM DE INDICE PARA A มREA ABERTA
+
+ACAMPOS2 := {}
+ATAM     := TAMSX3("FP0_PROJET")
+AADD(ACAMPOS2 , {STR0011 , ATAM[3] , ATAM[1] , ATAM[2]} ) //"PROJETO"
+AADD(ACAMPOS2 , {"COLUNA1" , "C"     , 59      , 0      } )
+AADD(ACAMPOS2 , {"COLUNA2" , "C"     , 57      , 0      } )
+AADD(ACAMPOS2 , {"COLUNA3" , "C"     , 30      , 0      } )
+AADD(ACAMPOS2 , {"COLUNA4" , "C"     , 18      , 0      } )
+AADD(ACAMPOS2 , {"COLUNA5" , "C"     , 18      , 0      } )
+AADD(ACAMPOS2 , {"COLUNA6" , "C"     , 18      , 0      } )
+
+// --> CRIA ARQUIVO DE TRABALHO PARA O BOTรO DETALHES
+//CNOMARQ2 := CRIATRAB(ACAMPOS2) 
+IF (SELECT("TMP") <> 0) 
+	DBSELECTAREA("TMP") 
+	DBCLOSEAREA() 
+ENDIF 
+//DBUSEAREA(.T. , , CNOMARQ2 , "TMP" , NIL , .F.) 
+//INDREGUA("TMP" , CNOMARQ2 , "PROJETO" , , , "SELECIONANDO REGISTROS...") 
+
+CT67B  := "T67B"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+CTI67B := "TI67B"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+IF TCCANOPEN(CT67B)
+   	TCDELFILE(CT67B)
+ENDIF
+DBCREATE(CT67B, ACAMPOS2, "TOPCONN")
+DBUSEAREA(.T., "TOPCONN", CT67B, ("TMP"), .F., .F.)
+DBCREATEINDEX(CTI67B, "PROJETO"         , {|| PROJETO         })
+TMP->( DBCLEARINDEX() ) //FORวA O FECHAMENTO DOS INDICES ABERTOS
+DBSETINDEX(CTI67B) //ACRESCENTA A ORDEM DE INDICE PARA A มREA ABERTA
+
+
+DBSELECTAREA("QRY")
+DBGOTOP()
+WHILE QRY->(!EOF()) 
+	LOCA05702(QRY->FP0_PROJET)
+
+	_CUSRINC := SUBSTR(QRY->FP0_USERGI,03,1) + SUBSTR(QRY->FP0_USERGI,07,1) + SUBSTR(QRY->FP0_USERGI,11,1) + SUBSTR(QRY->FP0_USERGI,15,1) + ; 
+			    SUBSTR(QRY->FP0_USERGI,02,1) + SUBSTR(QRY->FP0_USERGI,06,1) + SUBSTR(QRY->FP0_USERGI,10,1) + SUBSTR(QRY->FP0_USERGI,14,1) + ; 
+			    SUBSTR(QRY->FP0_USERGI,01,1) + SUBSTR(QRY->FP0_USERGI,05,1) + SUBSTR(QRY->FP0_USERGI,09,1) + SUBSTR(QRY->FP0_USERGI,13,1) + ; 
+			    SUBSTR(QRY->FP0_USERGI,17,1) + SUBSTR(QRY->FP0_USERGI,04,1) + SUBSTR(QRY->FP0_USERGI,08,1)
+	_CUSRINC := SUBSTR(_CUSRINC,3,6) 
+	
+
+	_CUSRALT := SUBSTR(QRY->FP0_USERGA,03,1) + SUBSTR(QRY->FP0_USERGA,07,1) + SUBSTR(QRY->FP0_USERGA,11,1) + SUBSTR(QRY->FP0_USERGA,15,1) + ; 
+			    SUBSTR(QRY->FP0_USERGA,02,1) + SUBSTR(QRY->FP0_USERGA,06,1) + SUBSTR(QRY->FP0_USERGA,10,1) + SUBSTR(QRY->FP0_USERGA,14,1) + ; 
+				SUBSTR(QRY->FP0_USERGA,01,1) + SUBSTR(QRY->FP0_USERGA,05,1) + SUBSTR(QRY->FP0_USERGA,09,1) + SUBSTR(QRY->FP0_USERGA,13,1) + ; 
+				SUBSTR(QRY->FP0_USERGA,17,1) + SUBSTR(QRY->FP0_USERGA,04,1) + SUBSTR(QRY->FP0_USERGA,08,1)
+	_CUSRALT := SUBSTR(_CUSRALT,3,6) 
+	
+
+	RECLOCK("TRB",.T.) 
+	TRB->FP0_OK     := "   "
+	TRB->FP0_PROJET := QRY->FP0_PROJET
+	TRB->FP0_CLINOM := QRY->FP0_CLINOM
+	TRB->FP0_COL01	:= TRANSFORM(_NCOL01,"@E 999,999,999,999.99")
+	TRB->FP0_COL02 	:= TRANSFORM(_NCOL02,"@E 999,999,999,999.99")
+	TRB->FP0_COL03	:= TRANSFORM(_NCOL03,"@E 999,999,999,999.99")
+	TRB->FP0_USERGI	:= _CNMEINC 
+	TRB->FP0_USERGA	:= _CNMEALT 
+	MSUNLOCK() 
+	QRY->(DBSKIP())
+ENDDO
+
+ASTRU := TRB->(DBSTRUCT())
+
+QRY->(DBCLOSEAREA())  		// FECHA ALIAS
+
+AFIELDSI := {}
+AADD(AFIELDS , {"FP0_OK"     , "C" , OEMTOANSI("   ")             })
+AADD(AFIELDS , {"FP0_PROJET" , "C" , OEMTOANSI("PROJETO")         })
+AADD(AFIELDS , {"FP0_CLINOM" , "C" , OEMTOANSI(STR0012) }) //"NOME DO CLIENTE"
+AADD(AFIELDS , {"FP0_COL01"  , "C" , OEMTOANSI(IIF(MV_PAR05$"T|O" , STR0013      , STR0014))      })	// MV_PAR05=="T" SIGNIFICA QUE ษ TRANSPORTE //"VR.BASE TOTAL"###"VR.BASE"
+AADD(AFIELDS , {"FP0_COL02"  , "C" , OEMTOANSI(IIF(MV_PAR05$"T|O" , "VR.TARIFAS"         , "VR.MOB/DESMOB"))})
+AADD(AFIELDS , {"FP0_COL03"  , "C" , OEMTOANSI(IIF(MV_PAR05$"T|O" , STR0015 , STR0016))     }) //"VR.FRETE INFORMADO"###"VR.TOTAL"
+AADD(AFIELDS , {"FP0_USERGI" , "C" , OEMTOANSI(STR0017)    }) //"INCLUอDO POR"
+AADD(AFIELDS , {"FP0_USERGA" , "C" , OEMTOANSI(STR0018)}) //"ฺLTIMA ALTERAวรO"
+
+DBSELECTAREA("TRB")
+DBGOTOP()
+MARKBROW("TRB" , "FP0_OK" , , AFIELDS , , _CMARCA)
+
+TRB->( DBCLOSEAREA() )
+//FERASE( CNOMARQ + ".DBF" )
+//FERASE( CNOMARQ + ORDBAGEXT() )
+
+TCSQLEXEC("DROP TABLE "+CT67B)
+TCSQLEXEC("DROP TABLE "+CTI67B)
+
+RETURN .T.
+
+
+
+// ======================================================================= \\
+FUNCTION LOCA05701(POPC)
+// ======================================================================= \\
+
+LOCAL _NOPC 	  := POPC
+LOCAL _NAPROVA    := VAL(STRTRAN(STRTRAN(TRB->FP0_COL03,".",""),",","."))
+PRIVATE CCADASTRO := STR0019 //"DETALHES DO PROJETO"
+
+DO CASE
+
+CASE (_NOPC == 1 .OR. _NOPC ==2) .AND. MSGYESNO(STR0020 + IIF(_NOPC == 1,STR0021,STR0022) + STR0023)	//APROVAวรO E REPROVAวรO //"CONFIRMA A "###"APROVAวรO"###"REPROVAวรO"###" DA(S) PROPOSTA(S) SELECIONADA(S) ?"
+	TRB->(DBGOTOP())
+	WHILE TRB->(!EOF())
+		IF TRB->FP0_OK == _CMARCA
+			IF _NOPC == 1 .AND. _NLIMITE < _NAPROVA
+				MSGALERT(STR0024 + ALLTRIM(TRANSFORM(_NLIMITE,"@E 999,999,999.99")) + STR0025 + CHR(13) + CHR(10) + ; //"ATENวรO: SEU LIMITE POR APROVAวรO (R$ "###") ษ MENOR QUE O"
+		    		     STR0026 + ALLTRIM(TRB->FP0_PROJET) + " (R$ " + ALLTRIM(TRB->FP0_COL03) + ")." , STR0004)  //"VALOR DO PROJETO "###"GPO - LOCT067.PRW"
+		  	ELSE
+				IF FP0->(DBSEEK(XFILIAL("FP0") + TRB->FP0_PROJET))
+					// ALTERO O STATUS PARA APROVADO OU REPROVADO (CONFORME A OPวรO)
+					RECLOCK("FP0",.F.)
+					FP0->FP0_STATUS := IIF(_NOPC == 1,"3","4")	// 3=APROVADO E 4=REPROVADO
+					FP0->FP0_USUAPR	:= ALLTRIM(CUSERNAME)
+					FP0->FP0_DTAPRO	:= DDATABASE
+					FP0->FP0_HORAPR	:= TIME()
+					FP0->(MSUNLOCK()) 
+			
+					// DELETO DO ARQUIVO TEMPORมRIO PARA NรO APARECER MAIS NA TELA
+					RECLOCK("TRB")
+					TRB->(DBDELETE())
+					MSUNLOCK()
+					TRB->(DBGOTOP())
+				ENDIF
+			ENDIF
+		ENDIF
+		TRB->(DBSKIP())
+	ENDDO		
+	
+CASE _NOPC == 3 				// DETALHES
+	_CFILTRO := "TMP->PROJETO == TRB->FP0_PROJET"
+	TMP->( DBSETFILTER( {||&_CFILTRO}, _CFILTRO) )
+
+ 	ABROWSE := {}
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0011                        , STR0011         ) , STR0011 , "C" , 22 , 0 , ""}) //"PROJETO"###"PROJETO"###"PROJETO"
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0027                        , STR0028            ) , "COLUNA1" , "C" , 59 , 0 , ""}) //"VIAGENS"###"OBRA"
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0029                         , STR0030    ) , "COLUNA2" , "C" , 48 , 0 , ""}) //"CARGAS"###"EQUIPAMENTOS"
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0031 , STR0032         ) , "COLUNA3" , "C" , 30 , 0 , ""}) //"COMP X LARG X ALTURAXPESO(TON)"###"PERIODO"
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0013                  , STR0014         ) , "COLUNA4" , "C" , 18 , 0 , ""}) //"VR.BASE TOTAL"###"VR.BASE"
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0033                     , STR0034) , "COLUNA5" , "C" , 18 , 0 , ""}) //"VR.TARIFAS"###"VR.MOB./ DESMOB."
+	AADD(ABROWSE , {IIF(MV_PAR05=="T" , STR0015             , STR0016        ) , "COLUNA6" , "C" , 18 , 0 , ""}) //"VR.FRETE INFORMADO"###"VR.TOTAL"
+	AROTANT   := ACLONE(AROTINA)
+	AROTINA   := {}
+
+	MBROWSE( 6 , 1 , 22 , 75 , "TMP" , ABROWSE , , , , 1 , ) 
+
+	AROTINA   := AROTANT
+
+CASE _NOPC == 3 				// VISUALIZAR PROJETO
+	FP0->(DBSEEK(XFILIAL("FP0") + TRB->FP0_PROJET))
+	LOCA00110()
+
+ENDCASE   
+
+RETURN .T.
+
+
+
+// ======================================================================= \\
+FUNCTION LOCA05702(_PPROJET)
+// ======================================================================= \\
+
+LOCAL _CPROJET	:= _PPROJET
+LOCAL _CEQUIP	:= ""
+LOCAL _CDTINI	:= ""
+LOCAL _CDTFIM	:= ""
+LOCAL _NVALBAS	:= 0
+LOCAL _NVALMOB	:= 0
+LOCAL _NVALDES	:= 0
+LOCAL _NVALTOT	:= 0  
+LOCAL _NVALSEG	:= 0
+//LOCAL _ARESUMO := {}
+
+_NCOL01 := _NCOL02 := _NCOL03 := 0 
+
+DO CASE
+CASE MV_PAR05 $ "E;L"
+	// NอVEL OBRAS
+	FP1->(DBSEEK(XFILIAL("FP1") + _PPROJET))
+	WHILE FP1->(!EOF())  .AND.  FP1->FP1_PROJET == _PPROJET 
+		_COBRA   := FP1->FP1_OBRA
+		_CNOMORI := FP1->FP1_NOMORI
+
+// ======================================================================= \\
+		IF MV_PAR05 == "L"							// --> LOCAวรO 
+// ======================================================================= \\
+			// NIVEL LOCAวรO (ZAG)
+			FPA->(DBSEEK(XFILIAL("FPA") + FP1->FP1_PROJET + FP1->FP1_OBRA ))
+			WHILE FPA->(!EOF())  .AND.  FPA->FPA_PROJET == FP1->FP1_PROJET  .AND.  FPA->FPA_OBRA == FP1->FP1_OBRA 
+				_CGRUA	   := FPA->FPA_GRUA
+				_CDESGRU   := FPA->FPA_DESGRU
+				_CEQUIP    := ALLTRIM(FPA->FPA_GRUA) + "-" + FPA->FPA_DESGRU
+				_CDTINI	   := DTOC(FPA->FPA_DTINI)
+				_CDTFIM	   := DTOC(FPA->FPA_DTFIM)
+				_NVALBAS   := _NVRHOR := FPA->FPA_VRHOR
+				_NPREDIAU  := FPA->FPA_PREDIA
+				_NVALBASU  := FPA->FPA_VRHOR 
+				_NVALBASUT := _NPREDIAU * _NVALBASU
+				_NMONTAGU  := FPA->FPA_MONTAG
+				_NDESMONU  := FPA->FPA_DESMON
+				_NTELESCU  := FPA->FPA_TELESC
+				_NANCORAU  := FPA->FPA_ANCORA
+				_NGUIMONU  := FPA->FPA_GUIMON
+				_NGUIDESU  := FPA->FPA_GUIDES
+				_NOPERADU  := FPA->FPA_OPERAD
+				_NVALISSU  := FPA->FPA_VRISS
+				_NVALSEGU  := FPA->FPA_VRSEGU
+
+				// NอVEL CUSTOS X PROJETO
+				_NVALLSR   := _NVALPRE := _NVALPRF := _NVALTAP := _NVALTUV := _NVALTUR := _NVALESC := _NVALPED := _NVALINV := _NVALALE := 0
+				_NVALIPT   := _NVALACO := _NVALCET := _NVALSEM := _NVALTVA := _NVALTEL := _NVALOUT := _NVALCON := _NVALADI := _NVALAUX := 0
+				_NVL2LSR   := _NVL2PRE := _NVL2PRF := _NVL2TAP := _NVL2TUV := _NVL2TUR := _NVL2ESC := _NVL2PED := _NVL2INV := _NVL2ALE := 0
+				_NVL2IPT   := _NVL2ACO := _NVL2CET := _NVL2SEM := _NVL2TVA := _NVL2TEL := _NVL2OUT := _NVL2CON := _NVL2ADI := _NVL2AUX := 0
+				FQ8->(DBSETORDER(1))
+				FQ8->(DBSEEK(XFILIAL("FQ8") + FPA->FPA_PROJET + FPA->FPA_OBRA + FPA->FPA_SEQTRA + "   " + FPA->FPA_SEQGRU ))
+				WHILE FQ8->(!EOF())  .AND.  FQ8->FQ8_PROJET == FPA->FPA_PROJET  .AND.  FQ8->FQ8_OBRA == FPA->FPA_OBRA  .AND.  FQ8->FQ8_SEQTRA == FPA->FPA_SEQTRA  .AND.  FQ8->FQ8_SEQGRU == FPA->FPA_SEQGRU 
+					_NVALLSR += FQ8->FQ8_VALLSR
+					_NVALPRE += FQ8->FQ8_VALPRE
+					_NVALPRF += FQ8->FQ8_VALPRF
+					_NVALTAP += FQ8->FQ8_VALTAP
+					_NVALTUV += FQ8->FQ8_VALTUV
+					_NVALTUR += FQ8->FQ8_VALTUR
+					_NVALESC += FQ8->FQ8_VALESC
+					_NVALPED += FQ8->FQ8_VALPED
+					_NVALINV += FQ8->FQ8_VALINV
+				//	_NVALALE += FQ8->FQ8_VALALE
+					_NVALIPT += FQ8->FQ8_VALIPT
+					_NVALACO += FQ8->FQ8_VALACO
+					_NVALCET += FQ8->FQ8_VALCET
+					_NVALSEM += FQ8->FQ8_VALSEM
+					_NVALTVA += FQ8->FQ8_VALTVA
+					_NVALTEL += FQ8->FQ8_VALTEL
+					_NVALOUT += FQ8->FQ8_VALOUT
+					_NVALCON += FQ8->FQ8_VALCON
+					_NVALADI += FQ8->FQ8_VALADI
+					_NVALAUX += FQ8->FQ8_VALAUX
+
+					_NVL2LSR += FQ8->FQ8_VL2LSR
+					_NVL2PRE += FQ8->FQ8_VL2PRE
+					_NVL2PRF += FQ8->FQ8_VL2PRF
+					_NVL2TAP += FQ8->FQ8_VL2TAP
+					_NVL2TUV += FQ8->FQ8_VL2TUV
+					_NVL2TUR += FQ8->FQ8_VL2TUR
+					_NVL2ESC += FQ8->FQ8_VL2ESC
+					_NVL2PED += FQ8->FQ8_VL2PED
+					_NVL2INV += FQ8->FQ8_VL2INV
+				 //	_NVL2ALE += FQ8->FQ8_VL2ALE
+					_NVL2IPT += FQ8->FQ8_VL2IPT
+					_NVL2ACO += FQ8->FQ8_VL2ACO
+					_NVL2CET += FQ8->FQ8_VL2CET
+					_NVL2SEM += FQ8->FQ8_VL2SEM
+					_NVL2TVA += FQ8->FQ8_VL2TVA
+					_NVL2TEL += FQ8->FQ8_VL2TEL
+					_NVL2OUT += FQ8->FQ8_VL2OUT
+					_NVL2CON += FQ8->FQ8_VL2CON
+					_NVL2ADI += FQ8->FQ8_VL2ADI
+					_NVL2AUX += FQ8->FQ8_VL2AUX
+					FQ8->(DBSKIP())
+				ENDDO
+
+				_NVALCUS   := _NVALLSR + _NVALPRE + _NVALPRF + _NVALTAP + _NVALTUV + _NVALTUR + _NVALESC + _NVALPED + _NVALINV + _NVALALE
+				_NVALCUS   += _NVALIPT + _NVALACO + _NVALCET + _NVALSEM + _NVALTVA + _NVALTEL + _NVALOUT + _NVALCON + _NVALADI + _NVALAUX
+				_NVL2CUS   := _NVL2LSR + _NVL2PRE + _NVL2PRF + _NVL2TAP + _NVL2TUV + _NVL2TUR + _NVL2ESC + _NVL2PED + _NVL2INV + _NVL2ALE
+				_NVL2CUS   += _NVL2IPT + _NVL2ACO + _NVL2CET + _NVL2SEM + _NVL2TVA + _NVL2TEL + _NVL2OUT + _NVL2CON + _NVL2ADI + _NVL2AUX
+
+				_NVALMOB   := _NVALCUS 
+				_NVALDES   := _NVL2CUS 
+
+				// NอVEL ACESSำRIOS
+				_NVRDIA := 0
+				/*
+				ZAK->(DBSETORDER(1))
+				ZAK->(DBSEEK(XFILIAL("ZAK") + FPA->FPA_PROJET + FPA->FPA_OBRA + FPA->FPA_SEQGRU ))
+				WHILE ZAK->(!EOF())  .AND.  ZAK->ZAK_PROJET == FPA->FPA_PROJET  .AND.  ZAK->ZAK_OBRA == FPA->FPA_OBRA  .AND.  ZAK->ZAK_SEQGRU == FPA->FPA_SEQGRU 
+					_NVRDIA += ZAK->ZAK_VRDIA
+					ZAK->(DBSKIP())
+				ENDDO
+				*/
+				_NACESSOU  := _NVRDIA
+
+				_NVALTOT   := _NVALBASUT + _NVALMOB  + _NVALDES 
+				_NVALTOT   += _NMONTAGU  + _NDESMONU + _NTELESCU + _NANCORAU + _NGUIMONU + _NGUIDESU + _NOPERADU + _NACESSOU 
+				_NVALTOT   += _NVALISSU  + _NVALSEGU 
+				
+				_NCOL01    += _NVALBAS 
+				_NCOL02    += _NGUIMONU + _NGUIDESU 		// _NVALMOB + _NVALDES 
+				_NCOL03    += _NVALTOT 
+
+				DBSELECTAREA("TMP")
+				RECLOCK("TMP",.T.)
+				TMP->PROJETO := _CPROJET 
+				TMP->COLUNA1 := _CNOMORI 
+				TMP->COLUNA2 := _CEQUIP 
+				TMP->COLUNA3 := _CDTINI + " A " + _CDTFIM 
+				TMP->COLUNA4 := TRANSFORM(_NVALBAS           ,"@E 999,999,999,999.99") 
+				TMP->COLUNA5 := TRANSFORM(_NVALMOB + _NVALDES,"@E 999,999,999,999.99") 
+				TMP->COLUNA6 := TRANSFORM(_NVALTOT           ,"@E 999,999,999,999.99") 
+				MSUNLOCK("TMP")
+
+				FPA->(DBSKIP())
+			ENDDO
+// ======================================================================= \\
+		ELSE										// --> EQUIPAMENTOS 
+// ======================================================================= \\
+			// NIVEL LOCAวรO (ZA5)
+			FP4->(DBSEEK(XFILIAL("FP4") + FP1->FP1_PROJET + FP1->FP1_OBRA ))
+			WHILE FP4->(!EOF())  .AND.  FP4->FP4_PROJET == FP1->FP1_PROJET  .AND.  FP4->FP4_OBRA == FP1->FP1_OBRA 
+				_CGUINDA   := FP4->FP4_GUINDA
+				_CDESGUI   := FP4->FP4_DESGUI
+				_CEQUIP    := FP4->FP4_GUINDA+"-"+FP4->FP4_DESGUI
+				_CDTINI	   := DTOC(FP4->FP4_DTINI)
+				_CDTFIM	   := DTOC(FP4->FP4_DTFIM)
+				_NVALBAS   := _NVRHOR := FP4->FP4_VRHOR
+				_NVALMOB   := FP4->FP4_VRMOB
+				_NVALDES   := FP4->FP4_VRDES
+				_NVALSEG   := FP4->FP4_VRSEGU
+
+				_NQTMES	   := FP4->FP4_QTMES
+				_NQTDIA	   := FP4->FP4_QTDIA
+				_CTIPOCA   := FP4->FP4_TIPOCA
+				_CTIPOISS  := FP4->FP4_TPISS
+
+				_NPREDIA   := FP4->FP4_PREDIA
+				_NVRHOR    := FP4->FP4_VRHOR
+				_NMINDIA   := FP4->FP4_MINDIA
+				_NMINMES   := FP4->FP4_MINMES
+				
+				_NVALISS   := FP4->FP4_VRISS
+				_NVALTOT   := FP4->FP4_VALAS
+
+				IF _NQTMES == 0 .AND. _NQTDIA == 0
+					DO CASE
+					CASE _CTIPOCA == "H" ; _NVALEQU := _NPREDIA * _NVRHOR * _NMINDIA
+					CASE _CTIPOCA == "D" ; _NVALEQU := _NPREDIA * _NVRHOR * _NMINDIA
+					CASE _CTIPOCA == "M" ; _NVALEQU := _NPREDIA * _NVRHOR * _NMINMES
+					CASE _CTIPOCA == "F" ; _NVALEQU := _NVRHOR
+					OTHERWISE            ; _NVALEQU := 0
+					ENDCASE
+				ELSE
+					DO CASE
+					CASE _CTIPOCA == "H" ; _NVALEQU := (_NQTMES * _NMINMES * _NVRHOR) + (_NQTDIA * _NMINDIA * _NVRHOR)
+					CASE _CTIPOCA == "D" ; _NVALEQU := (_NQTMES * _NMINMES * _NVRHOR) + (_NQTDIA * _NMINDIA * _NVRHOR)
+					CASE _CTIPOCA == "M" ; _NVALEQU := (_NQTMES * _NMINMES * _NVRHOR) + (_NQTDIA * _NMINDIA * _NVRHOR)
+					CASE _CTIPOCA == "F" ; _NVALEQU := _NVRHOR
+					OTHERWISE            ; _NVALEQU := 0
+					ENDCASE
+				ENDIF
+                     
+				_NVALBAS   := _NVALEQU
+                     
+				_NCOL01    += _NVALBAS
+				_NCOL02    += _NVALMOB + _NVALDES
+				_NCOL03    += _NVALTOT
+
+				DBSELECTAREA("TMP")
+				RECLOCK("TMP",.T.)
+				TMP->PROJETO := _CPROJET
+				TMP->COLUNA1 := _CNOMORI
+				TMP->COLUNA2 := _CEQUIP
+				TMP->COLUNA3 := _CDTINI + " A " + _CDTFIM
+				TMP->COLUNA4 := TRANSFORM(_NVALBAS           ,"@E 999,999,999,999.99") 
+				TMP->COLUNA5 := TRANSFORM(_NVALMOB + _NVALDES,"@E 999,999,999,999.99") 
+				TMP->COLUNA6 := TRANSFORM(_NVALTOT           ,"@E 999,999,999,999.99") 
+				MSUNLOCK("TMP")
+
+				FP4->(DBSKIP())
+			ENDDO
+			
+		ENDIF
+
+		FP1->(DBSKIP())
+	ENDDO
+
+// ======================================================================= \\
+CASE MV_PAR05 == "T"								// --> TRANSPORTE
+// ======================================================================= \\
+	// NอVEL VIAGENS
+	ZA6->(DBSEEK(XFILIAL("ZA6") + _PPROJET))
+	WHILE ZA6->(!EOF())  .AND.  ZA6->ZA6_PROJET == _PPROJET 
+		_COBRA   := ZA6->ZA6_OBRA
+		_CMUNORI := ZA6->ZA6_MUNORI
+		_CESTORI := ZA6->ZA6_ESTORI
+		_CMUNDES := ZA6->ZA6_MUNDES
+		_CESTDES := ZA6->ZA6_ESTDES
+
+		// NอVEL CARGAS
+		ZA7->(DBSEEK(XFILIAL("ZA7") + ZA6->ZA6_PROJET + ZA6->ZA6_OBRA ))
+		WHILE ZA7->(!EOF())  .AND.  ZA7->ZA7_PROJET == ZA6->ZA6_PROJET  .AND.  ZA7->ZA7_OBRA == ZA6->ZA6_OBRA 
+			_CSEQCAR  := ZA7->ZA7_SEQCAR
+			_NQUANT   := VAL(ZA7->ZA7_QUANT)
+			_CCARGA   := ZA7->ZA7_CARGA
+			_NCOMP    := ZA7->ZA7_COMP
+			_NLARG    := ZA7->ZA7_LARG
+			_NALTU    := ZA7->ZA7_ALTU
+			_NPESO    := ZA7->ZA7_PESO
+
+			// NอVEL CONJUNTO TRANSPORTADOR
+			_CTRANSP  := ""
+			_CTIPOCA  := ""
+			_NDIASV   := 0
+			_NDIASC   := 0
+			_NVRDIA   := 0
+			_NVALBASE := 0
+			FP8->(DBSEEK(XFILIAL("FP8") + ZA7->ZA7_PROJET + ZA7->ZA7_OBRA + ZA7->ZA7_SEQTRA + ZA7->ZA7_SEQCAR ))
+			WHILE FP8->(!EOF())  .AND.  FP8->FP8_PROJET == ZA7->ZA7_PROJET  .AND.  FP8->FP8_OBRA == ZA7->ZA7_OBRA  .AND.  FP8->FP8_SEQTRA == ZA7->ZA7_SEQTRA  .AND.  FP8->FP8_SEQCAR == ZA7->ZA7_SEQCAR 
+				_CTRANSP := FP8->FP8_TRANSP
+				_CTIPOCA := FP8->FP8_TIPOCA
+				_NDIASV  += FP8->FP8_DIASV
+				_NDIASC  += FP8->FP8_DIASC
+				_NVRDIA  += FP8->FP8_VRDIA
+				DO CASE
+				CASE FP8->FP8_TIPOCA == "D"
+					_NVALBASE += FP8->FP8_VRDIA
+				OTHERWISE
+					_NVALBASE := 0 // removido o campo na 94 frank em 26/02/21 POSICIONE("ST9" , 1 , XFILIAL("ST9")+FP8->FP8_TRANSP , "T9_VRDIA") 
+				ENDCASE
+				FP8->(DBSKIP())
+			ENDDO
+			// CALCULO A COLUNA VR.BASE TOTAL
+			_NVALBASET := (_NDIASV + _NDIASC) * _NVALBASE
+			
+			// NอVEL CUSTOS X PROJETO
+			_NVALLSR   := _NVALPRE := _NVALPRF := _NVALTAP := _NVALTUV := _NVALTUR := _NVALESC := _NVALPED := _NVALINV := _NVALALE := 0
+			_NVALIPT   := _NVALACO := _NVALCET := _NVALSEM := _NVALTVA := _NVALTEL := _NVALOUT := _NVALCON := _NVALADI := _NVALAUX := 0
+			_NVALFRETE := 0
+			FQ8->(DBSETORDER(2))
+			FQ8->(DBSEEK(XFILIAL("FQ8") + ZA7->ZA7_PROJET + ZA7->ZA7_OBRA + ZA7->ZA7_SEQTRA + ZA7->ZA7_SEQCAR ))
+			WHILE FQ8->(!EOF())  .AND.  FQ8->FQ8_PROJET == ZA7->ZA7_PROJET  .AND.  FQ8->FQ8_OBRA == ZA7->ZA7_OBRA  .AND.  FQ8->FQ8_SEQTRA == ZA7->ZA7_SEQTRA  .AND.  FQ8->FQ8_SEQCAR == ZA7->ZA7_SEQCAR 
+				_NVALLSR   += FQ8->FQ8_VALLSR + FQ8->FQ8_VL2LSR
+				_NVALPRE   += FQ8->FQ8_VALPRE + FQ8->FQ8_VL2PRE
+				_NVALPRF   += FQ8->FQ8_VALPRF + FQ8->FQ8_VL2PRF
+				_NVALTAP   += FQ8->FQ8_VALTAP + FQ8->FQ8_VL2TAP
+				_NVALTUV   += FQ8->FQ8_VALTUV + FQ8->FQ8_VL2TUV
+				_NVALTUR   += FQ8->FQ8_VALTUR + FQ8->FQ8_VL2TUR
+				_NVALESC   += FQ8->FQ8_VALESC + FQ8->FQ8_VL2ESC
+				_NVALPED   += FQ8->FQ8_VALPED + FQ8->FQ8_VL2PED
+				_NVALINV   += FQ8->FQ8_VALINV + FQ8->FQ8_VL2INV
+			 //	_NVALALE   += FQ8->FQ8_VALALE + FQ8->FQ8_VL2ALE
+				_NVALIPT   += FQ8->FQ8_VALIPT + FQ8->FQ8_VL2IPT
+				_NVALACO   += FQ8->FQ8_VALACO + FQ8->FQ8_VL2ACO
+				_NVALCET   += FQ8->FQ8_VALCET + FQ8->FQ8_VL2CET
+				_NVALSEM   += FQ8->FQ8_VALSEM + FQ8->FQ8_VL2SEM
+				_NVALTVA   += FQ8->FQ8_VALTVA + FQ8->FQ8_VL2TVA
+				_NVALTEL   += FQ8->FQ8_VALTEL + FQ8->FQ8_VL2TEL
+				_NVALOUT   += FQ8->FQ8_VALOUT + FQ8->FQ8_VL2OUT
+				_NVALCON   += FQ8->FQ8_VALCON + FQ8->FQ8_VL2CON
+				_NVALADI   += FQ8->FQ8_VALADI + FQ8->FQ8_VL2ADI
+				_NVALAUX   += FQ8->FQ8_VALAUX + FQ8->FQ8_VL2AUX
+				_NVALFRETE += FQ8->FQ8_VRFRET
+				FQ8->(DBSKIP())
+			ENDDO
+
+			_NVALCUT := _NVALLSR + _NVALPRE + _NVALPRF + _NVALTAP + _NVALTUV + _NVALTUR + _NVALESC + _NVALPED + _NVALINV + _NVALALE
+			_NVALCUT += _NVALIPT + _NVALACO + _NVALCET + _NVALSEM + _NVALTVA + _NVALTEL + _NVALOUT + _NVALCON + _NVALADI + _NVALAUX
+
+	   		AADD(_ARESUMO , {_CPROJET , _COBRA , _CMUNORI , _CESTORI , _CMUNDES , _CESTDES , _CSEQCAR , _NQUANT   , _CCARGA    , _NCOMP   , _NLARG , ; 
+	   		                 _NALTU   , _NPESO , _CTRANSP , _CTIPOCA , _NDIASV  , _NDIASC  , _NVRDIA  , _NVALBASE , _NVALBASET , _NVALCUT } ) 
+		
+			_NCOL01 += _NVALBASET 
+			_NCOL02 += _NVALCUT 
+			_NCOL03 += _NVALFRETE 
+
+			DBSELECTAREA("TMP")
+			RECLOCK("TMP",.T.)
+			TMP->PROJETO := _CPROJET
+			TMP->COLUNA1 := LEFT(ALLTRIM(_CMUNORI) + "/"   + ALLTRIM(_CESTORI) + SPACE(28) ,28) + " X " + LEFT(ALLTRIM(_CMUNDES) + "/" + ALLTRIM(_CESTDES) + SPACE(28) , 28)
+			TMP->COLUNA2 := STR(_NQUANT,5,0)       + " X " + _CCARGA
+			TMP->COLUNA3 := STR(_NCOMP ,6,0)       + "X"   + STR(_NLARG ,6,0)  + "X" + STR(_NALTU ,6,0) + "X" + STR(_NPESO ,9,3)
+			TMP->COLUNA4 := TRANSFORM(_NVALBASET,"@E 999,999,999,999.99")
+			TMP->COLUNA5 := TRANSFORM(_NVALCUT  ,"@E 999,999,999,999.99")
+			TMP->COLUNA6 := TRANSFORM(_NVALFRETE,"@E 999,999,999,999.99")
+			MSUNLOCK("TMP")
+
+			ZA7->(DBSKIP())
+		ENDDO
+
+		ZA6->(DBSKIP())
+	ENDDO
+
+ENDCASE
+
+RETURN .T.
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+ฑฑษออออออออออัอออออออออออหอออออออัออออออออออออออออออออหออออออัออออออออออออปฑฑ
+ฑฑบFUNO    ณ VALIDPERG บ AUTOR ณ AP5 IDE            บ DATA ณ 07/05/2002 บฑฑ
+ฑฑฬออออออออออุอออออออออออสอออออออฯออออออออออออออออออออสออออออฯออออออออออออนฑฑ
+ฑฑบDESCRIO ณ VERIFICA A EXISTENCIA DAS PERGUNTAS CRIANDO-AS CASO SEJA   บฑฑ
+ฑฑบ          ณ NECESSARIO (CASO NAO EXISTAM).                             บฑฑ
+ฑฑฬออออออออออุออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออนฑฑ
+ฑฑบUSO       ณ PROGRAMA PRINCIPAL                                         บฑฑ
+ฑฑศออออออออออฯออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผฑฑ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿
+/*/
+STATIC FUNCTION VALIDPERG(PPERG)
+
+LOCAL CPERG := PADR(PPERG,10) 
+LOCAL AAREA := GETAREA()
+LOCAL AREGS := {}
+LOCAL I , J
+
+DBSELECTAREA("SX1")
+DBSETORDER(1)
+
+//          GRUPO/ORDEM/PERGUNTA                                                            /VARIAVEL /TIPO/TAMANHO/DECIMAL/PRESEL/GSC/VALID                                           /VAR01     /DEF01          /DEF01          /DEF01          /CNT01/VAR02/DEF02         /DEF02         /DEF02         /CNT02/VAR03/DEF03    /DEF03    /DEF03    /CNT03/VAR04/DEF04                  /DEF04                  /DEF04                  /CNT04/VAR05/DEF05/DEF05/DEF05/CNT05/F3    /PYME/SXG/HELP/PICTURE/IDFIL
+AADD(AREGS,{CPERG,"01" ,STR0035 ,STR0035 ,STR0035 ,"MV_CH1" ,"C" ,22     ,0      ,0     ,"G",""                                              ,"MV_PAR01",""             ,""             ,""             ,""   ,""   ,""            ,""            ,""            ,""   ,""   ,""       ,""       ,""       ,""   ,""   ,""                     ,""                     ,""                     ,""   ,""   ,""   ,""   ,""   ,""   ,"FP0" ,"S"  ,"" ,"" ,""     ,""}) //"NR. DO PROJETO DE ?"###"NR. DO PROJETO DE ?"###"NR. DO PROJETO DE ?"
+AADD(AREGS,{CPERG,"02" ,STR0036,STR0036,STR0036,"MV_CH2" ,"C" ,22     ,0      ,0     ,"G",""                                              ,"MV_PAR02",""             ,""             ,""             ,""   ,""   ,""            ,""            ,""            ,""   ,""   ,""       ,""       ,""       ,""   ,""   ,""                     ,""                     ,""                     ,""   ,""   ,""   ,""   ,""   ,""   ,"FP0" ,"S"  ,"" ,"" ,""     ,""}) //"NR. DO PROJETO ATษ ?"###"NR. DO PROJETO ATษ ?"###"NR. DO PROJETO ATษ ?"
+AADD(AREGS,{CPERG,"03" ,STR0037        ,STR0037        ,STR0037        ,"MV_CH3" ,"D" ,08     ,0      ,0     ,"G",""                                              ,"MV_PAR03",""             ,""             ,""             ,""   ,""   ,""            ,""            ,""            ,""   ,""   ,""       ,""       ,""       ,""   ,""   ,""                     ,""                     ,""                     ,""   ,""   ,""   ,""   ,""   ,""   ,""    ,""  ,"" ,""  ,""     ,""}) //"PERอODO DE ?"###"PERอODO DE ?"###"PERอODO DE ?"
+AADD(AREGS,{CPERG,"04" ,STR0038       ,STR0038       ,STR0038       ,"MV_CH4" ,"D" ,08     ,0      ,0     ,"G",""                                              ,"MV_PAR04",""             ,""             ,""             ,""   ,""   ,""            ,""            ,""            ,""   ,""   ,""       ,""       ,""       ,""   ,""   ,""                     ,""                     ,""                     ,""   ,""   ,""   ,""   ,""   ,""   ,""    ,""  ,"" ,""  ,""     ,""}) //"PERอODO ATษ ?"###"PERอODO ATษ ?"###"PERอODO ATษ ?"
+AADD(AREGS,{CPERG,"05" ,STR0039      ,STR0039      ,STR0039      ,"MV_CH5" ,"C" ,01     ,0      ,0     ,"C","NAOVAZIO() "                                   ,"MV_PAR05","L"            ,""             ,""             ,""   ,""   ,""            ,""            ,""            ,""   ,""   ,""       ,""       ,""       ,""   ,""   ,""                     ,""                     ,""                     ,""   ,""   ,""   ,""   ,""   ,""   ,""    ,"S" ,"" ,""  ,""     ,""}) //"TIPO SERVIวO ?"###"TIPO SERVIวO ?"###"TIPO SERVIวO ?"
+
+FOR I := 1 TO LEN(AREGS)
+	IF !DBSEEK(CPERG+AREGS[I,2])
+		RECLOCK("SX1",.T.)
+		FOR J := 1 TO FCOUNT()
+			IF J <= LEN(AREGS[I])
+                FIELDPUT(J,AREGS[I,J])
+			ENDIF
+        NEXT J 
+		MSUNLOCK()
+	ELSEIF I==5
+		RECLOCK("SX1",.F.)
+		FOR J:=1 TO FCOUNT()
+			IF J <= LEN(AREGS[I])
+                FIELDPUT(J,AREGS[I,J])
+			ENDIF
+		NEXT J 
+		MSUNLOCK()
+	ENDIF
+NEXT I 
+
+RESTAREA(AAREA)
+
+RETURN NIL

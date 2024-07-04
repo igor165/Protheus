@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Налоговые вычеты"
+	#define STR0002 "Просмотр"
+	#define STR0003 "Добавить"
+	#define STR0004 "Редактировать"
+	#define STR0005 "Удалить"
+	#define STR0006 "Поиск"
+	#define STR0007 "Сотрудники"
+	#define STR0008 "Налоговый вычет"
+	#define STR0009 "Ошибка при удалении"
+	#define STR0010 "Вычет уже принят к учету и не может быть удален"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Tax deductions"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Remove"
+		#define STR0006 "Search"
+		#define STR0007 "Staff"
+		#define STR0008 "Tax deduction"
+		#define STR0009 "Error by remove"
+		#define STR0010 "The deduction has already been taken into account and cannot be deleted"
+	#else
+		#define STR0001 "Налоговые вычеты"
+		#define STR0002 "Просмотр"
+		#define STR0003 "Добавить"
+		#define STR0004 "Редактировать"
+		#define STR0005 "Удалить"
+		#define STR0006 "Поиск"
+		#define STR0007 "Сотрудники"
+		#define STR0008 "Налоговый вычет"
+		#define STR0009 "Ошибка при удалении"
+		#define STR0010 "Вычет уже принят к учету и не может быть удален"
+	#endif
+#endif

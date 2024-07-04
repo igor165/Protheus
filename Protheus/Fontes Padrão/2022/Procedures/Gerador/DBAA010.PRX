@@ -1,0 +1,1584 @@
+#Include "Protheus.ch"
+#Include "Colors.ch"
+#INCLUDE "parmtype.ch"
+
+#xTranslate .Loc		=> \[1\]
+#xTranslate .CtrlDate	=> \[2\]
+#xTranslate .Homol		=> \[3\]
+#xTranslate .Desenv		=> \[4\]
+#xTranslate .Versao		=> \[5\]
+#xTranslate .Sigaadv	=> \[6\]
+#xTranslate .Root		=> \[7\]
+#xTranslate .OutPut		=> \[8\]
+#xTranslate .PathServer	=> \[9\]
+#xTranslate .Area		=> \[10\]
+
+Static __ListProcs		:= {}
+Static __ListTools		:= {}
+Static __nIdent			:= 1
+Static __cError			:= ""
+Static __Usuario		:= ""
+Static __cLstPacks		:= ""
+
+/*---------------------------------------------------------------------------
+Função		DBAA010    Autor  Totvs S/A              Data  21/06/10
+Descrição	Gerador de Pacotes de Stored Procedures
+Sintaxe		DBAA010(Nil)
+Parâmetros	Nenhum
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DBAA010()
+Local aCores		:= {}
+Local aBrow			:= {}
+
+/*--------------------------------------------------------------------------
+ IMPORTANTE
+ Quando o array aVersao for atualizado favor copia-lo para o fonte CFGX051
+--------------------------------------------------------------------------*/
+Private aVersao		:= { "P10", "P11", "P12" }
+Private aArea		:= { "N3-MAT", "N3-CONTROL", "N3-PCP"}
+Private aRotina		:= {{ "Pesquisar"				, 	"DB010PES", 0, 1 },;
+                    	{ "Visualizar"				, 	"DB010VIS", 0, 2 },;
+					  	{ "Incluir"					, 	"DB010INC", 0, 3 },;
+						{ "Alterar"					, 	"DB010ALT", 0, 4 },;
+						{ "Excluir"					, 	"DB010EXC", 0, 2 },;
+						{ "Gerar pacote"			, 	"DB010GER", 0, 2 },;
+						{ "Gerar todos os pacotes"	, 	"DB010GER", 0, 2 },;
+						{ "Legenda"					,	"DB010LEG", 0, 1 }}
+
+Private cCadastro	:= "Gerenciador de Stored Procedures"
+
+Private _lnSay		:= 040 // linha da enchoice onde serão emitidos os "@ say"
+Private _lnGet		:= 038 // linha da enchoice onde serão emitidos os "@ GET / COMBOBOX / etc..."
+
+// obtém usuário conectado
+__Usuario:= Substr( cUsuario, 7, 15 )
+
+// Cria e abre arquivos de trabalho
+DB010TRB()
+
+dbSelectArea( "TRB" )
+dbSetOrder(1)
+
+// Preenchimento de array para montagem do mBrowse
+Aadd( aBrow, { "Versão"			,	"VERSAO"	,	"C", 005, 00, "@!"} )
+Aadd( aBrow, { "Área"			, 	"AREA"		,	"C", 010, 00, "@!"} )
+Aadd( aBrow, { "Processo"		,	"PROCESS"	,	"C", 002, 00, "@!"} )
+Aadd( aBrow, { "Rotina ADVPL"	,	"ROTINA"	,	"C", 020, 00, "@!"} )
+Aadd( aBrow, { "Descrição"		,	"DESCRIC"	,	"C", 080, 00, "@!"} )
+Aadd( aBrow, { "Status"			,	"STATUS"	,	"C", 001, 00, "@!"} )
+
+Aadd( aCores, { "STATUS == '1'", "ENABLE" 	} ) // Homologada
+Aadd( aCores, { "STATUS == '2'", "BR_AZUL" 	} ) // Em Homologação
+Aadd( aCores, { "STATUS == '3'", "BR_PRETO"	} ) // Cancelada
+
+mBrowse(,,,,"TRB",aBrow,,,,,aCores )
+
+TRB->( dbCloseArea() )
+ITM->( dbCloseArea() )
+CFG->( dbCloseArea() )
+
+Return ( Nil )
+
+/*---------------------------------------------------------------------------
+Função		DBA010INC  Autor  Totvs S/A              Data  21/06/10
+Descrição	Rotina de inclusão de stored procedures
+Sintaxe		DBA010EXC(cAlias,nrecno, nOpc)
+Parâmetros	Nenhum
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DB010INC( cAlias, nRecno, nOpc )
+Local cCampo	:= ""
+Local nStatus	:= 1
+Local nOpca		:= 0
+Local nX        := 0
+Local aCbx1		:= { "P10", "P11", "P12" }
+Local aCbx2		:= { "N3-MAT","N3-CONTROL"}
+Local aCbx3		:= { "Homologada","Em homologação","Cancelada" }
+Local aButtons	:= {}
+Local aObjects 	:= {}
+Local aPosObj	:= {}
+Local aSize    	:= MsAdvSize()
+Local aInfo    	:= {aSize[1],aSize[2],aSize[3],aSize[4],3,3}
+Local oCbx1
+Local oCbx2
+Local oCbx3
+Local oDlg
+Local oGet
+
+// Variáveis "private" utilizadas no cabeçalho
+Private cVersao		:= Space(005)
+Private cArea		:= Space(010)
+Private cProcess	:= Space(002)
+Private cRotina		:= Space(015)
+Private cDescric	:= Space(080)
+
+// Monta a entrada de dados do arquivo
+Private aHeader[0],nUsado:=0
+
+// Montagem do aHeader
+AADD( aHeader,{ "Procedure"			,"SP"		,"@!",010,00,"",,"C","ITM",""} )
+AADD( aHeader,{ "Descrição"			,"DESCRIC"	,"@!",080,00,"",,"C","ITM",""} )
+AADD( aHeader,{ "Dt.Início"			,"DTINI"	,"@D",008,00,"",,"D","ITM",""} )
+AADD( aHeader,{ "Dt.Término"		,"DTTERM"	,"@D",008,00,"",,"D","ITM",""} )
+AADD( aHeader,{ "Caminho (Path)"	,"PATH"		,"@!",080,00,"",,"C","ITM",""} )
+
+// Montagem do aCols
+PRIVATE aCOLS[1][Len(aHeader)+1]
+
+For nX:=1 to Len(aHeader)
+	cCampo:=Alltrim( aHeader[nX,2] )
+	If aHeader[nX,8] == "C"
+		aCOLS[1][nX] := SPACE( aHeader[nX,4] )
+	ElseIf aHeader[nX,8] == "N"
+		aCOLS[1][nX] := 0
+	ElseIf aHeader[nX,8] == "D"
+		aCOLS[1][nX] := dDataBase
+	ElseIf aHeader[nX,8] == "M"
+		aCOLS[1][nX] := ""
+	Else
+		aCOLS[1][nUsado] := .F.
+	EndIf
+	If aHeader[nX,10] == "V"
+		aCols[1][nX] := CriaVar(cCampo)
+	EndIf
+Next nX
+aCOLS[1][Len(aHeader)+1] := .F.
+
+AADD(aObjects,{100,020,.T.,.F.,.F.})
+AADD(aObjects,{100,100,.T.,.T.,.F.})
+
+aPosObj:=MsObjSize(aInfo,aObjects)
+
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi(cCadastro) OF oMainWnd PIXEL FROM aSize[7],0 TO aSize[6],aSize[5]
+
+	@ _lnSay, 005 Say "Versão"				Of oDlg PIXEL color CLR_HBLUE
+	@ _lnGet, 035 MSCOMBOBOX oCbx1 			VAR cVersao ITEMS aVersao SIZE 35, 12 OF oDlg PIXEL
+
+	@ _lnSay, 090 Say "Área"				Of oDlg PIXEL color CLR_HBLUE
+	@ _lnGet, 110 MSCOMBOBOX oCbx2 			VAR cArea   ITEMS aArea SIZE 50, 12 OF oDlg PIXEL
+
+	@ _lnSay, 180 Say "Processo" 			Of oDlg PIXEL color CLR_HBLUE
+	@ _lnGet, 210 MSGet cProcess 			PICTURE "@!"	Of oDlg PIXEL
+
+	@ _LnSay, 240 Say "Rotina" 				Of oDlg PIXEL
+	@ _lnGet, 270 MSGet cRotina 			PICTURE "@!"	Of oDlg PIXEL
+
+	@ _lnSay, 380 Say "Status"				Of oDlg PIXEL
+	@ _lnGet, 410 MSCOMBOBOX oCbx3			VAR nStatus ITEMS aCbx3 SIZE 60, 12 OF oDlg PIXEL ON CHANGE nStatus := oCbx3:nAt
+
+	@ _lnSay + 17, 005 Say "Descrição"		Of oDlg PIXEL
+	@ _lnGet + 17, 035 MSGet cDescric		PICTURE "@!"	Of oDlg PIXEL
+
+    oCbx3:nWidth:= 121
+    oCbx3:nAt   := nStatus
+
+	oGet := MSGetDados():New(aPosObj[2,1]+20,aPosObj[2,2],aPosObj[2,3],aPosObj[2,4],nOpc,"DB010LinOk","DB010TudOk","",.T.,,,,)
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{||IIf(oGet:TudoOK(),(oDlg:End(),nOpca:=1),nOpca := 0)},{||oDlg:End()},,aButtons )
+
+// Gravacao do processo
+If nOpca == 1
+	Begin Transaction
+		dbSelectArea("TRB")
+		RecLock("TRB",.T.)
+		Replace VERSAO	With cVersao
+		Replace AREA	With cArea
+		Replace PROCESS	With cProcess
+		Replace ROTINA	With cRotina
+		Replace DESCRIC With cDescric
+		Replace STATUS	With AllTrim(STR(nStatus))
+		MsUnLock()
+		For nX := 1  to Len(aCols)
+			If !GDDeleted(nX) // é o mesmo que !(aCols[nX, Len(aCols[nX])])
+				RecLock("ITM",.T.)
+		    	Replace VERSAO	With cVersao
+		    	Replace AREA	With cArea
+		    	Replace PROCESS	With cProcess
+		    	Replace SP		With aCols[nX,1]
+		    	Replace DESCRIC	With aCols[nX,2]
+		    	Replace DTINI	With aCols[nX,3]
+		    	Replace DTTERM	With aCols[nX,4]
+		    	Replace PATH	With aCols[nX,5]
+				MsUnLock()
+			EndIf
+		Next nX
+	End Transaction
+EndIf
+
+Return ( Nil )
+
+/*---------------------------------------------------------------------------
+Função		DBA010ALT  Autor  Totvs S/A              Data  21/06/10
+Descrição	Rotina de alteração de stored procedures
+Sintaxe		DBA010ALT(cAlias,nrecno, nOpc)
+Parâmetros	Nenhum
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DB010ALT( cAlias, nRecno, nOpc )
+Local cCampo	:= ""
+Local nStatus 	:= 1
+Local nOpca		:= 0
+Local nX		:= 0
+Local aCbx1		:= { "P10", "P11", "P12" }
+Local aCbx2		:= { "N3-MAT","N3-CONTROL"}
+Local aCbx3		:= { "Homologada","Em homologação","Cancelada" }
+Local aButtons	:= {}
+Local aObjects	:= {}
+Local aPosObj	:= {}
+Local aSize    	:= MsAdvSize()
+Local aInfo    	:= {aSize[1],aSize[2],aSize[3],aSize[4],3,3}
+Local oCbx1
+Local oCbx2
+Local oCbx3
+Local oDlg
+Local oGet
+
+// Variáveis "private" utilizadas no cabeçalho
+Private cVersao		:= TRB->VERSAO
+Private cArea		:= TRB->AREA
+Private cProcess	:= TRB->PROCESS
+Private cRotina		:= TRB->ROTINA
+Private cDescric	:= TRB->DESCRIC
+
+// Monta a entrada de dados do arquivo
+Private aHeader[0],nUsado:=0
+
+// Montagem do aHeader
+AADD(aHeader,{ "Procedure"		,"SP"		,"@!",010,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Descrição"		,"DESCRIC"	,"@!",080,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Dt.Inicio"		,"DTINI"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Dt.Termino"		,"DTTERM"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Caminho (Path)"	,"PATH"		,"@!",080,00,"",,"C","ITM",""} )
+
+// Montagem do aCols
+Private aCOLS := {}
+
+dbSelectArea("ITM")
+dbSetOrder(1)
+dbSeek(cSeek:=TRB->VERSAO+TRB->AREA+TRB->PROCESS)
+Do While !Eof() .And. VERSAO+AREA+PROCESS == cSeek
+	AADD(aCols,Array(Len(aHeader)+1))
+	For nX:=1 to Len(aHeader)
+		cCampo:=Alltrim(aHeader[nX,2])
+		aCOLS[Len(aCols)][nX] := &cCampo
+	Next nX
+	aCOLS[Len(aCols)][Len(aHeader)+1] := .F.
+	ITM->(dbSkip())
+EndDo
+
+AADD(aObjects,{100,020,.T.,.F.,.F.})
+AADD(aObjects,{100,100,.T.,.T.,.F.})
+
+aPosObj:=MsObjSize(aInfo,aObjects)
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi(cCadastro) OF oMainWnd PIXEL FROM aSize[7],0 TO aSize[6],aSize[5]
+
+	@ _lnSay, 005 Say "Versão"				Of oDlg PIXEL
+	@ _lnGet, 035 MSCOMBOBOX oCbx1 			VAR cVersao ITEMS aVersao SIZE 35, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 090 Say "Área"				Of oDlg PIXEL
+	@ _lnGet, 110 MSCOMBOBOX oCbx2 			VAR cArea   ITEMS aArea SIZE 50, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 180 Say "Processo" 			Of oDlg PIXEL
+	@ _lnGet, 210 MSGet cProcess 			PICTURE "@!"  When .F. Of oDlg PIXEL
+
+	@ _lnSay, 240 Say "Rotina" 				Of oDlg PIXEL
+	@ _lnGet, 270 MSGet cRotina 			PICTURE "@!"	 Of oDlg PIXEL
+
+	@ _lnSay, 400 Say "Status"				Of oDlg PIXEL
+	@ _lnGet, 430 MSCOMBOBOX oCbx3			VAR nStatus ITEMS aCbx3 SIZE 60, 12 OF oDlg PIXEL ON CHANGE nStatus := oCbx3:nAt
+
+	@ _lnSay + 17, 005 Say "Descrição"		Of oDlg PIXEL
+	@ _lnGet + 17, 035 MSGet cDescric		PICTURE "@!"	Of oDlg PIXEL
+
+    oCbx3:nWidth:= 121
+    oCbx3:nAt   := nStatus
+
+	oGet := MSGetDados():New(aPosObj[2,1]+20,aPosObj[2,2],aPosObj[2,3],aPosObj[2,4],nOpc,"DB010LinOk","DB010TudOk","",.T.,/*{"DESCRIC","DTINI","DTTERM","PATH"}*/,,,)
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{||IIf(oGet:TudoOK(),(oDlg:End(),nOpca:=1),nOpca := 0)},{||oDlg:End()},,aButtons )
+
+// Gravacao do processo
+If nOpca == 1
+	Begin Transaction
+		dbSelectArea("TRB")
+		RecLock("TRB",.F.)
+		Replace ROTINA	With cRotina
+		Replace DESCRIC 	With cDescric
+		Replace STATUS	With AllTrim(STR(nStatus))
+		MsUnLock()
+
+		/* ----------------------------------------------------------------------------------------------------------------------
+		 Deletar todos os itens já gravados, pois é possível alterar todas as colunas do aCols, inclusive o nome da procedure.
+		 Sendo assim, todos os itens serão excluídos e depois incluídos de acordo com o aCols novo.
+		---------------------------------------------------------------------------------------------------------------------- */
+		dbSelectArea("ITM")
+		dbSetOrder(1)
+		dbSeek(cSeek)
+		Do While !Eof() .And. VERSAO+AREA+PROCESS == cSeek
+			RecLock("ITM",.F.)
+			dbDelete()
+			MsUnLock()
+			ITM->(dbSkip())
+		EndDo
+
+		// Incluir todos os itens não deletados
+		For nX := 1  to Len(aCols)
+			If !GDDeleted(nX) // é o mesmo que !(aCols[nX, Len(aCols[nX])])
+				RecLock("ITM",.T.)
+		    	Replace VERSAO	With cVersao
+		    	Replace AREA	With cArea
+		    	Replace PROCESS	With cProcess
+		    	Replace SP		With aCols[nX,1]
+		    	Replace DESCRIC	With aCols[nX,2]
+		    	Replace DTINI	With aCols[nX,3]
+		    	Replace DTTERM	With aCols[nX,4]
+		    	Replace PATH	With aCols[nX,5]
+				MsUnLock()
+			EndIf
+		Next nX
+
+	End Transaction
+EndIf
+
+Return ( Nil )
+
+/*---------------------------------------------------------------------------
+Função		DBA010VIS  Autor  Totvs S/A              Data  21/06/10
+Descrição	Rotina de visualização de stored procedures
+Sintaxe		DBA010EXC(cAlias,nrecno, nOpc)
+Parâmetros	Nenhum
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DB010VIS( cAlias, nRecno, nOpc )
+Local cVersao	:= Space(005)
+Local cArea		:= Space(010)
+Local cProcess	:= Space(002)
+Local cProcPai	:= Space(010)
+Local cRotina	:= Space(015)
+Local cDescric	:= Space(080)
+Local cCampo	:= ""
+Local cSeek		:= ""
+Local nStatus 	:= 1
+Local nX		:= 0
+Local aCbx1		:= { "P10", "P11", "P12" }
+Local aCbx2		:= { "N3-MAT","N3-CONTROL"}
+Local aCbx3		:= { "Homologada","Em homologação","Cancelada" }
+Local aObjects 	:= {}
+Local aPosObj	:= {}
+Local aButtons	:= {}
+Local aSize    	:= MsAdvSize()
+Local aInfo    	:= {aSize[1],aSize[2],aSize[3],aSize[4],3,3}
+Local oCbx1
+Local oCbx2
+Local oCbx3
+Local oDlg
+Local oGet
+
+// Monta a entrada de dados do arquivo
+Private aHeader[0],nUsado:=0
+
+// Botão para explodir as dependências de um arquivo/procedure
+Aadd(aButtons, {"PRODUTO",{||DB010Expl(aCols[n,1],aCols[n,5])},"Explode dependências","Explode dependências"})
+
+// Montagem das variáveis do cabeçalho
+cVersao := TRB->VERSAO
+cArea   := TRB->AREA
+cProcess:= TRB->PROCESS
+cRotina := TRB->ROTINA
+nStatus := Val(TRB->STATUS)
+cDescric:= TRB->DESCRIC
+
+// Montagem do aHeader
+AADD(aHeader,{ "Procedure"		,"SP"		,"@!",010,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Descrição"		,"DESCRIC"	,"@!",080,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Dt.Inicio"		,"DTINI"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Dt.Termino"		,"DTTERM"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Caminho (Path)"	,"PATH"		,"@!",080,00,"",,"C","ITM",""} )
+
+// Montagem do aCols
+Private aCOLS := {}
+
+dbSelectArea("ITM")
+dbSetOrder(1)
+dbSeek(cSeek:=TRB->VERSAO+TRB->AREA+TRB->PROCESS)
+Do While !Eof() .And. VERSAO+AREA+PROCESS == cSeek
+	AADD(aCols,Array(Len(aHeader)+1))
+	For nX:=1 to Len(aHeader)
+		cCampo:=Alltrim(aHeader[nX,2])
+		aCOLS[Len(aCols)][nX] := &cCampo
+	Next nX
+	aCOLS[Len(aCols)][Len(aHeader)+1] := .F.
+	ITM->(dbSkip())
+EndDo
+
+AADD(aObjects,{100,020,.T.,.F.,.F.})
+AADD(aObjects,{100,100,.T.,.T.,.F.})
+
+aPosObj:=MsObjSize(aInfo,aObjects)
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi(cCadastro) OF oMainWnd PIXEL FROM aSize[7],0 TO aSize[6],aSize[5]
+
+	@ _lnSay, 005 Say "Versão"				Of oDlg PIXEL
+	@ _lnGet, 035 MSCOMBOBOX oCbx1 			VAR cVersao ITEMS aVersao SIZE 35, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 090 Say "Área"				Of oDlg PIXEL
+	@ _lnGet, 110 MSCOMBOBOX oCbx2 			VAR cArea   ITEMS aArea SIZE 50, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 180 Say "Processo" 			Of oDlg PIXEL
+	@ _lnGet, 210 MSGet cProcess 			PICTURE "@!"  When .F. Of oDlg PIXEL
+
+	@ _lnSay, 240 Say "Rotina" 				Of oDlg PIXEL
+	@ _lnGet, 270 MSGet cRotina 			PICTURE "@!"  When .F. Of oDlg PIXEL
+
+	@ _lnSay, 400 Say "Status"				Of oDlg PIXEL
+	@ _lnGet, 420 MSCOMBOBOX oCbx3			VAR nStatus ITEMS aCbx3  SIZE 60, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay + 17, 005 Say "Descrição"	    Of oDlg PIXEL
+	@ _lnGet + 17, 035 MSGet cDescric		PICTURE "@!"  When .F.  Of oDlg PIXEL
+
+    oCbx3:nWidth:= 121
+
+	oGet := MSGetDados():New(aPosObj[2,1]+20,aPosObj[2,2],aPosObj[2,3],aPosObj[2,4],nOpc,,,"",.T.,,,,)
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{|| , , oDlg:End()},{||oDlg:End()},,aButtons)
+
+Return ( Nil )
+
+/*---------------------------------------------------------------------------
+Função		DBA010EXC  Autor  Totvs S/A              Data  21/06/10
+Descrição	Rotina de exclusão de stored procedures
+Sintaxe		DBA010EXC(cAlias,nrecno, nOpc)
+Parâmetros	Nenhum
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DB010EXC( cAlias, nRecno, nOpc )
+Local cVersao	:= Space(005)
+Local cArea		:= Space(010)
+Local cProcess	:= Space(002)
+Local cProcPai	:= Space(010)
+Local cRotina	:= Space(015)
+Local cDescric	:= Space(080)
+Local cCampo	:= ""
+Local cSeek		:= ""
+Local nOpca		:= 0
+Local nStatus 	:= 1
+Local nX		:= 0
+Local aCbx1		:= { "P10", "P11", "P12" }
+Local aCbx2		:= { "N3-MAT","N3-CONTROL"}
+Local aCbx3		:= { "Homologada","Em homologação","Cancelada" }
+Local aObjects	:= {}
+Local aPosObj	:= {}
+Local aSize    	:= MsAdvSize()
+Local aInfo    	:= {aSize[1],aSize[2],aSize[3],aSize[4],3,3}
+Local oCbx1
+Local oCbx2
+Local oCbx3
+Local oDlg
+Local oGet
+
+// Monta a entrada de dados do arquivo
+Private aHeader[0],nUsado:=0
+
+// Montagem das variáveis do cabeçalho
+cVersao := TRB->VERSAO
+cArea   := TRB->AREA
+cProcess:= TRB->PROCESS
+cRotina := TRB->ROTINA
+nStatus := Val(TRB->STATUS)
+cDescric:= TRB->DESCRIC
+
+// Montagem do aHeader
+AADD(aHeader,{ "Procedure"		,"SP"		,"@!",010,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Descrição"		,"DESCRIC"	,"@!",080,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Dt.Inicio"		,"DTINI"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Dt.Termino"		,"DTTERM"	,"@D",008,00,"",,"D","ITM",""} )
+AADD(aHeader,{ "Caminho (Path)"	,"PATH"		,"@!",080,00,"",,"C","ITM",""} )
+
+// Montagem do aCols
+Private aCOLS := {}
+
+dbSelectArea("ITM")
+dbSetOrder(1)
+dbSeek(cSeek:=TRB->VERSAO+TRB->AREA+TRB->PROCESS)
+Do While !Eof() .And. VERSAO+AREA+PROCESS == cSeek
+	AADD(aCols,Array(Len(aHeader)+1))
+	For nX:=1 to Len(aHeader)
+		cCampo:=Alltrim(aHeader[nX,2])
+		aCOLS[Len(aCols)][nX] := &cCampo
+	Next nX
+	aCOLS[Len(aCols)][Len(aHeader)+1] := .F.
+	ITM->(dbSkip())
+EndDo
+
+AADD(aObjects,{100,020,.T.,.F.,.F.})
+AADD(aObjects,{100,100,.T.,.T.,.F.})
+
+aPosObj:=MsObjSize(aInfo,aObjects)
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi(cCadastro) OF oMainWnd PIXEL FROM aSize[7],0 TO aSize[6],aSize[5]
+
+	@ _lnSay, 005 Say "Versão"				Of oDlg PIXEL
+	@ _lnGet, 035 MSCOMBOBOX oCbx1 			VAR cVersao ITEMS aVersao SIZE 35, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 090 Say "Área"				Of oDlg PIXEL
+	@ _lnGet, 110 MSCOMBOBOX oCbx2 			VAR cArea   ITEMS aArea SIZE 50, 12 When .F. OF oDlg PIXEL
+
+	@ _lnSay, 180 Say "Processo" 			Of oDlg PIXEL
+	@ _lnGet, 210 MSGet cProcess 			PICTURE "@!"  When .F. Of oDlg PIXEL
+
+	@ _lnSay, 240 Say "Rotina" 				Of oDlg PIXEL
+	@ _lnGet, 270 MSGet cRotina 			PICTURE "@!"  When .F. Of oDlg PIXEL
+
+	@ _lnSay, 400 Say "Status"				Of oDlg PIXEL
+	@ _lnGet, 420 MSCOMBOBOX oCbx3			VAR nStatus ITEMS aCbx3  SIZE 60, 12 When .F. OF oDlg PIXEL ON CHANGE nStatus := oCbx3:nAt
+
+	@ _lnSay + 17, 005 Say "Descrição"		Of oDlg PIXEL
+	@ _lnGet + 17, 035 MSGet cDescric		PICTURE "@!"  When .F.  Of oDlg PIXEL
+
+    oCbx3:nWidth:= 121
+    oCbx3:nAt   := nStatus
+
+	oGet := MSGetDados():New(aPosObj[2,1]+20,aPosObj[2,2],aPosObj[2,3],aPosObj[2,4],nOpc,,,"",.T.,,,,)
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{|| nOpca := 1, , oDlg:End()},{||oDlg:End()},,)
+
+If nOpca == 1 .And. Aviso("Processo: "+TRB->PROCESS,"Confirma a exclusão do cadastro?",{"Sim","Não"})==1
+	Begin Transaction
+		dbSelectArea("TRB")
+		dbSetOrder(1)
+		If dbSeek(cVersao+cArea+cProcess)
+			dbSelectArea("ITM")
+			dbSetOrder(1)
+			dbSeek(cSeek := cVersao+cArea+cProcess)
+			Do While !Eof() .And. cSeek == ITM->VERSAO+ITM->AREA+ITM->PROCESS
+				RecLock("ITM",.F.)
+				dbdelete()
+				MsUnLock()
+				dbSkip()
+			EndDo
+			RecLock("TRB",.F.)
+			dbdelete()
+			MsUnLock()
+		EndIf
+	End Transaction
+EndIf
+
+Return ( Nil )
+
+/*---------------------------------------------------------------------------
+Função		DB010Extr Autor  Totvs S/A              Data  21/06/10
+Descrição	Extrai comentarios de um codigo fonte.
+Sintaxe		DB010Extr(Nil)
+Parâmetros	cFileName - Nome do Arquivo
+Retorno		Array[1,1] - PROGRAMA
+			Array[1,2] - DESCRICAO
+			Array[1,3] - ENTRADA
+			Array[1,4] - SAIDA
+			Array[1,5] - VERSAO
+			Array[1,6] - OBS
+			Array[1,7] - RESP
+			Array[1,8] - DATA
+---------------------------------------------------------------------------*/
+Function DB010Extr( cFileName )
+Local lCopy		:= .F.
+Local nEOF		:= 0
+Local nStart	:= 0
+Local nHandle
+Local cBuffer
+Local i
+
+Private aComment	:= {}
+Private cComment	:= ""
+
+If File( cFileName )
+	If (nHandle:= FOpen( cFileName, 0 )) >= 0 // aberto somente para leitura
+
+		nEOF:= FSeek( nHandle, 0, 2 ) // obtém tamanho do arquivo em bytes
+		cBuffer:= Space( nEOF )
+
+		FSeek( nHandle, 0, 0 )
+		FRead( nHandle, @cBuffer, nEOF - 1 )
+
+		FClose( nHandle )
+
+		/* -------------------------------------------------------------------------------------------------------
+			Processando arquivo
+		------------------------------------------------------------------------------------------------------- */
+		cBuffer:= AllTrim(cBuffer)
+
+		nStart	:= At( "/*", cBuffer )
+		nEOF	:= At( "*/", cBuffer )
+		cComment:= Subs( cBuffer, nStart, nEOF - nStart + 1)
+
+		Aadd( aComment, { "PROGRAMA"	, "" })
+		Aadd( aComment, { "DESCRICAO"	, "" })
+		Aadd( aComment, { "ENTRADA"		, {} })
+		Aadd( aComment, { "SAIDA"		, {} })
+		Aadd( aComment, { "VERSAO"		, "" })
+		Aadd( aComment, { "OBS"			, "" })
+		Aadd( aComment, { "RESP"		, "" })
+		Aadd( aComment, { "DATA"		, "" })
+
+		Processa( {|lF| DB010Extr1( @lF )} , "Processando tags", "Obtendo parâmetros", .T. )
+
+	Else
+		ApMsgStop( "Arquivo " + cFileName + " não pode ser aberto." )
+	EndIf
+Else
+	ApMsgStop( "O arquivo " + cFileName + " não foi localizado." )
+EndIf
+
+Return (aComment)
+
+/*---------------------------------------------------------------------------
+Função		DB010Extr1  Autor  Totvs S/A            Data  21/06/10
+Descrição	Preenche array com os itens de documentação
+Sintaxe		DB010Extr1(lFim)
+Parâmetros	lFim - Indica se o processo foi encerrado pelo usuário
+Retorno		Nenhum
+---------------------------------------------------------------------------*/
+Function DB010Extr1( lFim )
+Local aItens	:= {}
+Local nStart	:= 0
+Local nEnd		:= 0
+Local cRow	   	:= ""
+Local aKeys		:= {{"<s>"	, "</s>"	},;
+					{"<d>"	, "</d>"	},;
+					{"<ri>"	, "</ri>" 	},;
+					{"<ro>"	, "</ro>"	},;
+					{"<v>"	, "</v>" 	},;
+					{"<o>"	, "</o>" 	},;
+					{"<r>"	, "</r>" 	},;
+					{"<dt>"	, "</dt>"	}}
+Local i
+Local k
+
+/* ---------------------
+	Obtendo Parâmetros
+--------------------- */
+cBuffer:= ""
+
+For i:= 1 To 8
+	nStart:= At( aKeys[i][1], cComment ) + 2
+	nEnd	:= At( aKeys[i][2], cComment )
+
+	If nEnd == 0
+		Loop
+	EndIf
+
+	// Verifica se deve criar um array com sub-itens. Só criará se estiver recolhendo params de entrada ou saída
+	If Str( i, 1 ) $ "3·4"
+		aItens:= {}
+
+		cBuffer:= Subs( cComment, nStart + 1, nEnd - nStart + 1 )
+
+		For k:= 0 To Len( cBuffer )
+			If Asc( Subs( cBuffer, k, 1)) != 10 .and. Asc( Subs( cBuffer, k, 1)) != 13
+				cRow += Subs( cBuffer, k, 1)
+			ElseIf Asc( Subs( cBuffer, k, 1)) == 10
+				If !Empty(cRow)
+					Aadd( aItens, AllTrim( Stuff(cRow, At( chr(13), cRow), 1, "") ))
+				EndIf
+				cRow:= ""
+			EndIf
+		Next
+
+		If !Empty(aItens)
+			aComment[i][2]:= aItens
+		EndIf
+	Else
+		nStart += Iif(i == 8, 1, 0)
+		cBuffer:= Subs( cComment, nStart + 1, nEnd - nStart - 2 )
+
+		aComment[i][2]:= AllTrim(Stuff(cBuffer, At( chr(13), cBuffer), 1, ""))
+	EndIf
+Next
+
+Return (Nil)
+
+/*---------------------------------------------------------------------------
+Função		GetPath      Autor  Totvs S/A            Data  21/06/10
+Descrição	Extrai o path de uma string passada como parâmetro
+Sintaxe		GetPath(cString)
+Parâmetros	cString - String a ser processada
+Retorno		cString
+---------------------------------------------------------------------------*/
+Static Function GetPath( cString )
+Local i		:= 0
+Local lFile	:= .F.
+Local nSize	:= Len(cString)
+
+For i:= 1 To nSize
+	If !lFile
+		lFile:= Subs( cString, nSize - i  , 1 ) == "."
+	EndIf
+
+	If Subs( cString, nSize - i, 1 ) == "\" .and. lFile
+		cString:= Subs( cString, 1, nSize - i )
+		Exit
+	EndIf
+Next
+
+Return ( cString )
+
+/*---------------------------------------------------------------------------
+Função		GetPFName    Autor  Totvs S/A            Data  21/06/10
+Descrição	Extrai o nome do arquivo de uma string
+Sintaxe		GetFName(cString)
+Parâmetros	cString - String a ser processada
+Retorno		cString
+---------------------------------------------------------------------------*/
+Static Function GetFName( cString )
+Local i		:= 0
+Local lFile	:= .F.
+Local nSize	:= Len(cString)
+
+For i:= 1 To nSize
+	If !lFile
+		lFile:= Subs( cString, nSize - i  , 1 ) == "."
+	EndIf
+
+	If Subs( cString, nSize - i, 1 ) == "\" .and. lFile
+		cString:= Subs( cString, nSize - i + 1, nSize - i + 1 )
+		Exit
+	EndIf
+Next
+
+Return ( cString )
+
+/*---------------------------------------------------------------------------
+Função		DB010GER     Autor  Totvs S/A            Data  21/06/10
+Descrição	Realiza a geração dos pacotes de procedures (.SPS)
+Sintaxe		DB010GER(cAlias,nRecno,nOpc)
+Parâmetros	cAlias - Alias Corrente
+			nRecno - Numero do registro corrente
+			nOpc   - Numero da opcao no aRotina
+Retorno   	Nil
+---------------------------------------------------------------------------*/
+Function DB010GER(cAlias, nRecno, nOpc)
+Local nOpcao	:= 2
+Local aPar		:= { .F., .T., .T., .F., AllTrim(TRB->VERSAO), .T., "", "", .T., AllTrim(TRB->AREA)}
+Local lAll		:= .F.
+Local nBkpRec	:= 0
+Local oDlg
+Local oPanel
+Local oSay
+Local oChk
+Local oGet
+
+PARAMTYPE 0 VAR cAlias		AS CHARACTER
+PARAMTYPE 1 VAR nRecno		AS NUMERIC
+PARAMTYPE 2 VAR nOpc		AS NUMERIC		DEFAULT	6
+
+// Determina se vai gerar todos os pacotes ou somente o pacote do processo posicionado
+lAll := ( nOpc == 7 )
+
+aPar.Root  	:= space(80)
+aPar.OutPut	:= space(80)
+
+// Configura valores padrão
+dbSelectArea("CFG")
+If dbSeek(__Usuario+PADR(TRB->AREA,10)+PADR(TRB->VERSAO,20))
+	aPar.CtrlDate	:= DATAHORA
+	aPar.SigaAdv	:= STARTPATH
+	aPar.Homol		:= PROCHOMOL
+	aPar.Root		:= ROOTPATH
+	aPar.OutPut		:= OUTPUT
+	aPar.Area		:= AREA
+EndIf
+
+dbSelectArea("TRB")
+dbSetOrder(1)
+
+__ListProcs	:= {}
+__nIdent	:= 0
+__cError	:= ""
+__cLstPacks	:= ""
+
+// Exibe janela para configuração dos parâmetros usados na geração dos arquivos
+DEFINE MSDIALOG oDlg TITLE OemToAnsi("Parâmetros para geração") From 0,0 To 300,587 OF oMainWnd PIXEL
+
+	tButton():New(04,260,"Gerar"   ,oDlg,{||nOpcao:= 1, oDlg:End()},32,14,,,,.T.)
+	tButton():New(20,260,"Cancelar",oDlg,{||nOpcao:= 2, oDlg:End()},32,14,,,,.T.)
+
+	oPanel:= tPanel():New(04,04,"",oDlg,,,,,,250,125, .T.)
+	oPanel:Show()
+
+	If !lAll
+		oSay:= tSay():New(04,04,{||"PACOTE: " + AllTrim(TRB->VERSAO)+"_"+AllTrim(TRB->PROCESS)+".SPS --> PROCESSO: " + TRB->PROCESS },oPanel,,,,,,.T.,CLR_HRED,,240,14)
+	Else
+		oSay:= tSay():New(04,04,{||"GERAÇÃO DE TODOS OS PACOTES" },oPanel,,,,,,.T.,CLR_HRED,,240,14)
+	EndIf
+	oSay:lTransparent:= .T.
+
+	tPanel():New(15,04,"",oPanel,,,,,,242,1, .T.)
+
+	oSay:= tSay():New(17,004,{||"Selecione as opções desejadas"},oPanel,,,,,,.T.,CLR_RED,,240,14)
+	oSay:lTransparent:= .T.
+
+	tCheckBox():New(26,004,"Procedures em Homologação" , {|u|if( pcount()>0,aPar.Homol     := u, aPar.Homol     )} , oPanel,100,14,,,,,,,,.T.)
+	tCheckBox():New(38,004,"Gerar arquivo no StartPath", {|u|if( pcount()>0,aPar.SigaAdv   := u, aPar.SigaAdv   )} , oPanel,100,14,,,,,,,,.T.)
+	tCheckBox():New(50,004,"Controlar Data e Hora"     , {|u|if( pcount()>0,aPar.CtrlDate  := u, aPar.CtrlDate  )} , oPanel,100,14,,,,,,,,.T.)
+
+	tPanel():New(64,04,"",oPanel,,,,,,242,1, .T.)
+
+	oSay:= tSay():New(68,004,{||"Root (Localização das Procedures de Processos)"},oPanel,,,,,,.T.,CLR_RED,,240,14)
+	oSay:lTransparent:= .T.
+
+	oGet:= TGet():New(80, 004, {|u| if(PCount()>0,aPar.Root:=u,aPar.Root)}, oPanel, 242, 10,"@!",,,,,,,.T.,,,,,,,,,,"aPar.Root" )
+
+	oSay:= tSay():New(98,004,{||"OutPut (Local onde será gerado o arquivo .SPS )"},oPanel,,,,,,.T.,CLR_RED,,240,14)
+	oSay:lTransparent:= .T.
+
+	oGet:= TGet():New(110, 004, {|u| if(PCount()>0,aPar.OutPut:=u,aPar.OutPut)}, oPanel, 242, 10,"@!",,,,,,,.T.,,,,,,,,,,"aPar.OutPut" )
+
+ACTIVATE MSDIALOG oDlg CENTER
+
+If nOpcao == 1
+	If !aPar.SigaAdv .And. Empty(AllTrim(aPar.OutPut))
+		ApMsgStop("Caminho para geração dos arquivos .SPS inválido" )
+		nOpcao:= 2
+	EndIf
+EndIf
+
+If nOpcao == 2
+	Return (Nil)
+EndIf
+
+// Salva configurações do arquivo "CFG"
+dbSelectArea("CFG")
+RecLock("CFG", !dbSeek(__Usuario + PADR(TRB->AREA,10)+PADR(TRB->VERSAO,20)))
+USUARIO		:= __Usuario
+VERSAO		:= TRB->VERSAO
+DTULTCRI	:= Date()
+HRULTCRI	:= Time()
+PROCHOMOL	:= aPar.Homol
+DATAHORA	:= aPar.CtrlDate
+STARTPATH	:= aPar.SigaAdv
+ROOTPATH	:= aPar.Root
+OUTPUT		:= aPar.OutPut
+AREA		:= aPar.Area
+MsUnlock()
+
+If !lAll
+
+	// Gera o pacote somente do processo posicionado
+	dbSelectArea("TRB")
+	Processa( {|lF| DB010Dep(@lF, aPar, nRecno, nOpc)} , "Processando dependências", "Obtendo parâmetros", .T. )
+
+Else
+
+	// Gera o pacote de todos os processos
+	dbSelectArea("TRB")
+	nBkpRec := TRB->(Recno())
+	dbGoTop()
+	nRecno := TRB->(Recno())
+	Do While !(TRB->(EOF()))
+
+		// Zerar variáveis estáticas para não interferir na geração dos pacotes
+		__ListProcs	:= {}
+
+		// Gerar o pacote para o processo atual
+		Processa( {|lF| DB010Dep(@lF, aPar, nRecno, nOpc)} , "Processando dependências", "Obtendo parâmetros", .T. )
+		TRB->(dbSkip())
+		nRecno := TRB->(Recno())
+
+	EndDo
+	TRB->(dbGoTo(nBkpRec))
+
+	If !Empty(__cLstPacks)
+
+		ApMsgInfo("Pacotes gerados com sucesso: " + CRLF + CRLF +  __cLstPacks)
+
+	EndIf
+
+EndIf
+
+Return (Nil)
+
+/*---------------------------------------------------------------------------
+Função		DB010Dep     Autor  Totvs S/A            Data  21/06/10
+Descrição	Processa as dependências e ordena as stored procedures
+Sintaxe		DB010Dep(lF,aPar,nRecno,nOpc)
+Parâmetros	lF     - Informa se o processo foi encerrado pelo usuário
+			aPar   - Parâmetros de configuração
+			nRecno - Número do registro corrente
+			nOpc   - Número da opção dentro do aRotina
+Retorno		Nil
+---------------------------------------------------------------------------*/
+Function DB010Dep(lF, aPar, nRecno, nOpc)
+Local nCount	:= 0
+Local cVersao	:= Space(05)
+Local cArea		:= Space(10)
+Local cProcess	:= Space(02)
+
+If Empty(aPar.Root)
+	ApMsgStop("Root não pode ser vazio, informe um caminho.")
+EndIf
+
+aPar.Root:= AllTrim(aPar.Root)
+
+If Subs( aPar.Root, Len(aPar.Root), 1) != "\"
+	aPar.Root += "\"
+EndIf
+
+// Validação para o status do processo
+If TRB->STATUS == "2" .And. !aPar.Homol
+	Aviso("Processo Em Homologação","Este processo está em fase de homologação e seu pacote não será gerado.",{"Ok"})
+	Return
+ElseIf TRB->STATUS == "3"
+	Aviso("Processo Cancelado","Este processo está cancelado e seu pacote não será gerado.",{"Ok"})
+	Return
+EndIf
+
+cArea		:= TRB->AREA
+cVersao		:= TRB->VERSAO
+cProcess	:= TRB->PROCESS
+
+dbSelectArea("ITM")
+dbSetOrder(1)
+dbSeek( cVersao+cArea+cProcess )
+
+ProcRegua( nCount -= Recno())
+
+Do While !(ITM->(Eof())) .And. ITM->VERSAO+ITM->AREA+ITM->PROCESS == cVersao+cArea+cProcess
+
+	IncProc( "Procurando dependências de " + SP )
+
+	__nIdent:= 1
+
+	DB010PFill( aPar.Root + AllTrim(SP)+".SQL", aPar)
+
+	ITM->(dbSkip())
+
+EndDo
+
+dbGoTo( nRecno )
+
+If !Empty(__cError)
+	ApMsgStop(__cError)
+	Return (Nil)
+EndIf
+
+// Criando arquivo SPS
+Processa( {|lF| DB010SPS(@lF, aPar, nOpc)} , "Criando arquivo .SPS", "Obtendo parâmetros", .T. )
+
+Return (nil)
+
+/*---------------------------------------------------------------------------
+Função		DB010PFill   Autor  Totvs S/A            Data  21/06/10
+Descrição	Preenche a lista de procedures e suas ordens de dependencia
+Sintaxe		DB010PFill(cFileName,aPar)
+Parâmetros	cFileName - Nome do arquivo SPS
+			aPar      - Parâmetros de configuração
+Retorno    Nil
+---------------------------------------------------------------------------*/
+Function DB010PFill(cFileName, aPar)
+Local cFile		:= Upper(GetFName(cFileName))
+Local cProc		:= ""
+Local cLoc 		:= ""
+Local cPoint	:= ""
+Local cBuffer	:= ""
+Local nToken	:= 0
+Local nHandle	:= 0
+Local nPos		:= 0
+Local nEOF
+Local nLine
+
+If Left( cFile, 2 ) = "MS"
+	Return
+EndIf
+
+cFileName:= Upper(cFileName)
+
+If !Empty(__ListProcs) .And. (nLine:= Ascan( __ListProcs, {|aList| aList[1] == cFileName})) > 0
+	If __ListProcs[nLine][2] < __nIdent
+		__ListProcs[nLine][2]:= __nIdent
+	EndIf
+Else
+	Aadd(__ListProcs, {cFileName, __nIdent})
+EndIf
+
+If File(cFileName)
+
+	If (nHandle:= FOpen( cFileName, 0 )) >= 0 // aberto somente para leitura
+
+		nEOF:= FSeek( nHandle, 0, 2 ) // obtém tamanho do arquivo em bytes
+		cBuffer:= Space( nEOF )
+
+		FSeek( nHandle, 0, 0 )
+		FRead( nHandle, @cBuffer, nEOF - 1 )
+
+		FClose( nHandle )
+
+		cBuffer:= Upper( cBuffer )
+
+		While (nToken:= At("EXEC ", cBuffer )) > 0
+
+			cBuffer:= Subs( cBuffer, nToken + 5, Len(cBuffer) - nToken + 5)
+
+			//
+			// Obtém o próximo nome de arquivo
+			//
+			cFile:= GetNextTok( AllTrim(cBuffer) )
+
+			If At( "_##", cFile ) <= 0
+				Loop
+			Else
+				cFile  := Left( cFile, At( "_##", cFile )-1)
+
+				cProc  := aPar.Root + cFile + ".SQL"
+
+				cPoint := aPar.Root + "PontosDeEntrada\" + cFile + ".SQL"
+
+				//Verifica se o arquivo existe
+				If File( cProc )
+					cFile:= cProc
+				ElseIf File( cLoc )
+					cFile:= cLoc
+				ElseIf File( cPoint )
+					cFile:= cPoint
+				Else
+					__cError += "Arquivo " + cFile + " " + " não localizado." +Chr(13)+Chr(10)
+					Exit
+				EndIf
+
+				++__nIdent
+
+				DB010PFill( cFile, aPar)
+
+				--__nIdent
+			EndIf
+		End While
+	EndIf
+Else
+	__cError += "Arquivo " + cFileName + " não pôde ser aberto." +Chr(13)+Chr(10)
+EndIf
+
+Return (Nil)
+
+/*---------------------------------------------------------------------------
+Função		GetNextTok   Autor  Totvs S/A            Data  21/06/10
+Descrição	Obtém o primeiro caracter do token da frase passada como
+			parâmetro. A função assume que o separador de tokens é um espaço.
+Sintaxe		GetNextTok(cString)
+Parâmetros	cFileName - Nome do arquivo SPS
+Retorno		cString   - String processada
+---------------------------------------------------------------------------*/
+Static Function GetNextTok( cString )
+Return ( Subs( cString, 1, At( " ", cString )) )
+
+/*---------------------------------------------------------------------------
+Função		DB010SPS     Autor  Totvs S/A            Data  21/06/10
+Descrição	Cria o arquivo .SPS
+Sintaxe		DB010SPS(lF,aPar)
+Parâmetros	lF   - Informa se o processo foi encerrado pelo usuário
+			aPar - Parâmetros de configuração
+---------------------------------------------------------------------------*/
+/*/{Protheus.doc} DB010SPS
+//TODO Descrição auto-gerada.
+@author emerson.oliveira
+@since 03/03/2017
+@version undefined
+@param lF, logical, description
+@param aPar, array, description
+@param nOpc, numeric, description
+@type function
+/*/
+Function DB010SPS(lF, aPar, nOpc)
+Local cTextFile		:= "TOOLS" + chr(13) + chr(10)
+Local cBuffer		:= ""
+Local cProcName		:= ""
+Local cTime			:= ""
+Local fName			:= ""
+Local cAssinat		:= ""
+Local aFile			:= {}
+Local nPos			:= 0
+Local nAT			:= 0
+Local nExtSize		:= 0
+Local aTools		:= {}
+Local aExt			:= {"*.ora", "*.db2", "*.sq6", "*.sq7", "*.syb", "*.ifx", "*.ctr", "*.ope", "*.mys", "*.pos"}
+Local nChar			:= 0
+Local nPosIni		:= 0
+Local nPosFim		:= 0
+Local nPosPE		:= 0
+Local aPtoEntrada	:= {{"MA330CP"    ,"19"},;
+						{"M330INB2CP" ,"19"},;
+						{"M330INC2CP" ,"19"},;
+						{"MA280INB9CP","17"},;
+						{"MA280INC2CP","17"},;
+						{"M300SB8"    ,"18"},;
+						{"M330CMU"    ,"19"},;
+						{"MA330AL"    ,"19"},;
+						{"MA280CON"   ,"17"},;
+						{"MA330SEQ"   ,"19"},;
+						{"ATFCONTA"   ,"11"},;
+						{"ATFSINAL"   ,"11"},;
+						{"ATFTIPO"    ,"11"},;
+						{"ATFGRSLD"   ,"11"},;
+						{"A30EMBRA"   ,"11"},;
+						{"AF050CAL"   ,"11"},;
+						{"M280SB9"    ,"17"}}
+Local nHandle
+Local nEOF
+Local i
+Local k
+Local y
+Local nX
+
+// Processa funções de compatibilidade entre bancos (tools)
+For y:= 1 To Len( aExt )
+
+	aTools:= Directory( GetPath(__ListProcs[1][1])+"TOOLS\" + aExt[y] )
+
+	// Ordenando Tools
+	For i:= 1 To Len(aTools)
+		If Upper(aTools[i][1]) == "MSSTRZERO" + Upper(Right( aExt[y], 4 ))
+   			aAdd( aTools[i], 1 )
+		Else
+   			aAdd( aTools[i], 9 )
+		EndIf
+	Next
+
+	aTools:= aSort( aTools,,, {|x, y| x[6] < y[6]} )
+
+	ProcRegua( Len(aTools))
+
+	For i:= 1 To Len(aTools)
+   		If lF
+   			ApMsgInfo( "Processo cancelado pelo usuário." )
+		   	Return (.F.)
+   		EndIf
+
+		// Obtém nome da procedure
+		cProcName:= aTools[i][1]
+
+		/* ------------------------------------------------------------------------------------------
+		  *** IMPORTANTE ***
+		  Se algum arquivo possuir mais que 10 posições no nome (sem a extensão), será ignorado
+		------------------------------------------------------------------------------------------ */
+		If Len(cProcName) <= 14
+			IncProc( "Encriptando arquivo " + cProcName )
+
+			If (nHandle:= FOpen( GetPath(__ListProcs[1][1])+"TOOLS\" + cProcName )) >= 0 // aberto somente para leitura
+
+				nEOF:= FSeek( nHandle, 0, 2 ) // obtém tamanho do arquivo em bytes
+				cBuffer:= Space( nEOF )
+
+				FSeek( nHandle, 0, 0 )
+				FRead( nHandle, @cBuffer, nEOF )
+
+				FClose( nHandle )
+
+				cBuffer := AllTrim( cBuffer )
+
+				For nX := 1 To Len(aTools)
+
+					// Adiciona o código do processo ao nome da stored procedure
+					cBuffer	:= StrTran( cBuffer,Left( aTools[nX][1], At( ".", aTools[nX][1] )-1 ),Left( aTools[nX][1], At( ".", aTools[nX][1] )-1 )+"_"+AllTrim(TRB->PROCESS)+"_##")
+
+				Next nX
+
+				nAT 		:= At( ".", cProcName )
+				cTextFile	+= "INICIO" + Left( cProcName, nAT - 1 ) + "_" + AllTrim(Upper(TRB->PROCESS))
+				nExtSize	:= Len(cProcName) - nAT // define o tamanho da extensao do arquivo
+
+				// Controle de Data/Hora
+				If aPar.CtrlDate
+					cTime:= aTools[i][4]
+					cTime:= left( cTime, 2 ) + Subs( cTime, 4, 2 ) + Right( cTime, 2 )
+					cTextFile += "#"+DTOS(aTools[i][3]) + cTime
+				EndIf
+
+				cTextFile += "#" + Lower(Right(cProcName, nExtSize)) + Chr(13) + Chr(10)
+
+				For k:= 1 To Len( cBuffer )
+					nChar:= asc( SubStr( cBuffer, k, 1 ))
+					If nChar != 10 .and. nChar != 13
+						cTextFile += chr(nChar + 20 )
+					Else
+						cTextFile += SubStr( cBuffer, k, 1)
+					EndIf
+				Next
+
+				If Right( cTextFile, 1 ) != Chr(10)
+					cTextFile += Chr(13) + Chr(10)
+				EndIf
+
+				cTextFile += "FIM" + Left(cProcName, At( ".", cProcName ) -1) + "_" + AllTrim(Upper(TRB->PROCESS)) + Chr(13) + Chr(10)
+
+			EndIf
+
+		EndIf
+
+	Next
+
+Next
+cTextFile += "FIMTOOLS" + chr(13) + chr(10)
+
+// Ordena array conforme grau de dependência
+__ListProcs := aSort( __ListProcs,,, {|x, y| x[2] > y[2]} )
+
+ProcRegua(Len( __ListProcs ))
+
+For i:= 1 To Len( __ListProcs )
+
+	If lF
+		ApMsgInfo( "Processo cancelado pelo usuário." )
+		Return
+	EndIf
+
+	// obtém nome da procedure
+	cProcName:= Left(GetFName(__ListProcs[i][1]), At(".",GetFName(__ListProcs[i][1])) -1 )
+
+	If Right( cProcName, 1 ) == "B" .and. cProcName <> 'MAT038B'
+		cProcName:= Left( cProcName, Len( cProcName)	- 1) + "L"
+	EndIf
+
+	IncProc( "Encriptando: " + cProcName )
+
+	// obtém atributos do arquivo
+	aFile:= Directory( __ListProcs[i][1] )
+
+	If (nHandle:= FOpen( __ListProcs[i][1], 0 )) >= 0 // aberto somente para leitura
+
+		nEOF:= FSeek( nHandle, 0, 2 ) // obtém tamanho do arquivo em bytes
+		cBuffer:= Space( nEOF )
+
+		FSeek( nHandle, 0, 0 )
+		FRead( nHandle, @cBuffer, nEOF )
+		FClose( nHandle )
+
+		cBuffer := AllTrim( cBuffer )
+
+		// Adiciona o código do processo ao nome da stored procedure (somente se não for um PE -> ponto de entrada)
+		If (nPosPE := aScan( aPtoEntrada, {|x| Upper(x[1]) == Upper(cProcName)})) == 0
+			cBuffer	:= StrTran( cBuffer, "_##", "_"+AllTrim(TRB->PROCESS)+"_##")
+		EndIf
+
+		// Tratar os PE's que são chamados de dentro da procedure que está sendo encriptada
+		For nX := 1 to Len(aPtoEntrada)
+			If aPtoEntrada[nX,2] == AllTrim(TRB->PROCESS)
+				cBuffer := StrTran( cBuffer, aPtoEntrada[nX,1]+"_"+AllTrim(TRB->PROCESS)+"_", aPtoEntrada[nX,1]+"_")
+			EndIf
+		Next nX
+
+		// obtém a assinatura da procedure
+		cTextFile += "INICIO" + cProcName + IIF(nPosPE == 0, "_" + AllTrim(Upper(TRB->PROCESS)), "")
+
+		// Controle de Data/Hora
+		If aPar.CtrlDate
+			cTime:= aFile[1][4]
+			cTime:= left( cTime, 2 ) + Subs( cTime, 4, 2 ) + Right( cTime, 2 )
+			cTextFile += "#"+DTOS(aFile[1][3]) + cTime
+		EndIf
+
+		// Controle de assinaturas
+		nPosIni := At( "<A>", Upper( cBuffer ) )
+		nPosFim := At( "</A>", Upper( cBuffer ) )
+		cAssinat:= AllTrim(Substr( cBuffer, nPosIni+4, (nPosFim-1)-(nPosIni+4) ))
+
+		cTextFile += "!" + cAssinat + Chr(13) + Chr(10)
+
+		For k:= 1 To Len( cBuffer )
+			If asc(SubStr(cBuffer, k, 1)) != 10 .and. asc(SubStr(cBuffer,k,1)) != 13
+				cTextFile += chr(ASC(SubStr(cBuffer,k,1)) + 20 )
+			Else
+				cTextFile += SubStr(cBuffer,k,1)
+			EndIf
+		Next
+
+		If Right( cTextFile, 1 ) != Chr(10)
+			cTextFile += Chr(13) + Chr(10)
+		EndIf
+
+		cTextFile += "FIM" + cProcName  + IIF(nPosPE == 0, "_" + AllTrim(Upper(TRB->PROCESS)), " ") + Chr(13) + Chr(10)
+	EndIf
+Next
+
+// Criando o arquivo .SPS
+Do Case
+	Case aPar.Versao == "P10"
+		aPar.Versao := "P10"
+	Case aPar.Versao == "P11"
+		aPar.Versao := "P11"
+	Case aPar.Versao == "P12"
+		aPar.Versao := "P12"
+EndCase
+
+fName := aPar.Versao+"_"+AllTrim(TRB->PROCESS)+".SPS"
+aPar.OutPut := AllTrim(aPar.OutPut)
+
+If !aPar.Sigaadv
+	fName:= If( Right(aPar.OutPut, 1 ) == "\", aPar.OutPut, aPar.OutPut + "\") + fName
+EndIf
+
+If (nHandle:= FCreate(fName , 0)) > 0
+	FWrite( nHandle, aPar.Versao + chr(13) + chr(10))
+	FWrite( nHandle, cTextFile )
+	FClose( nHandle )
+
+	If nOpc == 6
+
+		Aviso("Pacote gerado com sucesso","Localização do arquivo: "+fName,{"OK"})
+
+	ElseIf nOpc == 7
+
+		__cLstPacks += fName + chr(13) + chr(10)
+
+	EndIf
+
+Else
+	ApMsgStop( "Erro ao criar arquivo .SPS. I/O: " + Str(FError()))
+EndIf
+
+Return (Nil)
+
+/*---------------------------------------------------------------------------
+Função		DB010LEG     Autor  Totvs S/A            Data  21/06/10
+Descrição	Exibe Legendas
+Sintaxe		DB010LEG(Nil)
+---------------------------------------------------------------------------*/
+Function DB010LEG()
+Local aLegenda := {	{"ENABLE"  , "Homologada"		},;
+					{"DISABLE" , "Em Homologação"	},;
+					{"BR_PRETO", "Cancelada"		}}
+
+BrwLegenda(cCadastro, "Legenda" ,aLegenda)
+
+Return .T.
+
+/*---------------------------------------------------------------------------
+Função		DB010TRB     Autor  Totvs S/A            Data  21/06/10
+Descrição	Cria e abre os arquivos de trabalho (ctree files)
+Sintaxe		DB010TRB(Nil)
+---------------------------------------------------------------------------*/
+Function DB010TRB()
+Local aStru1	:= {}
+Local aStru2	:= {}
+Local aStru3	:= {}
+
+If !File("PROC\CABEC.DTC")
+	Aadd( aStru1, { "VERSAO",  "C", 005, 00 })
+	Aadd( aStru1, { "AREA",    "C", 010, 00 })
+	Aadd( aStru1, { "PROCESS", "C", 002, 00 })
+	Aadd( aStru1, { "ROTINA",  "C", 020, 00 })
+	Aadd( aStru1, { "DESCRIC", "C", 080, 00 })
+	Aadd( aStru1, { "STATUS",  "C", 001, 00 })
+	dbCreate( "PROC\CABEC.DTC", aStru1, "CTREECDX" )
+EndIf
+
+dbUseArea( .T.,"CTREECDX", "PROC\CABEC", "TRB" )
+If !File("PROC\CABEC.CDX")
+	OrdCreate("PROC\CABEC.CDX", "VERSAO"	,"TRB->VERSAO+TRB->AREA+TRB->PROCESS"	, {||TRB->VERSAO+TRB->AREA+TRB->PROCESS} )
+	OrdCreate("PROC\CABEC.CDX", "PROCESS"	,"TRB->VERSAO+TRB->PROCESS"				, {||TRB->VERSAO+TRB->PROCESS} )
+Else
+	dbSetIndex("PROC\CABEC.CDX")
+EndIf
+
+If !File("PROC\ITENS.DTC")
+	Aadd( aStru2, { "VERSAO"	,"C", 005, 00 })
+	Aadd( aStru2, { "AREA"		,"C", 010, 00 })
+	Aadd( aStru2, { "PROCESS"	,"C", 002, 00 })
+	Aadd( aStru2, { "SP"		,"C", 010, 00 })
+	Aadd( aStru2, { "DESCRIC"	,"C", 080, 00 })
+	Aadd( aStru2, { "DTINI"		,"D", 008, 00 })
+	Aadd( aStru2, { "DTTERM"	,"D", 008, 00 })
+	Aadd( aStru2, { "PATH"		,"C", 080, 00 })
+	dbCreate( "PROC\ITENS.DTC", aStru2, "CTREECDX" )
+EndIf
+
+dbUseArea( .T.,"CTREECDX", "PROC\ITENS", "ITM" )
+If !File("PROC\ITENS.CDX")
+	OrdCreate("PROC\ITENS.CDX", "VERSAO","ITM->VERSAO+ITM->AREA+ITM->PROCESS+ITM->SP" , {||ITM->VERSAO+ITM->AREA+ITM->PROCESS+ITM->SP} )
+Else
+	dbSetIndex("PROC\ITENS.CDX")
+EndIf
+
+If !File("PROC\CONFIG.DTC")
+	Aadd( aStru3, { "USUARIO"	, "C", 015, 00 })
+	Aadd( aStru3, { "AREA"		, "C", 010, 00 })
+	Aadd( aStru3, { "VERSAO"	, "C", 005, 00 })
+	Aadd( aStru3, { "DTULTCRI"	, "D", 008, 00 })
+	Aadd( aStru3, { "HRULTCRI"	, "C", 008, 00 })
+	Aadd( aStru3, { "DATAHORA"	, "L", 001, 00 })
+	Aadd( aStru3, { "STARTPATH"	, "L", 001, 00 })
+	Aadd( aStru3, { "PROCHOMOL"	, "L", 001, 00 })
+	Aadd( aStru3, { "ROOTPATH"	, "C", 254, 00 })
+	Aadd( aStru3, { "OUTPUT"	, "C", 254, 00 })
+	Aadd( aStru3, { "PATHSERVER", "L", 001, 00 })
+	dbCreate( "PROC\CONFIG.DTC", aStru3, "CTREECDX" )
+EndIf
+
+dbUseArea( .T.,"CTREECDX", "PROC\CONFIG", "CFG" )
+If !File("PROC\CONFIG.CDX")
+	ordCreate("PROC\CONFIG.CDX", "USUARIO", "CFG->USUARIO+CFG->AREA+CFG->VERSAO", {|| CFG->USUARIO + CFG->AREA + CFG->VERSAO} )
+Else
+	dbSetIndex("PROC\CONFIG.CDX")
+EndIf
+
+Return (Nil)
+
+/*---------------------------------------------------------------------------
+Função		DB010LinOk   Autor  Totvs S/A            Data  21/06/10
+Descrição	Validação para LinOk
+Sintaxe		DB010LinOk(Nil)
+---------------------------------------------------------------------------*/
+Function DB010LinOk()
+Local aAreaAnt	:= GetArea()
+Local lRet		:= .T.
+Local nX		:= 0
+
+If !GDdeleted(n)
+	For nX = 1 To Len(aHeader)
+		lContinua := .T.
+		If lRet .And. Empty(aCols[n][nX]) .And. Trim(aHeader[nx][2]) == "SP"
+			Aviso("Campo Procedure","Informe o nome da Stored Procedure.",{"Ok"})
+			lRet      := .F.
+			Exit
+		ElseIf lRet .And. Empty(aCols[n][nX]) .And. Trim(aHeader[nx][2]) == "DESCRIC"
+			Aviso("Campo Descrição","Informe a descrição da Stored Procedure.",{"Ok"})
+			lRet      := .F.
+			Exit
+		ElseIf lRet .And. Empty(aCols[n][nX]) .And. Trim(aHeader[nx][2]) == "PATH"
+			Aviso("Campo Caminho","Informe a localização da Stored Procedure.",{"Ok"})
+			lRet      := .F.
+			Exit
+		ElseIf lRet .And. !Empty(aCols[n][nX]) .And. Trim(aHeader[nx][2]) == "PATH"
+			If Substr(aCols[n][nX], Len(Trim(aCols[n][nX])), 1) <> "\"
+				aCols[n][nX] := Trim(aCols[n][nX])+"\"
+			EndIf
+		EndIf
+	Next
+	If lRet
+		For nX := 1 To Len(aCols)
+			If (!(aCols[nX, Len(aCols[nX])])) .And. (N # nX) .And. (aCols[nX][1] == aCols[n][1])
+				Aviso("Procedure já cadastrada","A Stored Procedure informada já está cadastrada em linhas anteriores.",{"Ok"})
+				lRet      := .F.
+				Exit
+			EndIf
+		Next nX
+	EndIf
+EndIf
+RestArea(aAreaAnt)
+Return lRet
+
+/*---------------------------------------------------------------------------
+Função		DB010TudOk   Autor  Totvs S/A            Data  21/06/10
+Descrição	Validacao para LinOk
+Sintaxe		DB010TudOk(Nil)
+---------------------------------------------------------------------------*/
+Function DB010TudOk()
+Local aAreaAnt	:= GetArea()
+Local aAreaTRB	:= TRB->(GetArea())
+Local lRet 		:= .T.
+
+If lRet .And. Empty(cProcess)
+	Aviso("Campo Processo","Informe o código do processo.",{"Ok"})
+	lRet := .F.
+ElseIf lRet .And. Empty(cRotina)
+	Aviso("Campo Rotina","Informe o nome da rotina ADVPL.",{"Ok"})
+	lRet := .F.
+ElseIf lRet .And. Empty(cDescric)
+	Aviso("Campo Descrição","Informe a descrição da rotina ADVPL.",{"Ok"})
+	lRet := .F.
+EndIf
+
+If lRet .And. !ALTERA
+	dbSelectArea("TRB")
+	dbSetOrder(2)
+	If dbSeek(PadR(cVersao,5)+PadR(cProcess,2))
+		Aviso("Campo Processo","O Processo informado já está cadatrado na base de dados. Favor informar um novo código de processo.",{"Ok"})
+		lRet := .F.
+	EndIf
+EndIf
+
+RestArea(aAreaAnt)
+RestArea(aAreaTRB)
+Return lRet
+
+/*---------------------------------------------------------------------------
+Função		DB010Expl    Autor  Totvs S/A            Data  21/06/10
+Descrição	Explode as dependências
+Sintaxe		DB010Expl(cProcedure,cPath)
+---------------------------------------------------------------------------*/
+Function DB010Expl(cProcedure,cPath)
+Local aAreaAnt		:= GetArea()
+Local aAreaCFG		:= CFG->(GetArea())
+Local aSize			:= MsAdvSize()
+Local aInfo			:= {aSize[1],aSize[2],aSize[3],aSize[4],3,3}
+Local aPar			:= { .F., .T., .T., .F., AllTrim(TRB->VERSAO), .T., AllTrim(cPath), "", .T., AllTrim(TRB->AREA)}
+Local aObjects		:= {}
+Local aPosObj		:= {}
+Local aDados		:= {}
+Local aColsBkp		:= aCols
+Local aHeaderBkp	:= aHeader
+Local cFileName		:= ""
+Local nX			:= 0
+Local nBackup		:= n
+Local oDlg, oGet
+
+If !Empty(cPath)
+	cFileName := AllTrim(cPath) + AllTrim(cProcedure)+".SQL"
+EndIf
+
+DB010PFill( cFileName, aPar)
+
+// Monta a entrada de dados do arquivo
+Private aHeader[0],nUsado:=0
+
+// Montagem do aHeader
+AADD(aHeader,{ "Dependência"	,"DEP"			,"@!",030,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Programa Advpl"	,"ROTINA"		,"@!",020,00,"",,"C","ITM",""} )
+AADD(aHeader,{ "Descrição"		,"DESCRICAO"	,"@!",080,00,"",,"C","ITM",""} )
+
+// Montagem do aCols
+Private aCOLS := {}
+
+// Ordena array conforme grau de dependência
+__ListProcs := ASORT( __ListProcs,,, {|x, y| x[2] < y[2]} )
+
+For nX:=1 To Len(__ListProcs)
+	AADD(aCols,Array(Len(aHeader)+1))
+	aCOLS[nX][1] := IIf(nX==1,"",Space(__ListProcs[nX][2]*3)) + Upper(GetFName(__ListProcs[nX][1]))
+	aDados := DB010Extr( __ListProcs[nX,1] )
+	If Len(aDados) > 0
+		aCOLS[nX][2] := aDados[1,2]
+		aCOLS[nX][3] := aDados[2,2]
+	Else
+		aCOLS[nX][2] := ""
+		aCOLS[nX][3] := ""
+	EndIf
+	aCOLS[nX][4] := .F.
+Next nX
+
+AADD(aObjects,{100,020,.T.,.F.,.F.})
+AADD(aObjects,{100,100,.T.,.T.,.F.})
+
+aPosObj:=MsObjSize(aInfo,aObjects)
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi("Explosão de dependências") OF oMainWnd PIXEL FROM aSize[7],0 TO aSize[6],aSize[5]
+
+	oGet := MSGetDados():New(aPosObj[2,1]-20,aPosObj[2,2],aPosObj[2,3],aPosObj[2,4],2,,,"",.T.,,,,)
+
+ACTIVATE MSDIALOG oDlg CENTER ON INIT EnchoiceBar(oDlg,{|| nil, oDlg:End()},{||oDlg:End()})
+
+// Restaura o valor da variavel "n"
+n := nBackup
+
+//Limpa o Array
+__ListProcs := {}
+
+//Restaura o aCols
+aCols   := aColsBkp
+
+//Restaura o aHeader
+aHeader := aHeaderBkp
+
+RestArea(aAreaCFG)
+RestArea(aAreaAnt)
+
+Return

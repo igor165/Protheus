@@ -1,0 +1,753 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "APWIZARD.CH"
+#INCLUDE "FILEIO.CH"
+#INCLUDE "SPEDCTE.CH" 
+#INCLUDE "FWPrintSetup.ch"
+
+#DEFINE LOG_ERROR 	1
+#DEFINE LOG_WARNING 2
+#DEFINE LOG_INFO 	3
+#DEFINE LOG_PRINT	4
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³SPEDCTe   ³ Autor ³ Eduardo Riera         ³ Data ³19.11.2008³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Programa de transmissao do conhecimento eletronico          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ ATUALIZACOES SOFRIDAS DESDE A CONSTRUCAO INICIAL.                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ PROGRAMADOR  ³ DATA   ³ BOPS ³  MOTIVO DA ALTERACAO                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³              ³        ³                                               ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function SPEDCTe()
+
+Local aArea     := GetArea()
+Local lRetorno  := .T.
+Local nVezes    := 0
+
+PRIVATE lBtnFiltro:= .F.
+
+While lRetorno
+	lBtnFiltro:= .F.
+    lRetorno := SpedCTe2( nVezes == 0 )
+    nVezes++
+    If !lBtnFiltro
+    	Exit
+    EndIf
+EndDo
+RestArea(aArea)
+Return Nil
+
+Static Function SPEDCTe2(lInit,cAlias)
+
+Local aPerg     := {}
+Local aCores    := {}
+Local lRetorno  := .T.
+Local aIndArq   := {}
+Local aPerg2    := {}
+Local aPergMDF  := {}
+
+PRIVATE cCondicao := ""
+PRIVATE aRotina   := MenuDef()
+PRIVATE cCadastro := "Monitoramento da CTe-SEFAZ"
+PRIVATE bFiltraBrw
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Montagem das perguntas                                                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aadd(aPerg,{2,"Tipo de CTe",Space(10),{"1-Saída","2-Entrada"},120,".T.",.T.,".T."}) 
+aadd(aPerg,{2,"Filtra",Space(20),{"1-Autorizadas","2-Sem filtro","3-Não Autorizadas","4-Transmitidas","5-Não Transmitidas"},120,".T.",.T.,".T."}) 
+aadd(aPerg,{1,"Serie do Conhecimento",PadR("",Len(SF2->F2_SERIE)),"",".T.","",".T.",30,.F.})	
+
+aadd(aPergMDF,{2,"Filtra",Space(20),{"1-Autorizadas","2-Sem filtro","3-Não Autorizadas","4-Transmitidas","5-Não Transmitidas"},120,".T.",.T.,".T."}) 
+
+aadd(aPerg2,{2,'Transmissão',"1-CTe",{"1-CTe","2-MDFe"},120,".T.",.T.,".T."})
+If !ParamBox(aPerg2,"SPED - CTe/MDFe",,,,,,,,"SPEDCTe0",.T.,.T.)
+	Return Nil
+EndIf
+	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o serviço foi configurado - Somente o Adm pode configurar   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lInit
+	If (!CtIsReady() .Or. !CtIsReady(,2))
+		If PswAdmin( /*cUser*/, /*cPsw*/,RetCodUsr()) == 0
+			SpedNFeCFG()
+		Else
+			HelProg(,"FISTRFCTE")
+		EndIf
+	EndIf	
+EndIf
+If !lInit .Or. CtIsReady()
+	If Substr(MV_PAR01,1,1) == "1"	 //CTe 
+		If ParamBox(aPerg,"SPED - CTe",,,,,,,,"SPEDCTe",.T.,.T.)
+			If SubStr(MV_PAR01,1,1) == "1"
+				aCores    := {{"F2_FIMP==' '",'DISABLE' },;								//CT não transmitido
+							  {"F2_FIMP=='S'",'ENABLE'},;									//CT Autorizado
+							  {"F2_FIMP=='T'",'BR_AZUL'},;									//CT Transmitido
+							  {"F2_FIMP=='N'",'BR_PRETO'}}									//CT nao autorizado
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Realiza a Filtragem                                                     ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ			
+				cCondicao := "F2_FILIAL=='"+xFilial("SF2")+"'"
+				If !Empty(MV_PAR03)
+					cCondicao += ".AND.F2_SERIE=='"+MV_PAR03+"'"
+				EndIf
+				If SubStr(MV_PAR02,1,1) == "1" //"1-CT Autorizada"
+					cCondicao += ".AND. F2_FIMP$'S' "
+				ElseIf SubStr(MV_PAR02,1,1) == "3" //"3-Não Autorizadas"
+					cCondicao += ".AND. F2_FIMP$'N' "
+				ElseIf SubStr(MV_PAR02,1,1) == "4" //"4-Transmitidas"
+					cCondicao += ".AND. F2_FIMP$'T' "
+				ElseIf SubStr(MV_PAR02,1,1) == "5" //"5-Não Transmitidas"
+					cCondicao += ".AND. F2_FIMP$' ' "
+				EndIf
+				bFiltraBrw := {|| FilBrowse("SF2",@aIndArq,@cCondicao) }
+				Eval(bFiltraBrw)
+				mBrowse( 6, 1,22,75,"SF2",,,,,,aCores,/*cTopFun*/,/*cBotFun*/,/*nFreeze*/,/*bParBloco*/,/*lNoTopFilter*/,.F.,.F.,)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Restaura a integridade da rotina                                ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SF2")
+				RetIndex("SF2")
+				dbClearFilter()
+				aEval(aIndArq,{|x| Ferase(x[1]+OrdBagExt())})
+			Else
+				If SF1->(FieldPos("F1_FIMP"))>0
+					aCores    := {{"F1_FIMP==' '",'DISABLE' },;									//CT não transmitado
+								  {"F1_FIMP=='S'",'ENABLE'},;									//CT Autorizado
+								  {"F1_FIMP=='T'",'BR_AZUL'},;									//CT Transmitido
+								  {"F1_FIMP=='N'",'BR_PRETO'}}									//CT nao autorizado
+				Else
+					aCores := Nil
+				EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Realiza a Filtragem                                                     ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				cCondicao := "F1_FILIAL=='"+xFilial("SF1")+"' .AND. "
+				cCondicao += "F1_FORMUL=='S'"
+				If !Empty(MV_PAR03)
+					cCondicao += ".AND.F1_SERIE=='"+MV_PAR03+"'"
+				EndIf
+				If SubStr(MV_PAR02,1,1) == "1" .And. SF1->(FieldPos("F1_FIMP")) >  0  //"1-CT Autorizado"
+					cCondicao += ".AND. F1_FIMP$'S' "
+				ElseIf SubStr(MV_PAR02,1,1) == "3" .And. SF1->(FieldPos("F1_FIMP"))>0 //"3-Não Autorizados"
+					cCondicao += ".AND. F1_FIMP$'N' "
+				ElseIf SubStr(MV_PAR02,1,1) == "4" .And. SF1->(FieldPos("F1_FIMP"))>0 //"4-Transmitidos"
+					cCondicao += ".AND. F1_FIMP$'T' "
+				ElseIf SubStr(MV_PAR02,1,1) == "5" .And. SF1->(FieldPos("F1_FIMP"))>0 //"5-Não Transmitidos"
+					cCondicao += ".AND. F1_FIMP$' ' "				
+				EndIf
+				bFiltraBrw := {|| FilBrowse("SF1",@aIndArq,@cCondicao) }
+				Eval(bFiltraBrw)
+				mBrowse( 6, 1,22,75,"SF1",,,,,,aCores,/*cTopFun*/,/*cBotFun*/,/*nFreeze*/,/*bParBloco*/,/*lNoTopFilter*/,.F.,.F.,)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Restaura a integridade da rotina                                ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SF1")
+				RetIndex("SF1")
+				dbClearFilter()
+				aEval(aIndArq,{|x| Ferase(x[1]+OrdBagExt())})			
+			EndIf	
+		Else
+			lRetorno := .F.
+		EndIf
+	ElseIf Substr(MV_PAR01,1,1) == "2"	 //MDFe
+		If ParamBox(aPergMDF,"SPED - MDFe",,,,,,,,"SPEDMDFe",.T.,.T.)
+			If DTX->(FieldPos("DTX_TIPMAN"))>0
+					cCadastro:= "Monitoramento da MDFe-SEFAZ"
+					aRotina   := MenuDef("2")               
+	
+					aCores     := {{"DTX_STIMDF == '0' .Or. Empty(DTX_STIMDF)",'BR_AMARELO' },;  		//-- Não Transmitido
+								  {"DTX_STIMDF == '1'",'BR_VERDE'   },;  								//-- Documento Aguardando
+								  {"DTX_STIMDF == '2' .And. DTX_STFMDF <> '2'",'BR_AZUL'    },;  		//-- MDF. Autorizado
+				  				  {"DTX_STIMDF == '3'",'BR_VERMELHO'},;  								//-- MDF. Não Autorizado
+								  {"DTX_STIMDF == '5'",'BR_PRETO'   },;	        						//-- MDF. com Falha na Comunicação
+	  			  				  {"DTX_STFMDF == '2'",'BR_MARRON'  }}  								//-- MDF. Encerrado
+	
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Realiza a Filtragem                                                     ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ			
+					cCondicao := "DTX_FILIAL=='"+xFilial("DTX")+"'"
+					cCondicao += ".AND. DTX_TIPMAN== '2'"
+					If SubStr(MV_PAR01,1,1) == "1" //"1-MDF Autorizada"
+						cCondicao += ".AND. DTX_STIMDF$'2' "
+					ElseIf SubStr(MV_PAR01,1,1) == "3" //"3-Não Autorizadas"
+						cCondicao += ".AND. DTX_STIMDF$'3' "
+					ElseIf SubStr(MV_PAR01,1,1) == "4" //"4-Transmitidas"
+						cCondicao += ".AND. DTX_STIMDF$'1,2' "
+					ElseIf SubStr(MV_PAR01,1,1) == "5" //"5-Não Transmitidas"
+						cCondicao += ".AND. DTX_STIMDF$'0' "
+					EndIf
+	
+					bFiltraBrw := {|| FilBrowse("DTX",@aIndArq,@cCondicao) }
+					Eval(bFiltraBrw)
+					mBrowse( 6, 1,22,75,"DTX",,,,,,aCores,/*cTopFun*/,/*cBotFun*/,/*nFreeze*/,/*bParBloco*/,/*lNoTopFilter*/,.F.,.F.,)
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Restaura a integridade da rotina                                ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					dbSelectArea("DTX")
+					RetIndex("DTX")
+					dbClearFilter()
+					aEval(aIndArq,{|x| Ferase(x[1]+OrdBagExt())})			
+			Else
+				Alert("Opção não disponível, favor rodar o compatibilizador TMS11R131 do MDF-e.")
+				lRetorno := .F.
+			EndIf
+		Else
+			lRetorno := .F.
+		EndIf
+	EndIf	
+Else
+	HelProg(,"FISTRFCTE")
+	lRetorno := .F.
+EndIf
+Return(lRetorno)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³Eduardo Riera          ³ Data ³20.11.2008³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³	  1 - Pesquisa e Posiciona em um Banco de Dados           ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef(cRotina)
+
+Local aRotina2  := {	{"Faixa",       "SpedNFe1Mnt",0,2},;
+						{"Tempo",       "SpedNFe2Mnt",0,2},; 
+						{"Estatísticas","SpedNFe3Mnt",0,2} }
+Local aRotina3  := {	{"CTE",      	 "SpedNFePar",0,2},;
+						{"Eventos",      "SpedEpecPar",0,2}}	 
+											
+Local lInutili  := SuperGetMv("MV_INUTILI", .F., .F.)
+
+Private aRotina := {}
+
+Default cRotina := "1"   //CT-e
+
+If cRotina == "1" //CT-e
+
+	aRotina := {{"Pesquisar","PesqBrw"       	,0,1,0,.F.},;
+				{"Wiz.Config.","SpedNFeCfg"    	,0,2,0 ,NIL},;
+				{"P&arâmetros",aRotina3		   	,0,2,0 ,NIL},;
+				{"Status SEFAZ","SpedNFeStatus" ,0,2,0 ,NIL},;
+				{"DACTE","TmsVerCTe()",0,2,0 ,NIL},;
+				{"Monitor",aRotina2        ,0,2,0 ,NIL},;
+				{"Visualiza Doc.","SpedVisualDoc" ,0,2,0 ,NIL},;
+				{"Filtro","SpedFiltro"	 	,0,3,0 ,NIL},;
+				{"Exportar","SpedExport(1)"	,0,2,0 ,NIL},;
+				{"Legenda","SpedNFeLeg"    	,0,2,0 ,NIL}}
+If lInutili
+	AADD(aRotina, {"Inutilização", "SpedNFeInut", 0, 2, 0, NIL})
+EndIf
+					
+ElseIf cRotina == "2"  //MDFe
+
+	aRotina := {{"Pesquisar","PesqBrw"       	,0,1,0,.F.},;
+				{"Wiz.Config.","SpedNFeCfg"    	,0,2,0 ,NIL},;
+				{"P&arâmetros","TME73Par()"    	,0,2,0 ,NIL},;
+				{"Status SEFAZ","SpedNFeStatus" ,0,2,0 ,NIL},;
+				{"Manifesto Destino","BtConfig" ,0,2,0 ,NIL},;
+				{"Filtro","SpedFiltro"	 	,0,3,0 ,NIL},;
+				{"Legenda","TME73Leg()"    	,0,2,0 ,NIL}}     
+
+EndIf                                
+If ExistBlock("FISTRFCTE")
+	ExecBlock("FISTRFCTE",.F.,.F.)
+EndIf
+
+Return(aRotina)    
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} procSendCte
+Função responsável por executar o processo a partir da chamada do smartjob
+@type  Function
+@author Rodrigo Pirolo
+@since 25/05/2021
+@version 12
+@param 
+/*/
+//-------------------------------------------------------------------
+
+Function ProcSendCte( cEmp, cFil, cEntidade, cLock )
+
+    Local aDacte	:= {}
+    Local lContinua	:= .T.
+    Local nSequencia:= 1
+    Local nHdl		:= 0
+	Local cURL		:= ""
+
+	Default cEmp		:= ""
+	Default cFil		:= ""
+	Default cEntidade	:= ""
+	Default cLock		:= ""
+
+    nHdl := JobSetRunning( cLock, .T. )
+
+    If ( nHdl < 0 )
+        lContinua := .F.
+    EndIf
+
+	If lContinua
+		cEmp := AllTrim(cEmp)
+		cFil := AllTrim(cFil)
+		cEntidade := AllTrim(cEntidade)
+
+		RPCSetType(3) //Nao faz consumo de licença
+        If RPCSetEnv( cEmp, cFil, Nil, Nil, "TMS" )
+		
+			While lContinua
+				//efetua consulta das DACTEs que seram processadas9876432567890*
+
+				aDacte := ConsDct( cEmp, cFil, @lContinua, @nSequencia, @cURL )
+
+				If !Empty(aDacte)
+					//processo de criação e distribuição da DANFE
+
+					lContinua := DistDacte( cEmp, cFil, cEntidade, aDacte, , cURL )
+					//incremento para trocar "pagina" da consulta se houver mais resultados a serem consultados
+				EndIf
+			EndDo
+
+		EndIf
+
+		JobSetRunning( cLock, .F., nHdl )
+		RpcClearEnv()
+
+		DelClassIntf()
+	EndIf
+    
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} consDct
+Função responsável por consultar as Dacte's que seram necessárias a geração de pdf
+
+@type  Function
+@author Rodrigo Pirolo
+@since 25/05/2021
+@version 12
+@param 
+/*/
+//-------------------------------------------------------------------
+
+Static Function ConsDct( cEmp, cFil, lContinua, nSequencia, cURL )
+
+    Local oWs		:= Nil
+    Local cAlias	:= GetNextAlias()
+	Local aRet		:= {}
+
+    Default cEmp        := ""
+    Default cFil        := ""
+    Default lContinua   := .T.
+    Default nSequencia  := 1
+	Default cURL		:= ""
+
+    Begin Sequence
+
+		If !(lContinua := DBSqlExec(cAlias, "SELECT * FROM DISTMAIL WHERE EMPRESA = '" + cEmp + "' AND FILIAL = '" + cFil + "'", 'SQLITE_SYS') )
+			Break
+		Else
+			cURL := AllTrim((cAlias)->URL)
+		EndIf
+
+		If( (cAlias)->(EOF()) ) .or. empty((cAlias)->URL) .or. empty((cAlias)->ENTIDADE)
+			Break
+		EndIf
+		
+		If lContinua
+			oWS									:= WSNFESBRA():new()
+			oWS:_URL							:= cURL + "/NFESBRA.apw"//"/NFESBRA.apw"
+			oWS:cUSERTOKEN						:= "TOTVS"
+			oWS:cID_ENT							:= (cAlias)->ENTIDADE
+			oWS:oWSSTATUSDISTMAIL:cMODELO		:= "57"
+			oWS:oWSSTATUSDISTMAIL:nSEQUENCIA	:= nSequencia
+			oWS:oWSSTATUSDISTMAIL:nSTATUS		:= 0
+
+			If !oWS:StatusDistribuicaoDeDocumentos()
+				lContinua := .F.
+			EndIf
+			
+			If lContinua
+				lContinua := oWS:oWSSTATUSDISTRIBUICAODEDOCUMENTOSRESULT:LCONTINUA
+
+				If(lContinua)
+					nSequencia := oWS:oWSSTATUSDISTRIBUICAODEDOCUMENTOSRESULT:nSequencia
+				EndIf   
+
+				aRet := oWS:oWSSTATUSDISTRIBUICAODEDOCUMENTOSRESULT:OWSDOCUMENTOS:OWSSTATUSDOCMAIL
+			EndIf
+		EndIf
+
+    End Sequence
+
+	If Select(cAlias) > 0
+    	(cAlias)->(DBCloseArea())
+	EndIf
+
+    lContinua := Len(aRet) > 0
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} distNfeDct
+    Função responsável por enviar ao TSS as NFe's com as danfes
+    geradas no protheus
+@type  Function
+@author Rodrigo Pirolo
+@since 25/05/2021
+@version 12
+@param 
+@return lExec
+/*/
+//-------------------------------------------------------------------
+
+Static Function DistDacte( cEmp, cFil, cEntidade, aDacte, lTransmitir, cURL )
+
+	Local aArea			:= GetArea()
+	Local aAreaDT6		:= DT6->( GetArea() )
+	Local aAreaSA1		:= SA1->( GetArea() )
+    Local oWs           := Nil
+    Local cBarra        := If( IsSrvUnix(), "/", "\" )
+    Local cFilePath     := ""
+    Local cNFDacte		:= ""
+    Local cPath         := cBarra + "dactetemp" + cBarra
+    Local cPdf          := ""
+    Local cCliDev		:= ""
+    Local cLojDev		:= ""
+	Local cDevEmail		:= ""
+    Local nBuffer       := 0
+    Local nHdl          := 0
+    Local nX            := 0
+    Local lExec         := .T.
+	Local lCont			:= .T.
+	Local aRetorn		:= {}
+	Local cAmbiente     := ''
+	Local cModel        := "57"
+	Local cError		:= ""
+	
+	Default cEmp		:= ""
+	Default cFil		:= ""
+    Default cEntidade   := 1
+	Default aDacte		:= {}
+    Default lTransmitir := .F.
+	Default cURL		:= ""
+
+	cAmbiente           := getCfgAmbiente(@cError, cEntidade, cModel)
+	cAmbiente           := SubStr(cAmbiente,1,1)
+
+	cDevEmail         := DevEmail(cEntidade, cURL)
+
+    //local onde sera armazenado os pdf's gerados
+    cPath := cPath + cEmp + cFil + cBarra
+
+	DbSelectArea("DT6")
+	DT6->( DbSetOrder(1) )
+
+	DbSelectArea("SA1")
+	SA1->( DbSetOrder(1) )
+
+    If ( !FwMakeDir(cPath) )
+        lExec := .F.
+    EndIf
+
+	If lExec
+		For nX := 1 To Len(aDacte)
+			cCliDev	:= ""
+			cLojDev	:= ""
+
+			//tratamento para quando vier via JOB ou manual
+			If ValType(aDacte[1]) == "A"
+				cNFDacte := aDacte[nX][1]
+			Else
+				cNFDacte := aDacte[nX]:CDOC_ID
+			EndIf
+
+			cDoc	:= SubStr( cNFDacte, 4, Len(cNFDacte) )
+			cSerie	:= SubStr( cNFDacte, 1, 3 )
+			aRetorn	:= RetFilDoc( cDoc, cSerie )
+
+			If Len( aRetorn ) > 0
+
+				cFilDoc	:= aRetorn[1]
+				cChave	:= If( !Empty( aRetorn[2]), aRetorn[2], aRetorn[3] )
+
+				If Empty( AllTrim( aRetorn[4] ) ) .AND. Empty( AllTrim( aRetorn[5] ) )
+
+					If DT6->( DbSeek( xFilial( "DT6" ) + cFilDoc + cDoc + cSerie ) )
+						cCliDev	:= DT6->DT6_CLIDEV
+						cLojDev	:= DT6->DT6_LOJDEV
+					EndIf
+				Else
+					cCliDev	:= aRetorn[4]
+					cLojDev	:= aRetorn[5]
+				EndIf
+
+				If Empty(cCliDev) .AND. Empty(cLojDev)
+					// Se não encontrou na DT6 pode ser Anulação 
+					// não possui o devedor portanto não tenho 
+					// os dados para envio
+					lCont 	:= .F.
+				Else
+					lCont	:= .T.
+				EndIf
+
+				If lCont
+					If cAmbiente <> '2'
+						If SA1->( DbSeek( xFilial( "SA1" ) + cCliDev + cLojDev ) )
+							cDevEmail := AllTrim(SA1->A1_EMAIL)
+						EndIf
+					EndIf
+
+					cFilePath := cPath + Lower( cChave + ".pdf" )
+
+					If !File( cFilePath )
+						// Gerar PDF
+						CreateDacte( cPath, cFilePath, cEmp, cFil, cFilDoc, cDoc, cSerie, cChave )
+					EndIf
+
+					//sleep(5000)
+					If File(cFilePath)
+						
+						nHdl := FOpen( cFilePath, 0 )
+
+						If nHdl >= 0
+							nBuffer := FSeek( nHdl, 0, 2 )
+							FSeek( nHdl, 0, 0 )
+							FRead( nHdl, @cPdf, nBuffer )
+							FClose( nHdl )
+							FErase( cFilePath )
+						EndIf
+
+						If !Empty(cPdf)
+							oWS									:= WSNFESBra():New()
+							oWS:_URL							:= cURL + "/NFESBRA.apw" // "/NFESBRA.apw" SPEDCFGNFe.apw
+							oWS:cUSERTOKEN						:= "TOTVS"
+							oWS:cID_ENT							:= cEntidade
+							oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS	:= NFESBRA_ARRAYOFDOCUMENTOS():New()
+							oWS:oWSDISTEMAIL:cMODELO			:= "57"
+
+							AAdd( oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS:oWSDOCUMENTOS, NFESBRA_DOCUMENTOS():New() )
+							ATail( oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS:oWSDOCUMENTOS ):cNFE_ID		:= AllTrim( cNFDacte )
+							ATail( oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS:oWSDOCUMENTOS ):cPDF			:= cPdf
+							ATail( oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS:oWSDOCUMENTOS ):cEMAIL		:= cDevEmail
+							ATail( oWS:oWSDISTEMAIL:oWSLISTADOCUMENTOS:oWSDOCUMENTOS ):lRETRANSMITIR:= lTransmitir
+
+							If oWS:DISTRIBUICAODEDOCUMENTOS()
+								lExec := .T.
+							EndIf
+							
+							fwfreeObj(oWS)
+							oWS := Nil
+							cPdf := ""
+						EndIf
+					EndIf
+				EndIf
+			Else
+				lExec := .F.
+			EndIf
+		Next nX
+    EndIf
+
+RestArea(aArea)
+RestArea(aAreaSA1)
+RestArea(aAreaDT6)
+FwFreeArray(aArea)
+FwFreeArray(aAreaSA1)
+FwFreeArray(aAreaDT6)
+FwFreeArray(aRetorn)
+
+Return lExec
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} createDanfe
+    Função responsável por gerar a danfe em background
+@type  Function
+@author Rodrigo Pirolo
+@since 25/05/2021
+@version 12
+@param 
+@return 
+/*/
+//-------------------------------------------------------------------
+
+Static Function CreateDacte( cPath, cFilePath, cEmp, cFil, cFilDoc, cDoc, cSerie, cChave )
+
+    Local cAlias        := GetNextAlias()
+    Local lFile         := .F.
+	Local lContinua		:= .T.
+    Local lDacte        := ExistBlock("RTMSR35", , .T. )
+    Local nTimes        := 0
+    
+	Default cPath		:= ""
+	Default cFilePath	:= ""
+	Default cEmp		:= ""
+	Default cFil		:= ""
+	Default cFilDoc		:= ""
+	Default cDoc		:= ""
+	Default cSerie		:= ""
+	Default cChave		:= ""
+
+    If DBSqlExec(cAlias, "SELECT * FROM DISTMAIL WHERE EMPRESA = '" + cEmp  + "' AND FILIAL = '" + cFil + "'", 'SQLITE_SYS')
+
+        If !(cAlias)->(EOF())
+			
+			If !lDacte
+				lContinua := .F.
+			Else
+				ExecBlock("RTMSR35",.F.,.F., {cPath, cFilDoc, cDoc, cSerie, cChave})
+				
+			EndIf
+
+			While !lFile .OR. nTimes < 10
+				lFile := File( cFilePath )
+				If !lFile
+					nTimes++
+					Sleep(500)
+				Else
+					Exit
+				EndIf
+			EndDo
+        EndIf
+
+        (cAlias)->(DBCloseArea())
+    EndIf
+
+Return lContinua
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} TmsVCnfg()
+Executa um Print padronizado 
+
+@param		cMensagem    mensagem a ser printada no console  
+@param		nTypeMsg     Tipo do Conout 
+@return		Nil
+@author		Rodrigo Pirolo
+@since		24/05/2021
+@version	12
+/*/
+//-------------------------------------------------------------------
+
+Static Function RetFilDoc( cDoc, cSerie )
+
+	Local aArea     := GetArea()
+	Local aRet		:= ""
+	Local cQuery	:= ""
+	Local cATemp	:= GetNextAlias()
+
+	Default	cDoc	:= ""
+	Default	cSerie	:= ""
+
+	If !Empty(cDoc) .AND. !Empty(cSerie)
+		cQuery := " SELECT DT6.DT6_FILDOC, DT6.DT6_CHVCTE, DT6.DT6_CHVCTG, DT6.DT6_CLIDEV, DT6.DT6_LOJDEV "
+		cQuery += " FROM " + RetSqlName('DT6') + " DT6 "
+		cQuery += " WHERE DT6.DT6_FILIAL = '" + xFilial("DT6") +"' "
+		cQuery += 	" AND (DT6.DT6_IDRCTE  = '100' OR DT6.DT6_IDRCTE  = '136' OR (DT6.DT6_CHVCTG  <> ' '))"
+		cQuery += 	" AND DT6.DT6_DOC = '" + cDoc + "' "
+		cQuery += 	" AND DT6.DT6_SERIE = '" + cSerie + "' "
+		cQuery += 	" AND DT6.D_E_L_E_T_ = ' ' "
+
+		cQuery += " UNION "
+
+		cQuery += " SELECT SF1.F1_FILORIG DT6_FILDOC, SF1.F1_CHVNFE DT6_CHVCTE, '' DT6_CHVCTG, '' DT6_CLIDEV, '' DT6_LOJDEV "
+		cQuery += " FROM " + RetSqlName('SF1') + " SF1 "
+		cQuery += " WHERE SF1.F1_FILIAL = '" + xFilial('SF1') + "' "
+		cQuery += 	" AND SF1.F1_FORMUL = 'S' "
+		cQuery += 	" AND SF1.F1_DOC = '" + cDoc + "' "
+		cQuery += 	" AND SF1.F1_SERIE = '" + cSerie + "' "
+		cQuery += 	" AND SF1.F1_TPCTE = 'A' "
+		cQuery += 	" AND SF1.F1_TIPO = 'D' "
+		cQuery += 	" AND SF1.D_E_L_E_T_ = ' ' "
+
+		cQuery := ChangeQuery(cQuery)
+
+		DbUseArea( .T., "TOPCONN", TcGenQry( , , cQuery ), cATemp )
+		
+		(cATemp)->( DbGoTop() )
+		
+		If !(cATemp)->( Eof() )
+
+			aRet := { (cATemp)->DT6_FILDOC, (cATemp)->DT6_CHVCTE, (cATemp)->DT6_CHVCTG, (cATemp)->DT6_CLIDEV, (cATemp)->DT6_LOJDEV }
+		
+		EndIf
+
+		(cATemp)->( DbCloseArea() )
+	EndIf
+	
+	RestArea( aArea )
+
+Return aRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} DevEmail
+    Função responsável por retornar o eMail do Wizard do TSS
+    geradas no protheus
+@type  Function
+@author Fabio Marchiori Sampaio
+@since 17/03/2021
+@version 12
+@param 
+@return lExec
+/*/
+//-------------------------------------------------------------------
+
+Static Function DevEmail(cIdEnt, cURL)
+
+Local cDevEmail  := ''
+Local oWS        := Nil
+
+Default cIdEnt   := ''
+Default cURL     := ''
+
+	oWs:= WsSpedCfgNFe():New()
+	oWs:cUSERTOKEN     := "TOTVS"
+	oWs:cID_ENT        := cIdEnt
+	oWS:_URL           := AllTrim(cURL)+"/SPEDCFGNFe.apw"
+
+	If oWs:GetSMTPMail()
+		If !Empty(oWS:oWSGETSMTPMAILRESULT:cMailAdmin)
+			cDevEmail := oWS:oWSGETSMTPMAILRESULT:cMailAdmin
+		Else
+			cDevEmail := oWS:oWSGETSMTPMAILRESULT:cMAILACCOUNT
+		EndIf
+	EndIf
+
+	fwfreeObj(oWS)
+	oWS := Nil
+
+Return cDevEmail

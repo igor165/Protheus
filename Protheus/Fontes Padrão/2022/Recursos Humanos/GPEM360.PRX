@@ -1,0 +1,195 @@
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "GPEM360.CH"
+
+
+/*/
+{Protheus.doc} GPEM360
+Função principal, que cria e ativa o Browse
+@author oliveira.hugo
+@since 24/10/2018
+@version 12.1.17
+@return Nulo
+@type function
+/*/
+Function GPEM360()
+	Local oBrowse
+	Local xRetFilRh
+	Local cFiltraRh := ""
+
+	//Busca o filtro a ser utilizado no Browse
+	xRetFilRh := CHKRH("GPEM360","SRA","1")
+
+	If ValType(xRetFilRh) == "L"
+		cFiltraRh := if(xRetFilRh,".T.",".F.")
+	Else
+		cFiltraRh := xRetFilRh
+	EndIf
+
+	//Monta o Browse
+	oBrowse := FWMBrowse():New()
+	oBrowse:SetAlias('SRA')
+	oBrowse:SetDescription(STR0009) // Manutenção Saldos FGTS
+	GpLegend(@oBrowse,.T.)
+	oBrowse:SetmenuDef( 'GPEM360' )
+	oBrowse:SetFilterDefault(cFiltraRh)
+	oBrowse:Activate()
+Return Nil
+
+
+/*/
+{Protheus.doc} MenuDef
+MenuDef MVC
+@author oliveira.hugo
+@since 24/10/2018
+@version 12.1.17
+@return aRotina
+@type function
+/*/
+Static Function MenuDef()
+	Local aRotina :=  {}
+
+	ADD OPTION aRotina TITLE STR0004 ACTION 'PesqBrw'          	OPERATION 1 ACCESS 0 //"Pesquisar"
+	ADD OPTION aRotina TITLE STR0005 ACTION 'VIEWDEF.GPEM360'	OPERATION 2 ACCESS 0 //"Visualizar"
+	ADD OPTION aRotina TITLE STR0007 ACTION 'VIEWDEF.GPEM360' 	OPERATION 4 ACCESS 0 //"Atualizar"
+	ADD OPTION aRotina TITLE STR0008 ACTION 'VIEWDEF.GPEM360' 	OPERATION 5 ACCESS 0 //"Excluir"
+	ADD OPTION aRotina TITLE STR0028 ACTION 'GPER110' 	        OPERATION 3 ACCESS 0 //"Imprimir"
+Return aRotina
+
+
+/*/
+{Protheus.doc} ModelDef
+Model MVC
+@author oliveira.hugo
+@since 24/10/2018
+@version 12.1.17
+@return oModel
+@type function
+/*/
+Static Function ModelDef()
+	Local oStructSRA
+	Local oStructSRS
+	Local oModel
+
+	// Blocos de codigo do modelo
+	Local bLinePos  := {|oGrid| gp360LinOk(oGrid)}
+	
+	// Cria a estrutura(SRA e SRS) a ser usada no Modelo de Dados
+	oStructSRA := FWFormStruct(1,"SRA",{|cCampo| AllTrim(cCampo)+"|" $ "RA_FILIAL|RA_MAT|RA_NOME|RA_ADMISSA|"})
+	oStructSRS := FWFormStruct(1, "SRS")
+	
+	//Atribui Matrícula da SRA na SRS
+	oStructSRS:SetProperty('RS_MAT', MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, 'SRA->RA_MAT'))
+	
+	// Cria o objeto do Modelo de Dados
+	oModel := MpFormModel():New("GPEM360",/*Pre-Validacao*/, /*Pos-Validacao*/, /*Commit*/, /*Cancel*/)
+	
+	// Seta a propriedade de não obrigatório para os campos listados abaixo:
+	oStructSRS:SetProperty("RS_SALANT", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_PERJUR", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_VALJUR", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_VALDEP", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_VALSAQ", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_SALATU", MODEL_FIELD_OBRIGAT, .F.)
+	oStructSRS:SetProperty("RS_SALREAL", MODEL_FIELD_OBRIGAT, .F.)
+	
+	// Adiciona ao modelo as estruturas de formulário de edição por campo
+	oModel:AddFields("GPEM360_SRA", /*cOwner*/, oStructSRA ,/*Pre-Validacao*/, /*Pos-Validacao*/, /*Carga*/)
+	
+	// Adiciona ao modelo uma estrutura de formulário de edição por grid	
+	oModel:AddGrid("GPEM360_SRS", "GPEM360_SRA", oStructSRS , /*bLinePre*/, bLinePos, /*bPre*/, /* bPost*/, /*bLoad*/)
+	
+	//// Faz relaciomaneto entre os compomentes do model (SRA com SRS)
+	oModel:SetRelation("GPEM360_SRS", {{"RS_FILIAL", 'xFilial("SRS",SRA->RA_FILIAL)'}, {"RS_MAT", "SRA->RA_MAT"}}, SRS->(IndexKey()))
+	
+	// Garante registros únicos através dos campos informados. 
+	oModel:GetModel("GPEM360_SRS"):SetUniqueLine({'RS_MAT','RS_ANO','RS_MES'})
+	
+	// Permite grid sem dados
+	oModel:GetModel("GPEM360_SRS"):SetOptional(.T.)
+	
+	// Permite somente visualização para o modelo SRA
+	oModel:GetModel("GPEM360_SRA"):SetOnlyView(.T.)
+	oModel:GetModel('GPEM360_SRA'):SetOnlyQuery(.T.)
+	
+	// Adiciona a descricao do Componente do Modelo de Dados
+	oModel:GetModel('GPEM360_SRA'):SetDescription(OemToAnsi(STR0005)) // "Funcionários"
+	oModel:GetModel('GPEM360_SRS'):SetDescription(OemToAnsi(STR0009)) // "Manutenção Saldos FGTS"
+Return oModel
+
+
+/*/
+{Protheus.doc} ViewDef 
+View MVC
+@author oliveira.hugo
+@since 24/10/2018
+@version 12.1.17
+@return oView
+@type function
+/*/
+Static Function ViewDef()
+	Local oModel
+	Local oStructSRA
+	Local oStructSRS
+	Local oView
+	
+	// Cria o objeto View
+	oView  := FWFormView():New()
+	
+	// Cria um objeto de Modelo de Dados baseado no ModelDef do fonte informado
+	oModel := FwLoadModel("GPEM360")
+	
+	// Define qual o Modelo de dados será utilizado
+	oView:SetModel(oModel)
+	
+	//Define os campos da SRA que serão apresentados na tela
+	oStructSRA := FWFormStruct(2,"SRA",{|cCampo| AllTrim(cCampo) $ "RA_MAT|RA_NOME|RA_ADMISSA|"})
+	
+	oStructSRA:SetNoFolder()
+	
+	// Adiciona na View a Estrutura da SRA
+	oView:AddField( "GPEM360_SRA" , oStructSRA )
+	
+	//Define os campos da SRS que serão apresentados na tela
+	oStructSRS := FWFormStruct(2,"SRS")
+	
+	// Remove o campo matricula da Estrutura
+	oStructSRS:RemoveField( "RS_MAT" )
+
+	// Adiciona na View a Estrutura da SRS
+	oView:AddGrid(  "GPEM360_SRS" , oStructSRS )
+
+	// Criar um "box" horizontal para receber algum elemento da view
+	oView:SetViewProperty("GPEM360_SRA", "OnlyView")
+	oView:createHorizontalBox("FORMFIELD", 15)
+	oView:createHorizontalBox("GRID"     , 85)
+	
+	// Relaciona o ID da View com o "box" para exibicao
+	oView:SetOwnerView( "GPEM360_SRA", "FORMFIELD")
+	oView:SetOwnerView( "GPEM360_SRS", "GRID")
+Return oView
+
+
+/*/
+{Protheus.doc} gp360LinOk 
+Realiza validações na linha do Grid
+@author oliveira.hugo
+@since 24/10/2018
+@version 12.1.17
+@return lRet
+@type function
+/*/
+Static Function gp360LinOk(oGrid)
+	Local lRet     := .T.
+	
+	If !oGrid:IsDeleted()
+		If len(ALLTRIM(oGrid:GetValue("RS_ANO"))) != 4 
+			lRet := .F.
+			Help(" ", 1, "GP360SANO")
+			
+		Elseif len(ALLTRIM(oGrid:GetValue("RS_MES"))) != 2 
+			lRet := .F.
+			Help(" ", 1 , "GP360SMES")
+		EndIf
+	EndIf
+Return lRet

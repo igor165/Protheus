@@ -1,0 +1,163 @@
+#Include "TOTVS.ch"
+#include "tlpp-core.th"
+#include "msobject.ch"
+
+/*/{Protheus.doc} MessageData
+    Classe responsavel por disponibilizar os dados referentes a tabela MHT, MHU  e MHV de uma forma organizada.
+    @author Lucas Novais (lnovais)
+    @since 26/06/2020
+    @version 1.0
+/*/
+
+Class MessageData
+    PRIVATE DATA oLog                 as Object
+    PRIVATE DATA aData                as Array
+    PRIVATE DATA aMHT                 as Array
+    PRIVATE DATA aMHU                 as Array
+    PRIVATE DATA aMHV                 as Array
+    PRIVATE DATA cFunctionality       as Character
+    PRIVATE DATA cIdUser              as Character
+    PRIVATE DATA nPositionURL         as Numeric
+    PRIVATE DATA nPositionToken       as Numeric
+    PRIVATE DATA nPositionChatId      as Numeric
+    PRIVATE DATA nPositionIdGroup     as Numeric
+    PRIVATE DATA nPositionDescription as Numeric
+
+    PUBLIC  METHOD New(cfunctionality,cIdUser) CONSTRUCTOR
+    PRIVATE METHOD GetData(cAlias,cKey,nIndex) 
+    PUBLIC  METHOD GetaData()                 
+    PRIVATE METHOD GetnPosition()             
+    PUBLIC  METHOD GetPositions()              
+
+EndClass
+
+/*/{Protheus.doc} New
+    Metodo construtor da classe
+    @author Lucas Novais (lnovais)
+    @since 26/06/2020
+    @version 1.0
+    @param cfunctionality, character, Funcionalidade (MHT_FUNC)
+    @param cIdUser       , character, Id do Usuarios (MHV_IDUSER)
+    @return Self         , Object   , Objeto da classes
+/*/
+Method New(cfunctionality,cIdUser) Class MessageData
+    Self:cFunctionality := cFunctionality
+    Self:cIdUser        := cIdUser
+    Self:oLog           := MessageLog():New()
+    Self:aMHU           := {}
+Return Self
+
+/*/{Protheus.doc} GetaData
+    Metodo responsavel por preparar os dados das tabelas MHT, MHU e MHV devolvendo para a propriedade aData
+    @author Lucas Novais (lnovais)
+    @since 26/06/2020
+    @version 1.0
+    @return aData, Array, Dados das tabelas organizados
+/*/
+Method GetaData() Class MessageData 
+    Local nPosition := 0 AS Numeric
+    Local nx        := 0 AS Numeric
+
+    Self:aMHT := Self:GetData("MHT",xFilial("MHT") + Self:cfunctionality,2)
+    nPosition := aScan(Self:aMHT[1],{|x| x[1] == "MHT_IDFUNC"})
+    
+    If EMPTY(Self:cIdUser)
+        Self:aMHU := Self:GetData("MHU",xFilial("MHU") + Self:aMHT[1][nPosition][2],2)
+    Else
+        Self:aMHV := Self:GetData("MHV",xFilial("MHV") + Self:cIdUser + Self:aMHT[1][nPosition][2],2)
+        For nx := 1 To len(Self:aMHV)
+            nPosition := aScan(Self:aMHV[nX],{|x| x[1] == "MHV_IDGRP"})
+            If nPosition > 0
+                aAdd(Self:aMHU,Self:GetData("MHU",xFilial("MHU") + Self:aMHV[nX][nPosition][2],1)[1]) 
+            EndIf 
+        Next
+    Endif
+
+    //Busca a posição da URL, Token e ChatId da tabela MHU alimentando a propriedades: nPositionURL, nPositionToken e nPositionChatId
+    Self:GetnPosition()
+
+Return Self:aData := {aClone(Self:aMHT),{aClone(Self:aMHU),aClone(Self:aMHV)}} 
+
+/*/{Protheus.doc} GetData
+    Metodo responsavel por varrer a tabela enviada (baseado nos parametros) e devolver os dados em um array com nome do campo e dado
+    @author Lucas Novais (lnovais)
+    @since 26/06/2020
+    @version 1.0
+    @param cAlias   , Character , Alias da tabela que será buscada
+    @param cKey     , Character , Chave da busca
+    @param nIndex   , Numeric   , Indice da alias
+    @return aHeader , Array     , Array com dados da tabela
+/*/
+Method GetData(cAlias,cKey,nIndex) Class MessageData
+    Local aHeader        := {}  as Array
+    Local aIndex         := {}  as Array
+    Local aLine          := {}  as Array
+    Local aStruct        := {}  as Array
+    Local cIndex         := ""  as Character
+    Local nX             := 0   as Numeric
+    Local nLengthIndex   := 0   as Numeric
+    Local nStartPosition := 0   as Numeric
+    Local nFinalPosition := 0   as Numeric
+
+    DbSelectArea(cAlias)
+    DbSetOrder(nIndex)
+
+    cIndex       := IndexKey(nIndex)
+    aIndex       := StrTokArr(cIndex,"+")
+    nLengthIndex := len(aIndex)
+    cIndex       := ""
+
+    For nX := 1 To nLengthIndex
+        nStartPosition := At("(",aIndex[nX])
+        nFinalPosition   := At(")",aIndex[nX])
+        If nStartPosition > 0
+            aIndex[nX] := SubStr(aIndex[nX],nStartPosition+1,nFinalPosition-nStartPosition-1)
+        EndIf 
+        cIndex += aIndex[nX] + Iif(nX == nLengthIndex,"","+" )
+    Next
+
+    aStruct := (cAlias)->(DBStruct())
+
+    If DBSeek(cKey)
+        while &(cAlias + "->(" +cIndex +")") == cKey
+            For nX := 1 To Len(aStruct)
+                aAdd(aLine,{aStruct[nX][1],(cAlias)->&(aStruct[nX][1])})
+            Next 
+            aAdd(aHeader,aLine)
+            aLine := {}
+            (cAlias)->(DbSkip())
+        End
+    Else
+        Self:oLog:Message("A Chave: " + cKey + " não encontrada")    
+    EndIf 
+Return aHeader
+
+/*/{Protheus.doc} GetnPosition
+    Metodo responsavel por devolver a posição dos campos na estrutura 
+    @author Lucas Novais (lnovais)
+    @since 29/06/2020
+    @version 1.0
+/*/
+Method GetnPosition() Class MessageData
+    Local  aStruct := MHU->(DBStruct())
+
+    Self:nPositionIdGroup       := aScan(aStruct,{|x| x[1] == "MHU_IDGRP"}) 
+    Self:nPositionDescription   := aScan(aStruct,{|x| x[1] == "MHU_DESC"}) 
+    Self:nPositionURL           := aScan(aStruct,{|x| x[1] == "MHU_URL"})     
+    Self:nPositionToken         := aScan(aStruct,{|x| x[1] == "MHU_TOKEN"}) 
+    Self:nPositionChatId        := aScan(aStruct,{|x| x[1] == "MHU_CHATID"}) 
+
+Return 
+
+/*/{Protheus.doc} GetPositions
+    Retorna as posições do campos ( metodo GetnPosition) de maneira organizada 
+    @author Lucas Novais (lnovais)
+    @since 29/06/2020
+    @version 1.0
+    @return Array, Retorna as posições do campos ( metodo GetnPosition) de maneira organizada 
+/*/
+Method GetPositions() Class MessageData
+    If Empty(Self:nPositionIdGroup) .OR. Empty(Self:nPositionDescription) .OR. Empty(Self:nPositionURL) .Or. Empty(Self:nPositionToken) .OR. Empty(Self:nPositionChatId)
+        Self:GetnPosition()
+    EndIf 
+Return {Self:nPositionIdGroup,Self:nPositionDescription,Self:nPositionURL,Self:nPositionToken,Self:nPositionChatId}

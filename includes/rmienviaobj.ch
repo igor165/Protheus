@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Suscriptor no encontrado #1"
+	#define STR0002 "Proceso #1 no existe o no está activo para el suscriptor #2"
+	#define STR0003 "Publicación(#1), recno #2 no encontrado"
+	#define STR0004 "Configuración de la TAG #1 no válida"
+	#define STR0005 "Cuerpo no informado o inválido"
+	#define STR0006 "De A de sucursales no encontrado"
+	#define STR0007 "Campo obligatorio de sucursales no se completó en el archivo de Suscriptores"
+	#define STR0008 "De/A(MHM) no se encontró para la búsqueda realizada. Origen: #1 | Alias: #2 | Valor: #3"
+	#define STR0009 "Registro no se encontró para la búsqueda realizada en el Alias: #1 | Indice: #2 | Clave: #3"
+	#define STR0010 "De/A no ubicado para posición: #1 . De/A: #2 ."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Subscriber not found #1"
+		#define STR0002 "Process #1 not exist or is not active for Subscriber #2"
+		#define STR0003 "Publication(#1), recno #2 not found"
+		#define STR0004 "Configuration of TAG #1 invalid"
+		#define STR0005 "Body not completed or invalid."
+		#define STR0006 "From To Branches not found"
+		#define STR0007 "Branches required field not filled in the Subscriber register."
+		#define STR0008 "From/To (MHM) not found for the search performed. Origin: #1 | Alias: #2 | Value: #3"
+		#define STR0009 "Record not found for the search in Alias: #1 | Index: #2 | Key: #3"
+		#define STR0010 "From/To not found for position: #1 . From/To: #2 ."
+	#else
+		#define STR0001 "Assinante não encontrado #1"
+		#define STR0002 "Processo #1 não existe ou não esta ativo para o Assinante #2"
+		#define STR0003 "Publicação(#1), recno #2 não encontrado"
+		#define STR0004 "Configuração da TAG #1 inválida"
+		#define STR0005 "Corpo não preenchido ou inválido"
+		#define STR0006 "De Para de Filiais não encontrado "
+		#define STR0007 "Campo Obrigatorio de Filiais não preenchido no cadastro de Assinantes"
+		#define STR0008 "De/Para(MHM) não encontrado para a busca realizada. Origem: #1 | Alias: #2 | Valor: #3"
+		#define STR0009 "Registro não encontrado para a busca realizada no Alias: #1 | Indice: #2 | Chave: #3"
+		#define STR0010 "De/Para não localizado para posição: #1 . De/Para: #2 ."
+	#endif
+#endif

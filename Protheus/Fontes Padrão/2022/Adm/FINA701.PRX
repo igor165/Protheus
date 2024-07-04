@@ -1,0 +1,1766 @@
+#INCLUDE "FINA701.ch"
+#include "protheus.ch"
+
+#define COL_LEFT "col_left"
+#define COL_RIGHT "col_right"
+
+// identificadores de janela
+#define WND_BROWSE    "wnd_browse"
+#define WND_CHART_DISP "wnd_chart01"
+#define WND_CHART_BAL "wnd_chart02"
+
+#define STATUS_EMPTY    0
+#define STATUS_EXPAND   1
+#define STATUS_COLLAPSE 2
+
+#define INDENT 5
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FINA701
+Rotina do Painel Gestor
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Function FinA701()
+
+	Private cRotinaExec	:= ""
+	// privates utilizadas exclusivamente no FINA590
+	Private cNumBor		:= CriaVar("EA_NUMBOR") 
+	Private nOpcAPriv
+	Private Inclui		:= .F.
+	Private Altera		:= .F.
+	Private Exclui		:= .F.
+	Private lInRefresh	:=	.F.
+	Private nOpcAuto	:= 3
+	Private lAltera		:= .F.
+	Private aRotina		:= MenuDef()
+	Private FinWindow	:= FinManWindow():New("SE1")
+
+	if !FinWindow:DeprecHandleOK()
+		Return
+	endIf
+
+	FinWindow:Init()	
+	FinWindow:Show()
+
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Menudef
+Construção do menu da rotina
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function MenuDef()
+Return {{ STR0001,"FINA701", 0 , 2}} //"Gestor Financeiro"
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinManWindow
+Definição da classe FinManWindow
+
+@Author Unknown
+@Type Class
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Class FinManWindow
+
+	Data oDlg			As Object
+	Data oLayer			As Object
+	Data oBrowse		As Object
+	Data nWidth			As Object
+	Data nHeight		As Object
+	Data cFile			As Object
+	Data cAliasTRB		As Object
+	Data oPanelButton	As Object
+	Data oPanelBrowse	As Object
+	Data oPanelCh1		As Object
+	Data oPanelCh2		As Object
+	Data oChart1		As Object
+	Data oChart2		As Object
+	Data oCombo1		As Object
+	Data oGetDate		As Object
+	Data oButtonLeft	As Object
+	Data oButtonRight	As Object
+	Data cCombo1		As String
+	Data aCombo1		As Array
+	Data aInfo			As Array
+	Data nIndent		As Integer
+	Data dRefDate		As Date
+	Data dOldDate		As Date
+
+	// construtor
+	Method New() Constructor
+
+	// outros
+	Method Init()
+	Method Show()
+
+	Method IncDate()
+	Method DecDate()
+
+	Method GetDate()
+	Method SetDate()
+	
+	Method Refresh()
+	Method RefreshCh1()
+	Method RefreshCh2()	
+	
+	Method Fetch()
+	Method Display()
+
+	Method DeprecHandleOK()
+EndClass
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} New
+Método construtor da classe FinManWindow
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method New() Class FinManWindow
+	Self:oDlg			:= Nil
+	Self:oLayer			:= Nil
+	Self:oBrowse		:= Nil
+	Self:cFile			:= CriaTrab(Nil, .F.)
+	Self:cAliasTRB		:= Self:cFile
+	
+	Self:oPanelBrowse	:= Nil
+	
+	Self:oCombo1		:= Nil
+	Self:cCombo1		:= ""
+	Self:aCombo1		:= {}
+	
+	Self:nIndent		:= 10
+
+	Self:oButtonLeft	:= Nil
+	Self:oButtonRight	:= Nil
+
+	Self:oPanelCh1		:= Nil
+	Self:oPanelCh2		:= Nil
+	
+	Self:oChart1		:= Nil
+	Self:oChart2		:= Nil
+
+	Self:dRefDate		:= dDatabase
+	Self:dOldDate		:= Self:dRefDate
+	Self:oGetDate		:= Nil	
+	
+	Self:aInfo			:= {}
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Init
+Método que inicializa a construção da janela
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method Init() Class FinManWindow
+	Local lCloseButt	:= !(oAPP:lMdi)
+	Local oWindow		:= Self
+	Local cCombo2		:= ""
+	Local cCombo4		:= ""
+	Local aCombo2		:= {}
+	Local aCombo3		:= {}
+	Local aCombo4		:= {}
+	Local aCombo5		:= {}
+	Local oCombo2		:= Nil
+	Local oCombo4		:= Nil
+	
+	CursorArrow()
+ 	CursorWait()
+		
+	oMainWnd:ReadClientCoors() // atualiza as coordernadas
+	
+	If FlatMode()
+		nTop := 40
+		nLeft := 30 
+		nBottom := oMainWnd:nBottom + 10
+		nRight := oMainWnd:nRight + 20
+	Else
+		nTop := oMainWnd:nTop + 125
+		nLeft := oMainWnd:nLeft + 5
+		nBottom := oMainWnd:nBottom - 60
+		nRight := oMainWnd:nRight - 13
+	EndIf
+
+	DEFINE MSDIALOG Self:oDlg TITLE STR0002 ; //"Financeiro"
+    FROM nTop, nLeft TO nBottom, nRight ;
+	  OF oMainWnd COLOR "W+/W" STYLE nOR(WS_VISIBLE, WS_POPUP) PIXEL
+
+	Self:oDlg:lMaximized := .T.
+	
+	Self:oLayer := FWLayer():New()
+	Self:oLayer:Init(Self:oDlg, lCloseButt)
+	
+	If Self:oLayer == Nil
+		Return Nil
+	EndIf
+
+	Self:oLayer:AddCollumn(COL_LEFT , 70, .F.)
+	
+	Self:oLayer:AddWindow(COL_LEFT, WND_BROWSE, STR0001, 100, .T., .T.)	 //"Gestor Financeiro"
+
+	Self:oPanelButton := TPanel():New(0, 0, "", ;
+	                           Self:oLayer:GetWinPanel(COL_LEFT, WND_BROWSE), ;
+	                                  Nil, .T., .T., Nil, Nil, 20, 20)
+	Self:oPanelButton:Align := CONTROL_ALIGN_TOP
+	
+	Self:oPanelBrowse := TPanel():New(0, 0, "", ;
+	                           Self:oLayer:GetWinPanel(COL_LEFT, WND_BROWSE), ;
+	                                  Nil, .T., .T., Nil, Nil, 20, 20)
+
+	Self:oPanelBrowse:Align := CONTROL_ALIGN_ALLCLIENT
+
+	Self:oLayer:AddCollumn(COL_RIGHT, 30, .F.)
+	Self:oLayer:SetColSplit(COL_RIGHT, CONTROL_ALIGN_LEFT)	
+	Self:oLayer:AddWindow(COL_RIGHT, WND_CHART_DISP, STR0003, 50, .T., .F.) //"Disponibilidade"
+	Self:oPanelCh1 := Self:oLayer:GetWinPanel(COL_RIGHT, WND_CHART_DISP)
+	
+	Self:oLayer:AddWindow(COL_RIGHT, WND_CHART_BAL, STR0004, 50, .T., .F.)	 //"Saldo Bancário"
+	Self:oPanelCh2 := Self:oLayer:GetWinPanel(COL_RIGHT, WND_CHART_BAL)	
+
+	// seta esquerda
+	@ 10, 0 BTNBMP oWindow:oButtonLeft RESOURCE "PMSSETAESQ" SIZE 25, 25 ;
+	   ACTION oWindow:DecDate() MESSAGE STR0005 Of oWindow:oPanelButton Pixel //"Dia anterior"
+
+	// campo de data
+	@ 5, 15 MsGet oWindow:oGetDate Var oWindow:dRefDate SIZE 50, 9 Of oWindow:oPanelButton Pixel HasButton
+	oWindow:oGetDate:bLostFocus := {|| IIF( oWindow:dOldDate <> oWindow:dRefDate, ( oWindow:dOldDate := oWindow:dRefDate , oWindow:Refresh() ) , ) }
+
+	
+	// seta direita
+	@ 10, 135 BTNBMP oWindow:oButtonRight RESOURCE "PMSSETADIR" SIZE 25, 25 ;
+	   ACTION oWindow:IncDate() MESSAGE STR0006 Of oWindow:oPanelButton Pixel //"Dia posterior"
+
+	aCombo2 := {STR0007, STR0008, STR0009, STR0010, STR0011, ; //"Consultas & Relatórios"###"Fluxo de Caixa"###"Posição Cliente"###"Posição Fornecedor"###"Extrato Bancário"
+	            STR0012, STR0013, STR0014, STR0015, STR0016, STR0017} //"Resumo Financeiro"###"Aging CR"###"Aging CP"###"Diário"###"Razonete"###"Diario Sint Natureza"
+
+	aCombo3 := {"AllwaysTrue()", "FINC021()", "FINC010()", "FINC030()", "FINR470()", ;
+	            "FINR840()", "FINR133()", "FINR134()", "FINR510()", "FINR550()", "FINR200()"}
+
+	//Ponto de entrada para possibilidade de usuário anexar 
+	//rotinas proprias para o gestor
+	//aCombo2 = Array com Descricao da Rotina
+	//aCombo3 = Array com a chamada da Rotina
+	//Obs: os combos devem ter o mesmo numero de elementos 
+	//Caso contrário apenas o Combo padrão sera carregado
+	If ExistBlock("FIN701MC")
+		aCombos := ExecBlock("FIN701MC", .F., .F., {aCombo2, aCombo3})
+		If Len(aCombos[1]) == Len(aCombos[2])
+			aCombo2 := aCombos[1]
+			aCombo3 := aCombos[2]
+		EndIf
+	EndIf
+
+	//Combo de consultas e relatórios	
+	@ 5, 120 MsComboBox oCombo2 Var cCombo2 Items aCombo2 ;
+			ON CHANGE (&(aCombo3[oCombo2:nAt]),oCombo2:nAt := 1, oCombo2:Refresh());
+			Size 80, 10 PIXEL OF Self:oPanelButton
+
+	aCombo4 := {STR0018, STR0019, STR0020,; //"Operações"###"Transferência C/C"###"Postergar Vencimento"
+	            STR0021, STR0022, STR0023} //"Efetuar Aplicação"###"Efetuar Resgate"###"Tomar Empréstimo"
+
+	aCombo5 := { "AllwaysTrue()", "", "", "", "", "" }
+
+	//Ponto de entrada para possibilidade de usuário anexar 
+	//rotinas proprias para o gestor
+	//aCombo2 = Array com Descricao da Operacao
+	//aCombo3 = Array com a chamada da Rotina a ser executada na Operacao
+	//Obs: os combos devem ter o mesmo numero de elementos 
+	//Caso contrário apenas o Combo padrão sera carregado
+	If ExistBlock("FIN701MR")
+		aCombos := ExecBlock("FIN701MR", .F., .F., {aCombo4, aCombo5})
+		If Len(aCombos[1]) == Len(aCombos[2])
+			aCombo4 := aCombos[1]
+			aCombo5 := aCombos[2]
+		EndIf
+	EndIf
+
+	//Combo de operacoes com o caixa
+	@ 5, 230 MsComboBox oCombo4 Var cCombo4 Items aCombo4 ;
+			ON CHANGE (FinChgOpHnd(oWindow:oBrowse, oCombo4, aCombo4, aCombo5),oCombo4:nAt := 1, oCombo4:Refresh()) ;
+			Size 80, 10 PIXEL OF Self:oPanelButton
+
+	//Browse Financeiro
+	Self:oBrowse := FinSheet():New(Self:oPanelBrowse)
+
+	// formato do parâmetro do AddColumn:
+	// {descrição, tamanho da coluna, cabeçalho da columa, tipo do campo, tamanho do campo, picture da coluna
+	//  alinhamento da coluna, vísivel, bitmap, bloco de código}
+	Self:oBrowse:AddColumn({"", 5, "BITMAP", "C", 200, 0, "@ E", "LEFT", .T., .T., {|| FinChgBmp(Self:oBrowse) }})
+	Self:oBrowse:AddColumn({STR0024, 130, "DESCR", "C", 200, 0, "@ E", "LEFT", .T., .F.}) //"Descrição"
+	Self:oBrowse:AddColumn({STR0025, 50, "BUDGET", "N", 17, 2, "@E 999,999,999,999,999.99", "RIGHT", .F., .F.}) //"Orçado"
+	Self:oBrowse:AddColumn({"(-)", 50, "OUTPUT", "N", 17, 2, "@E 999,999,999,999,999.99", "RIGHT", .T., .F.})
+	Self:oBrowse:AddColumn({"(+)", 50, "INPUT", "N", 17, 2, "@E 999,999,999,999,999.99", "RIGHT", .T., .F.})
+	Self:oBrowse:AddColumn({STR0026, 50, "BALANCE", "N", 17, 2, "@E 999,999,999,999,999.99", "RIGHT", .T., .F.}) //"Saldo"
+
+	Self:oBrowse:AddColumn({"Id", 20, "ID", "N", 10, 0, "@ E", "LEFT", .F., .F.})
+	Self:oBrowse:AddColumn({"Ordem", 128, "ORDEM", "C", 128, 0, "@ E", "LEFT", .F., .F.})		
+	Self:oBrowse:AddColumn({"Status", 20, "STATUS", "N", 1, 0, "@ E", "LEFT", .F., .F.})
+
+	Self:oBrowse:AddColumn({"Alias", 20, "FS_ALIAS", "C", 3, 0, "@ E", "LEFT", .F., .F.})
+	Self:oBrowse:AddColumn({"Recno", 20, "FS_RECNO", "N", 20, 0, "@ E", "LEFT", .F., .F.})
+	Self:oBrowse:AddColumn({"Level", 20, "FS_LEVEL", "N", 3, 0, "@ E", "LEFT", .F., .F.})	
+	
+	Self:oBrowse:SetOrder("ORDEM")
+
+	Self:oBrowse:SetDblClickHandler({|oBrowse| DblClickHandler(Self, oBrowse)})
+
+	If Self:oBrowse:Init()
+		
+		Self:Refresh()
+	EndIf
+
+	CursorArrow()
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Show
+Método que exibe a janela
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method Show() Class FinManWindow
+	Self:oDlg:Activate()
+
+	If Self:oBrowse # Nil
+		Self:oBrowse:Dispose()
+	EndIf
+Return 
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} DblClickHandler
+Função que trata a ação do duplo clique na árvore
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function DblClickHandler(oWindow, oBrowse)
+	Local cAliasTRB	:= oBrowse:GetAlias()
+	Local nId		:= 0
+	
+	dbSelectArea(cAliasTRB)
+
+	CursorArrow()
+	CursorWait()
+	
+	nId := (cAliasTRB)->ID
+
+	If (cAliasTRB)->STATUS == STATUS_EXPAND
+	
+		Do Case
+
+			// saldos bancários
+			Case nId == 1
+				FinLdAcc(cAliasTRB, oWindow:GetDate())
+			
+			// CR Vencidos
+			Case nId == 2
+			
+			// CP Vencidos
+			Case nId == 3
+			
+			// CR a Vencer
+			Case nId == 4
+				FinGetSE12ndLevel(cAliasTRB, oWindow:GetDate())
+
+			// CP a Vencer
+			Case nId == 5
+				FinGetSE22ndLevel(cAliasTRB, oWindow:GetDate())
+	
+			// títulos		
+			Case nId == 101
+				FinGet13rdLevel(cAliasTRB, oWindow:GetDate())
+
+			// títulos			
+			Case nId == 201
+				FinGet23rdLevel(cAliasTRB, oWindow:GetDate())
+			
+		EndCase
+		
+		oBrowse:Refresh()
+	Else
+		If (cAliasTRB)->STATUS == STATUS_COLLAPSE
+			DeleteChildren(oBrowse)
+		EndIf
+	EndIf
+
+	CursorArrow()
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Dec2Hex
+Função para conversao de decimal para hexadecimal
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function Dec2Hex(nNumber)
+	Local cHexNum := "0"
+	Local aDigits := {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ;
+	                  "A", "B", "C", "D", "E", "F"}
+
+	While (nNumber > 0)
+		cHexNum := aDigits[Mod(nNumber, 16) + 1] + cHexNum	
+		nNumber := Int(nNumber / 16)
+	EndDo
+		
+Return cHexNum
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GetHex
+Função que retorna o número hexadecimal convertido a partir de um número decimal
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function GetHex(nNumber)
+Return PadL(Dec2Hex(nNumber), 8, "0")
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} DeleteChildren
+Função que realiza limpeza dos temporários
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function DeleteChildren(oBrowse)
+	Local cAliasTRB	:= oBrowse:GetAlias()
+	Local nRecno	:= (cAliasTRB)->(Recno())
+	Local cOrder	:= AllTrim((cAliasTRB)->ORDEM)
+
+	(cAliasTRB)->(dbSkip())
+
+	While !(cAliasTRB)->(Eof()) .And. Left((cAliasTRB)->ORDEM, Len(cOrder)) == cOrder
+
+		Reclock(cAliasTRB, .F.)
+			dbDelete()		
+		MsUnlock()
+	
+		(cAliasTRB)->(dbSkip())
+	EndDo
+	
+	(cAliasTRB)->(dbGoto(nRecno))
+	
+	Reclock(cAliasTRB, .F.)
+		(cAliasTRB)->STATUS := STATUS_EXPAND
+	MsUnlock()  
+	
+	oBrowse:Refresh()
+	
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinLdAcc
+Constrói o arquivo temporário baseado nos dados da tabela SA6
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinLdAcc( cAliasTRB, dDate )
+	Local aArea		:= GetArea()
+	Local aAreaSA6	:= SA6->(GetArea())
+	Local nRecno	:= (cAliasTRB)->(Recno())
+	Local cOrder	:= Upper(AllTrim((cAliasTRB)->ORDEM))
+	Local aBank		:= {}
+	Local nBalance	:= 0
+
+	Reclock(cAliasTRB, .F.)
+		(cAliasTRB)->STATUS := STATUS_COLLAPSE
+	MsUnlock()	
+		
+	dbSelectArea("SA6")
+	SA6->(dbSetOrder(1))
+
+	If SA6->(MsSeek(xFilial("SA6")))
+		
+		While !SA6->(Eof()) .And. SA6->A6_FILIAL == xFilial("SA6")
+		
+			If SA6->A6_BLOCKED <> "1"
+
+				aBank := {SA6->A6_COD, SA6->A6_AGENCIA, SA6->A6_NUMCON}
+				
+				nBalance := FinLdBalance(aBank, aBank, dDate, Nil, .T.)
+
+				Reclock(cAliasTRB, .T.)
+					(cAliasTRB)->ID			:= 0
+					(cAliasTRB)->ORDEM		:= cOrder + GetHex((cAliasTRB)->(Recno()))
+					(cAliasTRB)->DESCR		:= Replicate(" ", INDENT) + AllTrim(SA6->A6_COD) + "-" + AllTrim(SA6->A6_AGENCIA) + "-" + AllTrim(SA6->A6_NUMCON)
+					(cAliasTRB)->STATUS		:= STATUS_EMPTY
+					(cAliasTRB)->BALANCE	:= nBalance					
+					(cAliasTRB)->FS_ALIAS	:= "SA6"
+					(cAliasTRB)->FS_RECNO	:= SA6->(Recno())
+					(cAliasTRB)->FS_LEVEL	:= 2
+				(cAliasTRB)->(MsUnlock())
+			EndIf
+	
+			SA6->(dbSkip())
+		EndDo
+	EndIf
+
+	(cAliasTRB)->(dbGoto(nRecno))
+
+	RestArea(aAreaSA6)
+	RestArea(aArea)
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinGetSE12ndLevel
+Montagem do segundo nível da árvore de títulos a receber a vencer (Naturezas)
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinGetSE12ndLevel( cAliasTRB, dDate )
+	Local aArea		:= GetArea()
+	Local cAliasQry	:= CriaTrab(Nil, .F.)
+	Local nRecno	:= (cAliasTRB)->(Recno())
+	Local cOrder	:= Upper(AllTrim((cAliasTRB)->ORDEM))
+	Local cNatureza	:= ""
+	Local nTotal	:= 0
+	Local nValue	:= 0
+	Local cQuery	:= ""
+	Local aRetSED	:= {}
+	
+	Default dDate	:= dDatabase
+
+	cQuery := "SELECT Filial, Natureza, Moeda, Tipo, SUM(Total) Total FROM "
+	cQuery += "( "
+
+	cQuery += "    SELECT E1_FILIAL Filial, E1_NATUREZ Natureza, E1_MOEDA Moeda, E1_TIPO Tipo, SUM(E1_SALDO + E1_SDACRES - E1_SDDECRE) Total"
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SE1")
+	cQuery += "    WHERE "
+	cQuery += "        E1_FILIAL = '" + xFilial("SE1") + "' AND "
+	cQuery += "        E1_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E1_MULTNAT <> '1' AND "
+	cQuery += "        E1_SALDO > 0 AND "
+	cQuery += "        D_E_L_E_T_ = ' ' "
+	cQuery += "    GROUP BY E1_FILIAL, E1_NATUREZ, E1_MOEDA, E1_TIPO "
+
+	cQuery += "    UNION "
+
+	cQuery += "    SELECT EV_FILIAL Filial, EV_NATUREZ Natureza, E1_MOEDA Moeda, E1_TIPO Tipo, SUM(EV_VALOR) Total "
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SEV")
+	cQuery += "    INNER JOIN "
+	cQuery += RetSqlName("SE1")
+	cQuery += "    ON "
+	cQuery += "        E1_FILIAL = EV_FILIAL AND "
+	cQuery += "        E1_PREFIXO = EV_PREFIXO AND "
+	cQuery += "        E1_NUM = EV_NUM AND "
+	cQuery += "        E1_PARCELA = EV_PARCELA "
+	cQuery += "    WHERE "
+	cQuery += "        E1_SALDO > 0 AND "
+	cQuery += "        E1_FILIAL = '" + xFilial("SE1") + "' AND "
+	cQuery += "        E1_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E1_MULTNAT = '1' AND "
+	cQuery += "        " + RetSqlName("SE1") + ".D_E_L_E_T_ = ' ' "
+
+	cQuery += "    GROUP BY EV_FILIAL, EV_NATUREZ, E1_MOEDA, E1_TIPO "
+   
+	If TCGetDb() $ "ORACLE"	
+		cQuery += ") Temp GROUP BY Temp.Filial, Temp.Natureza, Temp.Moeda, Temp.Tipo"
+	Else
+		cQuery += ") AS Temp GROUP BY Temp.Filial, Temp.Natureza, Temp.Moeda,Temp.Tipo"
+	Endif	
+	
+	If FinExecQuery(cAliasQry, cQuery)
+	
+		Reclock(cAliasTRB, .F.)
+			(cAliasTRB)->STATUS := STATUS_COLLAPSE
+		MsUnlock()	
+		
+		If (cAliasQry)->(Eof())
+			Reclock(cAliasTRB, .T.)
+
+				(cAliasTRB)->ID			:= 101
+				(cAliasTRB)->ORDEM		:= cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR		:= Replicate(" ", INDENT) + STR0035 //"(Sem naturezas)"
+				(cAliasTRB)->STATUS		:= STATUS_EMPTY
+				(cAliasTRB)->FS_ALIAS	:= "ERW"
+				(cAliasTRB)->FS_RECNO	:= 0
+				(cAliasTRB)->FS_LEVEL	:= 2
+				
+				// sobreescreve os valores default
+			(cAliasTRB)->(MsUnlock())
+		EndIf
+
+		While !(cAliasQry)->(Eof()) .And. (cAliasQry)->Filial == xFilial("SEV")
+    	
+			cNatureza := (cAliasQry)->Natureza
+			nTotal := 0
+
+			While !(cAliasQry)->(Eof()) .And. (cAliasQry)->Filial == xFilial("SEV") .And. ;
+			                                    (cAliasQry)->Natureza == cNatureza
+
+				nValue := xMoeda((cAliasQry)->Total, ;
+				                 (cAliasQry)->Moeda, 1, dDate, 3)
+
+		   		If (cAliasQry)->Tipo $ "NCC" .or. Alltrim((cAliasQry)->Tipo) $ "RA" .or. Alltrim((cAliasQry)->Tipo) $ MVABATIM
+			   		nTotal -= Round(NoRound(nValue, 3), 2)
+			    Else
+					nTotal += Round(NoRound(nValue, 3), 2)			    
+			    EndIf	  		   	 	     	 	
+
+				(cAliasQry)->(dbSkip())		
+			EndDo
+
+			aRetSED := FinGetSED("SED", 1, xFilial("SED") + cNatureza)
+
+			Reclock(cAliasTRB, .T.)
+				(cAliasTRB)->ID			:= 101
+				(cAliasTRB)->ORDEM		:= cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR		:= Replicate(" ", INDENT) + cNatureza + ' - ' + aRetSED[1]
+				(cAliasTRB)->STATUS		:= STATUS_EXPAND
+				(cAliasTRB)->FS_ALIAS	:= "SCR"
+				(cAliasTRB)->FS_RECNO	:= aRetSED[2]
+				(cAliasTRB)->FS_LEVEL	:= 2
+				// sobreescreve os valores default
+				(cAliasTRB)->Input		:= nTotal
+			(cAliasTRB)->(MsUnlock())
+		EndDo
+
+		(cAliasQry)->(dbCloseArea())
+		(cAliasTRB)->(dbGoto(nRecno))		
+	EndIf		
+	
+	RestArea(aArea)		
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinGetSE22ndLevel
+Montagem do segundo nível da árvore de títulos a pagar a vencer (Naturezas)
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinGetSE22ndLevel(cAliasTRB, dDate)
+	Local aArea		:= GetArea()
+	Local cAliasQry	:= CriaTrab(Nil, .F.)
+	Local nRecno	:= (cAliasTRB)->(Recno())
+	Local cOrder	:= Upper(AllTrim((cAliasTRB)->ORDEM))
+	Local cNatureza	:= ""
+	Local nTotal	:= 0
+	Local nValue	:= 0
+	Local cQuery	:= ""
+	Local aRetSED	:= {}
+
+	Default dDate := dDatabase
+
+	cQuery := "SELECT Filial, Natureza, Moeda, Tipo,SUM(Total) Total FROM "
+	cQuery += "( "
+
+	cQuery += "    SELECT E2_FILIAL Filial, E2_NATUREZ Natureza, E2_MOEDA Moeda, E2_TIPO Tipo, SUM(E2_SALDO) Total"
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SE2")
+	cQuery += "    WHERE "
+	cQuery += "        E2_FILIAL = '" + xFilial("SE2") + "' AND "
+	cQuery += "        E2_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E2_MULTNAT <> '1' AND "
+	cQuery += "        E2_SALDO > 0 AND "
+	cQuery += "        D_E_L_E_T_ = ' ' "
+	cQuery += "    GROUP BY E2_FILIAL, E2_NATUREZ, E2_MOEDA, E2_TIPO"
+
+	cQuery += "    UNION "
+
+	cQuery += "    SELECT EV_FILIAL Filial, EV_NATUREZ Natureza, E2_MOEDA Moeda, E2_TIPO Tipo, SUM(EV_VALOR) Total "
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SEV")
+	cQuery += "    INNER JOIN "
+	cQuery += RetSqlName("SE2")
+	cQuery += "    ON "
+	cQuery += "        E2_FILIAL = EV_FILIAL AND "
+	cQuery += "        E2_PREFIXO = EV_PREFIXO AND "
+	cQuery += "        E2_NUM = EV_NUM AND "
+	cQuery += "        E2_PARCELA = EV_PARCELA "
+	cQuery += "    WHERE "
+	cQuery += "        E2_SALDO > 0 AND "
+	cQuery += "        E2_FILIAL = '" + xFilial("SE2") + "' AND "
+	cQuery += "        E2_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E2_MULTNAT = '1' AND "
+	cQuery += "        " + RetSqlName("SE2") + ".D_E_L_E_T_ = ' ' "
+
+	cQuery += "    GROUP BY EV_FILIAL, EV_NATUREZ, E2_MOEDA, E2_TIPO "       
+	
+	If TCGetDb() $ "ORACLE"	
+		cQuery += ") Temp GROUP BY Temp.Filial, Temp.Natureza, Temp.Moeda, Temp.Tipo"
+	Else
+		cQuery += ") AS Temp GROUP BY Temp.Filial, Temp.Natureza, Temp.Moeda, Temp.Tipo"
+	Endif	
+		
+	If FinExecQuery(cAliasQry, cQuery)
+
+		Reclock(cAliasTRB, .F.)
+			(cAliasTRB)->STATUS := STATUS_COLLAPSE
+		MsUnlock()	
+
+		If (cAliasQry)->(Eof())
+			Reclock(cAliasTRB, .T.)
+				(cAliasTRB)->ID			:= 201
+				(cAliasTRB)->ORDEM		:= cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR		:= Replicate(" ", INDENT) + STR0035 //"(Sem naturezas)"
+				(cAliasTRB)->STATUS		:= STATUS_EMPTY
+				(cAliasTRB)->FS_ALIAS	:= "ERW"
+				(cAliasTRB)->FS_RECNO	:= 0
+				(cAliasTRB)->FS_LEVEL	:= 2
+			(cAliasTRB)->(MsUnlock())
+		EndIf
+
+		While !(cAliasQry)->(Eof()) .And. (cAliasQry)->Filial == xFilial("SE2")
+
+			cNatureza := (cAliasQry)->Natureza
+			nTotal := 0
+
+			While !(cAliasQry)->(Eof()) .And. (cAliasQry)->Natureza == cNatureza
+
+				nValue := xMoeda((cAliasQry)->Total, ;
+				                 (cAliasQry)->Moeda, 1, dDate, 3)
+
+			  If (cAliasQry)->Tipo $ MVPAGANT+"/"+MV_CPNEG
+			   		nTotal -= Round(NoRound(nValue, 3), 2)
+			  Else
+	  		   		nTotal += Round(NoRound(nValue, 3), 2)
+              EndIf		
+
+				(cAliasQry)->(dbSkip())
+			EndDo
+			
+			aRetSED := FinGetSED("SED", 1, xFilial("SED") + cNatureza)
+
+			Reclock(cAliasTRB, .T.)
+				(cAliasTRB)->ID			:= 201
+				(cAliasTRB)->ORDEM		:= cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR		:= Replicate(" ", INDENT) + cNatureza + ' - ' + aRetSED[1]
+				(cAliasTRB)->STATUS		:= STATUS_EXPAND
+				(cAliasTRB)->FS_ALIAS	:= "SCP"
+				(cAliasTRB)->FS_RECNO	:= aRetSED[2]
+				(cAliasTRB)->FS_LEVEL	:= 2
+				// sobreescreve os valores default
+				(cAliasTRB)->Output		:= nTotal
+			(cAliasTRB)->(MsUnlock())
+			
+		EndDo
+
+		(cAliasQry)->(dbCloseArea())
+		(cAliasTRB)->(dbGoto(nRecno))		
+	EndIf		
+	
+	RestArea(aArea)		
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinGet13rdLevel
+Montagem do terceiro nível da árvore de títulos a receber a vencer (Títulos)
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinGet13rdLevel(cAliasTRB, dDate)
+	Local aArea		:= GetArea()
+	Local cAliasQry	:= CriaTrab(Nil, .F.)
+	Local nRecno	:= (cAliasTRB)->FS_RECNO
+	Local cOrder	:= AllTrim((cAliasTRB)->ORDEM)	
+	Local cQuery	:= ""	
+	Local nValue	:= 0
+
+	SED->(dbGoto(nRecno))
+
+	cQuery += "    SELECT E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, E1_CLIENTE, E1_LOJA, "
+	cQuery += RetSqlName("SE1") +  ".R_E_C_N_O_ RECNO, E1_FILIAL, E1_MOEDA, E1_SALDO Saldo "
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SE1")
+	cQuery += "    WHERE "
+	cQuery += "        E1_FILIAL = '" + xFilial("SE1") + "' AND "
+	cQuery += "        E1_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E1_NATUREZ = '" + SED->ED_CODIGO + "' AND "	
+	cQuery += "        E1_MULTNAT <> '1' AND "
+	cQuery += "        E1_SALDO > 0 AND "
+	cQuery += "        D_E_L_E_T_ = ' ' "
+	cQuery += " UNION ALL "	
+	
+	cQuery += " SELECT E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, E1_CLIENTE, E1_LOJA, "
+	cQuery += RetSqlName("SE1") +  ".R_E_C_N_O_ RECNO, E1_FILIAL, E1_MOEDA, (E1_SALDO * EV_PERC) Saldo" 
+	cQuery += " FROM "
+	cQuery += RetSqlName("SE1") + ", " + RetSqlName("SEV")
+	cQuery += " WHERE E1_FILIAL = '" + xFilial("SE1") + "' AND
+	cQuery += " EV_NATUREZ = '" + SED->ED_CODIGO + "' AND "
+	cQuery += " EV_RECPAG = 'R' AND "
+	cQuery += " E1_VENCREA = '" + Dtos(dDate) + " ' AND "
+	
+	cQuery += " E1_FILIAL = EV_FILIAL AND "
+	cQuery += " E1_NUM = EV_NUM AND "
+	cQuery += " E1_PREFIXO = EV_PREFIXO AND "
+	cQuery += " E1_PARCELA = EV_PARCELA AND "
+	cQuery += " E1_TIPO = EV_TIPO AND "
+	cQuery += " E1_CLIENTE = EV_CLIFOR AND "
+	cQuery += " E1_LOJA = EV_LOJA AND "
+	cQuery += " E1_MULTNAT = '1' AND "	
+	cQuery += " E1_SALDO > 0 AND "
+	
+	cQuery += RetSqlName("SE1") + ".D_E_L_E_T_ = ' ' AND "
+	cQuery += RetSqlName("SEV") + ".D_E_L_E_T_ = ' ' "	
+
+	If FinExecQuery(cAliasQry, cQuery)
+
+		If !(cAliasQry)->(Eof())
+			Reclock(cAliasTRB, .F.)
+				(cAliasTRB)->STATUS := STATUS_COLLAPSE
+			MsUnlock()	
+
+			While !(cAliasQry)->(Eof()) .And. (cAliasQry)->E1_FILIAL == xFilial("SE1")
+		
+				Reclock(cAliasTRB, .T.)
+				(cAliasTRB)->ID := 111
+				//(cAliasTRB)->PARENTID := 0
+				(cAliasTRB)->ORDEM := cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR := Replicate(" ", 2 * INDENT) + ;
+				                  AllTrim((cAliasQry)->E1_PREFIXO) + " - " + ;
+				                  AllTrim((cAliasQry)->E1_NUM) + " - " + ;
+				                  AllTrim((cAliasQry)->E1_PARCELA) + " - " + ;
+				                  AllTrim((cAliasQry)->E1_TIPO) + " - " + ;
+				                  AllTrim((cAliasQry)->E1_CLIENTE) + " - " + ;
+				                  AllTrim((cAliasQry)->E1_LOJA)
+				(cAliasQry)->E1_NUM
+				(cAliasTRB)->STATUS := STATUS_EMPTY
+
+				(cAliasTRB)->FS_ALIAS := "SE1"
+				(cAliasTRB)->FS_RECNO := (cAliasQry)->RECNO
+				(cAliasTRB)->FS_LEVEL := 3
+
+				nValue := xMoeda((cAliasQry)->Saldo, ;
+				                 (cAliasQry)->E1_MOEDA, 1, dDate, 3)
+
+				// sobreescreve os valores default
+				(cAliasTRB)->Input := Round(NoRound(nValue, 3), 2)
+				(cAliasTRB)->(MsUnlock())
+			
+				(cAliasQry)->(dbSkip())		
+			EndDo
+		EndIf
+		(cAliasQry)->(dbCloseArea())
+		(cAliasTRB)->(dbGoto(nRecno))		
+	EndIf		
+	
+	RestArea(aArea)			
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinGet23rdLevel
+Montagem do terceiro nível da árvore de títulos a pagar a vencer (Títulos)
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinGet23rdLevel(cAliasTRB, dDate)
+	Local aArea		:= GetArea()	
+	Local cAliasQry := CriaTrab(Nil, .F.)
+	Local nRecno	:= (cAliasTRB)->FS_RECNO
+	Local cOrder	:= AllTrim((cAliasTRB)->ORDEM)		
+	Local cQuery	:= ""	
+	Local nValue	:= 0
+
+	SED->(dbGoto(nRecno))
+
+	cQuery += "    SELECT E2_PREFIXO, E2_NUM, E2_PARCELA, E2_TIPO, E2_FORNECE, E2_LOJA, "
+	cQuery += RetSqlName("SE2") +  ".R_E_C_N_O_ RECNO, E2_FILIAL, E2_MOEDA, E2_SALDO Saldo "
+	cQuery += "    FROM "
+	cQuery += RetSqlName("SE2")
+	cQuery += "    WHERE "
+	cQuery += "        E2_FILIAL = '" + xFilial("SE2") + "' AND "
+	cQuery += "        E2_VENCREA = '" + Dtos(dDate) + "' AND "
+	cQuery += "        E2_NATUREZ = '" + SED->ED_CODIGO + "' AND "	
+	cQuery += "        E2_MULTNAT <> '1' AND "
+	cQuery += "        E2_SALDO > 0 AND "
+	cQuery += "        D_E_L_E_T_ = ' ' "
+	cQuery += " UNION ALL "	
+	
+	cQuery += " SELECT E2_PREFIXO, E2_NUM, E2_PARCELA, E2_TIPO, E2_FORNECE, E2_LOJA, "
+	cQuery += RetSqlName("SE2") +  ".R_E_C_N_O_ RECNO, E2_FILIAL, E2_MOEDA, (E2_SALDO * EV_PERC) Saldo" 
+	cQuery += " FROM "
+	cQuery += RetSqlName("SE2") + ", " + RetSqlName("SEV")
+	cQuery += " WHERE E2_FILIAL = '" + xFilial("SE2") + "' AND
+	cQuery += " EV_NATUREZ = '" + SED->ED_CODIGO + "' AND "
+	cQuery += " EV_RECPAG = 'P' AND "
+	cQuery += " E2_VENCREA = '" + Dtos(dDate) + " ' AND "
+	
+	cQuery += " E2_FILIAL = EV_FILIAL AND "
+	cQuery += " E2_NUM = EV_NUM AND "
+	cQuery += " E2_PREFIXO = EV_PREFIXO AND "
+	cQuery += " E2_PARCELA = EV_PARCELA AND "
+	cQuery += " E2_TIPO = EV_TIPO AND "
+	cQuery += " E2_FORNECE = EV_CLIFOR AND "
+	cQuery += " E2_LOJA = EV_LOJA AND "
+	cQuery += " E2_MULTNAT = '1' AND "	
+	cQuery += " E2_SALDO > 0 AND "
+	
+	cQuery += RetSqlName("SE2") + ".D_E_L_E_T_ = ' ' AND "
+	cQuery += RetSqlName("SEV") + ".D_E_L_E_T_ = ' ' "	
+
+	If FinExecQuery(cAliasQry, cQuery)
+
+		If !(cAliasQry)->(Eof())
+			Reclock(cAliasTRB, .F.)
+				(cAliasTRB)->STATUS := STATUS_COLLAPSE
+			MsUnlock()	
+
+			While !(cAliasQry)->(Eof()) .And. (cAliasQry)->E2_FILIAL == xFilial("SE2")
+		
+				Reclock(cAliasTRB, .T.)
+				(cAliasTRB)->ID := 111
+				//(cAliasTRB)->PARENTID := 0
+				(cAliasTRB)->ORDEM := cOrder + GetHex((cAliasTRB)->(Recno()))
+				(cAliasTRB)->DESCR := Replicate(" ", 2 * INDENT) + ;
+				                  AllTrim((cAliasQry)->E2_PREFIXO) + " - " + ;
+				                  AllTrim((cAliasQry)->E2_NUM) + " - " + ;
+				                  AllTrim((cAliasQry)->E2_PARCELA) + " - " + ;
+				                  AllTrim((cAliasQry)->E2_TIPO) + " - " + ;
+				                  AllTrim((cAliasQry)->E2_FORNECE) + " - " + ;
+				                  AllTrim((cAliasQry)->E2_LOJA)
+				(cAliasTRB)->STATUS := STATUS_EMPTY
+
+				(cAliasTRB)->FS_ALIAS := "SE2"
+				(cAliasTRB)->FS_RECNO := (cAliasQry)->RECNO
+				(cAliasTRB)->FS_LEVEL := 3
+
+				nValue := xMoeda((cAliasQry)->Saldo, ;
+				                 (cAliasQry)->E2_MOEDA, 1, dDate, 3)
+								
+				// sobreescreve os valores default
+				(cAliasTRB)->Output := Round(NoRound(nValue, 3), 2)
+				(cAliasTRB)->(MsUnlock())
+			
+				(cAliasQry)->(dbSkip())		
+			EndDo
+		EndIf
+		(cAliasQry)->(dbCloseArea())
+		(cAliasTRB)->(dbGoto(nRecno))		
+	EndIf		
+	
+	RestArea(aArea)			
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} IncDate
+Método para incremento da data na janela acessada pela opção "Postergar"
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method IncDate() Class FinManWindow
+	Self:oBrowse:Clear()
+	Self:dRefDate += 1
+	Self:dOldDate := Self:dRefDate
+
+	Self:Refresh()
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} DecDate
+Método para decremento da data na janela acessada pela opção "Postergar"
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method DecDate() Class FinManWindow
+	Self:oBrowse:Clear()
+	Self:dRefDate -= 1
+	Self:dOldDate := Self:dRefDate
+
+	Self:Refresh()
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Refresh
+Método para "atualização" da janela
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method Refresh() Class FinManWindow
+	
+	FWMsgRun(, {||  Self:oBrowse:Clear()	,;
+					Self:Fetch()			,;
+					Self:Display()			,;
+					Self:oBrowse:Refresh()	,;  // refresh do browse
+					Self:RefreshCh1()		,; 	// refresh do gráfico de disponibilidade
+					Self:RefreshCh2()		,; 	// refresh do gráfico de saldo bancário					
+			 		}, STR0050, STR0051 ) 		// "Processando" # "Atualizando dados..."
+
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GetDate
+Método para retornar a data
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method GetDate() Class FinManWindow
+Return Self:dRefDate
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} SetDate
+Método para setar a data
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method SetDate(dValue) Class FinManWindow
+Return (Self:dRefDate := dValue)
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinLdLoan
+Função para retorno de aplicação/empréstimo
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinLdLoan(dDate)
+	Local aCalculo		:= {}
+	Local nTotLoan		:= 0
+	Local nAplicacao	:= 0
+	Local nAscan		:= 0
+	Local aCalc			:= {}
+	Local aAplic		:= {}
+	Local cAplCotas		:= GetMv("MV_APLCAL4")	
+
+	Private dA181DtApr	:= CTod("  /  /  ")
+	Private nA181VlMoed	:= 0
+	Private nA181SPCP2	:= 0
+	Private nA181SPLP2	:= 0
+	Private nA181SPCP1	:= 0
+	Private nA181SPLP1	:= 0
+	Private nA181SJUR2	:= 0
+	Private nA181SJUR1	:= 0
+	Private nA181SVCLP	:= 0
+	Private nA181SVCCP	:= 0
+	Private nA181SVCJR	:= 0
+	Private nA181VPLP1	:= 0
+	Private nA181VPCP1	:= 0
+	Private nA181VJUR1	:= 0
+	Private nA181VVCLP	:= 0
+	Private nA181VVCCP	:= 0
+	Private nA181VVCJR	:= 0
+	Private nA181VPLP2	:= 0
+	Private nA181VlDeb	:= 0
+	Private nA181VlIRF	:= 0
+	Private nA181VLDES	:= 0
+	Private nA181VLGAP	:= 0
+	Private nA181STOT1	:= 0
+	Private nA181STOT2	:= 0
+	Private nA181VPCP2	:= 0
+	Private nA181VJUR2	:= 0
+	Private nA181VTOT1	:= 0
+	Private nA181VTOT2	:= 0
+		
+	dbSelectArea("SEH")
+	SEH->(dbSetOrder(2))
+	SEH->(dbSeek(xFilial("SEH") + "A", .T.))
+	
+	While !SEH->(Eof()) .And. SEH->EH_FILIAL == xFilial("SEH") .And. ;
+	                          SEH->EH_STATUS == "A"
+
+		// empréstimo	                          
+		If SEH->EH_APLEMP == "EMP" .And. (SEH->EH_DATARES == dDate .Or. Empty(SEH->EH_DATARES))
+  
+			dA181DtApr := dDate
+			nA181VlMoed:= RecMoeda(dA181DtApr, SEH->EH_MOEDA)
+			nA181SPCP2 := 0
+			nA181SPLP2 := 0
+			nA181SPCP1 := 0
+			nA181SPLP1 := 0
+			nA181SJUR2 := 0
+			nA181SJUR1 := 0
+			nA181SVCLP := 0
+			nA181SVCCP := 0
+			nA181SVCJR := 0
+			nA181VPLP1 := 0
+			nA181VPCP1 := 0
+			nA181VJUR1 := 0
+			nA181VVCLP := 0
+			nA181VVCCP := 0
+			nA181VVCJR := 0
+			nA181VPLP2 := 0
+			nA181VlDeb := 0
+			
+			aCalculo := Fa171Calc(dDate, SEH->EH_SALDO, .F.)
+
+			nA181SPCP2 := Round(SEH->EH_SALDO * SEH->EH_PERCPLP / 100, TamSX3("EH_SALDO")[2])
+			nA181SPLP2 := SEH->EH_SALDO - nA181SPCP2
+		
+			nA181SPLP1 := SEH->EH_VLCRUZ
+			nA181SPCP1 := Round(SEH->EH_VLCRUZ * SEH->EH_PERCPLP / 100, TamSX3("EH_SALDO")[2])
+			
+			nA181SPLP1 := SEH->EH_VLCRUZ - nA181SPCP1
+			nA181SJUR2 := aCalculo[1,2]
+			nA181SJUR1 := aCalculo[2,2]
+			nA181SVCLP := aCalculo[2,3]
+			nA181SVCCP := aCalculo[2,4]
+			nA181SVCJR := aCalculo[2,5]
+			nA181VlIRF := 0
+			nA181VLDES := 0
+			nA181VLGAP := 0
+			nA181STOT1 := nA181SPLP1 + nA181SPCP1 + nA181SJUR1 + nA181SVCLP + nA181SVCCP + nA181SVCJR ///
+		
+			nA181STOT2 := nA181SPLP2 + nA181SPCP2 + nA181SJUR2
+			nA181VPLP1 := nA181SPLP1
+			nA181VPCP1 := nA181SPCP1
+			nA181VPLP2 := nA181SPLP2
+			nA181VPCP2 := nA181SPCP2
+			nA181VJUR1 := nA181SJUR1
+			nA181VJUR2 := nA181SJUR2
+			nA181VVCLP := nA181SVCLP
+			nA181VVCCP := nA181SVCCP
+			nA181VVCJR := nA181SVCJR
+			nA181VTOT1 := nA181STOT1
+			nA181VTOT2 := nA181STOT2	
+		
+			nA181VlDeb := na181VTOT1 + nA181VLIRF + nA181VLDES + If(SEH->EH_MOEDA==1, nA181VLGAP, 0)
+      
+			nTotLoan += nA181VlDeb
+		Else
+
+			// aplicação
+			If SEH->EH_APLEMP == "APL"
+				
+				dbSelectArea("SE9")
+				dbSetOrder(1)
+				dbSeek(xFilial() + SEH->EH_CONTRAT + SEH->EH_BCOCONT + SEH->EH_AGECONT)
+				dbSelectArea("SEH")
+
+				If Empty(SEH->EH_DATARES) .Or.;
+					(SEH->EH_DATARES == dDate)
+						
+					If !SEH->EH_TIPO $ cAplCotas
+						aCalc := Fa171Calc(dDate)
+					Else
+						aCalc := {0, 0, 0, 0, 0, 0}
+	
+						DbSelectArea("SE0")
+						MsSeek(xFilial("SE0") + SE9->(E9_BANCO + E9_AGENCIA + E9_CONTA + E9_NUMERO))
+
+						Aadd(aAplic, {SEH->EH_CONTRAT, SEH->EH_BCOCONT, SEH->EH_AGECONT,;
+												Transform(SEH->EH_SALDO, "@E 999,999,999.99"),;
+												Transform(SE9->E9_VLRCOTA, PesqPict("SE9", "E9_VLRCOTA", 18)),;
+												SE0->E0_VALOR})
+
+						DbSelectArea("SEH")					
+
+						nAscan := Ascan(aAplic, {|e| e[1] == SEH->EH_CONTRAT .And. ;
+						                             e[2] == SEH->EH_BCOCONT .And.;
+						                             e[3] == SEH->EH_AGECONT})
+						If nAscan > 0																	   
+							aCalc := Fa171Calc(dDate, SEH->EH_SLDCOTA, Nil, Nil, Nil, ;
+							                   SEH->EH_VLRCOTA, aAplic[nAscan][6], ;
+							                   (SEH->EH_SLDCOTA * aAplic[nAscan][6]))
+						EndIf
+					EndIf
+					nAplicacao += aCalc[1] - aCalc[2] - aCalc[3] - aCalc[4]
+				EndIf
+			EndIf			
+		EndIf
+		
+		SEH->(dbSkip())
+	End
+Return {nTotLoan, nAplicacao}
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} RefreshCh2
+Método para "atualização" dos gráficos
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method RefreshCh2() Class FinManWindow
+
+	// no gestor de Tesouraria não é exibido o painel
+	// de gráficos, deste modo, o mesmo não é criado
+	If Self:oPanelCh2 # Nil
+
+		Self:oPanelCh2:FreeChildren()
+	
+		Self:oChart2 := FWChartFactory():New()
+
+		// retorna a instância do gráfico desejado
+		//
+		// BARCHART(0) para barras
+		// LINECHART(1) para linhas
+		// PIECHART(2) para pizza.
+		Self:oChart2 := Self:oChart2:GetInstance(2)
+		Self:oChart2:Init(Self:oPanelCh2, .T.)
+		Self:oChart2:SetMask("R$ *@*")
+	
+		FinLdSer2(Self:oChart2, Self:dRefDate)
+		
+	  Self:oChart2:Build()
+	EndIf
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinLdSer2
+Função para input de dados no gráfico
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinLdSer2(oChart, dDate)
+	Local aArea		:= GetArea()
+	Local aAreaSA6	:= SA6->(GetArea())
+	Local nBalance	:= 0
+	Local aBank		:= {}
+
+	dbSelectArea("SA6")
+	SA6->(dbSetOrder(1))
+
+	If SA6->(MsSeek(xFilial("SA6")))
+		
+		While !SA6->(Eof()) .And. SA6->A6_FILIAL == xFilial("SA6")
+		
+			If SA6->A6_BLOCKED <> "1"
+
+				aBank := {SA6->A6_COD, SA6->A6_AGENCIA, SA6->A6_NUMCON}
+		
+				nBalance := FinLdBalance(aBank, Nil, dDate, Nil, .T.)
+
+				oChart:AddSerie(SA6->A6_COD, nBalance)
+			EndIf
+	
+			SA6->(dbSkip())
+		EndDo
+	EndIf
+
+	RestArea(aAreaSA6)
+	RestArea(aArea)
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinGetSED
+Função para input de dados no gráfico
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinGetSED(cAliasTRB, nOrder, cKey)
+	Local aArea			:= GetArea()
+	Local aAreaAlias	:= (cAliasTRB)->(GetArea())
+	Local aRetSED		:= {}
+	
+	dbSelectArea(cAliasTRB)
+	(cAliasTRB)->(dbSetOrder(nOrder))
+
+	If (cAliasTRB)->(MsSeek(cKey, .F.))
+		Aadd(aRetSED, (cAliasTRB)->ED_DESCRIC)
+		Aadd(aRetSED, (cAliasTRB)->(Recno()))
+	EndIf
+
+	(cAliasTRB)->(RestArea(aAreaAlias))
+	RestArea(aArea)
+Return aRetSED
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinChgBmp
+Função para carga de bitmaps no objeto
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinChgBmp(oBrowse)
+	Local cAliasTRB	:= ""
+	Local oBitmap	:= Nil
+
+	If oBrowse # Nil
+
+		cAliasTRB := oBrowse:GetAlias()	
+
+		Do Case
+			Case (cAliasTRB)->STATUS == STATUS_EXPAND
+				oBitmap := LoadBitmap(GetResources(), "SHORTCUTPLUS")
+
+			Case (cAliasTRB)->STATUS == STATUS_COLLAPSE
+				oBitmap := LoadBitmap(GetResources(), "SHORTCUTMINUS")
+
+		EndCase
+	EndIf
+Return oBitmap
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} RefreshCh1
+Método para "atualização" dos gráficos
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method RefreshCh1() Class FinManWindow
+
+	// no gestor de Tesouraria não é exibido o painel
+	// de gráficos, deste modo, o mesmo não é criado
+	If Self:oPanelCh1 # Nil
+
+		Self:oPanelCh1:FreeChildren()
+	
+		Self:oChart1 := FWChartFactory():New()
+
+		// retorna a instância do gráfico desejado
+		//
+		// BARCHART(0) para barras
+		// LINECHART(1) para linhas
+		// PIECHART(2) para pizza.
+		Self:oChart1 := Self:oChart1:GetInstance(0)
+		Self:oChart1:Init(Self:oPanelCh1, .T.)
+		Self:oChart1:SetMask("R$ *@*")
+		Self:oChart1:AddSerie(STR0036, Self:aInfo[1]) //"Saldos Bancários"
+		Self:oChart1:AddSerie(STR0037, Self:aInfo[4] + Self:aInfo[6]) //"Recebimentos"
+		Self:oChart1:AddSerie(STR0038, Self:aInfo[5] + Self:aInfo[7]) //"Pagamentos"		
+		
+		Self:oChart1:Build()
+	EndIf
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinChgOpHnd
+Função para alteração da opção no combo
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinChgOpHnd(oBrowse, oCombo, aCmbText, aCmbCode)
+	Local nPosCmb	:= 0
+	Local cAliasTRB	:= ""
+
+	If oCombo == Nil
+		Return
+	EndIf
+	
+	nPosCmb := oCombo:nAt
+	
+	cAliasTRB := oBrowse:GetAlias()	
+
+	FinChgCmbOp(oBrowse, {(cAliasTRB)->FS_ALIAS, (cAliasTRB)->FS_RECNO, ;
+	                      (cAliasTRB)->FS_LEVEL, (cAliasTRB)->ORDEM}, ;
+	                      aCmbCode[oCombo:nAt],oCombo)
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinChgCmbOp
+Função que executa a chamada das funções conforme a opção selecionada no combo
+
+@Author Unknown
+@Type Function
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Static Function FinChgCmbOp( oBrowse, aItemInfo, cCodeBlock, oCombo )
+	Local lWndRefresh	:= .T.
+	Local nPosCmb		:= oCombo:nAt
+	
+	Private aTrfPanel	:= {}
+
+	// "Postergar Vencimento",;
+	// "Efetuar Aplicação",
+	// "Efetuar Resgate",
+	// "Tomar Empréstimo"}
+
+	//Posicao da Descricao (level 1)
+	If Empty(cCodeBlock)
+
+		Do Case
+			//Transferência
+			Case nPosCmb == 2
+		
+				If aItemInfo[1] == "SA6" 
+					//Transferência com Browse posicionado na C/C (Level 2)
+					If aItemInfo[3] == 2  
+						dbSelectArea("SA6")
+						SA6->(DBGOTO(aItemInfo[2]))
+						aTrfPanel := {SA6->A6_COD,SA6->A6_AGENCIA,SA6->A6_NUMCON}
+					EndIf
+				EndIf
+				lWndRefresh := Fa100tran('SE5',1,3)
+		
+			//Postergar Vencto C.Pagar
+			Case nPosCmb == 3
+				nOption := 0
+				If aItemInfo[1] $ "CPA|CRA"
+					//Posicionado no Sintetico
+					nOption := 1
+				ElseIf aItemInfo[1] $ "SCP|SCR"
+					//Posicionado na Natureza
+					nOption := 2
+				ElseIf aItemInfo[1] $ "SE1|SE2"
+					//Posicionado no Titulo
+					nOption := 3
+				EndIf
+
+				If nOption > 0
+					FinChgDate(nOption, aItemInfo, oBrowse)
+				EndIf
+
+			Case nPosCmb == 4
+				//Aplicação
+				FinA171() // Inclusao de Emprestimo
+
+			Case nPosCmb == 5
+				//Resgate de aplicação
+				FinA181() // Inclusao de Emprestimo				
+
+			Case nPosCmb == 6
+				//Emprestimo
+				FinA171() // Inclusao de Emprestimo
+
+		EndCase	
+	Else
+		&(cCodeBlock)
+	EndIf
+
+	//Atualizo os valores do Gestor
+	If lWndRefresh
+		FINWINDOW:Refresh()
+	EndIf
+
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} FinChgDate
+Efetua a alteração da data dos títulos conforme posição da árvore posicionada
+
+@Author Unknown
+@Since Unknown
+@Version 12.1.17 
+/*/
+//------------------------------------------------------------------------------
+Function FinChgDate( nOption, aItemInfo, oBrowse )
+
+	Local nOpcX		:= 0 
+	Local cMensa	:= STR0049 + CRLF + STR0039+ CRLF //"A alteração de data de vencimento será aplicada a " //"ATENÇÃO !!!"
+	Local cMensa1	:= STR0040  //"O processo não poderá ser desfeito. Confirma ?"
+	Local oDlg1		:= NIL
+	Local dData		:= FINWINDOW:Getdate()		
+	Local dNewVenc	:= dData
+	Local lProcCP	:= .T.
+	
+	//Caso o array tenha trazido opções referentes os títulos a receber
+	//faço o processamento da data de vencimento destes títulos
+	If aItemInfo[1] $ "CRA|SCR|SE1"
+		lProcCP := .F.
+	EndIf
+	
+	DEFINE MSDIALOG oDlg1 FROM  00,00 TO 185,270 TITLE STR0041 PIXEL OF oMainWnd //"Postergar Pagamento"
+	@ 001, 2 TO 75, 135 OF oDlg1 PIXEL
+	@ 008, 08 SAY STR0042 SIZE 80, 8 OF oDlg1 PIXEL //"Nova Data de Vencimento"
+	@ 008, 75 MSGET dNewVenc SIZE 50,8 OF oDlg1 PIXEL HASBUTTON
+
+	If nOption == 1 //Altera todos os vencimentos do dia
+		cMensa += STR0043 + CRLF //"todos os titulos com vencimento nesta data. "
+		cMensa += cMensa1
+	ElseIf nOption == 2
+		cMensa += STR0044 + CRLF  //"todos os titulos desta natureza com vencimento"
+		cMensa += STR0045 + CRLF //"nesta data. "
+		cMensa += cMensa1
+	ElseIf nOption == 3
+		cMensa += STR0046 + CRLF  //"este título."
+		cMensa += cMensa1
+	Endif
+
+	@ 025, 08 SAY cMensa SIZE 200, 50 OF oDlg1 PIXEL COLOR CLR_RED 
+	
+	@ 080,060 BUTTON oBtnS PROMPT STR0047 SIZE 35,12 OF oDlg1 PIXEL ACTION (nOpcX := 1,oDlg1:End()) //"Sim"
+	@ 080,100 BUTTON oBtnN PROMPT STR0048 SIZE 35,12 OF oDlg1 PIXEL ACTION oDlg1:End() //"Não"
+	
+	ACTIVATE MSDIALOG oDlg1 CENTERED
+
+	dNewVenc := DataValida( dNewVenc, .T. )
+
+	If lProcCP
+		If nOpcX == 1			
+			If nOption == 1 //Altera todos os vencimentos do dia
+				cQuery := ""
+				cQuery += " UPDATE " + RetSqlName("SE2") + " SET "
+				cQuery += " E2_VENCREA = '" + DTOS(dNewVenc) + "' "
+				cQuery += " WHERE "
+				cQuery += " E2_FILIAL = '" + xFilial("SE2") + "' "
+				cQuery += " AND E2_SALDO > 0 "
+				cQuery += " AND E2_VENCREA = '" + DTOS(dData) + "' "
+				cQuery += " AND E2_EMISSAO <= '" + DTOS(dNewVenc) + "' " 
+				cQuery += " AND D_E_L_E_T_ = ' ' "
+				//Executa a query para atualizacao da base de dados
+				TcSqlExec(cQuery)
+			ElseIf nOption == 2
+				SED->(MsGoto(aItemInfo[2]))
+				cQuery := ""
+				cQuery += " UPDATE " + RetSqlName("SE2") + " SET "
+				cQuery += " E2_VENCREA = '" + DTOS(dNewVenc) + "' "
+				cQuery += " WHERE "
+				cQuery += " E2_FILIAL = '" + xFilial("SE2") + "' "
+				cQuery += " AND E2_SALDO > 0 "
+				cQuery += " AND E2_VENCREA = '" + DTOS(dData) + "' "
+				cQuery += " AND E2_NATUREZ = '" + SED->ED_CODIGO + "' "
+				cQuery += " AND E2_EMISSAO <= '" + DTOS(dNewVenc) + "' " 
+				cQuery += " AND D_E_L_E_T_ = ' ' "
+				//Executa a query para atualizacao da base de dados
+				TcSqlExec(cQuery)
+			ElseIf nOption == 3
+				SE2->(MsGoto(aItemInfo[2]))
+				If dNewVenc >= SE2->E2_EMISSAO
+					RecLock("SE2",.F.)
+					SE2->E2_VENCREA := dNewVenc
+					SE2->(MsUnlock())
+				EndIf
+			EndIf
+		EndIf
+	Else
+		If nOpcX == 1
+			If nOption == 1 //Altera todos os vencimentos do dia
+				cQuery := ""
+				cQuery += " UPDATE " + RetSqlName("SE1") + " SET "
+				cQuery += " E1_VENCREA = '" + DTOS(dNewVenc) + "' "
+				cQuery += " WHERE "
+				cQuery += " E1_FILIAL = '" + xFilial("SE1") + "' "
+				cQuery += " AND E1_SALDO > 0 "
+				cQuery += " AND E1_VENCREA = '" + DTOS(dData) + "' "
+				cQuery += " AND E1_EMISSAO <= '" + DTOS(dNewVenc) + "' "
+				cQuery += " AND D_E_L_E_T_ = ' ' "
+				//Executa a query para atualizacao da base de dados
+				TcSqlExec(cQuery)
+			ElseIf nOption == 2
+				SED->(MsGoto(aItemInfo[2]))
+				cQuery := ""
+				cQuery += " UPDATE " + RetSqlName("SE1") + " SET "
+				cQuery += " E1_VENCREA = '" + DTOS(dNewVenc) + "' "
+				cQuery += " WHERE "
+				cQuery += " E1_FILIAL = '" + xFilial("SE1") + "' "
+				cQuery += " AND E1_SALDO > 0 "
+				cQuery += " AND E1_VENCREA = '" + DTOS(dData) + "' "
+				cQuery += " AND E1_NATUREZ = '" + SED->ED_CODIGO + "' "
+				cQuery += " AND E1_EMISSAO <= '" + DTOS(dNewVenc) + "' "
+				cQuery += " AND D_E_L_E_T_ = ' ' "
+				//Executa a query para atualizacao da base de dados
+				TcSqlExec(cQuery)
+			ElseIf nOption == 3
+				SE1->(MsGoto(aItemInfo[2]))
+				If dNewVenc >= SE1->E1_EMISSAO
+					RecLock("SE1",.F.)
+					SE1->E1_VENCREA := dNewVenc
+					SE1->(MsUnlock())
+				EndIf
+			EndIf
+		EndIf	
+	EndIf
+
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Fetch
+Método para montagem da estrutura da árvore
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method Fetch() Class FinManWindow
+	Local aTotSE1		:= {}
+	Local aTotSE2		:= {}
+	Local aBankS		:= {}
+	Local aBankF		:= {}
+	Local nBankBalance	:= 0
+	Local nFinPos		:= 0
+	Local aLoanInv		:= {}
+	Local dDate			:= Self:dRefDate
+
+	Aadd(aBankS, Space(Len(SA6->A6_COD)))
+	Aadd(aBankS, Space(Len(SA6->A6_AGENCIA)))
+	Aadd(aBankS, Space(Len(SA6->A6_NUMCON)))
+
+	Aadd(aBankF, Replicate("Z", Len(SA6->A6_COD)))
+	Aadd(aBankF, Replicate("Z", Len(SA6->A6_AGENCIA)))
+	Aadd(aBankF, Replicate("Z", Len(SA6->A6_NUMCON)))
+
+	nBankBalance := FinLdBalance(aBankS, aBankF, dDate, Nil, .T.)
+
+	aTotSE1 := FinLdSE1(dDate)
+	aTotSE2 := FinLdSE2(dDate)
+		
+	aLoanInv := FinLdLoan(dDate)
+	
+	nFinPos := nBankBalance + (aTotSE1[2] + aLoanInv[2]) - ;
+	                          (aTotSE2[2] + aLoanInv[1])
+
+	Self:aInfo := {}
+	
+	Aadd(Self:aInfo, nBankBalance) // Saldos
+
+	Aadd(Self:aInfo, aTotSE1[1])   // CR Vencidos
+	Aadd(Self:aInfo, aTotSE2[1])   // CP Vencidos
+	
+	Aadd(Self:aInfo, aTotSE1[2])   // CR a Vencer
+	Aadd(Self:aInfo, aTotSE2[2])   // CP a Vencer
+	
+	Aadd(Self:aInfo, aLoanInv[2])  // Investimentos
+	Aadd(Self:aInfo, aLoanInv[1])  // Empréstimos
+	
+	Aadd(Self:aInfo, nFinPos)      // Posição Financeira
+Return
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} Display
+Método para exibir a tela
+
+@Author Unknown
+@Type Method
+@Since Unknown
+@Version 12.1.17
+/*/
+//------------------------------------------------------------------------------
+Method Display() Class FinManWindow
+	Local aInfo		:= {}
+	Local aItem		:= {}
+	Local cAliasTRB	:= Self:oBrowse:GetAlias()
+	Local nI		:= 0
+
+	// códigos de alias	
+	Aadd(aInfo, {1, 0, GetHex(1), STR0027, STATUS_EXPAND, ;
+	             0, 0, 0, Self:aInfo[1], "SLD", 0, 1}) //"Saldos"
+
+	Aadd(aInfo, {2,  0, GetHex(2), STR0028, STATUS_EMPTY, ;
+	             0, Self:aInfo[2], 0, 0, "CRV", 0, 1}) //"CR Vencidos"
+
+	Aadd(aInfo, {3,  0, GetHex(3), STR0029, STATUS_EMPTY, ;
+	             0, 0, Self:aInfo[3], 0, "CPV", 0, 1}) //"CP Vencidos"
+	
+	Aadd(aInfo, {4, 0, GetHex(4), STR0030, STATUS_EXPAND, ;
+	             0, Self:aInfo[4], 0, 0, "CRA", 0, 1}) //"CR a Vencer"
+
+	Aadd(aInfo, {5, 0, GetHex(5), STR0031, STATUS_EXPAND, ;
+	             0, 0, Self:aInfo[5], 0, "CPA", 0, 1}) //"CP a Vencer"
+	
+	Aadd(aInfo, {6, 0, GetHex(6), STR0032, STATUS_EMPTY, ;
+	             0, Self:aInfo[6], 0, 0, "APL", 0, 1}) //"Investimentos"
+
+	Aadd(aInfo, {7, 0, GetHex(7), STR0033, STATUS_EMPTY, ;
+	             0, 0, Self:aInfo[7], 0, "EMP", 0, 1}) //"Empréstimos"
+
+	Aadd(aInfo, {8, 0, GetHex(8), STR0034, STATUS_EMPTY, ;
+	             0, 0, 0, Self:aInfo[8], "POS", 0, 1}) //"Posição Financeira"
+
+	For nI := 1 To Len(aInfo)
+	
+		aItem := aInfo[nI]
+
+		Reclock(cAliasTRB, .T.)
+			(cAliasTRB)->ID := aItem[1]
+			(cAliasTRB)->FS_ALIAS := aItem[10]
+			(cAliasTRB)->FS_RECNO := aItem[11]
+			(cAliasTRB)->FS_LEVEL := aItem[12]
+			
+			(cAliasTRB)->ORDEM := GetHex((cAliasTRB)->(Recno()))
+			(cAliasTRB)->DESCR := aItem[4]
+			(cAliasTRB)->STATUS := aItem[5]
+			
+			(cAliasTRB)->BUDGET := aItem[6]
+			(cAliasTRB)->INPUT := aItem[7]
+			(cAliasTRB)->OUTPUT := aItem[8]
+			(cAliasTRB)->BALANCE := aItem[9]
+		MsUnlock()	
+	Next nI
+	
+	(cAliasTRB)->(dbGoTop())
+Return
+
+Method DeprecHandleOK() Class FinManWindow
+	local lContinue as Logical
+	local oFinAcWindow as Object
+
+	lContinue := .T.
+
+	oFinAcWindow := FinAcWindow():New()
+	lContinue := oFinAcWindow:DeprecHandle()
+	FreeObj(oFinAcWindow)	
+return lContinue

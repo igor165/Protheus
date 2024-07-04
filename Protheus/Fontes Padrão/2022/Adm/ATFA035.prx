@@ -1,0 +1,4929 @@
+STATIC lAtfCont
+STATIC lAF035Brw
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+STATIC lMultMoed := .T.
+
+//AVP
+//Verifica de o AVP esta implantado na base
+Static lAvpAtf := .F.
+Static lAvpAtf2 := NIL
+Static aRecCtb	:= {}
+Static lBxProvis := .F. 
+
+//Função de busca de filial
+STATIC lFWCodFil := .T.
+STATIC lIsRussia	:= If(cPaisLoc$"RUS",.T.,.F.) // CAZARINI - Flag to indicate if is Russia location
+
+#INCLUDE "ATFA035.CH"
+#INCLUDE "Protheus.ch"
+#DEFINE CONFIRMA 1
+#DEFINE REDIGITA 2
+#DEFINE ABANDONA 3
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATFA035	  ³ Autor ³ Claudio D. de Souza   ³ Data ³ 16/04/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Baixa de Ativos											 	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Ativo Fixo 													³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATFA035(xAutoCab,nOpc,aParamAuto)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define Variaveis                                                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local nDecimais := Set( _SET_DECIMALS )
+Local lAf035Auto := (xAutoCab <> NIL)
+Local aAutoCab
+Local nX		 := 0
+Local aArea         := GetArea()
+Local aAreaSN1		:= SN1->(GetArea())
+Local aAreaSN3		:= SN3->(GetArea())
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Salva a Integridade dos dados de Entrada 								  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Set( _SET_DECIMALS ,20 )
+SetKey( VK_F12, { || Pergunte("AFA030",.T.) })
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define Vari veis para filtro do browse ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Private aIndexFil		:= {}
+Private bFiltraBrw
+Private cFilPad		:= ""
+Private cFilEsp		:= ""
+
+Private cMoedaAtf := GetMV("MV_ATFMOEDA")
+Private cMoeda
+Private aRotina := MenuDef()
+PRIVATE cMarca   := GetMark( )
+Private cAbatAtf  := ""
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Define o cabecalho da tela de atualizacoes											³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Private cCadastro := STR0006    //"Baixa de Ativos"
+Private lPrimlPad := .T.
+Private nTotal := 0
+Private nHdlPrv := 0
+
+//Inclusão de mesagem de alerta notificando quanto a descontinuação da rotina ATFA035
+//Deve-se utilizar a rotina ATFA036
+If !IsInCallStack("AF36Can030") .and. !IsInCallStack("AF060Canc") .and. !IsInCallStack("A320CanBxa")
+	Alert(STR0093)
+	Return .F.
+EndIf
+
+If type( 'cAbatAtf' ) == 'U'
+	cAbatAtf	:= ''
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Regra de integracao com o modulo SIGAMNT - PARCEIRO NG    ³
+//³ "N" -- NAO INTEGRA                                        ³
+//³ "1" -- ALTERACOES NO ATF REPLICARAO NO MNT                ³
+//³ "2" -- ALTERACOES NO MNT REPLICARAO NO ATF                ³
+//³ "3" -- ALTERACOES ATUALIZARAO ATF E MNT                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Private lUsaMNTAT	:= IIF(ALLTRIM(GETMV("MV_NGMNTAT",.F.,"N")) $ "1/3",.T.,.F.)
+lMultMoed := Iif(lMultMoed .and. AtfMoedas() > 5,.t., .F.)
+
+//AVP
+//Verifica de o AVP esta implantado na base
+lAvpAtf := AFAvpAtf()
+
+//AVP2
+//Verifica implementacao do AVP e AVP parcela
+If lAvpAtf2 == NIL
+	lAvpAtf2 := AFAvpAtf2()
+Endif
+
+lMultMoed := Iif( lMultMoed .and. AtfMoedas() > 5, .t., .f. )
+
+lAuto 	:= .F.	 // Se for Baixa Automatica recebe .T.
+lPrim 	:= .T.
+aPos	:= {  8,  4, 11, 74 }
+aRotina[1,2] := "AxPesqui"
+lAtfCont := IIf(Trim(GetMv("MV_ATFCONT"))="O",.T.,.F.)
+
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Valida configuracao do parametro MV_TIPDEPR                               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If GetMv("MV_TIPDEPR") $ "345"
+	Help("  ",1,"AF035WRMNU")
+	Return .F.
+EndIf
+
+//Verifica se o Ativo está atualizado
+ATFXKERNEL()
+
+lAuto 	:= .F.	 // Se for Baixa Automatica recebe .T.
+lPrim 	:= .T.
+aPos	:= {  8,  4, 11, 74 }
+aRotina[1,2] := "AxPesqui"
+// Se estiver usando o parametro MV_ATFCONT como off-line, nao permite o uso desta rotina
+If Trim(GetMv("MV_ATFCONT"))!="O"
+	IW_MSGBOX(STR0050+Chr(13)+chr(10)+STR0051,STR0052,"STOP") // 'Nao é permitido o uso desta rotina com o parâmetro MV_ATFCONT diferente de "O" (On-Line).' ## 'Altere o parâmetro MV_ATFCONT para "O" (On-Line)' ## "Atenção"
+	Return
+Endif
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ativa tecla F10 para ativar parametros de lan‡amentos contab.             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SetKey( VK_F12, { || Pergunte("AFA030",.T.) } )
+
+Pergunte("AFA030",.F.)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Carrega as variaveis publicas com o parametro passado pela rotina³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If aParamAuto != Nil
+	For nX := 1 to Len(aParamAuto)
+		cVarParam := Alltrim(Upper(aParamAuto[nX][1]))
+		If "MV_PAR" $ cVarParam
+			&(cVarParam) := aParamAuto[nX][2]
+		EndIf
+	Next nX
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de Entrada                                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Default lAF035Brw := ExistBlock("AF035BRW")
+If lAF035Brw
+	cFilEsp := ExecBlock( "AF035BRW", .F., .F. )
+	cFilPad := IIF(ValType(cFilEsp) == "C", cFilEsp, cFilPad )
+Endif
+
+// Se nao for rotina automatica
+If !lAf035Auto
+	mBrowse( 6, 1,22,75,"SN3",,,,,, AtfLegenda("SN3"))
+Else
+	DbSelectArea("SN3")
+	aAutoCab := SN3->(MSArrayXDB(xAutoCab,nil,4))
+	If Len(aAutoCab) > 0
+		If nOpc == 4 			// Baixa
+			AF035Baixa("SN3",Recno(),4,,,aAutoCab,lAf035Auto/*, cAbatAtf*/)			
+		ElseIf nOpc == 5 		// Cancelamento
+			IF AF035Cance("SN3",Recno(),5,,.F.,aAutoCab,lAf035Auto)
+				Help(" ",1, "AF036AF035",,STR0097,1, 0,,,,,,{STR0098})//"A baixa  foi realizada pela rotina ATFA035 e o cancelamento da mesma sera realizada pelo modelo antigo | Nenhuma ação é necessaria o cancelamento ocorreu com sucesso"
+			Endif  
+		Endif
+	Endif
+Endif
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Recupera a Integridade dos dados														³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SET( _SET_DECIMALS , nDECIMAIS )
+SET KEY VK_F12 TO
+
+RestArea(aAreaSN3)
+RestArea(aAreaSN1)
+RestArea(aArea)
+
+Return
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035Baixa ³ Autor ³ Claudio D. de Souza   ³ Data ³ 16/02/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Baixa de Ativos	- Sem calculo de depreciacao da baixa		 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Ativo Fixo 																    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function AF035Baixa(cAlias,nReg,nOpc,aM,lAut,aAutoCab,lAf035Auto,aValidMot,lRetExt)
+Local onvlVend, lVlVend := .T.
+Local cCapital
+Local nOpt		 	:= 0
+Local nUfir 	 	:= 0
+Local lBxFilho  	:= .F.
+Local cChave    	:= ""
+Local cBxFilho  	:= "S"
+Local lTipo02   	:= .F.
+Local nRegAtu   	:= ""
+Local nRegProx  	:= ""
+Local cBase 	 	:= CriaVar("N1_CBASE")
+Local cItem 	 	:= Criavar("N1_ITEM")
+Local cTipo     	:= ""
+Local cTpSld     	:= ""
+Local cNota 	 	:= CriaVar("N1_NFISCAL")
+Local cSerie	 	:= CriaVar("N1_NSERIE")
+Local nQuant    	:= 0
+Local nQtdOrig	 	:= 0
+Local lAF030VLBX	:=  ExistBlock("AF030VLBX")
+Local lRet			:= .F.
+Local lCtbBxInt		:= .F.
+Local cTipoReav	:= "02/10/12/13/41/42/50/51/52/53/54"
+Local cTypes10		:= IIF(lIsRussia,"/" + AtfNValMod({1}, "/"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+Local cTypes12		:= IIF(lIsRussia,"/" + AtfNValMod({2}, "/"),"") // CAZARINI - 10/04/2017 - If is Russia, add new valuations models - recoverable models
+Local cTipoReav		:= "02/10/12/13/41/42/50/51/52/53/54" + cTypes10 + cTypes12
+
+
+//AVP
+Local lTemTp14		:= .F.
+Local cIdMov 		:= ""
+Local nSaveSx8Len	:= GetSx8Len()
+Local cNFItem 	 	:= CriaVar("N1_NFITEM")
+
+//MRG
+//Verifica implementacao da Margem Gerencial
+Local lMargem 		:= AFMrgAtf()
+Local lTemTp15		:= .F.
+
+Private lSN7      	:= .F.
+Private nVlVend		:= Iif(ExistBlock( "AF035VAL" ),ExecBlock("AF035VAL",.F.,.F.), 0)
+Private nPercBaixa	:= 100
+Private dBaixa030 	:= dDataBase
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Private cPictQtd	:= ""
+Private aPicture	:= {}
+Private aVlrAtual	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aVlResid 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aValBaixa	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aVRDACM 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+
+Private cMotivo		:= "01-Venda"
+Private aMotivos	:= {}
+Private cArquivo	:= ""
+Private nTotal 		:= 0
+Private nHdlPrv		:= 0
+Private cPadrao		:= ""
+Private lQuant    	:= .T.
+Private nPercAtiv 	:= 0, lUmaVez := .T.
+
+Set( _SET_DECIMALS ,20 )
+lAuto := .F.
+lPrim := .T.
+
+DEFAULT aAutoCab 	 := {}
+DEFAULT lAf035Auto := .F.
+DEFAULT aValidMot := {}
+DEFAULT lRetExt		:= .F. // Retorno para chamada externa
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o registro n„o est  em uso por outra esta‡„o. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !SoftLock(cAlias)
+	Return .t.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o controle de solicitações está ativado, se sim encerra baixa³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ( SuperGetMv( "MV_ATFSOLD", .F. ,"2" ) == "1" ) .And. ( !lAf035Auto ) .And. Alltrim(FunName()) == "ATFA035"
+	HELP(" ",1,"AF035SOLD",,STR0062 ,1,0)    //"Utilize a opção Solic. Baixa/Transf, parâmetro de controle de solicitações (MV_ATFSOLD) ativado."
+	Return .F.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica o numero do Lote do modulo Ativo Fixo 						³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cLoteAtf := LoteCont("ATF")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica tabela de motivos para baixa 							 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX5")
+dbSeek(xFilial("SX5")+"16")
+While SX5->X5_FILIAL+SX5->X5_TABELA == cFilial+"16"
+	If Len(aValidMot) > 0
+		If aScan(aValidMot,{|cMot| Alltrim(cMot) == Alltrim(SX5->X5_CHAVE) }) > 0
+			cCapital := Capital(X5Descri())
+			cMotivo := Left(SX5->X5_CHAVE, 2) + "-" + SubStr(cCapital,1,12 )
+			AAdd( aMotivos, cMotivo )
+		EndIf
+	Else
+		If !( Alltrim(SX5->X5_CHAVE) $ '08/13/14/15/16/17/18')
+			If (Alltrim(SX5->X5_CHAVE)) = '23'
+				If cPaisLoc = "BRA" .and. SuperGetMV("MV_AF30NDV", .F., .F.)   // somente se for brasil e controle de CIAP
+					cCapital := Capital(X5Descri())
+					AAdd( aMotivos, Left(SX5->X5_CHAVE, 2) + "-" + SubStr(cCapital,1,35) )
+				EndIf
+			Else
+				cCapital := Capital(X5Descri())
+				AAdd( aMotivos, Left(SX5->X5_CHAVE, 2) + "-" + SubStr(cCapital,1,35) )
+				If SubStr(SX5->X5_CHAVE,1,2 ) = "01"
+					cMotivo := Left(SX5->X5_CHAVE, 2) + "-" + SubStr(cCapital,1,12 )
+				Endif
+			EndIf
+		EndIf
+	EndIf
+	SX5->(dbSkip())
+End
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pesquisa picture para valores do ativo										³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cPictQtd  := PesqPict("SN1","N1_QUANTD", 18)
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	AtfMultMoe(,,{|x| aAdd( aPicture , PesqPict("SN3","N3_VORIG" + Alltrim(Str(x)), 20) ) })
+Else
+	aPicture := Array(5)
+	aPicture[1] := PesqPict("SN3","N3_VORIG1", 20)
+	aPicture[2] := PesqPict("SN3","N3_VORIG2", 20)
+	aPicture[3] := PesqPict("SN3","N3_VORIG3", 20)
+	aPicture[4] := PesqPict("SN3","N3_VORIG4", 20)
+	aPicture[5] := PesqPict("SN3","N3_VORIG5", 20)
+EndIf
+
+//AVP2
+//Verifica implementacao do AVP e AVP parcela
+If lAvpAtf2 == NIL
+	lAvpAtf2 := AFAvpAtf2()
+Endif
+
+dbSelectArea(cAlias)
+dbSetOrder(1)
+// 23/07/2010
+PcoIniLan("000371")
+While .T.
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Recebe codigo do ativo 	      												 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	cBase := SN3->N3_CBASE
+	cItem := SN3->N3_ITEM
+	cTipo := SN3->N3_TIPO
+	cTpSld:= SN3->N3_TPSALDO
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica existencia do Ativo 														³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SN1")
+	dbSetOrder(1)
+	dbSeek(xFilial("SN1")+cBase+cItem)
+	IF !Found()
+		Help(" ",1,"020ATIVO")
+		EXIT
+	EndIf
+	
+	If cPaisLoc == "BOL"
+		// Para Bolivia, se o item ja foi totalmente depreciado, não pode sofrer baixas.
+		If !Empty(SN3->N3_FIMDEPR)
+			Help(" ",1,"035FIMDEPR",,STR0080 ,1,0)//"Bens totalmente depreciados não poderão sofrer baixas.
+			EXIT
+		EndIf
+	EndIf
+	If ! AtfBloqueio(SN3->N3_CBASE + SN3->N3_ITEM, dBloqueio := Ctod(""))
+		Help(" ",1,"A030BLOQ")   //Este bem esta bloqueado, nao poder sofrer baixas.
+		EXIT
+	EndIf
+	
+	If SN1->N1_STATUS $ "2|3"
+		Help(" ",1,"A030BLOQ")   //Este bem esta bloqueado, nao poder sofrer baixas.
+		EXIT
+	EndIf
+
+	If !IsInCallStack("ATFA320")
+		If SN1->N1_TPCTRAT $ "2/3"
+			Help(" ",1,"AFA035TERC",,STR0068 ,1,0)//"Bens em controle de terceiro somente podem ser baixados pela rotina especifica (ATFA320)"
+			EXIT
+		EndIf
+	Endif
+
+	//AVP
+	//Se for Tipo 14, nao sera permitida a baixa a partir dele
+	//O correto e fazer a baixa a partir do Tipo 10. 
+	If SN3->N3_TIPO == '14'
+		Help(" ",1,"A030TP14",, STR0076 +CHR(10)+STR0077,1,0)
+		EXIT
+	EndIf
+
+	If ATFXVerPrj(SN1->N1_CBASE,SN1->N1_ITEM,.T.)
+		EXIT
+	EndIf
+	
+	If Empty(SN3->N3_CCONTAB)
+		Help(" ",1,"A030CTAV")   //Este bem nao tem a conta do bem preenchida. Verifique se ja foi classifcado
+		EXIT
+	EndIf
+	
+	nQtdOrig 	:= IIF(SN1->N1_QUANTD == 0,1,SN1->N1_QUANTD)
+	nQuant		:= nQtdOrig
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se ativo n„o est  baixado 				   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IF Val( SN3->N3_BAIXA ) # 0
+		Help(" ",1,"020BAIXADO")
+		EXIT
+	EndIf
+	
+	If lIsRussia
+		If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+			Help(" ",1,"SN3NOOPER") // This asset is not in operation. Put it into operation
+			Exit
+		Endif
+	Endif
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Avalia integracao com o modulo SIGAMNT - PARCEIRO NG³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IF lUsaMNTAT .AND. !AFVLBXIntMnt(SN1->N1_CODBEM,dDataBase,"ATFA035")
+		EXIT
+	ENDIF
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Avalia retorno do ponto de entrada AF030VLBX        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IF lAF030VLBX
+		lRet := ExecBlock("AF030VLBX",.F.,.F.,{"ATFA035","MAN"})
+		IF ValType(lRet) == "L" .AND. !lRet
+			EXIT
+		ENDIF
+	ENDIF
+	
+	//AVP2
+	//Verifica se o bem foi gerado por AVP Parcela
+	If Alltrim(SN1->N1_ORIGEM) == 'ATFA460' .and. !lBxProvis
+		Help(" ",1,"AF010A460B",,STR0082+CRLF+STR0083+SN1->N1_BASESUP +"-"+SN1->N1_ITEMSUP ,1,0)  //'Este ativo foi gerado a partir do processo de constituição de provisão. Este tipo de ativo não poderá ser baixado diretamente. Baixe o ativo superior (PAI).'###"C.Base-Item: "
+		EXIT
+	Endif		
+
+	
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		AtfMultMoe(,,{|x| aVlrAtual[x] := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+	Else
+		aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+		aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+		aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+		aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+	EndIf
+	aVlrAtual[1] := Iif(SN1->N1_PATRIM # "C", SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1, SN3->N3_VORIG1+SN3->N3_AMPLIA1)
+	
+	dDindepr := SN3->N3_DINDEPR
+	
+	//AVP
+	//Tipo 10 e Tipo 14 funcionam em par 
+	//Se a baixa for realizada a partir do Tipo 10, os valores de ambos devem ser somados
+	If lAvpAtf .and. SN3->N3_TIPO $ ('10' + cTypes10)
+		lTemTp14 := AFVerTp14(SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TPSALDO)
+	Endif			
+
+	//MRG
+	//Tipo 10 e Tipo 15 funcionam em par 
+	//Se a baixa for realizada a partir do Tipo 10, os valores de ambos devem ser somados
+	If lMargem .and. SN3->N3_TIPO $ ('10#13' + cTypes10)
+		lTemTp15 := AFVerTp15(SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TPSALDO)
+	Endif			
+
+	dbSelectArea("SN7")
+	dbSetOrder(1)
+	If dbSeek(xFilial("SN7")+cBase+cItem)
+		If Empty(SN7->N7_DTBAIXA)
+			nVlVend    := SN7->N7_VLSIMU1
+			dBaixa030  := SN7->N7_DTSIMUL
+			cMotivo    := SN7->N7_MOTIVO
+			cNota      := SN7->N7_NOTA
+			cSerie     := SN7->N7_SERIE
+			lSN7       := .T.
+		EndIf
+	Endif
+	dbSelectArea("SN3")
+	nOpt := 0
+	AF035Resid(dDataBase,nQuant,nQtdOrig)
+	nOpt := Af035DadosBx(	@cBase, @cItem, @cTipo, @nQuant, @nQtdOrig, @nUfir,;
+	@onVlVend,@lBxFilho,@lVlVend,@cBxFilho, @cNota, @cSerie,,,lAf035Auto, aAutoCab,aValidMot,@cTpSld, @cNFItem)
+	
+	IF nOpt == REDIGITA
+		Loop
+	EndIf
+	
+	IF nOpt == ABANDONA .OR. nOpt == 0
+		Exit
+	End
+	
+	If nOpt == CONFIRMA
+
+		//AVP2
+		//Se o bem for classificado como Orcamento, os filhos serao baixados 
+		//independendo da escolha do usuacio
+		If SN1->N1_PATRIM == 'O' 
+			lBxFilho := .T.
+		Endif		
+
+		dbSelectArea("SN3")
+		If lBxFilho    //Baixa os agregados tipos 1-2-4
+			dbSelectArea("SN3")
+			cChave := xFilial("SN3")+cBase+cItem
+			SN3->(dbSetOrder(1))
+			SN3->(dbSeek(cChave))
+			While !Eof() .And. cChave = SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM
+				
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aVlrAtual[x] := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+				Else
+					aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+					aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+					aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+					aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+				EndIf
+				aVlrAtual[1] := Iif(SN1->N1_PATRIM # "C", SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1, SN3->N3_VORIG1+SN3->N3_AMPLIA1)
+				
+				// Proporcionaliza o valor da baixa para os filhos.
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aValBaixa[x] := Round(aVlrAtual[x] * (nPercBaixa /100), X3Decimal("N3_VORIG"+Alltrim(Str(x)))) })
+				Else
+					aValBaixa[1] := Round(aVlrAtual[1] * (nPercBaixa /100), X3Decimal("N3_VORIG1"))
+					aValBaixa[2] := Round(aVlrAtual[2] * (nPercBaixa /100), X3Decimal("N3_VORIG2"))
+					aValBaixa[3] := Round(aVlrAtual[3] * (nPercBaixa /100), X3Decimal("N3_VORIG3"))
+					aValBaixa[4] := Round(aVlrAtual[4] * (nPercBaixa /100), X3Decimal("N3_VORIG4"))
+					aValBaixa[5] := Round(aVlrAtual[5] * (nPercBaixa /100), X3Decimal("N3_VORIG5"))
+				EndIf
+				
+				If Val(SN3->N3_BAIXA) != 0
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+				
+				If lIsRussia
+					If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+						dbSelectArea("SN3")
+						dbSkip()
+						Loop
+					Endif
+				Endif
+				If SN3->N3_TIPO $ cTipoReav
+					nRegAtu := SN3->(Recno())
+					dbskip()
+					If SN3->N3_TIPO $ cTipoReav
+						nRegProx := SN3->(Recno())
+						lTipo02  := .T.
+					Endif
+					SN3->(dbGoto(nRegAtu))
+				EndIf
+				If !lUmaVez
+					SN1->(MsSeek(xFilial("SN1")+SN3->N3_CBASE+SN3->N3_ITEM))
+					AF035Resid(dBaixa030,nQuant,nQtdOrig)
+					
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| aValBaixa[x] := Round((SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x)))) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(str(x)))) })
+					Else
+						aValBaixa[2] := Round((SN3->N3_VORIG2+SN3->N3_AMPLIA2) * nPercAtiv,X3Decimal("N3_VORIG2"))
+						aValBaixa[3] := Round((SN3->N3_VORIG3+SN3->N3_AMPLIA3) * nPercAtiv,X3Decimal("N3_VORIG3"))
+						aValBaixa[4] := Round((SN3->N3_VORIG4+SN3->N3_AMPLIA4) * nPercAtiv,X3Decimal("N3_VORIG4"))
+						aValBaixa[5] := Round((SN3->N3_VORIG5+SN3->N3_AMPLIA5) * nPercAtiv,X3Decimal("N3_VORIG5"))
+					EndIf
+					aValBaixa[1] := Round((SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(Str(x))))
+					
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| nVlrAtual2 := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+					Else
+						aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+						aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+						aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+						aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+					EndIf
+					aVlrAtual[1] := SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1
+					
+				Endif
+
+
+				//AVP
+				//Alimento o identificador do movimento para ser gravado no N4_IDMOV
+				//Desta forma, todo o processo de baixa tera apenas um identificador
+				If Empty(cIdMov)
+					cIdMov	:= GetSXENum("SN4","N4_IDMOV",,6)
+				Endif
+
+				Af035Grava(cAlias, cNota, cSerie, lBxFilho,nQuant,nQtdOrig,lCtbBxInt,cIDMOV,,cNFItem) 
+
+				If lTipo02
+					SN3->(dbGoto(nRegProx))
+					lTipo02 := .f.
+				Else
+					SN3->(dbSkip())
+				EndIf
+			EndDo
+
+		//AVP
+		//Baixa de Tipos relacionados a AVP
+		ElseIf !lBxFilho .and. lAvpAtf .and. SN3->N3_TIPO $ ('10' + cTypes10) .and. lTemTp14
+
+			dbSelectArea("SN3")
+			cChave := xFilial("SN3")+cBase+cItem
+			dbSeek(cChave)
+			While !Eof() .And. cChave = SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM
+			
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aVlrAtual[x] := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+				Else
+					aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+					aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+					aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+					aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+				EndIf
+				aVlrAtual[1] := Iif(SN1->N1_PATRIM # "C", SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1, SN3->N3_VORIG1+SN3->N3_AMPLIA1)
+				
+				// Proporcionaliza o valor da baixa para os filhos.
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aValBaixa[x] := Round(aVlrAtual[x] * (nPercBaixa /100), X3Decimal("N3_VORIG"+Alltrim(Str(x)))) })
+				Else
+					aValBaixa[1] := Round(aVlrAtual[1] * (nPercBaixa /100), X3Decimal("N3_VORIG1"))
+					aValBaixa[2] := Round(aVlrAtual[2] * (nPercBaixa /100), X3Decimal("N3_VORIG2"))
+					aValBaixa[3] := Round(aVlrAtual[3] * (nPercBaixa /100), X3Decimal("N3_VORIG3"))
+					aValBaixa[4] := Round(aVlrAtual[4] * (nPercBaixa /100), X3Decimal("N3_VORIG4"))
+					aValBaixa[5] := Round(aVlrAtual[5] * (nPercBaixa /100), X3Decimal("N3_VORIG5"))
+				EndIf
+				
+				If Val(SN3->N3_BAIXA) != 0
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+				
+				If lIsRussia
+					If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+						dbSelectArea("SN3")
+						dbSkip()
+						Loop
+					Endif
+				Endif
+				If SN3->N3_TIPO == "33"  //Nao baixar reinvestimento
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+
+				//Baixar apenas tipos relacionados a AVP
+				If !(SN3->N3_TIPO $ ("10/14" + cTypes10) )
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+
+				If SN3->N3_TIPO $ cTipoReav
+					nRegAtu := SN3->(Recno())
+					dbskip()
+					If SN3->N3_TIPO $ cTipoReav
+						nRegProx := SN3->(Recno())
+						lTipo02  := .T.
+					Endif
+					SN3->(dbGoto(nRegAtu))				
+				EndIf
+				If !lUmaVez
+					SN1->(MsSeek(xFilial("SN1")+SN3->N3_CBASE+SN3->N3_ITEM))
+					AF035Resid(dBaixa030,nQuant,nQtdOrig)
+
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| aValBaixa[x] := Round((SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x)))) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(str(x)))) })
+					Else
+						aValBaixa[2] := Round((SN3->N3_VORIG2+SN3->N3_AMPLIA2) * nPercAtiv,X3Decimal("N3_VORIG2"))
+						aValBaixa[3] := Round((SN3->N3_VORIG3+SN3->N3_AMPLIA3) * nPercAtiv,X3Decimal("N3_VORIG3"))
+						aValBaixa[4] := Round((SN3->N3_VORIG4+SN3->N3_AMPLIA4) * nPercAtiv,X3Decimal("N3_VORIG4"))
+						aValBaixa[5] := Round((SN3->N3_VORIG5+SN3->N3_AMPLIA5) * nPercAtiv,X3Decimal("N3_VORIG5"))
+					EndIf
+					aValBaixa[1] := Round((SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(Str(x))))
+
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| nVlrAtual2 := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+					Else
+						aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+						aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+						aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+						aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+					EndIf
+					aVlrAtual[1] := SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1
+					
+				Endif
+
+
+				//AVP
+				//Alimento o identificador do movimento para ser gravado no N4_IDMOV
+				//Desta forma, todo o processo de baixa tera apenas um identificador
+				If Empty(cIdMov)
+					cIdMov	:= GetSXENum("SN4","N4_IDMOV",,6)
+				Endif
+
+				Af035Grava(cAlias, cNota, cSerie, lBxFilho,nQuant,nQtdOrig,lCtbBxInt,cIdMov,,cNFItem)
+
+				If lTipo02
+					SN3->(dbGoto(nRegProx))
+					lTipo02 := .f.
+				Else
+					dbSkip()
+				EndIf
+			EndDo
+
+		//MRG
+		//Baixa de Tipos relacionados a Margem Gerencial
+		ElseIf !lBxFilho .and. lMargem .and. SN3->N3_TIPO $ ('10#13' + cTypes10) .and. lTemTp15
+
+			dbSelectArea("SN3")
+			cChave := xFilial("SN3")+cBase+cItem
+			dbSeek(cChave)
+			While !Eof() .And. cChave = SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM
+			
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aVlrAtual[x] := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+				Else
+					aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+					aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+					aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+					aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+				EndIf
+				aVlrAtual[1] := Iif(SN1->N1_PATRIM # "C", SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1, SN3->N3_VORIG1+SN3->N3_AMPLIA1)
+				
+				// Proporcionaliza o valor da baixa para os filhos.
+				// *******************************
+				// Controle de multiplas moedas  *
+				// *******************************
+				If lMultMoed
+					AtfMultMoe(,,{|x| aValBaixa[x] := Round(aVlrAtual[x] * (nPercBaixa /100), X3Decimal("N3_VORIG"+Alltrim(Str(x)))) })
+				Else
+					aValBaixa[1] := Round(aVlrAtual[1] * (nPercBaixa /100), X3Decimal("N3_VORIG1"))
+					aValBaixa[2] := Round(aVlrAtual[2] * (nPercBaixa /100), X3Decimal("N3_VORIG2"))
+					aValBaixa[3] := Round(aVlrAtual[3] * (nPercBaixa /100), X3Decimal("N3_VORIG3"))
+					aValBaixa[4] := Round(aVlrAtual[4] * (nPercBaixa /100), X3Decimal("N3_VORIG4"))
+					aValBaixa[5] := Round(aVlrAtual[5] * (nPercBaixa /100), X3Decimal("N3_VORIG5"))
+				EndIf
+				
+				If Val(SN3->N3_BAIXA) != 0
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+
+				If lIsRussia
+					If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+						dbSelectArea("SN3")
+						dbSkip()
+						Loop
+					Endif
+				Endif
+				If SN3->N3_TIPO == "33"  //Nao baixar reinvestimento
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+
+				//Baixar apenas tipos relacionados a Margem Gerencial
+				If !(SN3->N3_TIPO $ ("10/13/15" + cTypes10) )
+					dbSelectArea("SN3")
+					dbSkip()
+					Loop
+				Endif
+
+				If SN3->N3_TIPO $ cTipoReav
+					nRegAtu := SN3->(Recno())
+					dbskip()
+					If SN3->N3_TIPO $ cTipoReav
+						nRegProx := SN3->(Recno())
+						lTipo02  := .T.
+					Endif
+					SN3->(dbGoto(nRegAtu))				
+				EndIf
+				If !lUmaVez
+					SN1->(MsSeek(xFilial("SN1")+SN3->N3_CBASE+SN3->N3_ITEM))
+					AF035Resid(dBaixa030,nQuant,nQtdOrig)
+
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| aValBaixa[x] := Round((SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x)))) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(str(x)))) })
+					Else
+						aValBaixa[2] := Round((SN3->N3_VORIG2+SN3->N3_AMPLIA2) * nPercAtiv,X3Decimal("N3_VORIG2"))
+						aValBaixa[3] := Round((SN3->N3_VORIG3+SN3->N3_AMPLIA3) * nPercAtiv,X3Decimal("N3_VORIG3"))
+						aValBaixa[4] := Round((SN3->N3_VORIG4+SN3->N3_AMPLIA4) * nPercAtiv,X3Decimal("N3_VORIG4"))
+						aValBaixa[5] := Round((SN3->N3_VORIG5+SN3->N3_AMPLIA5) * nPercAtiv,X3Decimal("N3_VORIG5"))
+					EndIf
+					aValBaixa[1] := Round((SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1) * nPercAtiv,X3Decimal("N3_VORIG"+Alltrim(Str(x))))
+
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| nVlrAtual2 := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+					Else
+						aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+						aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+						aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+						aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+					EndIf
+					aVlrAtual[1] := SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1
+					
+				Endif
+
+
+				//MRG
+				//Alimento o identificador do movimento para ser gravado no N4_IDMOV
+				//Desta forma, todo o processo de baixa tera apenas um identificador
+				If Empty(cIdMov)
+					cIdMov	:= GetSXENum("SN4","N4_IDMOV",,6)
+				Endif
+
+				Af035Grava(cAlias, cNota, cSerie, lBxFilho,nQuant,nQtdOrig,lCtbBxInt,cIdMov,,cNFItem)
+
+				If lTipo02
+					SN3->(dbGoto(nRegProx))
+					lTipo02 := .f.
+				Else
+					dbSkip()
+				EndIf
+			EndDo
+		Else
+			Af035Grava(cAlias, cNota, cSerie, lBxFilho,nQuant,nQtdOrig,lCtbBxInt,,,cNFItem)
+		Endif
+
+		//AVP
+		//Contabilizacao do AVP
+		If lAvpAtf .and. Len(aRecCtb) > 0             
+			//Contabiliza os movimentos de AVP gerados pela baixa
+			AF450CtbAvp (aRecCTB,.F.,@nTotal,@nHdlPrv,@cArquivo,"ATFA035")
+			aRecCtb := {}
+		Endif
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Envia para Lancamento Contabil							  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If nHdlPrv > 0
+			RodaProva(nHdlPrv,nTotal)
+			cA100Incl(cArquivo,nHdlPrv,3,cLoteAtf,mv_par01 == 1,mv_par02 == 1)
+		Endif
+		lRetExt	:= .T.
+		Exit
+	Endif
+EndDo
+// 23/07/2010
+PcoFinLan("000371")
+
+//AVP
+//Confirma o IDMOV
+While (GetSx8Len() > nSaveSx8Len)
+	ConfirmSX8()
+EndDo
+
+//AVP2
+If lAvpAtf2 .and. nOpt == CONFIRMA
+	//Se o bem for classificado como Orcamento e o AVP deste for por parcela
+	//Verifico se ouve depreciacao e gero o ativo de provisao
+	If SN1->N1_PATRIM == 'O' .and. SN1->N1_TPAVP == '2'
+		BEGIN TRANSACTION
+
+			//Baixo os filhos gerados pelas apuracoes
+			lBxProvis := .T.
+			MsgRun(STR0085,"",{|| AFBxProvis(SN1->N1_CBASE, SN1->N1_ITEM,SN4->N4_IDMOV,SN4->N4_MOTIVO)  })    //"Baixando os bens de provisao (AVP parcela)..."
+			lBxProvis := .F.
+
+	    END TRANSACTION
+	Endif
+Endif
+
+dbSelectArea("SN3")
+msUnlock()   
+
+If (cPaisLoc == "PTG") .AND. (MV_PAR03 == 01) .AND. ((Left(Alltrim(cMotivo),2) =='02') .OR. (Left(Alltrim(cMotivo),2) =='06'))
+	ATFR263(cAbatAtf)
+EndIf
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³AF035Auto ³ Autor ³ Claudio D. de Souza	  | Data ³16/02/04³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Baixa Automatica de Bens									  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³ AF035Auto 												  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Ativo Fixo												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Function AF035Auto(cAlias,nReg,nOpc,lCancela)
+
+Local oDlg, oDlg1, oQtda
+Local oMark			:=0
+Local lInverte 		:= .f.
+Local cCapital
+Local nOpt		 	:= 0
+Local cNota 	 	:= Space(TamSX3("N1_NFISCAL")[1])
+Local cSerie	 	:= Space(3)
+Local nUfir 	 	:= 0
+Local cIndex		:="",cChave:=""
+Local nSavOrd1		:=IndexOrd()
+Local nQuant      	:= 0
+Local nQtdOrig		:= 0
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Local nVlrOrig1 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local nVlrBx1   	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local nVlrDesp1 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+//Local nVlrOrig1 	:= 0, nVlrOrig2 :=0,  nVlrOrig3 :=0,  nVlrOrig4 :=0,  nVlrOrig5 :=0
+//Local nVlrBx1   	:= 0, nVlrBx2   :=0,  nVlrBx3   :=0,  nVlrBx4   :=0,  nVlrBx5   :=0
+//Local nVlrDesp1 	:= 0, nVlrDesp2 :=0,  nVlrDesp3 :=0,  nVlrDesp4 :=0,  nVlrDesp5 :=0
+Local nVlrCorBem	:= 0,	 nVlrCorDep:=0
+Local cFiltro
+Local lF035Fil 	:= ExistBlock("F035FIL")
+Local bFirst	:= { || SN3->(MsSeek(cFilIni+cBaseI+cItemI, .T.)) }
+Local bFor 		:= { || SN3->N3_OK == cMarca .And. ((!lCancela .And. SN3->N3_BAIXA < "1") .Or. (lCancela .And. SN3->N3_BAIXA >= "1")) .And. (!lF035Fil 	.Or. &(ExecBlock("F035FIL",.f.,.f.))) }
+
+Local bPulaItem := { ||	SN3->N3_ITEM  < cItemI .Or.;
+					  	SN3->N3_ITEM   > cItemF }
+					  	
+Local bWhile 	:= { ||	!(SN3->(EOF())) .And.;
+SN3->N3_FILIAL >= cFilIni .And. SN3->N3_FILIAL <= cFilFim .And.;
+SN3->N3_CBASE >= cBaseI .And. SN3->N3_CBASE <= cBaseF}
+
+Local aCampos		:= {}
+Local lRet			:= .F.
+Local lCtbBxInt		:= .F.                  
+Local lPulou		:= .F.                  
+
+
+Local cFilBkp		:= ""
+Local cFilBkp2		:= ""
+Local nRecSM0 := SM0->(RECNO())
+Local nRecSN3 
+
+//AVP
+Local nSaveSx8Len 	:= GetSx8Len()
+Local cIDMOV			:= ""
+Local cKeyBem			:= ""
+
+//AVP2
+Local aIdMovSN4	:= {}
+Local aAreaSN1	:= SN1->(GetArea())
+Local aAreaSN4	:= SN4->(GetArea())    
+
+Private cArquivo	:= ""
+Private nTotal 		:= 0
+Private nHdlPrv		:= 0
+Private cPadrao   	:= ""
+Private nPercBaixa	:= 100
+Private dDInDepr	:= CTOD("  /  /  ")
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Private aPicture, cPictQtd
+Private aVlrAtual	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aVlResid 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aValBaixa	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aVRDACM 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private cMotivo		:= "01-Venda"
+Private aMotivos	:= {}
+Private cBasei 		:= CriaVar( "N1_CBASE" , .f. )
+Private cItemI 		:= CriaVar( "N1_ITEM" , .f. )
+Private cBasef 	:= Replicate("Z",Len(cBasei))
+Private cItemF 		:= Replicate("Z",Len(cItemI))
+Private cFilialI	:= CriaVar( "N1_FILIAL" , .f. )
+Private cFilialF	:= Replicate("Z",Len(cFilialI))
+Private nQtdBens	:= 0
+Private dBaixa030  	:= dDataBase
+Private lSN7 		:= .F.
+Private lQuant 		:= .T.
+Private nPercAtiv	:= 0
+Private lUmaVez	:= .T.
+Private cFilIni   := CriaVar( "N1_FILIAL" , .f. )
+Private cFilFim	:= CriaVar( "N1_FILIAL" , .f. )
+
+lPrimlPad := .T.
+
+Set( _SET_DECIMALS ,20 )
+lUmaVez := .F.
+lAuto := .T.
+lPrim := .T.
+
+//AVP
+//Verifica de o AVP esta implantado na base
+lAvpAtf := AFAvpAtf()
+
+//AVP2
+//Verifica implementacao do AVP e AVP parcela
+If lAvpAtf2 == NIL
+	lAvpAtf2 := AFAvpAtf2()
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o registro n„o est  em uso por outra esta‡„o. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !SoftLock("SN3")
+	Return .t.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o controle de solicitações está ativado, se sim encerra baixa³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ( SuperGetMv( "MV_ATFSOLD", .F. ,"2" ) == "1" ) .And. !lCancela .And. Alltrim(FunName()) == "ATFA035"
+	HELP(" ",1,"AF035SOLD",,STR0062 ,1,0)    //"Utilize a opção Solic. Baixa/Transf, parâmetro de controle de solicitações (MV_ATFSOLD) ativado."
+	Return .F.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica o numero do Lote do modulo Ativo Fixo 									³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cLoteAtf := LoteCont("ATF")
+aCampos := {}
+AADD(aCampos,{"N3_OK","","  ",""})
+dbSelectArea("SX3")
+dbSetOrder(1)
+dbSeek ("SN3")
+Do While !EOF() .And. (x3_arquivo == "SN3")
+	IF (X3USO(x3_usado)  .AND. cNivel >= x3_nivel .and. SX3->X3_context # "V") .Or.;
+		(X3_PROPRI == "U" .AND. X3_CONTEXT!="V" .AND. X3_TIPO<>'M') .Or.;
+		Alltrim(X3_CAMPO) $ "N3_FILIAL#N3_CBASE#N3_ITEM"
+		AADD(aCampos,{X3_CAMPO,"",X3Titulo(),X3_PICTURE})
+	Endif
+	dbSkip()
+Enddo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica tabela de motivos para baixa 												³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX5")
+dbSeek(xFilial("SX5")+"16")
+While SX5->X5_FILIAL+SX5->X5_TABELA == cFilial+"16"
+	If !( Alltrim(SX5->X5_CHAVE) $ '08/13/14/15/16/17/18/23')  //23 DEVOLUCAO somente por baixa normal.
+		cCapital := Capital(X5Descri())
+		AAdd( aMotivos, SubStr(SX5->X5_CHAVE,1,2 ) + "-" + SubStr(cCapital,1,35 ) )
+	EndIf
+	dbSkip()
+EndDo
+
+dbSelectArea("SN3")
+DEFINE MSDIALOG oDlg FROM	If(!lCancela,18,29),1 TO 160,560 TITLE STR0033 + If(lCancela,STR0066,"")PIXEL  //"Baixas Autom ticas" //"- Cancelamento"
+@	1, 3 	TO If(!lCancela,70,60), 242 OF oDlg  PIXEL
+nLi := 11
+
+If !lCancela
+	nLi := 0
+	@ 11, 5		SAY STR0027 SIZE 24, 7 OF oDlg PIXEL  //"Num.NF"
+	@ 11, 95  	SAY STR0028 SIZE 16, 7 OF oDlg PIXEL  //"S‚rie"
+	@ 11, 146 	SAY STR0026 SIZE 21, 7 OF oDlg PIXEL  //"Motivo"
+	@ 38, 146 	SAY STR0036 SIZE 42, 7 OF oDlg PIXEL  //"Data da Baixa"
+Endif
+@ 22-nLi, 5	 	SAY STR0034 SIZE 32, 7 OF oDlg PIXEL  //"Do C¢digo"
+@ 23-nLi, 146 	SAY STR0035 SIZE 32, 7 OF oDlg PIXEL  //"Ao C¢digo"
+@ 38-nLi, 5	 	SAY STR0053 SIZE 32, 7 OF oDlg PIXEL  // "Do Item"
+@ 38-nLi, 80 	SAY STR0054	SIZE 32, 7 OF oDlg PIXEL  // "Até"
+
+@ 52-nLi, 5	 	SAY STR0069 SIZE 32, 7 OF oDlg PIXEL  //"De Filial"
+@ 52-nLi, 80 	SAY STR0054	SIZE 32, 7 OF oDlg PIXEL  //"Até"
+
+
+If !lCancela
+	@ 09, 37  	MSGET cNota	  SIZE	46, 9 OF oDlg PIXEL
+	@ 09, 113 	MSGET cSerie	  SIZE	21, 9 OF oDlg PIXEL
+Endif
+
+@ 23-nLi, 37  	MSGET cBasei	  SIZE 	38.5, 9 OF oDlg PIXEL F3 "SN1" HASBUTTON
+@ 23-nLi, 190 	MSGET cBasef	  SIZE 	46, 9 OF oDlg PIXEL F3 "SN1" Valid cBasef >= cBaseI HASBUTTON
+
+@ 37-nLi, 37		MSGET cItemI	  OF oDlg PIXEL
+@ 37-nLi, 100	MSGET cItemF	  OF oDlg PIXEL
+
+@ 51-nLi, 37	MSGET cFilialI	  OF oDlg PIXEL F3 "SM0_01" Valid Af035RetFil(1)   HASBUTTON
+@ 51-nLi, 100	MSGET cFilialF	  OF oDlg PIXEL F3 "SM0_01" Valid Af035RetFil(2)   HASBUTTON
+
+If !lCancela
+	@ 37, 190 	MSGET dBaixa030 SIZE	46, 9 OF oDlg PIXEL HASBUTTON
+	@ 09, 190 	COMBOBOX oCbx VAR cMotivo ITEMS aMotivos SIZE 46, 27 OF oDlg PIXEL
+Endif
+
+DEFINE SBUTTON FROM 02,246 TYPE 1 ACTION (nOpt := 1,oDlg:End()) ENABLE OF oDlg
+DEFINE SBUTTON FROM 16,246 TYPE 2 ACTION oDlg:End() ENABLE OF oDlg
+ACTIVATE MSDIALOG oDlg CENTERED
+
+If nOpt == 0 .Or. !(AF035DtBx(dBaixa030))
+	dbSetOrder(nSavOrd1)
+	Return
+Endif
+
+nQtdBens := 0	  // quantidade de Bens,mostrado no rodap‚ do browse
+
+//AVP
+//Caso seja a Filial inicial da tela inicial esteja vazia (vazio a ZZ) e
+//Filial do SN3 Exclusiva
+//Localizo o xFilial() da primeira filial da empresa
+If !Empty(xFilial("SN3")) .and. Empty(cFilialI)
+	SM0->(dbGotop())
+	SM0->(MsSeek(cEmpAnt))
+	cFilialI := SM0->M0_CODFIL                
+	If "ZZ" $ cFilialF
+		While !(SM0->(EOF())) .AND. SM0->M0_CODIGO == cEmpAnt
+			cFilialF := SM0->M0_CODFIL
+			SM0->(dbSkip())
+		Enddo
+	EndIF	
+	SM0->(dbGoto(nRecSM0))	
+Endif
+
+//Preenche as variaveis private cFilIni e CFilFin
+Af035RetFil(1)
+Af035RetFil(2)
+
+Eval(bFirst)
+
+If SN3->(!Eof())
+	
+	nOpca := 0
+	aF035Marca("SN3",cMarca,.F.,,lF035Fil,bFirst,bWhile,,lCancela)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Faz o calculo automatico de dimensoes de objetos     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aSize := MSADVSIZE()
+	
+	DEFINE MSDIALOG oDlg1 TITLE STR0033 From aSize[7],0 TO aSize[6],aSize[5] OF oMainWnd  PIXEL //"Baixas Autom ticas"
+	oDlg1:lMaximized := .T.
+	
+	oPanel := TPanel():New(0,0,'',oDlg1,, .T., .T.,, ,40,40,.T.,.T. )
+	oPanel:Align := CONTROL_ALIGN_TOP
+	
+	@1.5,.8 Say If(lCancela,STR0055,STR0039) OF oPanel 	//"Total de Bens a Baixar..." ## "Total de Baixas a cancelar..."
+	@1.5, 9 Say oQtda VAR nQtdBens  SIZE 50,10 OF oPanel
+	oMark := MsSelect():New("SN3","N3_OK",,aCampos,@lInverte,@cMarca,{35,oDlg1:nLeft,oDlg1:nBottom,oDlg1:nRight},'Atf035Fil(1)', 'Atf035Fil(2)')
+	oMark:oBrowse:bAllMark := {| | aF035Marca("SN3",cMarca,.T.,oQtda,lF035Fil,bFirst,bWhile,,lCancela,oMark)}
+	oMark:bMark := { | | Af035Display(cMarca,lInverte,oQtda)}
+	oMark:bAval	:= { | | aF035Marca("SN3",cMarca,.T.,oQtda,lF035Fil,bFirst,bWhile,.F.,lCancela,oMark) }
+	oMark:oBrowse:Align := CONTROL_ALIGN_ALLCLIENT
+	
+	ACTIVATE MSDIALOG oDlg1 ON INIT EnchoiceBar(oDlg1,{|| IIF(AF035VLAUTO(),(nOpca := 1,oDlg1:End()),)},{|| nOpca := 0,ODlg1:End()})
+	
+	If nOpca == 1
+		Eval(bFirst)
+		
+		PcoIniLan("000371")
+		
+		cFilBkp	:= cFilAnt
+		cFilBkp2:= cFilial
+		
+		While Eval(bWhile)
+			lPulou :=.F.
+			If Eval(bPulaItem)
+				dbSelectArea("SN3")
+				dbSkip()
+				lPulou:= .T.
+				Loop
+			EndIf
+			
+			AjFilial(SN3->N3_FILIAL) 
+
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica existencia do Ativo 														³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			dbSelectArea("SN1")
+			dbSeek(cFilial+SN3->N3_CBASE+SN3->N3_ITEM)
+			IF !Found()
+				Help(" ",1,"020ATIVO")
+				EXIT
+			End
+			
+			IF !Empty(SN1->N1_DTBLOQ)    // Se o bem estiver bloqueado nao permite baixa
+				dbSelectArea("SN3")
+				dbSkip()
+				lPulou:= .T.				
+				loop
+			End
+			
+			If SN1->N1_STATUS $ "2|3"    // Se o bem estiver bloqueado nao permite baixa
+				dbSelectArea("SN3")
+				dbSkip()
+				lPulou:= .T.
+				loop
+			EndIf
+		
+			If !IsInCallStack("ATFA320")
+				If SN1->N1_TPCTRAT $ "2/3"
+					dbSelectArea("SN3")
+					dbSkip()
+					lPulou:= .T.
+					loop
+				EndIf
+			Endif
+
+			If ATFXVerPrj(SN1->N1_CBASE,SN1->N1_ITEM)
+				dbSelectArea("SN3")
+				dbSkip()
+				lPulou:= .T.
+				loop
+			EndIf  
+			
+			If lIsRussia
+				If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+					dbSelectArea("SN3")
+					dbSkip()
+					lPulou:= .T.
+					Loop
+				Endif
+			Endif
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Avalia integracao com o modulo SIGAMNT - PARCEIRO NG³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			IF Eval(bFor) .AND. lUsaMNTAT .AND. !AFVLBXIntMnt(SN1->N1_CODBEM,dDataBase,"ATFA035")
+				dbSelectArea("SN3")
+				dbSkip()
+				lPulou:= .T.
+				loop
+			ENDIF
+			
+			If Eval(bFor)
+				cChave := &(IndexKey())
+				nQtdOrig   := IIF(SN1->N1_QUANTD == 0,1,SN1->N1_QUANTD)
+				nQuant	   := nQtdOrig
+				If lCancela
+					nRecSN3 := SN3->(Recno())
+					cFilAnt := cFilBkp
+					lRet := AF035Cance("SN3",SN3->(Recno()),,,.T.)
+					SN3->(dbGoto(nRecSN3))
+					cFilAnt := cFilBkp2
+				Else
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Caso tenha sido escolhido, processa a baixa do bem					  ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					nRecSN3 := SN3->(Recno())					
+					//AVP
+					//Ao mudar de bem, gero um novo IDMOV
+					If cKeyBem != xFilial("SN1")+SN1->(N1_CBASE+N1_ITEM)
+						cKeyBem	:= xFilial("SN1")+SN1->(N1_CBASE+N1_ITEM)
+						//Alimento o identificador do movimento para ser gravado no N4_IDMOV
+						//Desta forma, todo o processo de baixa tera apenas um identificador
+						cIdMov	:= GetSXENum("SN4","N4_IDMOV",,6)
+
+						//AVP2
+						If lAvpAtf2 .AND. SN1->N1_PATRIM == 'O' .and. SN1->N1_TPAVP == '2'
+							AADD(aIdMovSN4, {SN1->(RECNO()),cIdMov})
+						Endif
+
+					Endif
+
+					// *******************************
+					// Controle de multiplas moedas  *
+					// *******************************
+					If lMultMoed
+						AtfMultMoe(,,{|x| aVlrAtual[x] := SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) })
+					Else
+						aVlrAtual[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+						aVlrAtual[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+						aVlrAtual[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+						aVlrAtual[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+					EndIf
+					aVlrAtual[1] := Iif(SN1->N1_PATRIM # "C", SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1, SN3->N3_VORIG1+SN3->N3_AMPLIA1 )
+					
+					AF035Resid(dBaixa030,nQuant,nQtdOrig)
+					Af035Grava(cAlias, cNota, cSerie, .T.,nQuant,nQtdOrig,lCtbBxInt,cIDMOV) 
+					SN3->(dbGoto(nRecSN3))
+
+					If (cPaisLoc == "PTG") .AND. (MV_PAR03 == 01) .AND. ((Left(Alltrim(cMotivo),2) =='02') .OR. (Left(Alltrim(cMotivo),2) =='06'))
+						ATFR263(cAbatAtf)
+					EndIf
+				Endif
+			Else
+				cChave := " "
+			EndIf
+			
+			dbSelectArea("SN3")
+			dbSkip()
+			
+			//AVP
+			//Contabilizacao do AVP
+			If lAvpAtf .and. Len(aRecCtb) > 0             
+				//Contabiliza os movimentos de AVP gerados pela baixa
+				AF450CtbAvp (aRecCTB,.F.,@nTotal,@nHdlPrv,@cArquivo,"ATFA035")
+				aRecCtb := {}
+			Endif
+
+			If nQtdBens != 0 .and. nHdlPrv > 0 .and. (cFilAnt	!= SN3->N3_FILIAL .or. SN3->(EOF()))
+				RodaProva(nHdlPrv,nTotal)
+				cA100Incl(cArquivo,nHdlPrv,2,cLoteAtf,mv_par01 == 1,mv_par02 == 1)
+				nTotal 		:= 0
+			EndIf
+		EndDO
+		//Quando sair do loop verifica se contabilizou, senao chama cA100Incl 
+		//se esta baixando na mesma filial e nao chamou cA100Incl por não ter atingido final de arquivo -- SN3 EXCLUSIVO
+		If !Empty(xFilial("SN3")) .And. nQtdBens != 0 .and. nHdlPrv > 0 .And.  ( SN3->(!EOF()) .or. lPulou)
+			RodaProva(nHdlPrv,nTotal)
+			cA100Incl(cArquivo,nHdlPrv,2,cLoteAtf,mv_par01 == 1,mv_par02 == 1)
+			nTotal 		:= 0
+			nBkpHandle	:= 0
+		EndIf		
+	
+		PcoFinLan("000371")
+		//AVP2
+		//Efetuo a geracao do bem de provisao referente a parcela de depreciacao desta baixa
+		//Baixo os bens de provisao filhos do bem de orcamento que foi baixado
+		If lAvpAtf2 .and. Len(aIdMovSN4) > 0
+			lBxProvis := .T.
+			AF030BxPr(aIdMovSN4,.F.)
+			aIdMovSN4 := {}
+			lBxProvis := .F.
+		Endif
+
+		cFilAnt := cFilBkp
+		cFilial := cFilBkp2
+	Endif
+Endif
+//Apagar Indeces temporarios
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Restaura os ¡ndices 													  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+RetIndex("SN3")
+dbSetOrder(nSavOrd1)
+Set Filter to
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ af035Quant ³ Autor ³ Claudio D. de Souza   | Data ³ 16/02/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida quantidade a ser baixada										 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035																		 ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AF035Quant(nQuant,nPerc,nQtdOrig)
+Local lRet		  := .T.
+Local cAlias	  := Alias()
+
+IF nQuant > nQtdOrig .Or. nQuant < 0
+	Help(" ",1,"FA020QUANT")
+	lRet := .F.
+End
+nPerc := nQuant * 100 / nQtdOrig
+If nQuant != nQtdOrig
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		AtfMultMoe(,,{|x| aValBaixa[x] := Round(aVlrAtual[x] * (nPerc /100), X3Decimal("N3_VORIG"+Alltrim(Str(x)))) })
+	Else
+		aValBaixa[1] := Round(aVlrAtual[1] * (nPerc /100), X3Decimal("N3_VORIG1"))
+		aValBaixa[2] := Round(aVlrAtual[2] * (nPerc /100), X3Decimal("N3_VORIG2"))
+		aValBaixa[3] := Round(aVlrAtual[3] * (nPerc /100), X3Decimal("N3_VORIG3"))
+		aValBaixa[4] := Round(aVlrAtual[4] * (nPerc /100), X3Decimal("N3_VORIG4"))
+		aValBaixa[5] := Round(aVlrAtual[5] * (nPerc /100), X3Decimal("N3_VORIG5"))
+	EndIf
+Endif
+dbSelectArea(cAlias)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035Valor ³ Autor ³ Claudio D. de Souza   | Data ³ 16/04/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida o valor da baixa 										³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Generico 													³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AF035Valor(nValor,nMoeda,nQtdOrig,nQuant)
+Local lRet	 := .T.
+Local cAlias := Alias()
+Local nComp1 := 0
+Local nComp2 := 0
+Local cN1TipoNeg := Alltrim(SuperGetMv("MV_N1TPNEG",.F.,"")) // Tipos de N1_PATRIM que aceitam Valor originais negativos
+Local cN3TipoNeg := Alltrim(SuperGetMv("MV_N3TPNEG",.F.,"")) // Tipos de N3_TIPO que aceitam Valor originais negativos
+
+cMoeda		 := Str(nMoeda,1,0)
+nComp1		 := Round(nValor, X3Decimal("N3_VORIG"+cMoeda))
+nComp2		 := Round(aVlrAtual[nMoeda], X3Decimal("N3_VORIG"+cMoeda))
+//	Teste para Cetesb - 13/01/99
+IF SN3->N3_TIPO # "05" .And. !(SN1->N1_PATRIM $ cN1TipoNeg) .And. !(SN3->N3_TIPO $ cN3TipoNeg) .And. (nValor < 0 .Or. nComp1 > nComp2)  //nValor <= 0 .Or. nComp1 > nComp2
+	Help(" ",1,"FA020VALOR")
+	lRet:=.F.
+End
+IF lRet .And. nMoeda = 1						// BOPS 10292 - Somente recalculo se for a 1. Moeda
+	nPerc	   := nValor / aVlrAtual[nMoeda]
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		AtfMultMoe(,,{|x| aValBaixa[x] := Round(aVlrAtual[x] * nPerc, X3Decimal("N3_VORIG"+Alltrim(Str(x)))) })
+	Else
+		aValBaixa[1] := Round(aVlrAtual[1] * nPerc, X3Decimal("N3_VORIG1"))
+		aValBaixa[2] := Round(aVlrAtual[2] * nPerc, X3Decimal("N3_VORIG2"))
+		aValBaixa[3] := Round(aVlrAtual[3] * nPerc, X3Decimal("N3_VORIG3"))
+		aValBaixa[4] := Round(aVlrAtual[4] * nPerc, X3Decimal("N3_VORIG4"))
+		aValBaixa[5] := Round(aVlrAtual[5] * nPerc, X3Decimal("N3_VORIG5"))
+	EndIf
+	nPercBaixa := nPerc * 100
+Endif
+dbSelectArea(cAlias)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035DtBx  ³ Autor ³ Wagner Xavier		  ³ Data ³ 03/08/93 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Verifica validade da data da baixa						    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Generico 													³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function AF035DtBx(dBaixa030)
+Local cAlias	:= Alias()
+Local lRet		:= .T.
+Local lOcorr	:= .F.
+Local dUltDepr 	:= GETMV("MV_ULTDEPR")
+Local lGspInUseM:= If(Type('lGspInUse')=='L', lGspInUse, .F.)
+Local cRegraBx 	:= ALLTRIM(GETMV("MV_ATFBXDP",.F.,"0"))
+Local cCalcDep	:= GetNewPar("MV_CALCDEP",'0') //-> '0'-Mensal, '1'-Anual
+//Data de Bloqueio da Movimentação - MV_ATFBLQM
+Local dDataBloq := GetNewPar("MV_ATFBLQM",CTOD(""))
+
+Default dBaixa030 := dDataBase
+
+If lGspInUseM
+	//Se for GSP, pega o ultimo dia do mes anterior
+	dUltDepr := MsSomaMes(dUltDepr,-1,.T.)
+Endif
+
+// Proteção para alteração incorreta do MV_ULTDEPR
+If Valtype(dUltDepr) != "D" .Or. Empty(dUltDepr)
+	dUltDepr := STOD("19800101")
+EndIf  
+
+If !Empty(dBaixa030) .AND. (dBaixa030 <=  dDataBloq)
+	HELP(" ",1,"AF035BLQM",,STR0061 + DTOC(dDataBloq) ,1,0)    //"A data de aquisição do bem é igual ou menor que a data de bloqueio de movimentação : "
+	lRet := .F.
+ElseIF Empty(dBaixa030) .OR. dBaixa030 <  SN1->N1_AQUISIC
+	If cCalcDep == "0"
+		Help(" ",1,"AFDTBAIXA",,STR0075,1,0)
+	Else
+		Help(" ",1,"AFDTBAIXA2")
+	EndIf
+	lRet := .F.
+	
+ElseIf cRegraBx == "0"
+	
+	If cCalcDep == "0"
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Conforme regra padrao, nao aceita movimentos fora do mes posterior     ³
+		//³ ao ultimo calculo de depreciacao, e nem anteriores ao ultimo calculo   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If dBaixa030 >  LastDay(dUltDepr+1) .OR. dBaixa030 <= dUltDepr
+			Help(" ",1,"AFDTBAIXA",,STR0075,1,0)
+			lRet := .F.
+		EndIf
+	Else
+		If Year(dBaixa030) >  Year(dUltDepr)+1 .OR. dBaixa030 <= dUltDepr
+			Help(" ",1,"AFDTBAIXA2")
+			lRet := .F.
+		EndIf
+	EndIf
+	
+	IF lRet
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se a data da baixa nao e' anterior a ultima baixa do bem   ³
+		//³ Caso encontre alguma movimentacao com a data da ultima depreciacao, ³
+		//³ significa que, existem movimentacoes de calculos de depreciacao ou  ³
+		//³ correcao.                                                           ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SN4")
+		dbSeek(cFilial+SN3->N3_CBASE+SN3->N3_ITEM+SN3->N3_TIPO+DtoS(dULTDEPR),.T.)
+		While !EOF() .And. SN4->N4_FILIAL =  cFilial 		 .And. ;
+			SN4->N4_CBASE  =  SN3->N3_CBASE  .And. ;
+			SN4->N4_ITEM	 =  SN3->N3_ITEM	 .And. ;
+			SN4->N4_TIPO	 =  SN3->N3_TIPO
+			IF SN4->N4_DATA > dBaixa030
+				lOcorr := .T.
+				Exit
+			End
+			dbSkip()
+		End
+		dbSelectArea(cAlias)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Nao aceita a data da baixa se houver ocorrencia de baixa a posterior   ³
+		//³ ou movimentacao com a data da ultima depreciacao. Verificar a data da  ³
+		//³ baixa.                                                                 ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		IF lOcorr
+			If cCalcDep == "0"
+				Help(" ",1,"AFDTBAIXA",,STR0075,1,0)
+			Else
+				Help(" ",1,"AFDTBAIXA2")
+			EndIf
+			lRet := .F.
+		EndIF
+	ENDIF
+	
+ELSEIF cRegraBx == "1"
+	
+	If cCalcDep == "0"
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se a data da baixa está entre os meses imediatamente       ³
+		//³ anterior e imediatamente posterior ao ultimo calculo de depreciacao ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If 	dBaixa030 > LastDay(dUltDepr+1)
+			Help(" ",1,"AFDTBAIXA",,STR0075,1,0)
+			lRet := .F.
+		EndIf
+	Else
+		If Year(dBaixa030) >  Year(dUltDepr)+1
+			Help(" ",1,"AFDTBAIXA2")
+			lRet := .F.
+		EndIf
+	EndIf
+	
+ENDIF
+
+dbSelectArea(cAlias)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035Perc  ³ Autor ³ Cesar C S Prado		  ³ Data ³ 06/06/94 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida o percentual informado 								³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AF035Perc(nPerc,nQtd,nQtdOrig)
+Local lRet:=.T.
+IF nPerc < 0 .Or. nPerc > 100
+	Help(" ",1,"AFPERCBAIX")
+	lRet := .F.
+Else
+	nQtd := nQtdOrig * (nPerc / 100)
+End
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³af035Marca³ Autor ³ Alice Y. Yamamoto	    ³ Data ³ 04/03/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ marcar e desmarcar item 									  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Af035Marca(ExpN1,ExpD1,ExpD2) 							  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ atfa035													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+STATIC Function Af035Marca(cAlias,cMarca,lInverte,oQtda,lF035Fil,bFirst,bWhile, lTodos, lCancela,oMark)
+LOCAL lSavTTS
+LOCAL nRec
+LOCAL cAliasAnt := Alias()
+Local aAreaSN1	:= SN1->(GetArea())
+Local aAreaSN4	:= SN4->(GetArea())
+//MRG
+//Verifica implementacao da Margem Gerencial
+Local lMargem 		:= AFMrgAtf()
+
+DEFAULT lInverte := .F.
+DEFAULT lTodos := .T.
+DEFAULT oMark	:= NIL
+
+//AVP2
+//Verifica implementacao do AVP e AVP parcela
+If lAvpAtf2 == NIL
+	lAvpAtf2 := AFAvpAtf2()
+Endif
+
+lSavTTS := __TTSInUse
+__TTSInUse := .F.
+
+dbSelectArea(cAlias)
+nRec := Recno()
+If lTodos
+	Eval(bFirst)
+Endif
+
+While !lTodos .Or. Eval(bWhile)
+	
+	//Validação de controle de bens de terceiros
+	If !IsInCallStack("ATFA320")
+		If SN1->(dbSeek(xFilial("SN1") + SN3->(N3_CBASE+N3_ITEM)))
+			If SN1->N1_TPCTRAT $ "2/3"
+				If !lTodos
+					Help(" ",1,"AFA035TERC",,STR0068 ,1,0)//"Bens em controle de terceiro somente podem ser baixados pela rotina especifica (ATFA320)"
+					Exit
+				Else
+					SN3->(dbSkip())
+					loop
+				EndIf
+			EndIf
+		EndIf
+	Endif
+	
+	If lCancela
+		SN4->(dbSeek(xFilial("SN4")+SN3->(N3_CBASE+N3_ITEM+N3_TIPO+DTOS(N3_DTBAIXA))+"01"+SN3->N3_SEQ))
+		If SN4->N4_MOTIVO == '13' .And. !IsInCallStack("AF010CVMet")
+			If !lTodos
+				Help(" ",1,"AF030CCONV",,STR0063,1,0)//"Baixas com motivo 13-Conversão apenas podem ser cancelado pela rotina de cancelamento de conversão(ATFA010)"
+				Exit
+			Else
+				SN3->(dbSkip())
+				Loop
+			EndIf
+		EndIf
+		
+		If SN4->N4_MOTIVO $ '18'
+			If !lTodos
+				Help(" ",1,"AF035FILAUT",,STR0073,1,0)//"Baixas com motivo 16-Transferencia Interna de Filial não pode ser cancelada"
+				Exit
+			Else
+				SN3->(dbSkip())
+				Loop
+			EndIf
+		EndIf
+
+		If SN4->N4_MOTIVO == '14' .And. !IsInCallStack("A103GrvAtf")
+			If !lTodos
+				Help(" ",1,"AF035DEB",,STR0081,1,0)//"Baixas com motivo 14 apenas podem ser cancelado pela exclusão da nota de crédito/débito"
+				Exit
+			Else
+				SN3->(dbSkip())
+				Loop
+			EndIf
+		EndIf
+
+		If SN4->N4_MOTIVO $ "01/10" .And. !Empty(SN4->N4_NOTA)
+			If !A035VlNota(SN4->N4_NOTA,SN4->N4_SERIE)
+				If !lTodos
+					Help(" ",1,"AF035CNOTA",,STR0070 + SN4->N4_NOTA + STR0071 + SN4->N4_SERIE + STR0072  ,1,0)//"Baixa de Ativo atrelado ao documento de saída : " ## " Serie: " ## ".Por favor exclua a nota fiscal "
+					Exit
+				Else
+					SN3->(dbSkip())
+					Loop
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+	If ATFXVerPrj(SN3->N3_CBASE,SN3->N3_ITEM, !lTodos )
+		If !lTodos
+			Exit
+		Else
+			SN3->(dbSkip())
+			Loop
+		EndIf 
+	EndIf   
+	
+	//AVP
+	If lAvpAtf	
+		//Tipo 14 nao pode ser marcado diretamente
+		If SN3->N3_TIPO == '14' .and. !lTodos
+			Help(" ",1,"AF030MRK14",, STR0076 +CHR(10)+STR0077 ,1,0)
+			Exit
+		EndIf
+
+		//Valida se cancelamento da baixa e possivel
+		If lCancela .and. AFNoCanAvp(SN4->N4_CBASE,SN4->N4_ITEM,SN4->N4_TIPO,SN4->N4_IDMOV,SN4->N4_DATA,SN4->N4_TPSALDO)
+			If !lTodos
+				Help(" ",1,"AF030NOCAN",,STR0079,1,0)
+				Exit
+			Else
+				SN3->(dbSkip())
+				Loop
+			Endif
+		Endif
+
+		//AVP2
+		//Verifica a tentativa de marcar um bem de provisao gerado a partir de um bem de orcamento
+		//Nao deve permitir a selecao.
+		If lAvpAtf2
+			//Posiciono no SN1 para verificar se o bem provisao possui bem superior
+			SN1->(MsSeek(xFilial("SN1")+SN3->(N3_CBASE+N3_ITEM)))
+			If SN1->N1_PATRIM == 'V' .AND. !(EMPTY(SN1->N1_BASESUP))	
+				//Valida se cancelamento da baixa e possivel
+				If lCancela
+					If !lTodos
+						Help(" ",1,"AF030NOCPR",,STR0084+CRLF+STR0083+SN1->N1_BASESUP +"-"+SN1->N1_ITEMSUP,1,0) //'Este ativo foi gerado a partir do processo de constituição de provisão. Este tipo de ativo não poderá ser selecionado diretamente. Selecione o ativo superior (PAI) para que o cancelamento da baixa ocorra.'##
+						Exit
+					Else
+						SN3->(dbSkip())
+						Loop
+					Endif
+				Else
+					If !lTodos
+						Help(" ",1,"AF030MRKV",,STR0084+CRLF+STR0083+SN1->N1_BASESUP +"-"+SN1->N1_ITEMSUP,1,0) //'Este ativo foi gerado a partir do processo de constituição de provisão. Este tipo de ativo não poderá ser selecionado diretamente. Selecione o ativo superior (PAI) para que o cancelamento da baixa ocorra.'##
+						Exit
+					Else
+						SN3->(dbSkip())
+						Loop
+					Endif
+	            Endif
+			Endif
+    	Endif
+
+	EndIf	 
+
+	//MRG
+	//Tipo 15 nao pode ser marcado diretamente
+	If lMargem .and. SN3->N3_TIPO == '15' .and. !lTodos
+		Help(" ",1,"AF030MRK15",, STR0090 +CHR(10)+STR0091 ,1,0)  //"Os registros do Tipo 15 somente poderão ser selecionados através do Tipo 10 ou Tipo 13."###"Selecione o Tipo 10 ou o Tipo 13 correspontende e o Tipo 15, será selecionado automaticamente para o processo."
+		Exit
+	EndIf
+	
+	If SN1->(dbSeek(SN3->(N3_FILIAL+N3_CBASE+N3_ITEM)))
+		If SN1->N1_STATUS $ "2|3"
+			If !lTodos
+				If !lCancela
+					Help(" ",1,"A030BLOQ")
+				Else
+					Help(" ",1,"A030BLOQ2")
+				EndIf
+				Exit
+			Else
+				SN3->(dbSkip())
+				Loop
+			EndIf
+		EndIf
+	EndIf
+
+	If ((!lCancela .And. SN3->N3_BAIXA < "1") .Or.;
+		(lCancela .And. SN3->N3_BAIXA >= "1")) .And. (!lF035Fil 	.Or. &(ExecBlock("F035FIL",.f.,.f.)))
+		RecLock("SN3")
+		If lInverte
+			If SN3->N3_OK == cMarca
+				SN3->N3_OK := ""
+				nQtdBens--
+				nQtdBens:= Iif (nQtdBens <=0,0,nQtdBens)
+				//AVP
+				Fa035Mark14(lTodos,@nQtdBens,cMarca,lF035Fil,.F.)		 		 
+				//MRG
+				Fa035Mk15(lTodos,@nQtdBens,cMarca,lF035Fil,.F.,lCancela)		 		 
+			Else
+				SN3->N3_OK := cMarca
+				nQtdBens++
+				//AVP
+				//Marca registros do Tipo 14
+				Fa035Mark14(lTodos,@nQtdBens,cMarca,lF035Fil)
+				//MRG
+				//Marca registros do Tipo 15
+				Fa035Mk15(lTodos,@nQtdBens,cMarca,lF035Fil,,lCancela)
+			EndIf
+			oQtda:Refresh()
+		Else
+			SN3->N3_OK := cMarca
+			nQtdBens++
+			//AVP
+			//Marca registros do Tipo 14
+			Fa035Mark14(lTodos,@nQtdBens,cMarca,lF035Fil)
+			//MRG
+			//Marca registros do Tipo 15
+			Fa035Mk15(lTodos,@nQtdBens,cMarca,lF035Fil,,lCancela)
+		EndIf
+		MsUnLock()
+	Else
+		If ! lTodos .And. (!lF035Fil 	.Or. &(ExecBlock("F035FIL",.f.,.f.)))
+			Aviso(STR0033,If(lCancela,STR0056,STR0057), {"Ok"})  // "Este bem não pode ser selecionado, pois não está baixado!" ## "Este bem não pode ser selecionado, pois está baixado!"
+		Endif
+	Endif
+	If !lTodos
+		Exit
+	Endif
+	SN3->(dbSkip())
+EndDo
+
+RestArea(aAreaSN4)
+RestArea(aAreaSN1)
+
+SN3->(dbGoto(nRec))
+
+If Valtype(oMark) == 'O'
+	oMark:oBrowse:Refresh(.t.)
+Endif
+
+__TTSInUse := lSavTTS
+dbSelectArea(cAliasAnt)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Af035Display³ Autor ³ Alice Yamamoto 		  ³ Data ³ 04/03/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Atualiza tela de sele‡ao de registros da baixa autom tica 	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³Af035Display( cMarca,lInverte,oQtda,cArquivo) 				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function af035Display(cMarca,lInverte,oQtda,cArquivo)
+Local cFieldMarca := "N3_OK"
+
+If IsMark(cFieldMarca,cMarca,lInverte)
+	nQtdBens++
+Else
+	nQtdBens--
+	nQtdBens:= Iif(nQtdBens<0,0,nQtdBens)
+End
+oQtda:Refresh()
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Af035Grava  ³ Autor ³ Alice Yamamoto 		  ³ Data ³ 17/11/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Atualiza tela de sele‡ao de registros da baixa autom tica 	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³Af035Display( cMarca,lInverte,oQtda,cArquivo) 				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Af035Grava(cAlias, cNota, cSerie, lBxFilho,nQuant,nQtdOrig,lCtbBxInt,cIDMOV,nReg, cNFItem)
+
+Local lPadrao	 := .F.
+Local cTipoImob
+Local cOldArea  := Alias()
+Local nPropSF9  := 0
+Local nVlrSFA   := 0
+Local nFatorSFA := 0
+Local nRegSN3   := 0
+Local nVlOrig   := 0
+Local cTipoCorr := ""
+Local cBase     :=""
+Local cItem     := ""
+Local lCredito  := .F.
+Local dLei102 := GetNewPar("MV_DATCIAP",ctod("01/01/2001"))
+Local cMoedaAtf := GetMV("MV_ATFMOED")
+Local nMValiaC	:= 0
+Local nMValiaF	:= 0
+Local nIndiceSIE:= 0
+Local cTpSaldo	:= ""
+Local lSN3Saldo := .T.
+Local cOcorr 	:= ""
+Local aDadosComp :={}
+Local aValores   := {}    
+//Local cAbatAtf := ""      //Numero do Documento
+
+//Acresncetado por Fernando Radu Muscalu em 13/05/2011
+//baixa do rateio
+Local cRevAtu	:= ""
+
+// Verificação da classificação de Ativo se sofre depreciação
+Local lAtClDepr := .F.
+Local cMotSF9   := "" // Motivos a serem gravados no f9_motivo/fa_motivo
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+Default lCtbBxInt := .F. // contabiliza baixa na integração
+Default cIDMOV	:= ""
+Default cNFItem := ""
+Private cPadrao := ""
+Private cArquivo	:= ""
+Private nTotal		:= 0
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gera um novo sequencial a apartir do £ltimo sequencial gerado 			³
+//ÃÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+dbSelectArea("SN3")
+cSeqReav 	:= SN3->N3_SEQREAV
+nSavRec 	:= SN3->( Recno() )
+cBase 		:= SN3->N3_CBASE
+cItem 		:= SN3->N3_ITEM
+cSeq  		:= SN3->N3_SEQ
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica a existência do parâmetro: MV_ABATATF                            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If cPaisLoc == "PTG"  	
+	cAbatAtf:=SuperGetMV("MV_ABATATF",,.F.)
+	If Empty(cAbatAtf) 
+		MsgAlert("Parametro Inexistente - MV_ABATATF") 
+		lOk := .F. 
+	EndIf               
+EndIf
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	aVRDACM := AtfMultMoe(,,{|x| SN3->&(If(x>9,"N3_VRDAC","N3_VRDACM")+Alltrim(Str(x)))*(nPercBaixa /100) })
+Else
+	aVRDACM[1] := SN3->N3_VRDACM1*(nPercBaixa /100)
+	aVRDACM[2] := SN3->N3_VRDACM2*(nPercBaixa /100)
+	aVRDACM[3] := SN3->N3_VRDACM3*(nPercBaixa /100)
+	aVRDACM[4] := SN3->N3_VRDACM4*(nPercBaixa /100)
+	aVRDACM[5] := SN3->N3_VRDACM5*(nPercBaixa /100)
+EndIf
+****************** CIAP ********************
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o Cadastro de CIAP                                            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SF9")
+dbSetOrder(1)
+If ( dbSeek(xFilial("SF9")+SN1->N1_CODCIAP) )
+	If ( SF9->F9_DTENTNE >= dLei102 )
+		lCredito:= .T.
+	Else
+		lCredito:= .F.
+	EndIf
+	dbSelectArea("SN3")
+	dbSetOrder(1)
+	nRegSN3 := SN3->(Recno())
+	dbSeek(xFilial("SN3")+SN1->N1_CBASE+SN1->N1_ITEM)
+	While ( !Eof() .And. xFilial("SN3")==SN3->N3_FILIAL .And.;
+		SN1->N1_CBASE ==SN3->N3_CBASE  .And.;
+		SN1->N1_ITEM  ==SN3->N3_ITEM )
+		If ( SN3->N3_TIPO == "01" )
+			nVlOrig += &('SN3->N3_VORIG'+cMoedaAtf)
+		EndIf
+		dbSelectArea("SN3")
+		dbSkip()
+	EndDo
+	dbSelectArea("SN3")
+	dbGoto(nRegSN3)
+	nPropSF9 := NoRound(aValBaixa[Val(cMoedaAtf)]*SN1->N1_ICMSAPR/nVlOrig,2)
+	nFatorSFA:= (Year(SF9->F9_DTENTNE)+If(lCredito,4,5)-Year(dBaixa030))
+	nVlrSFA  := Round(nPropSF9*nFatorSFA*IIf(lCredito,0.25,0.20),4)
+	/* ---------------------------------------------------------------------
+		Motivos a serem gravados no F9_MOTIVO, FA_MOTIVO - Orientação Fiscal
+		motivo de baixa          -  F9(A)_MOTIVO
+		'01' - Venda             - '2'
+		'10' - Transferencia     - '3'
+		'23' - Devolução de nota - '4'
+		'02|03|04|05|06|07|09'   - '1'
+			-'02' - Extravio
+			-'03' - Roubo
+			-'04' - Doação
+			-'05' - Variação
+			-'06' - Obsolencia
+			-'07' - Sucateamento
+			-'09' - Reavaliação
+		 '04|09|12'              - '5'
+		     04 - Doação
+		     09 - Reavaliação
+		     12 - Penhora
+	   --------------------------------------------------------------------- */	
+	If Substring(cMotivo,1,2) == "01"
+		cMotSF9 := "2"
+	ElseIf Substring(cMotivo,1,2) == "10"
+		cMotSF9 := "3"
+	ElseIf Substring(cMotivo,1,2) == "23"
+		cMotSF9 := "4"
+	ElseIf Substring(cMotivo,1,2) $ "02|03|05|06|07"
+		cMotSF9 := "1"
+	Else    //Outros , exemplo ->12-penhora/04-Doação/09-Reavaliação
+		cMotSF9 := "5"
+	EndIf
+
+	RecLock("SF9")
+	SF9->F9_DOCNFS := cNota
+	SF9->F9_SERNFS := cSerie
+	SF9->F9_ITEMNFS := cNFItem
+	SF9->F9_DTEMINS:= dBaixa030
+	SF9->F9_MOTIVO := cMotSF9
+	SF9->F9_BXICMS += nPropSF9
+	//Tratamento para indicar que eh uma baixa parcial - Utilizado para montar a legenda
+	If SF9->(F9_BXICMS>0 .And. F9_BXICMS+F9_VLESTOR<F9_VALICMS)
+		SF9->F9_BAIXAPR := "1"
+	Else
+		SF9->F9_BAIXAPR := "0"
+	EndIf
+	MsUnLock()         	       
+	
+	dbSelectArea("SFA")
+	If !dbSeek(xFilial("SFA")+SF9->F9_CODIGO+DTOS(dBaixa030)+"2")  //Verifica se ja não ha o estorno do mensal do ciap para que nao tente gerar estorno para o mesmo ativo com diferentes tipos 
+		RecLock("SFA",.T.)
+		SFA->FA_FILIAL := xFilial("SFA")
+		SFA->FA_DATA   := dBaixa030
+		SFA->FA_TIPO   := "2"
+		SFA->FA_VALOR  := nVlrSFA
+		SFA->FA_FATOR  := nFatorSFA * IIf(lCredito,0.25,0.20)
+		SFA->FA_CODIGO := SF9->F9_CODIGO
+		SFA->FA_ROTINA := "ATFA035"
+		SFA->FA_CREDIT := Iif(lCredito,"1","2") //1-Credito; 2-Debito
+		//Tratamento para indicar que eh uma baixa parcial - Utilizado para montar a legenda
+		If SF9->(F9_BXICMS>0 .And. F9_BXICMS+F9_VLESTOR<F9_VALICMS)
+			SFA->FA_BAIXAPR := "1"
+		Else
+			SFA->FA_BAIXAPR := "0"
+		EndIf
+		//Segundo Vitor N3-FISCAL no campo FA_MOTIVO deve gravar mesmo conteudo do F9_MOTIVO para uso SPED PIS/COFINS
+		SFA->FA_MOTIVO := SF9->F9_MOTIVO
+		
+		MsUnlock()
+	EndIf
+EndIf
+dbSelectArea("SN3")
+****************** CIAP ********************
+If lAuto
+	nVlVend := 0
+Else
+	nVlVend := IIf(nVlVend = NIL, 0, nVlVend)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Executa rdmake espec¡fico para a Localiza, quando este existir em		³
+//³ disco. Observa‡ao: este rdmake solicita o valor de venda do bem			³
+//³ para efeitos de contabilizacao. 													³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If ExistBlock("ATFA035")
+	ExecBlock("ATFA035",.F.,.F.)
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza quantidade do ativo no caso de baixas por quantidade.			³
+//³ Nas baixas por valor, parciais ou totais, nao altero a quantidade no	³
+//³ SN1. 																						³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+// Apenas Baixa de Bens do tipo 01,03 e gerencial alteram a quantidade do bem, outros tipo são controles contábeis e só influenciam no valor do bem
+If SN3->N3_TIPO $ '01/03' .Or. AFXVLGer(SN3->N3_FILIAL,SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TIPO,SN3->N3_TPSALDO)
+	If nQuant != nQtdorig  //Somente na Baixa Parcial por Qtde
+		If lQuant
+			Reclock("SN1")
+			SN1->N1_QUANTD -= nQuant
+			msUnlock()
+			
+			If lBxFilho
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Se for baixa de seus agregados atualiza as quantidades uma vez   ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				lQuant := .F.
+			Endif
+		Endif
+		
+	Else
+		If Round(aVlrAtual[1],X3Decimal("N3_VORIG1")) = Round(aValBaixa[1],X3Decimal("N3_VORIG1"))
+			cOldArea := Alias()
+			RecLock("SN1")
+			SN1->N1_QUANTD := 0
+			SN1->N1_BAIXA	:= dBaixa030
+			msUnlock()
+			dbSelectArea(cOldArea)
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Avalia integracao com o modulo SIGAMNT - PARCEIRO NG³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			IF lUsaMNTAT .AND. !EMPTY(SN1->N1_CODBEM)
+				AFGRBXIntMnt(SN1->N1_CODBEM,SN1->N1_BAIXA,"ATFA035",.F.,cNota)
+			ENDIF
+			
+		Endif
+	Endif
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se houve baixa parcial ou total.										³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+dbSelectArea("SN3")
+IF Str(aValBaixa[1],18,2) = Str(aVlrAtual[1],18,2)	// Baixa Total
+
+	//AVP
+	//Se for um tipo AVP
+	If lAvpAtf .and. SN3->N3_TIPO == '14'
+		aRecCtb := AF035AVP(.T.,dBaixa030,,cIdMov)
+	Endif	
+
+	RecLock("SN3")
+	SN3->N3_BAIXA	:= "1"
+	SN3->N3_IDBAIXA := "1"
+	SN3->N3_DTBAIXA := dBaixa030
+	SN3->N3_SEQ     := SN3->N3_SEQ
+	SN3->N3_SEQREAV := cSeqReav
+	SN3->N3_NOVO	 := "1"
+	SN3->N3_QUANTD  := nQtdOrig
+	SN3->N3_PERCBAI := 1
+	SN3->N3_BXICMS  := nPropSF9
+		
+	// *******************************************
+	// Grava o numero da guia de abate 
+	// *******************************************
+	If cPaisLoc == "PTG"  	
+		SN3->N3_SEQBX   := cAbatAtf	  
+	EndIf
+	
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aValBaixa := AtfMultMoe(,,{|x| SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) + If(x=1,SN3->N3_VRCACM1,0) })
+	Else
+		aValBaixa[1] := SN3->N3_VORIG1+SN3->N3_AMPLIA1+SN3->N3_VRCACM1
+		aValBaixa[2] := SN3->N3_VORIG2+SN3->N3_AMPLIA2
+		aValBaixa[3] := SN3->N3_VORIG3+SN3->N3_AMPLIA3
+		aValBaixa[4] := SN3->N3_VORIG4+SN3->N3_AMPLIA4
+		aValBaixa[5] := SN3->N3_VORIG5+SN3->N3_AMPLIA5
+	EndIf
+	
+	SN3->(MsUnlock())
+	
+	//Acrescentado Por Fernando Radu Muscalu em 13/05/2011
+	//baixa da regra de rateio
+	If AFXVerRat()
+		If SN3->N3_RATEIO == "1"
+			cRevAtu := AF011GETREV(SN3->N3_CODRAT)
+			Af011AtuStatus(SN3->N3_CODRAT,cRevAtu,"4")
+		Endif
+	Endif
+	
+Else
+	Af035Parcial(cBase, cItem, cSeq, dBaixa030,,,nQtdOrig, nPropSF9, cIdMov)
+EndIf
+
+// Verificação da classificação de Ativo se sofre depreciação
+lAtClDepr := AtClssVer(SN1->N1_PATRIM)
+
+If SN1->N1_PATRIM $ "CAS"
+	cTipoImob := "C"
+	cTipoCorr := "O"
+Elseif lAtClDepr .OR. EMPTY(SN1->N1_PATRIM)
+	cTipoImob := "5"
+	cTipoCorr := "6"
+Else
+	cTipoImob := "D"
+	cTipoCorr := "6"
+EndIf
+
+If lSN3Saldo
+	cTpSaldo := SN3->N3_TPSALDO
+EndIf
+
+If ! SN3->N3_TIPO $ "07,08,09"
+	// Atualiza saldo da conta do bem
+	ATFSaldo(	SN3->N3_CCONTAB,dBaixa030,cTipoImob,aValBaixa[1],aValBaixa[2],aValBaixa[3],aValBaixa[4],aValBaixa[5],;
+	"+",0,SN3->N3_SUBCCON,,SN3->N3_CLVLCON,SN3->N3_CUSTBEM,"1", aValBaixa, cTpSaldo)
+	
+	// Atualiza saldo da conta de depreciacao acumulada
+	ATFSaldo(	SN3->N3_CCDEPR,dBaixa030,cTipoImob,aVRDACM[1],aVRDACM[2],aVRDACM[3],aVRDACM[4],aVRDACM[5],;
+	"+",0,SN3->N3_SUBCCON,,SN3->N3_CLVLCON,SN3->N3_CUSTBEM,"4", aVRDACM, cTpSaldo)
+Endif
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gera registro de movimenta‡„o														³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+nTot := 0
+If lMultMoed
+	AtfMultMoe(,,{|x| nTot += aValBaixa[x] })
+Else
+	nTot += aValBaixa[1]
+	nTot += aValBaixa[2]
+	nTot += aValBaixa[3]
+	nTot += aValBaixa[4]
+	nTot += aValBaixa[5]
+EndIf
+If ! SN3->N3_TIPO $ "07, 08,09" .And. (nTot # 0) // Não considerar o item de depreciação acelerada incentivada
+	
+	cOcorr 	   := '01'
+	nQuantBaix := 0
+	nVendas	   := 0
+	If nQuant != nQtdorig .Or. Str(aValBaixa[1],18,2) == Str(aVlrAtual[1],18,2) // Baixa Total
+		nQuantBaix := nQuant
+	Else
+		// Senao, nao grava qtde. baixada para nao dar problema no cancelamento da baixa
+		nQuantBaix := 0
+	Endif
+	If lAuto
+		nVendas := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( aValBaixa[1], X3Decimal("N4_VENDA")),0 )
+	Else
+		nVendas  := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( nVlVend  , X3Decimal("N4_VENDA")),0 )
+	Endif
+	aDadosComp := ATFXCompl( , &(If(Val(cMoedaAtf)>9,'SN3->N3_TXDEP','SN3->N3_TXDEPR')+cMoedaAtf),cMotivo,/*cCodBaix*/,/*cFilOrig*/,cSerie,cNota,nVendas,/*cLocal*/, SN3->N3_PRODMES )
+	ATFXMOV(cFilAnt,@cIDMOV,dBaixa030,cOcorr,SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TIPO,SN3->N3_BAIXA,SN3->N3_SEQ,cSeqReav,"1",nQuantBaix,cTpSaldo,,aValBaixa,aDadosComp)
+	//22/07/2010
+	PcoDetLan("000371","01","ATFA035")
+EndIf
+
+If aVRDACM[1]+aVRDACM[2]+aVRDACM[3]+aVRDACM[4]+aVRDACM[5] # 0
+	cOcorr 	   := "01"
+	nVendas	   := 0
+	If lAuto
+		nVendas := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( aValBaixa[1], X3Decimal("N4_VENDA")),0 )
+	Else
+		nVendas  := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( nVlVend  , X3Decimal("N4_VENDA")),0 )
+	Endif
+	aDadosComp := ATFXCompl( , &(If(Val(cMoedaAtf)>9,'SN3->N3_TXDEP','SN3->N3_TXDEPR')+cMoedaAtf),cMotivo,/*cCodBaix*/,/*cFilOrig*/,cSerie,cNota,nVendas,/*cLocal*/, SN3->N3_PRODMES )
+	If lSN3Saldo
+		cTpSaldo := SN3->N3_TPSALDO
+	EndIf
+	ATFXMOV(cFilAnt,@cIDMOV,dBaixa030,cOcorr,SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TIPO,SN3->N3_BAIXA,SN3->N3_SEQ,cSeqReav,"4",nQuant,cTpSaldo,,aVRDACM,aDadosComp)
+EndIf
+
+// Mais valia ou Menos valia - PTG
+If SN3->N3_TIPO == "01" .And. (nTot # 0) .And. cPaisLoc == "PTG"
+	dbselectArea("SIE")
+	dbsetorder(1)
+	cKey := xFilial("SIE") + STR(Year(SN3->N3_AQUISIC),4) // Portugal o indice é anual
+	If dbseek( cKey )
+		nIndiceSIE := SIE->IE_INDICE
+	Else
+		nIndiceSIE := 1
+	Endif
+	
+	cOcorr 	   := "22"
+	nVendas	   := 0
+	nQuantBaix := 0
+	
+	If lAuto
+		nVendas := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( aValBaixa[1], X3Decimal("N4_VENDA")),0 )
+	Else
+		nVendas  := Iif(SN3->N3_TIPO $ ("01*10" + cTypes10) ,Round( nVlVend  , X3Decimal("N4_VENDA")),0 )
+	Endif
+	If nQuant != nQtdorig .Or. Str(aValBaixa[1],18,2) = Str(aVlrAtual[1],18,2)	// Baixa Total
+		nQuantBaix := nQuant
+	Else
+		// Senao, nao grava qtde. baixada para nao dar problema no cancelamento da baixa
+		nQuantBaix := 0
+	Endif
+	
+	nMValiaC := nVlVend	- (	   SN3->N3_VORIG1 - SN3->N3_VRDACM1 ) * nIndiceSIE
+	
+	nMValiaF := nVlVend	- ( &("SN3->N3_VORIG" +cmoedaAtf) -;
+	&("SN3->N3_VRDACM"+cmoedaAtf) -;
+	SN3->N3_VLACTXP ) * nIndiceSIE
+	
+	aDadosComp := ATFXCompl( , &(If(Val(cMoedaAtf)>9,'SN3->N3_TXDEP','SN3->N3_TXDEPR')+cMoedaAtf),cMotivo,/*cCodBaix*/,/*cFilOrig*/,cSerie,cNota,nVendas,/*cLocal*/, SN3->N3_PRODMES )
+	aValores   := If(lMultMoed, AtfMultMoe(,,{|x| 0}) , {0,0,0,0,0} )
+	aValores[1] := Round(nMValiaC , X3Decimal("N4_VLROC1") )
+	aValores[Val(cmoedaAtf)] := Round(nMValiaF , X3Decimal("N4_VLROC1") )
+	If lSN3Saldo
+		cTpSaldo := SN3->N3_TPSALDO
+	EndIf
+	ATFXMOV(cFilAnt,@cIDMOV,dBaixa030,cOcorr,SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TIPO,SN3->N3_BAIXA,SN3->N3_SEQ,SN3->N3_SEQREAV,"1",nQuantBaix,cTpSaldo,,aValores,aDadosComp)
+	
+	RecLock("SN3")
+	SN3->N3_MVALIAC	:= nMValiaC
+	SN3->N3_MVALIAF	:= nMValiaF
+	MsUnlock()
+	//22/07/2010
+	PcoDetLan("000371","01","ATFA035")
+EndIf
+
+//acrescentado por Fernando Radu Muscalu em 13/05/2011
+//Tratamento do estorno dos movimentos de rateio
+If AFXVerRat()
+	If SN3->N3_RATEIO == "1" .and. SN3->N3_BAIXA <> "0"
+		cRevAtu := AF011GETREV(SN3->N3_CODRAT)
+		Af011AtuStatus(SN3->N3_CODRAT,cRevAtu,"4")
+	Endif
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o arquivo de simulacoes, caso este exista  	³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If lSN7
+	dbSelectArea("SN7")
+	dbSetOrder(1)
+	If dbSeek(xFilial("SN7")+SN3->N3_CBASE+SN3->N3_ITEM)
+		If Empty(SN7->N7_VLREAL)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Atualiza o arquivo de simulacoes, desde que o valor 	³
+			//³ Real nao esteja preenchido. Pois caso o bem possua a-³
+			//³ gregados sera gravado o valor do bem de tipo 01.    	³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			RecLock("SN7")
+			SN7->N7_DTBAIXA := dBaixa030
+			SN7->N7_MOTIVO  := cMotivo
+			SN7->N7_NOTA    := cNota
+			SN7->N7_SERIE   := cSerie
+			//SN7->N7_VLREAL  := Round( nValBaixa1 , X3Decimal("N4_VLROC1") )
+			SN7->N7_VLREAL  := Round( aValBaixa[1] , X3Decimal("N4_VLROC1") )
+		EndIf
+		MsUnlock()
+	Endif
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica qual o lancamento padronizado que devera ser utilizado			³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SN3")
+If SN3->N3_TIPO == "01"    // Aquisi‡„o
+	cPadrao := "810"
+ElseIf SN3->N3_TIPO $ "02,05"    // Reavalia‡„o
+	cPadrao := "811"
+ElseIf SN3->N3_TIPO $ "03*13"      // Adiantamento
+	cPadrao := "812"
+ElseIf SN3->N3_TIPO == "04"      // Lei 8200 (Dif. BTN/IPC)
+	cPadrao := "813"
+Else
+	cPadrao := "81A" 					// Baixa de outros tipos de ativos
+EndIf
+
+If ExistBlock("AF035GRV")
+	ExecBlock("AF035GRV",.F.,.F.)
+Endif
+
+//Verifica se existe algum SN3 Ativo para o bem e caso não tenha, marca o SN1 como baixado
+AFXVlBxN1(SN3->N3_CBASE,SN3->N3_ITEM,dBaixa030)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se existe lancamento padrao. 											³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If mv_par01 # 3
+	lPadrao := VerPadrao(cPadrao)
+	IF lPadrao
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Envia para lan‡amento cont bil, desde que exista lan‡amento padro-	³
+		//³ nizado para o ativo cadastrado. 												³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPrim .Or. (Type("nHdlPrv") != "N" )  	 //Se for 1a vez.
+			nHdlPrv := HeadProva(cLoteAtf,"ATFA035",Substr(cUsername,1,6),@cArquivo)
+			If lAuto .Or. lBxFilho
+				lPrim := .F.
+			Endif
+		Endif
+		nTotal += DetProva(nHdlPrv,cPadrao,"ATFA035",cLoteAtf)
+		
+		If lCtbBxInt // Contabiliza baixa na integração
+			If nHdlPrv > 0 .And. ( nTotal > 0 )
+				RodaProva(nHdlPrv, nTotal)
+				cA100Incl(cArquivo,nHdlPrv,3,cLoteAtf,.F.,.T.)
+			Endif
+		Endif
+		
+	EndIf
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Final da Protecal via TTS 															³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+//End Transaction
+
+dbSelectArea(cOldArea)
+Return
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ATFA035   ºAutor  ³Microsiga           º Data ³  03/08/12   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³                                                            º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function TudOk(nOpt,nValorVend,lBxFilho,lCancela,cMotivo, cNota, cSerie, cNFItem )
+Local lValidaNFD := SuperGetMV("MV_AF30NDV", .F., .F.)
+Local cTypes10	 := IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+Default lcancela := .T.
+Default cMotivo  := " "
+Default cNota    := " "
+Default cSerie   := " "
+Default cNFItem  := " "
+nOpt := 1
+
+If SN3->N3_TIPO $ ("01*10" + cTypes10)
+	If Subs(cMotivo,1,2) == '01' // Motivo de Venda
+		If nValorVend == 0.00
+			Help(" ",1,"AF030VLVEN")
+			nOpt := 0
+		Endif
+	Endif
+Else
+	If lBxFilho .And. SN3->N3_TIPO $ ("01*10" + cTypes10)
+		If Subs(cMotivo,1,2) == '01' // Motivo de Venda
+			If nValorVend == 0.00
+				Help(" ",1,"AF030VLVEN")   //O Valor de Venda nao pode ser zero
+				nOpt := 0
+			Endif
+		Endif
+	Endif
+Endif
+If cPaisloc == "BRA" .and. lValidaNFD  // somente qdo brasil e tiver controle de ciap 
+	If !lCancela
+		If cMotivo = '23' //Devolução de Item da Nota
+			If Empty(cNota) .or. Empty(cSerie) .or. Empty(cNFItem)
+				Help(" ",1, "AF030NFDV",,STR0088,1,0)  //'O Nro/Série/Item da Nota devem ser informados se o parâmetro MV_AF30NDV for T e o motivo da baixa for 23-Devolução'
+				nOpt:= 0
+			EndIf
+		EndIf		
+	EndIf
+EndIf
+Return nOpt
+
+
+Static Function CheckCombo(onVlVend,lBxFilho,lVlVend,cBxFilho)
+Local cOldArea := Alias()
+Local nPosSN3  := RECNO()
+Local aTiposReav := {}
+Local nX		:= 0
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+//Tipos de reavaliação
+AAdd(aTiposReav,"02") //reavaliacao
+AAdd(aTiposReav,"04") //Lei 8.200
+AAdd(aTiposReav,"41") // Reavaliação anual de bens não totalmente depreciados
+AAdd(aTiposReav,"42") // Reavaliação anual de bens totalmente depreciados
+AAdd(aTiposReav,"50") // Colombia: Depreciacao gerencial "metodo linear"
+AAdd(aTiposReav,"51") // Colombia: Depreciacao gerencial "soma dos digitos"
+AAdd(aTiposReav,"52") // Colombia: Depreciacao gerencial "reducao de saldos"
+AAdd(aTiposReav,"53") // Colombia: Depreciacao gerencial "soma dos anos"
+AAdd(aTiposReav,"54") // Colombia: Depreciacao gerencial "unidades produzidas"
+
+For nX := 1 to Len(aTiposReav)
+	If dbSeek(xFilial("SN3")+SN3->N3_CBASE+ SN3->N3_ITEM+aTiposReav[nX])
+		lVlVend := .T.
+		Exit
+	Endif
+Next nX
+
+dbGoto(nPosSN3)
+lBxFilho := IIf(cBxFilho=="N",.F.,.T.)
+
+If SN3->N3_TIPO $ ("01*10" + cTypes10)
+	If Subs(cMotivo,1,2) = Subs(aMotivos[1],1,2)
+		lVlVend := .T.
+	Else
+		nVlVend := 0
+		lVlVend := .F.
+	Endif
+Else
+	If lBxFilho
+		If Subs(cMotivo,1,2) = Subs(aMotivos[1],1,2)
+			lVlVend := .T.
+		Else
+			lVlVend := .F.
+		Endif
+	Else
+		lVlVend := .F.
+	Endif
+Endif
+dbSelectArea(cOldArea)
+If lVlVend
+	onVlVend:Enable()
+Else
+	onVlVend:Disable()
+Endif
+onVlVend:Refresh()
+Return
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ATFA035   ºAutor  ³Microsiga           º Data ³  03/08/12   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³                                                            º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function CheckOK(lBxFilho,onVlVend,olBxFilho)
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+If SN3->N3_TIPO $ ("01*10" + cTypes10)
+	If Subs(cMotivo,1,2) == "01"
+		onVlVend:Enable()
+	Else
+		onVlVend:Disable()
+	Endif
+Else
+	If Subs(cMotivo,1,2) == "01"
+		If lBxFilho
+			onVlVend:Enable()
+		Else
+			onVlVend:Disable()
+		Endif
+	Else
+		onVlVend:Disable()
+	Endif
+Endif
+
+onVlVend:Refresh()
+Return lBxFilho
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035Cance ³Autor  ³ Wagner Xavier		  ³ Data ³ 03/08/93 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Cancelamento de uma determinada baixa do ativo				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Generico 													³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function AF035Cance(cAlias,nReg,nOpc,aM,lAutomatico,aAutoCab,lAf035Auto,lRetExt)
+
+Local oNVlVend
+Local nOpt := 0
+Local cBase
+Local cItem
+Local cTipo 		:= ""
+Local cSeq  		:= ""
+Local nMainRec 		:= RecNo()
+Local nAscan 		:= 0
+Local lCancFilho 	:= .F.   //Se .T., cancela os filhos (agregados -tipos 1-2-4)
+Local aSeq    		:= {}
+Local nTam
+Local lRet			:= .T.
+Local cTpSld		:= ""
+
+//AVP2
+Local aRecnoFNO := {}
+Local cIdMovSN4 := ""
+
+//MRG
+//Verifica implementacao da Margem Gerencial
+Local lMargem 		:= AFMrgAtf()
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+Private lAtuQuant  	:= .T.   //Ja atualizou as qtds no cance/o de baixas parciais
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Private aPicture	:= {}
+Private aValBaixa 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Private aVRDACM 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+//Private cPicture1,cPicture2,cPicture3,cPicture4,cPicture5
+//Private nValBaixa1 	:= nValBaixa2 := nValBaixa3 := nValBaixa4 := nValBaixa5 := 0
+Private aMotivos	:={}
+Private lPadrao 	:= .F.
+Private cPadrao  	:= ""
+Private cArquivo 	:= ""
+Private cMoeda      := ""
+Private dBaixa030 	:= dDataBase
+Private cMotivo 	:= ""
+Private nPercBaixa	:= 100
+
+DEFAULT lAutomatico	:= .F.
+DEFAULT lAf035Auto	:= .F.
+DEFAULT lRetExt		:= .F. // Retorno para chamada externa
+cBase 	 := SN3->N3_CBASE
+cItem 	 := SN3->N3_ITEM
+cTipo 	 := SN3->N3_TIPO
+
+dbSelectArea("SN1")
+dbSetOrder(1)
+dbSeek(cFilial+cBase+cItem)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o registro est  em uso por outra esta‡„o ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !SoftLock(cAlias)
+	Return .T.
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se podera cancelar a baixa do ativo conforme o³
+//³parametro MV_ATFBXDP                                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !AF035DtBx( DDATABASE )
+	Return .F.
+EndIf
+
+//AVP
+//Verifica de o AVP esta implantado na base
+lAvpAtf := AFAvpAtf()
+
+//AVP2
+//Verifica implementacao do AVP e AVP parcela
+If lAvpAtf2 == NIL
+	lAvpAtf2 := AFAvpAtf2()
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica o numero do Lote do modulo Ativo Fixo 				  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cLoteAtf := LoteCont("ATF")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica tabela de motivos para baixa 												³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SX5")
+dbSeek(xFilial("SX5")+"16")
+While X5_FILIAL+X5_TABELA == cFilial+"16"
+	If !( Alltrim(SX5->X5_CHAVE) $ '13|08|18')
+		cCapital := Capital(X5Descri())
+		AAdd( aMotivos, SubStr(X5_CHAVE,1,2 ) + "-" + SubStr(cCapital,1,35 ) )
+	EndIf
+	dbSkip()
+End
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pesquisa picture para valores do ativo												³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	AtfMultMoe(,,{|x| AAdd( aPicture , PesqPict("SN3","N3_VORIG"+Alltrim(Str(x)),20) ) })
+Else
+	AAdd(aPicture,PesqPict("SN3","N3_VORIG1", 20))
+	AAdd(aPicture,PesqPict("SN3","N3_VORIG2", 20))
+	AAdd(aPicture,PesqPict("SN3","N3_VORIG3", 20))
+	AAdd(aPicture,PesqPict("SN3","N3_VORIG4", 20))
+	AAdd(aPicture,PesqPict("SN3","N3_VORIG5", 20))
+EndIf
+cPictQtd  := PesqPict("SN1","N1_QUANTD", 10)
+
+cBase 	 := SN3->N3_CBASE
+cItem 	 := SN3->N3_ITEM
+cTipo 	 := SN3->N3_TIPO
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicio do bloco protegido via TTS						     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Begin Transaction
+// 23/07/2010
+PcoIniLan("000371")
+While .T.
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica existencia do Ativo 							     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SN1")
+	dbSetOrder(1)
+	dbSeek(cFilial+cBase+cItem)
+	IF !Found()
+		Help(" ",1,"020ATIVO")
+		EXIT
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se existe apropriacao apos a baixa, se existir      ³
+	//³ nao permite o cancelamento da baixa                          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SFA")
+	dbSetOrder(1)
+	If dBSeek(xFilial("SFA")+SN1->N1_CODCIAP+DTOS(SN3->N3_DTBAIXA))
+		While !Eof() .and. (SFA->FA_FILIAL+SFA->FA_CODIGO == xFilial("SFA")+SN1->N1_CODCIAP)
+			If ( SFA->FA_DATA > SN3->N3_DTBAIXA) .and. (SFA->FA_TIPO = '1')
+				Help(" ",1,"AF035SFA")   //Existe apropriacao de CIAP com data posterior a baixa
+				lRet := .F.
+				EXIT
+			EndIf
+			DbSkip()
+			Loop
+		EndDo
+		If !lREt
+			exit
+		EndIf
+	EndIf
+	dbSelectArea("SN3")
+	cBase 	  := SN3->N3_CBASE
+	cItem 	  := SN3->N3_ITEM
+	cTipo 	  := SN3->N3_TIPO
+	cTpSld	  := SN3->N3_TPSALDO
+	cSeq      := SN3->N3_SEQ
+	dBaixa030 := SN3->N3_DTBAIXA
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se se trata de uma baixa									  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SN3")
+	IF Val( SN3->N3_BAIXA ) == 0
+		Help(" ",1,"NAOBAIXA")
+		lRet := .F.
+		Exit
+	ElseIf SN3->N3_BAIXA == "2"
+		Help(" ",1,"BAIXADIANT")
+		lRet := .F.
+		Exit
+	EndIf
+	If lIsRussia
+		If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+			Help(" ",1,"SN3NOOPER") // This asset is not in operation. Put it into operation
+			lRet := .F.
+			Exit
+		Endif
+	Endif
+	If ! (SN3->N3_TIPO $ "07,08,09")
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pesquisa baixa no arquivo de movimenta‡„o						  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SN4")
+		SN4->(dbSetOrder(1))////N4_FILIAL+N4_CBASE+N4_ITEM+N4_TIPO+DTOS(N4_DATA)+N4_OCORR+N4_SEQ
+		If !(SN4->(dbSeek(xFilial("SN4")+cBase+cItem+cTipo+DTOS(dBaixa030)+"01"+cSeq)))
+			Help(" ",1,"AF020BAIXA")
+			lRet := .F.
+			Exit
+		EndIf
+		
+		If SN4->N4_MOTIVO $ "01/10" .And. !Empty(SN4->N4_NOTA)
+			lRet := A035VlNota(SN4->N4_NOTA,SN4->N4_SERIE)
+			If !lRet
+				Help(" ",1,"AF035CNOTA",,STR0070 + SN4->N4_NOTA + STR0071 + SN4->N4_SERIE + STR0072  ,1,0)//"Baixa de Ativo atrelado ao documento de saída : " ## " Serie: " ## ".Por favor exclua a nota fiscal "
+				Exit
+			EndIf
+
+		EndIf
+
+		//AVP
+		//Verifico se e um Tipo 10
+		lIsTipo10 := (SN4->N4_TIPO $ ('10' + cTypes10) )
+		lIsTipo13 := (SN4->N4_TIPO == '13')
+		If SN4->N4_TIPO == '14'
+			Help(" ",1,"A035TP14",, STR0078 +CHR(10)+STR0077 ,1,0)	
+	  		Exit
+		Endif
+				
+		//MRG
+		//Verifico se e um Tipo 15 e se tem o tipo 10 baixado na mesma sequencia (baixei o Tipo 15 atraves do Tipo 10)
+		If SN4->N4_TIPO == '15' .and. AfVerTp10(SN4->N4_CBASE,SN4->N4_ITEM,SN4->N4_TPSALDO,SN4->N4_DATA,SN4->N4_IDMOV)
+	  		Exit
+		Endif
+
+	EndIf
+	
+	
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aValBaixa 	:= AtfMultMoe(,,{|x| SN3->&("N3_VORIG"+Alltrim(Str(x)))+SN3->&("N3_AMPLIA"+Alltrim(Str(x))) + If(x=1,SN3->N3_VRCACM1,0) })
+	Else
+		aValBaixa[1] 	:= SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1
+		aValBaixa[2] 	:= SN3->N3_VORIG2+SN3->N3_AMPLIA2
+		aValBaixa[3] 	:= SN3->N3_VORIG3+SN3->N3_AMPLIA3
+		aValBaixa[4] 	:= SN3->N3_VORIG4+SN3->N3_AMPLIA4
+		aValBaixa[5] 	:= SN3->N3_VORIG5+SN3->N3_AMPLIA5
+	EndIf
+	
+	nVlVend		:= IIf(SN3->N3_TIPO $ "07",SN3->N3_VORIG1, SN4->N4_VENDA)
+	
+	cMotivo := ""
+	For nAscan := 1 to Len( aMotivos )
+		If SN4->N4_MOTIVO == Left( aMotivos[nAscan] ,2)
+			cMotivo := aMotivos[ nAscan ]
+		Endif
+	Next
+	
+	If ! (SN3->N3_TIPO $ "07,08,09")
+		
+		// Apenas será possivel cancelar a baixa de um bem convertido pela rotina de cancelamento de conversão (ATFA010)
+		If SN4->N4_MOTIVO == '13' .And. !IsInCallStack("AF010CVMet")
+			Help(" ",1,"AF030CCONV",,STR0063,1,0)//"Baixas com motivo 13-Conversão apenas podem ser cancelado pela rotina de cancelamento de conversão(ATFA010)"
+			lRet := .F.
+			Exit
+		EndIf 
+		
+		If SN4->N4_MOTIVO == '14' .And. !IsInCallStack("A103GrvAtf")
+			Help(" ",1,"AF035DEB",,STR0081,1,0)//"Baixas com motivo 14 apenas podem ser cancelado pela exclusão da nota de crédito/débito"
+			lRet := .F.
+			Exit
+		EndIf
+		
+		If SN4->N4_MOTIVO $ '18'
+			Help(" ",1,"AF035FILAUT",,STR0073,1,0)//"Baixas com motivo 16-Transferencia Interna de Filial não pode ser cancelada"
+			lRet := .F.
+			Exit
+		EndIf
+		
+		If SN4->N4_MOTIVO $ '13/15/16/17' .And. !IsInCallStack("ATFA320")
+			Help(" ",1,"AF030TERC",,STR0067,1,0)//"Baixas com motivo de bens de terceiro apenas podem ser canceladas pela rotina de Controle De Terceiros(ATFA320)"
+			lRet := .F.
+			Exit
+		EndIf
+
+		//AVP
+		//Valida se cancelamento da baixa e possivel
+		If lAvpAtf .and. AFNoCanAvp(cBase,cItem,cTipo,SN4->N4_IDMOV,SN4->N4_DATA,SN4->N4_TPSALDO)
+			Help(" ",1,"AF035NOCAN",,STR0079,1,0)
+			lRet := .F.
+			Exit
+		Endif
+	
+		If ATFXVerPrj(SN3->N3_CBASE,SN3->N3_ITEM, .T. )
+			lRet := .F.
+			Exit
+		EndIf 
+    EndIf
+    
+	//AVP
+	//Valida se cancelamento da baixa e possivel
+	If lAvpAtf .and. AFNoCanAvp(cBase,cItem,cTipo,SN4->N4_IDMOV,SN4->N4_DATA,SN4->N4_TPSALDO)
+		Help(" ",1,"AF035NOCAN",,STR0079,1,0)
+		lRet := .F.
+		Exit
+	Endif
+
+	//AVP2
+	//Verifica se o bem foi gerado por AVP Parcela
+	//AVP2
+	//Verifica se o bem foi gerado por AVP Parcela
+	If SN1->N1_PATRIM == 'V' .and. Alltrim(SN1->N1_ORIGEM) == 'ATFA460' .and. !lAf035Auto
+		Help(" ",1,"AF010A460B",,STR0082+CRLF+STR0083+SN1->N1_BASESUP +"-"+SN1->N1_ITEMSUP ,1,0)  //'Este ativo foi gerado a partir do processo de constituição de provisão. Este tipo de ativo não poderá ser baixado diretamente. Baixe o ativo superior (PAI).'###"C.Base-Item: "
+		EXIT
+	Endif
+
+	If ATFXVerPrj(SN3->N3_CBASE,SN3->N3_ITEM, .T. )
+		lRet := .F.
+		Exit
+	EndIf 
+	
+	If !lAutomatico .And. !lAf035Auto
+		nOpt := Af035DadosBx(	cBase, cItem, cTipo, SN4->N4_QUANTD, SN4->N4_QUANTD+SN1->N1_QUANTD, 0.00,;
+		@onVlVend,@lCancFilho,.F.,"S", SN4->N4_NOTA,;
+		SN4->N4_SERIE, .T.,,,,,cTpSld)
+	Else
+		nOpt := CONFIRMA
+	Endif
+	IF nOpt == ABANDONA .or. nOpt == 0
+		Exit
+	EndIf
+	
+	If nOpt == REDIGITA
+		Loop
+	Endif
+	
+	//AVP2
+	//Se o bem for classificado como Orcamento, os filhos serao baixados 
+	//independendo da escolha do usuacio
+	If SN1->N1_PATRIM $ 'O|V' 
+		lCancFilho := .T.
+	Endif		
+	
+	If lCancFilho        //Cancela os filhos - agregados tipos "01"/"02"/"04"
+		dbSelectarea("SN3")
+		dbSetOrder(1)
+		cTipo := "01"
+		dbSelectArea("SN4")
+		dbSetOrder(1)
+		cChaveSN4 :=xFilial()+cBase+cItem
+		
+		dData := ""
+		If dbSeek(cChaveSN4)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Procuro a data em que foi baixado este bem          ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			While !Eof() .And. cChaveSN4 = SN4->N4_FILIAL+SN4->N4_CBASE+SN4->N4_ITEM
+				If cSeq = SN4->N4_SEQ .and. SN4->N4_OCORR = "01"
+					dData := SN4->N4_DATA
+					Exit
+				EndIf
+				dbSkip()
+			EndDo
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posicionado  tipo 01 Baixado na mesma data e procuro³
+		//³ pelos sequencias que foram baixadas nesta DATA.     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cSeq  := "   "
+		If dbSeek(cChaveSN4)
+			While SN4->(!Eof()) .And. cChaveSN4 = SN4->N4_FILIAL+SN4->N4_CBASE+SN4->N4_ITEM
+				If SN4->N4_DATA != dData
+					dbSkip()
+					Loop
+				EndIf
+				
+				If cSeq != SN4->N4_SEQ .And. SN4->N4_OCORR = "01"
+					AADD( aSeq,{ SN4->N4_CBASE,SN4->N4_ITEM,SN4->N4_TIPO,SN4->N4_SEQ,;
+					SN4->N4_DATA,SN4->N4_SEQREAV })
+					cSeq  := SN4->N4_SEQ
+	
+					//AVP2					
+					//Obtenho o ID do movimento para cancelamento
+					If SN1->N1_PATRIM == 'O' .and. SN1->N1_TPAVP == '2'
+						cIdMovSN4 := SN4->N4_IDMOV					
+					Endif
+	
+				EndIf
+				SN4->(dbSkip())
+			EndDo
+		EndIf
+		
+		nTamSeq := Len(aSeq)
+		dbSelectArea("SN3")
+		dbSetOrder(1)
+		dbSeek(cChaveSN4)
+		nTam := 0
+		For nTam := 1  to nTamSeq
+			//                       cbase        + nItem       +cTipo   +"1"
+			If dbSeek(xFilial()+aSeq[nTam][1]+aSeq[nTam][2]+aSeq[nTam][3]+"1")
+				While !Eof() .And. SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM+SN3->N3_TIPO+"1"=;
+					xFilial("SN3")+aSeq[nTam][1]+aSeq[nTam][2]+aSeq[nTam][3]+"1"
+					If SN3->N3_SEQ = aSeq[nTam][4]
+						dBaixa030 := dData
+						a035AtuArq(cAlias,lCancFilho,dBaixa030, aSeq[nTam][4], aSeq[nTam][5], aSeq[nTam][6])
+						Exit
+					Endif
+					dbSkip()
+				EndDo
+			EndIf
+		Next
+
+	//AVP
+	//Se for cancelamento de Tipo 10 e nao informado para cancelar Filhos
+	//forco o cancelamento de Tipo 10 e 14.
+	//MRG
+	//Se for cancelamento de Tipo 10 e nao informado para cancelar Filhos
+	//forco o cancelamento de Tipo 10 e 15.
+	ElseIf (lAvpAtf .and. lIsTipo10) .or. (lMargem .and. (lIsTipo10 .or. lIsTipo13) )
+
+		dbSelectarea("SN3")
+		dbSetOrder(1)
+		cTipo := If(lIsTipo13,"13","10")
+		dbSelectArea("SN4")
+		dbSetOrder(1)
+		cChaveSN4 :=xFilial()+cBase+cItem
+
+		dData := ""
+		If dbSeek(cChaveSN4)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Procuro a data em que foi baixado este bem          ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			While !Eof() .And. cChaveSN4 = SN4->N4_FILIAL+SN4->N4_CBASE+SN4->N4_ITEM
+				If cSeq = SN4->N4_SEQ .and. SN4->N4_OCORR = "01"
+					dData := SN4->N4_DATA
+					Exit
+				EndIf
+				dbSkip()
+			EndDo
+		EndIf
+   	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posicionado  tipo 01 Baixado na mesma data e procuro³
+		//³ pelos sequencias que foram baixadas nesta DATA.     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cSeq  := "   "
+		While !Eof() .And. cChaveSN4 = SN4->N4_FILIAL+SN4->N4_CBASE+SN4->N4_ITEM
+			If SN4->N4_DATA != dData
+				dbSkip()
+				Loop
+			EndIf
+		
+			If cSeq != SN4->N4_SEQ .And. SN4->N4_OCORR = "01" .and. SN4->N4_TIPO $ ("10/13/14/15" + cTypes10)
+				AADD( aSeq,{ SN4->N4_CBASE,SN4->N4_ITEM,SN4->N4_TIPO,SN4->N4_SEQ,;
+								SN4->N4_DATA,SN4->N4_SEQREAV,SN4->N4_IDMOV })
+				cSeq  := SN4->N4_SEQ
+			EndIf
+			dbSkip()
+		EndDo
+
+		nTamSeq := Len(aSeq)
+		dbSelectArea("SN3")
+		dbSetOrder(1)
+		dbSeek(cChaveSN4)
+		nTam := 0
+		For nTam := 1  to nTamSeq
+			//                       cbase        + nItem       +cTipo   +"1" 
+			If dbSeek(xFilial()+aSeq[nTam][1]+aSeq[nTam][2]+aSeq[nTam][3]+"1")
+				While !Eof() .And. SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM+SN3->N3_TIPO+"1"=;
+										xFilial("SN3")+aSeq[nTam][1]+aSeq[nTam][2]+aSeq[nTam][3]+"1"
+					If SN3->N3_SEQ = aSeq[nTam][4]
+						dBaixa030 := dData
+						a035AtuArq(cAlias,lCancFilho,dBaixa030, aSeq[nTam][4], aSeq[nTam][5], aSeq[nTam][6])
+						Exit
+					Endif
+					dbSkip()
+				EndDo
+			EndIf
+		Next
+
+	Else
+		a035AtuArq(cAlias,lCancFilho,dBaixa030)
+	Endif
+	
+	If !lAuto .and. ( nTotal != 0 )
+		RodaProva(nHdlPrv,nTotal)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Envia para Lancamento Contabil											³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cA100Incl(cArquivo,nHdlPrv,3,cLoteAtf,mv_par01 == 1,mv_par02 == 1)
+	Endif
+	
+	lRetExt	:= .T.
+	
+	Exit
+EndDo
+// 23/07/2010
+PcoFinLan("000371")
+
+//AVP2 - cancelamento
+If lAvpAtf2 .and. nOpt == CONFIRMA
+	//Se o bem for classificado como Orcamento e o AVP deste for por parcela
+	//Cancelo a baixa dos filhos
+	//Excluo o bem provisório gerado pela baixa em cancelamento
+	If SN1->N1_PATRIM == 'O' .and. SN1->N1_TPAVP == '2' .and. !Empty(cIdMovSN4)
+		BEGIN TRANSACTION
+			lBxProvis := .T.
+
+			//Cancelo a baixa dos filhos gerados pelas apuracoes
+			MsgRun(STR0086,"",{|| AFCanProv(SN1->N1_CBASE, SN1->N1_ITEM,SN4->N4_MOTIVO,cIdMovSN4)  })//"Excluindo bens de provisao (AVP parcela)"
+
+			lBxProvis := .F.
+
+			Pergunte("AFA030",.F.)		
+
+	    END TRANSACTION
+	Endif
+
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Libera o softlock instalado acima do while. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAlias)
+dbGoTo( nMainRec )
+MSUnlock()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Final  do bloco protegido via TTS									  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+End Transaction
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³A035AtuArq  ³ Autor ³ Alice Yamamoto 		  ³ Data ³ 30/12/97 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Cancela a(s) baixa(s) efetuada(s)  e atualiza os Arquivos 	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³A035AtuArq(cBase,cItem,cTipo,dDtBaixa)        				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A035AtuArq(cAlias,lCancFilho,dDtBaixa, cSeqSN3, dData, cSeqReav)
+
+Local aArea    := { Alias() , IndexOrd() }
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Local aValorMoed
+//Local aVrdAcm := If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local aOrig   := If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local aAmplia := If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local nVRCDA1 := 0
+//Local nVrdAcm1 := 0,nVrdAcm2 := 0,nVrdAcm3 := 0,nVrdAcm4 := 0,nVrdAcm5 := 0, nVRCDA1 := 0
+//Local nOrig1   := 0,nOrig2   := 0,nOrig3   := 0,nOrig4   := 0,nOrig5   := 0
+Local cChave   := ""
+Local cBase    := ""
+Local cItem    := ""
+Local cTipo    := ""
+Local lParc    := .F.
+Local cTipoCorr:= ""
+Local cTpSaldo	:= ""
+Local lSN3Saldo := .T.
+
+Local nN3_BXICMS := SN3->N3_BXICMS  // vlr do icms baxado
+
+//Acrescentado por Fernando Radu Muscalu em 13/05/2011
+Local cRevAtu	:= ""
+
+// Verificação da classificação de Ativo se sofre depreciação
+Local lAtClDepr := .F.
+
+Default lPrimlPad := .T.
+Default nTotal := 0
+Default nHdlPrv := 0
+
+dbSelectArea(cAlias)
+cBase    := SN3->N3_CBASE
+cItem    := SN3->N3_ITEM
+cTipo    := SN3->N3_TIPO
+cSeq     := IIf(Empty(cSeqSN3),SN3->N3_SEQ,cSeqSN3)
+dData    := IIf(Empty(dData),dDtBaixa,dData)
+cSeqReav := IIf(Empty(SN3->N3_SEQREAV) .Or. cSeqReav = Nil,SN3->N3_SEQREAV,cSeqReav)
+
+If lSN3Saldo
+	cTpSaldo := SN3->N3_TPSALDO
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Mostra descri‡„o e quantidade										  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	aVrdAcm := AtfMultMoe("SN3","N3_VRDACM")
+Else
+	aVRDACM[1] := SN3->N3_VRDACM1
+	aVRDACM[2] := SN3->N3_VRDACM2
+	aVRDACM[3] := SN3->N3_VRDACM3
+	aVRDACM[4] := SN3->N3_VRDACM4
+	aVRDACM[5] := SN3->N3_VRDACM5
+EndIf
+
+nVRCDA1  := SN3->N3_VRCDA1
+
+// Inicializacao das variaveis utilizadas
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+aValBaixa 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+aValBaix 	:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+nQtdBaixa 	:= 0.00
+//nValBaixa1 	:= nValBaixa2 	:= nValBaixa3 	:= nValBaixa4 	:= nValBaixa5 	:= nQtdBaixa := 0.00
+//nValBaix1 	:= nValBaix2  	:= nValBaix3  	:= nValBaix4  	:= nValBaix5  	:= 0.00
+
+// Variaveis disponiveis para contabilizacao do valor da baixa e motivo
+
+VALOR		:= 0.00
+HISTORICO	:= ""
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Valor da Baixa														   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SN4")     // Valor da Baixa
+cChaveSN4 := xFilial("SN4")+cBase+cItem+cTipo+DTOS(dDtBaixa)+"01"+cSeq
+If MsSeek(cChaveSN4)
+	nQtdIni := SN4->N4_QUANTD
+
+	// Apenas Baixa de Bens do tipo 01,03 e gerencial alteram a quantidade do bem, outros tipo são controles contábeis e só influenciam no valor do bem
+	If SN4->N4_TIPO $ '01/03' .Or. AFXVLGer(SN3->N3_FILIAL,SN3->N3_CBASE,SN3->N3_ITEM,SN3->N3_TIPO,SN3->N3_TPSALDO)
+		Reclock("SN1")
+		SN1->N1_QUANTD	+= SN4->N4_QUANTD 	 // SN1->N1_QUANTD + SN4->N4_QUANTD
+		SN1->N1_BAIXA	:= Ctod("")
+		msUnlock()
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Avalia integracao com o modulo SIGAMNT - PARCEIRO NG³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IF lUsaMNTAT .AND. !EMPTY(SN1->N1_CODBEM)
+		AFGRBXIntMnt(SN1->N1_CODBEM,SN1->N1_BAIXA,"ATFA035",.T.)
+	ENDIF
+	
+	dbSelectArea("SN4")
+	While !Eof() .And. cChaveSN4 = xFilial()+SN4->N4_CBASE+SN4->N4_ITEM+SN4->N4_TIPO+DTOS(dDtBaixa)+"01"+SN4->N4_SEQ
+		If (SN4->N4_SEQREAV = cSeqReav .And. SN4->N4_TIPOCNT = "1")
+			Exit
+		Endif
+		dbSkip()
+	EndDo
+	HISTORICO	:= SN4->N4_MOTIVO
+	VALOR		:= SN4->N4_VENDA
+	
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aValBaixa 	:= AtfMultMoe("SN4","N4_VLROC")
+	Else
+		aValBaixa[1] 	:= SN4->N4_VLROC1
+		aValBaixa[2] 	:= SN4->N4_VLROC2
+		aValBaixa[3] 	:= SN4->N4_VLROC3
+		aValBaixa[4] 	:= SN4->N4_VLROC4
+		aValBaixa[5]	:= SN4->N4_VLROC5
+	EndIf
+	
+Endif
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+aVrdMes := If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+//nVrdMes1 := 0; nVrdMes2 := 0; nVrdMes3 := 0; nVrdMes4 := 0;	nVrdMes5 := 0
+nVrcMes1 := 0; nVrcdM1	 := 0
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza saldos do Ativos 											  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SN3")
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	aOrig := AtfMultMoe("SN3","N3_VORIG")
+Else
+	aOrig[1]	:= SN3->N3_VORIG1
+	aOrig[2]	:= SN3->N3_VORIG2
+	aOrig[3]	:= SN3->N3_VORIG3
+	aOrig[4]	:= SN3->N3_VORIG4
+	aOrig[5]	:= SN3->N3_VORIG5
+EndIf
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	aAmplia := AtfMultMoe("SN3","N3_AMPLIA")
+Else
+	aAmplia[1] := SN3->N3_AMPLIA1
+	aAmplia[2] := SN3->N3_AMPLIA2
+	aAmplia[3] := SN3->N3_AMPLIA3
+	aAmplia[4] := SN3->N3_AMPLIA4
+	aAmplia[5] := SN3->N3_AMPLIA5
+EndIf
+
+If lMultMoed
+	aVrdMes := AtfMultMoe("SN3","N3_VRDMES")
+Else
+	aVrdMes[1] := SN3->N3_VRDMES1
+	aVrdMes[2] := SN3->N3_VRDMES2
+	aVrdMes[3] := SN3->N3_VRDMES3
+	aVrdMes[4] := SN3->N3_VRDMES4
+	aVrdMes[5] := SN3->N3_VRDMES5
+EndIf
+If ExistBlock("AF035CAN")
+	ExecBlock("AF035CAN",.F.,.F.)
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gera‡„o de lancamentos Contabeis conforme o tipo do ativo cadastrado	³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+IF SN3->N3_TIPO == "01"
+	cPadrao := "814"
+ElseIF	SN3->N3_TIPO $ "02,05"
+	cPadrao := "815"
+ElseIF	SN3->N3_TIPO $ "03*13"
+	cPadrao := "816"
+ElseIF	SN3->N3_TIPO == "04"
+	cPadrao := "817"
+Else
+	cPadrao := "81B" 					// Baixa de outros tipos de ativos
+End
+
+dbSelectArea("SN4")
+
+cChave :=xFilial("SN4")+cBase+cItem+cTipo+DTOS(dDtBaixa)
+SN4->(MsSeek(cChave))
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se existe lancamento padrao. 											³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lPadrao := VerPadrao(cPadrao)
+IF lPadrao .And. mv_par01 # 3
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Envia p/ lanc. contabil, desde que exista lancam.padronizado			³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lPrimlPad
+		nHdlPrv := HeadProva(cLoteAtf,"ATFA035",Substr(cUsername,1,6),@cArquivo,! CtbInUse())
+		If lAuto .Or. lCancFilho
+			lPrimlPad := .F.
+		Endif
+	Endif
+	nTotal += DetProva(nHdlPrv,cPadrao,"ATFA035",cLoteAtf)
+	
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Exclui registro de movimenta‡„o da baixa 										³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+While SN4->N4_FILIAL+SN4->N4_CBASE+SN4->N4_ITEM+SN4->N4_TIPO+DTOS(N4_DATA)==cChave .And. !Eof()
+	If cSeq == SN4->N4_SEQ .And. cSeqReav == SN4->N4_SEQREAV .And.;
+		(SN4->N4_OCORR $ "01 06 07 08")		// Removida implantacao, caso baixar
+
+		//AVP
+		//Cancela movimentos de AVP da baixa que esta sendo cancelada
+		If SN4->N4_TIPO == '14'
+			AFCanAVP(SN4->N4_CBASE,SN4->N4_ITEM,SN4->N4_TPSALDO,SN4->N4_IDMOV,@nHdlPrv,@nTotal,@cArquivo,@cLoteAtf) //TO DO
+		Endif
+
+		PcoDetLan("000371","01","ATFA035",.T.)
+		RecLock("SN4",.F.,.T.)				// e cancelar baixa no dia da implantacao
+		SN4->(dbDelete())					// Excluiria indevidamente
+		msUnlock()
+	ElseIf cSeq == SN4->N4_SEQ .And. cSeqReav == SN4->N4_SEQREAV .And. cPaisLoc == "PTG" .And.;
+		(SN4->N4_OCORR $ "01 06 07 08 22")	// Removida implantacao, caso baixar
+		PcoDetLan("000371","01","ATFA035",.T.)
+		RecLock("SN4",.F.,.T.)				// e cancelar baixa no dia da implantacao
+		SN4->(dbDelete())					// Excluiria indevidamente
+		msUnlock()
+	EndIf
+	dbskip()
+EndDo
+
+dbSelectArea("SN3")
+nRec		:= Recno()
+dbSetOrder(1)
+dbSeek(xFilial("SN3")+cBase+cItem+cTipo)
+While !Eof() .And. xFilial("SN3")+cBase+cItem+cTipo = SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM+SN3->N3_TIPO
+	
+	If SN3->N3_BAIXA = "1"
+		dbSkip()
+		Loop
+	EndIf
+	
+	If lIsRussia
+		If SN3->N3_OPER <> '1' // CAZARINI - 20.01.2017 - Asset Into Operation?
+			dbSkip()
+			Loop
+		Endif
+	Endif
+	If SN3->N3_TPSALDO != cTpSaldo
+		SN3->(dbSkip())
+		Loop
+	EndIf
+
+	If SN3->N3_SEQREAV != cSeqReav
+		dbSkip()
+		Loop
+	Else
+		lParc := .T.
+		Exit
+	EndIf
+	
+EndDo
+
+If !lParc
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Caso n„o exista registro de baixa parcial, significa que o	  ³
+	//³ bem sofreu apenas um baixa total, portanto os seus valores	  ³
+	//³ estao ativos, sendo necess rio apenas atualizar sua situa‡„o ³
+	//³ (N3_BAIXA).Quando o bem esta totalmente baixado com v rias   ³
+	//³ parciais, no cancelamento da 1a delas ‚ como se fosse a de   ³
+	//³ uma baixa total.                                             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	SN3->(dbGoto(nRec))
+	Reclock("SN3")
+	SN3->N3_OK 	  	:= "  "
+	SN3->N3_BAIXA   := "0"
+	SN3->N3_IDBAIXA := " "
+	SN3->N3_DTBAIXA := Ctod("")
+	SN3->N3_NOVO	 := "S"
+	SN3->N3_BXICMS  := 0
+	If cPaisLoc == "PTG"
+		// Zerar os campos contendo a "Mais Valia" ou a "Menos Valia"
+		SN3->N3_MVALIAC := 0
+		SN3->N3_MVALIAF := 0
+	Endif
+	
+	****************** CIAP ********************
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o Cadastro de CIAP                                            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SF9")
+	dbSetOrder(1)
+	If ( dbSeek(xFilial("SF9")+SN1->N1_CODCIAP) )
+		RecLock("SF9")
+		SF9->F9_DOCNFS := ""
+		SF9->F9_SERNFS := ""
+		SF9->F9_ITEMNFS := ""
+		SF9->F9_DTEMINS:= Ctod("")
+		SF9->F9_MOTIVO := ""
+		SF9->F9_BXICMS-= nN3_BXICMS
+		If SF9->(F9_BXICMS>0 .And. F9_BXICMS+F9_VLESTOR<F9_VALICMS)
+			SF9->F9_BAIXAPR := "1"
+		Else
+			SF9->F9_BAIXAPR := "0"
+		EndIf
+		MsUnlock()
+		dbSelectArea("SFA")
+		If (dbSeek(xFilial("SFA")+SF9->F9_CODIGO+Dtos(dDtBaixa)+'2'))
+			While !Eof() .and. (SFA->FA_FILIAL+SFA->FA_CODIGO+DTOS(SFA->FA_DATA)+SFA->FA_TIPO) == (xFilial("SFA")+SF9->F9_CODIGO+DTOS(dDtBaixa)+'2')
+					RecLock("SFA")
+					dbDelete()
+					MsUnlock()
+				dbSkip()
+			EndDo
+		EndIf
+	EndIf
+	dbSelectArea("SN3")
+	
+	SN3->(MsUnlock()) //acrescentado por Fernando Radu Muscalu em 13/05/2011
+	
+	//acrescentado por Fernando Radu Muscalu em 13/05/2011
+	//Tratamento do estorno dos movimentos de rateio
+	If AFXVerRat()
+		If SN3->N3_RATEIO == "1"
+			cRevAtu := AF011GETREV(SN3->N3_CODRAT)
+			Af011AtuStatus(SN3->N3_CODRAT,cRevAtu,"3")
+		Endif
+	Endif
+	
+	****************** CIAP ********************
+Else
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Deve retornar os valores da baixa parcial para o registro de aquisi‡„o ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Reclock("SN3")
+	SN3->N3_IDBAIXA := "1"
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aOrig := AtfMultMoe("SN3","N3_VORIG",{|x| Round( SN3->&( "N3_VORIG"+Alltrim(Str(x)))  + aOrig[x], X3Decimal("N3_VORIG"+Alltrim(Str(x))) ) })
+	Else
+		SN3->N3_VORIG1  := Round( SN3->N3_VORIG1  + aOrig[1]  , X3Decimal("N3_VORIG1") )
+		SN3->N3_VORIG2  := Round( SN3->N3_VORIG2  + aOrig[2]  , X3Decimal("N3_VORIG2") )
+		SN3->N3_VORIG3  := Round( SN3->N3_VORIG3  + aOrig[3]  , X3Decimal("N3_VORIG3") )
+		SN3->N3_VORIG4  := Round( SN3->N3_VORIG4  + aOrig[4]  , X3Decimal("N3_VORIG4") )
+		SN3->N3_VORIG5  := Round( SN3->N3_VORIG5  + aOrig[5]  , X3Decimal("N3_VORIG5") )
+	EndIf
+	If lMultMoed
+		aVRDACM := AtfMultMoe("SN3","N3_VRDACM",{|x| Round( SN3->&( "N3_VRDACM"+Alltrim(Str(x)))  + aVRDACM[x], X3Decimal("N3_VRDACM"+Alltrim(Str(x))) ) })
+	Else
+		SN3->N3_VRDACM1  := Round( SN3->N3_VRDACM1  + aVRDACM[1]  , X3Decimal("N3_VRDACM1") )
+		SN3->N3_VRDACM2  := Round( SN3->N3_VRDACM2  + aVRDACM[2]  , X3Decimal("N3_VRDACM2") )
+		SN3->N3_VRDACM3  := Round( SN3->N3_VRDACM3  + aVRDACM[3]  , X3Decimal("N3_VRDACM3") )
+		SN3->N3_VRDACM4  := Round( SN3->N3_VRDACM4  + aVRDACM[4]  , X3Decimal("N3_VRDACM4") )
+		SN3->N3_VRDACM5  := Round( SN3->N3_VRDACM5  + aVRDACM[5]  , X3Decimal("N3_VRDACM5") )
+	EndIf
+	If lMultMoed
+		aVrdMes := AtfMultMoe("SN3","N3_VRDMES",{|x| Round( SN3->&( "N3_VRDMES"+Alltrim(Str(x)))  + aOrig[x], X3Decimal("N3_VRDMES"+Alltrim(Str(x))) ) })
+	Else
+		SN3->N3_VRDMES1  := Round( SN3->N3_VRDMES1  + aVrdMes[1]  , X3Decimal("N3_VRDMES1") )
+		SN3->N3_VRDMES2  := Round( SN3->N3_VRDMES2  + aVrdMes[2]  , X3Decimal("N3_VRDMES2") )
+		SN3->N3_VRDMES3  := Round( SN3->N3_VRDMES3  + aVrdMes[3]  , X3Decimal("N3_VRDMES3") )
+		SN3->N3_VRDMES4  := Round( SN3->N3_VRDMES4  + aVrdMes[4]  , X3Decimal("N3_VRDMES4") )
+		SN3->N3_VRDMES5  := Round( SN3->N3_VRDMES5  + aVrdMes[5]  , X3Decimal("N3_VRDMES5") )
+	EndIf
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aAmplia := AtfMultMoe("SN3","N3_AMPLIA",{|x| Round( SN3->&(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x)))  + aAmplia[x]  , X3Decimal(If(x>9,"N3_AMPLI","N3_AMPLIA")+Alltrim(Str(x))) ) })
+	Else
+		SN3->N3_AMPLIA1 := Round( SN3->N3_AMPLIA1 + aAmplia[1], X3Decimal("N3_AMPLIA1") )
+		SN3->N3_AMPLIA2 := Round( SN3->N3_AMPLIA2 + aAmplia[2], X3Decimal("N3_AMPLIA2") )
+		SN3->N3_AMPLIA3 := Round( SN3->N3_AMPLIA3 + aAmplia[3], X3Decimal("N3_AMPLIA3") )
+		SN3->N3_AMPLIA4 := Round( SN3->N3_AMPLIA4 + aAmplia[4], X3Decimal("N3_AMPLIA4") )
+		SN3->N3_AMPLIA5 := Round( SN3->N3_AMPLIA5 + aAmplia[5], X3Decimal("N3_AMPLIA5") )
+	EndIf
+	
+	If cPaisLoc == "PTG"
+		// Zerar os campos contendo a "Mais Valia" ou a "Menos Valia"
+		SN3->N3_MVALIAC := 0
+		SN3->N3_MVALIAF := 0
+	Endif
+	
+	dbSelectArea("SN3")
+	SN3->N3_BAIXA   := "0"
+	SN3->N3_DTBAIXA := Ctod("")
+	SN3->N3_OK 	    := "  "
+	SN3->N3_NOVO	:= "S"
+	SN3->N3_BXICMS  := 0
+	MsUnlock()
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Exclui registro da baixa                                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbGoTo( nRec )
+	****************** CIAP ********************
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o Cadastro de CIAP                                            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SF9")
+	dbSetOrder(1)
+	If ( dbSeek(xFilial("SF9")+SN1->N1_CODCIAP) )
+		RecLock("SF9")
+		SF9->F9_DOCNFS := ""
+		SF9->F9_SERNFS := ""
+		SF9->F9_ITEMNFS := ""
+		SF9->F9_DTEMINS:= Ctod("")
+		SF9->F9_MOTIVO := ""
+		SF9->F9_BXICMS-= SN3->N3_BXICMS
+		If SF9->(F9_BXICMS>0 .And. F9_BXICMS+F9_VLESTOR<F9_VALICMS)
+			SF9->F9_BAIXAPR := "1"
+		Else
+			SF9->F9_BAIXAPR := "0"
+		EndIf
+		MsUnlock()
+		dbSelectArea("SFA")
+		If (dbSeek(xFilial("SFA")+SF9->F9_CODIGO+Dtos(dDtBaixa)+'2'))
+			While !Eof() .and. (SFA->FA_FILIAL+SFA->FA_CODIGO+DTOS(SFA->FA_DATA)+SFA->FA_TIPO) == (xFilial("SFA")+SF9->F9_CODIGO+DTOS(dDtBaixa)+'2')
+					RecLock("SFA")
+					dbDelete()
+					MsUnlock()
+				dbSkip()
+			EndDo
+		EndIf
+	EndIf
+	dbSelectArea("SN3")
+	****************** CIAP ********************
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Exclui registro da baixa                                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbGoTo( nRec )
+	
+	//acrescentado por Fernando Radu Muscalu em 13/05/2011
+	//Tratamento do estorno dos movimentos de rateio
+	If AFXVerRat()
+		If SN3->N3_RATEIO == "1"
+			AF011DEL({{SN3->N3_CODRAT}},.T.)
+		Endif
+	Endif
+	
+	Reclock( "SN3" ,.F.,.T.)
+	SN3->(dbDelete())
+	msUnlock()
+EndIf
+// Verificação da classificação de Ativo se sofre depreciação
+lAtClDepr := AtClssVer(SN1->N1_PATRIM)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza Saldos do Ativo																³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If SN1->N1_PATRIM $ "CAS"
+	cTipoImob := "C"
+	cTipoCorr := "O"
+Elseif lAtClDepr .OR. EMPTY(SN1->N1_PATRIM)
+	cTipoImob := "5"
+	cTipoCorr := "6"
+Else
+	cTipoImob := "D"
+	cTipoCorr := "6"
+End
+
+If ! SN3->N3_TIPO $ "07,08,09"
+	// Atualiza saldo da conta do bem
+	ATFSaldo(	SN3->N3_CCONTAB,dDtBaixa,cTipoImob,aValBaixa[1],aValBaixa[2],aValBaixa[3],aValBaixa[4],aValBaixa[5],;
+	"-",,SN3->N3_SUBCCON,,SN3->N3_CLVLCON,SN3->N3_CUSTBEM,"1",aValBaixa, cTpSaldo)
+	// Atualiza saldo da conta de depreciacao acumulada
+	// *******************************
+	// Controle de multiplas moedas  *
+	// *******************************
+	If lMultMoed
+		aValorMoed	:= AtfMultMoe("SN3","N3_VRDACM")
+	EndIf
+	ATFSaldo(	SN3->N3_CCDEPR,dDtBaixa,cTipoImob, SN3->N3_VRDACM1,SN3->N3_VRDACM2,SN3->N3_VRDACM3 ,;
+	SN3->N3_VRDACM4,SN3->N3_VRDACM5 ,"-",0,SN3->N3_SUBCCON,,SN3->N3_CLVLCON,SN3->N3_CUSTBEM,"4", aValorMoed ,cTpSaldo)
+Endif
+dbSelectArea("SN7")
+dbSetOrder(1)
+If dbSeek(xFilial("SN7")+cBase+cItem)
+	RecLock("SN7",.F.)
+	SN7->N7_VLREAL  := 0
+	SN7->N7_DTBAIXA := CtoD("  /  /  ")
+	msUnlock()
+EndIf
+
+dbSelectArea(aArea[1])
+dbSetOrder(aArea[2])
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³AF035BxValor³ Autor ³ Alice Yamamoto 		  ³ Data ³ 27/01/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Nao permite baixas por qdtde quando houver agregados      	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³AF035BcFilho()                                 				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AF035BxValor(nQuant,nQtdOrig)
+Local lRet  	:= .T.
+Local aArea 	:= SN3->(GetArea())
+Local cBase 	:= SN3->N3_CBASE
+Local cItem 	:= SN3->N3_ITEM
+Local aTiposReav:= {}
+Local nX		:= 0
+
+//Tipos de reavaliação
+AAdd(aTiposReav,"02") //reavaliacao
+AAdd(aTiposReav,"04") //Lei 8.200
+AAdd(aTiposReav,"41") // Reavaliação anual de bens não totalmente depreciados
+AAdd(aTiposReav,"42") // Reavaliação anual de bens totalmente depreciados
+AAdd(aTiposReav,"50") // Colombia: Depreciacao gerencial "metodo linear"
+AAdd(aTiposReav,"51") // Colombia: Depreciacao gerencial "soma dos digitos"
+AAdd(aTiposReav,"52") // Colombia: Depreciacao gerencial "reducao de saldos"
+AAdd(aTiposReav,"53") // Colombia: Depreciacao gerencial "soma dos anos"
+AAdd(aTiposReav,"54") // Colombia: Depreciacao gerencial "unidades produzidas"
+
+dbSelectArea("SN3")
+dbSetOrder(1)
+If nQuant != nQtdOrig
+	For nX := 1 to Len(aTiposReav)
+		If SN3->( MSSeek(xFilial("SN3")+cBase+ cItem+aTiposReav[nX]) )
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Quando houver agregados, tipos "02- reavaliacao" ou "04-Lei³
+			//³ 8.200", a baixa dever  ser efetuada por valor.             ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			Help(" ",1,"BXVALOR")  //Se houver agregados, a baixa deve ser por valor
+			lRet := .F.
+			Exit
+		Endif
+	Next nX
+Endif
+
+SN3->(RestArea(aArea))
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Af035DadosBx³ Autor ³ Wagner Mobile Costa   ³ Data ³21.03.2002³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Monta tela para confirmacao dos dados da baixa                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³Af035DadosBx( Parametros locais da rotina Af035Baixa) 		³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ SigaAtf														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function Af035DadosBx(	cBase, cItem, cTipo, nQuant, nQtdOrig, nUfir,;
+onVlVend,lBxFilho,lVlVend,cBxFilho, cNota, cSerie,;
+lCancela, lInforma,lAf035Auto, aAutoCab, aValidMot, cTpSld, cNFItem)
+
+Local oDlg, nOpt := 0
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Local aDescMoeda := {}
+Local oBaixa035
+Local aValidGet  	 := {}
+Local nj
+Local lInfBx		:= .F.
+Local lValidaNFD := SuperGetMV("MV_AF30NDV", .F., .F.)
+
+DEFAULT lCancela := .F.
+DEFAULT lInforma := .T.
+DEFAULT lAf035Auto := .F.
+DEFAULT aAutoCab 	 := {}
+DEFAULT aValidMot	:= {}
+DEFAULT cNFItem     := " "
+//Utilizado pela baixa direta do ATFA320
+If IsInCallStack("ATFA320")
+	lInfBx := .T.
+	lInforma := .F.
+	lBxFilho := .T.
+EndIf
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	AtfMultMoe(,,{|x| aAdd( aDescMoeda , GETMV("MV_SIMB"+Alltrim(Str(x))) ) })
+Else
+	aAdd( aDescMoeda , GETMV("MV_SIMB1") )
+	aAdd( aDescMoeda , GETMV("MV_SIMB2") )
+	aAdd( aDescMoeda , GETMV("MV_SIMB3") )
+	aAdd( aDescMoeda , GETMV("MV_SIMB4") )
+	aAdd( aDescMoeda , GETMV("MV_SIMB5") )
+EndIf
+
+If ! lAf035Auto
+	nPercBaixa := (nQuant/nQtdOrig)*100
+	DEFINE MSDIALOG oDlg FROM	55,6 TO 400,650 TITLE STR0013 PIXEL  //"Baixa de Ativos Imobilizados"
+	@ 000, 003 	TO 025, 315 LABEL STR0014 OF oDlg PIXEL  //"Dados do Bem"
+	@ 027, 003	TO 069, 325 LABEL STR0015 OF oDlg PIXEL  //"Informa‡”es Complementares"
+	@ 074, 003 	TO 154, 038 LABEL STR0016 OF oDlg PIXEL  //"Moedas"
+	
+	If ! lCancela
+		@ 074, 040 	TO 154, 109 LABEL STR0017 OF oDlg PIXEL  //"Valor Atualizado"
+		@ 074, 115 	TO 154, 187 LABEL STR0018 OF oDlg PIXEL  //"Valor Residual"
+	Endif
+	@ 074, 193 	TO 154, 265 LABEL STR0019 OF oDlg PIXEL  //"Valor da Baixa"	
+	@ 013, 004 	SAY STR0020  SIZE 025, 07 OF oDlg PIXEL   //"C¢digo"
+	@ 010, 024 	MSGET cBase  SIZE 040, 10 OF oDlg PIXEL When .F.
+	@ 013, 065 	SAY STR0021  SIZE 015, 07 OF oDlg PIXEL   //"Item"
+	@ 010, 077 	MSGET cItem  SIZE 020, 10 OF oDlg PIXEL READONLY F3 "ATFRDO"
+	@ 013, 110 	SAY STR0022  SIZE 012, 07 OF oDlg PIXEL   //"Tipo"
+	@ 010, 123 	MSGET cTipo  SIZE 04,  10 OF oDlg PIXEL When .F.
+	@ 013, 139 	SAY STR0023  SIZE 035, 07 OF oDlg PIXEL   //"Descri‡„o"
+	@ 010, 170 	MSGET SN1->N1_DESCRIC  SIZE 090, 10 OF oDlg PIXEL When .F.
+	@ 013, 260 	SAY STR0089 SIZE 025, 07 OF oDlg PIXEL   //"Tp. Sld."
+	@ 010, 285 	MSGET cTpSld SIZE 020, 10 OF oDlg PIXEL When .F.
+	@ 041, 005 	SAY STR0024 	SIZE 033, 07 OF oDlg PIXEL   //"Qtde.Atual"
+	@ 037, 035 	MSGET SN1->N1_QUANTD SIZE 055, 10 OF oDlg PIXEL Picture cPictQtd When .F.
+	@ 041, 095 	SAY STR0025 	SIZE 017, 07 OF oDlg PIXEL   //"Data"
+	@ 037, 110 	MSGET oBaixa035 VAR dBaixa030 SIZE 048, 10 OF oDlg PIXEL When ! lCancela;
+	Valid !Empty(dBaixa030)	 .And. AF035DtBx(dBaixa030) .And.;
+	AF035Resid(dBaixa030,nQuant,nQtdOrig,@nPercBaixa,@nUfir)
+	
+	@ 041, 160 	SAY STR0026 	SIZE 022, 07 OF oDlg PIXEL   //"Motivo"
+	@ 037, 179 	MSCOMBOBOX oCbx VAR cMotivo ITEMS aMotivos SIZE 81, 65 OF oDlg PIXEL;
+	ON CHANGE CheckCombo(onVlVend,lBxFilho,@lVlVend,cBxFilho);
+	WHEN ! lCancela .And. (lInforma .Or. lInfBx);
+	VALID AF035VLDMOT(aValidMot,cMotivo)
+	@ 041, 264 	SAY STR0027 	SIZE 025, 07 OF oDlg PIXEL  //"Num.NF"
+	@ 037, 282 	MSGET cNota		SIZE 024, 10 OF oDlg PIXEL Picture "@!" When ! lCancela .And. ! lInfBx;
+	Valid  Af035Nota(cNota, cMotivo )
+	
+	If cPaisLoc = "BRA" .and. lValidaNFD
+		@ 056, 005 	SAY STR0028 	SIZE 017, 07 OF oDlg PIXEL  //"S‚rie"
+		@ 054, 020 	MSGET cSerie 	SIZE 014, 10 OF oDlg PIXEL Picture "@!" When ! lCancela .And. ! lInfBx;
+		Valid  Af035Serie(cNota, cSerie, cMotivo )
+		@ 056, 045 	SAY STR0087 	SIZE 017, 07 OF oDlg PIXEL  //"Item"
+		@ 054, 060 	MSGET cNFItem 	SIZE 014, 10 OF oDlg PIXEL Picture "@!" When ! lCancela;
+		Valid  Af035Item(cNota, cSerie, cNFItem, cMotivo )
+		
+		@ 056, 100 	SAY STR0029 	SIZE 041, 07 OF oDlg PIXEL  //"Qtde.Baixada"
+		@ 054, 125 	MSGET nQuant 	SIZE 060, 10 OF oDlg PIXEL  Picture cPictQtd When ! lCancela .And. ! lInfBx ;
+		Valid AF035BxValor(nQuant,nQtdOrig) .And. AF035Quant(nQuant,@nPercBaixa,nQtdOrig)	.And. ;
+		AF035Resid(dBaixa030,nQuant,nQtdOrig,@nPercBaixa,@nUfir)
+		
+		@ 056, 190 	SAY STR0030 	OF oDlg PIXEL   //"% Baixado"
+		@ 054, 215 	MSGET nPercBaixa SIZE 035, 10 OF oDlg PIXEL Picture "@E 999.9999" When ! lCancela .And. nQuant == 0  .And. ! lInfBx ;
+		Valid AF035Perc(nPercBaixa,@nQuant,nQtdOrig) .And. ;
+		AF035Resid(dBaixa030,nQuant,nQtdOrig,@nPercBaixa,@nUfir)
+		
+		@ 056,262 	CHECKBOX olBxFilho   VAR lBxFilho;
+		PROMPT If(lCancela, STR0047, STR0031) SIZE 45,10 OF oDlg PIXEL;  //"Baixar Filhos" # //"Cancelar Filhos"
+		ON CHANGE (CheckOK(lBxFilho, onVlVend,olBxFilho)) Font oDlg:oFont;
+		When lInforma
+	Else
+		@ 056, 005 	SAY STR0028 	SIZE 017, 07 OF oDlg PIXEL  //"S‚rie"
+		@ 054, 035 	MSGET cSerie 	SIZE 014, 10 OF oDlg PIXEL Picture "@!" When ! lCancela .And. ! lInfBx
+		
+		@ 056, 085 	SAY STR0029 	SIZE 055, 07 OF oDlg PIXEL  //"Qtde.Baixada"
+		@ 054, 110 	MSGET nQuant 	SIZE 050, 10 OF oDlg PIXEL  Picture cPictQtd When ! lCancela .And. ! lInfBx ;
+		Valid AF035BxValor(nQuant,nQtdOrig) .And. AF035Quant(nQuant,@nPercBaixa,nQtdOrig)	.And. ;
+		AF035Resid(dBaixa030,nQuant,nQtdOrig,@nPercBaixa,@nUfir)
+		
+		@ 056, 194 	SAY STR0030 	OF oDlg PIXEL   //"% Baixado"
+		@ 054, 217 	MSGET nPercBaixa SIZE 035, 10 OF oDlg PIXEL Picture "@E 999.9999" When ! lCancela .And. nQuant == 0  .And. ! lInfBx ;
+		Valid AF035Perc(nPercBaixa,@nQuant,nQtdOrig) .And. ;
+		AF035Resid(dBaixa030,nQuant,nQtdOrig,@nPercBaixa,@nUfir)
+		
+		@ 056,270 	CHECKBOX olBxFilho   VAR lBxFilho;
+		PROMPT If(lCancela, STR0047, STR0031) SIZE 45,10 OF oDlg PIXEL;  //"Baixar Filhos" # //"Cancelar Filhos"
+		ON CHANGE (CheckOK(lBxFilho, onVlVend,olBxFilho)) Font oDlg:oFont;
+		When lInforma
+	Endif
+	If cPaisLoc == "PTG"
+		// 1. Moeda
+		
+		@ 085, 006 	MSGET aDescMoeda[1]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 085, 044 	MSGET aVlrAtual[1]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[1] When .F.
+			@ 085, 119 	MSGET aVlResid[1] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1] When .F.
+			@ 085, 197 	MSGET aValBaixa[1]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1] When lInforma .And. Left(Alltrim(cMotivo),2) =='09' ;
+			Valid AF035Valor(aValBaixa[1],1,nQtdOrig,nQuant)
+		Else
+			@ 085, 197 	MSGET aValBaixa[1]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1] When .F.
+		Endif
+		
+		// 2. Moeda
+		
+		@ 098, 006 	MSGET aDescMoeda[2]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 098, 044 	MSGET aVlrAtual[2]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[2] When .F.
+			@ 098, 119 	MSGET aVlResid[2] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] When .F.
+			@ 098, 197 	MSGET aValBaixa[2]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] When aVlrAtual[2] != 0 .And. lInforma .And. cMotivo='9';
+			Valid AF035Valor(aValBaixa[2],2,nQtdOrig,nQuant)
+		Else
+			@ 098, 197 	MSGET aValBaixa[2]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] When .F.
+		Endif
+		
+		// 3. Moeda
+		
+		@ 111, 006 	MSGET aDescMoeda[3]	  SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 111, 044 	MSGET aVlrAtual[3]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[3] When .F.
+			@ 111, 119 	MSGET aVlResid[3] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3] When .F.
+			@ 111, 197 	MSGET aValBaixa[3]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3] When aVlrAtual[3] != 0 .And. lInforma .And. cMotivo='9';
+			Valid AF035Valor(aValBaixa[3],3,nQtdOrig,nQuant)
+		Else
+			@ 111, 197 	MSGET aValBaixa[3]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3] When .F.
+		Endif
+		
+		// 4. Moeda
+		@ 125, 006 	MSGET aDescMoeda[4]   SIZE 30, 10 OF oDlg PIXEL WHEN .F.
+		If ! lCancela
+			@ 125, 044 	MSGET aVlrAtual[4]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[4] When .F.
+			@ 125, 119 	MSGET aVlResid[4] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] When .F.
+			@ 125, 197 	MSGET aValBaixa[4]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] When aVlrAtual[4] != 0 .And. lInforma .And. cMotivo='9';
+			Valid AF035Valor(aValBaixa[4],4,nQtdOrig,nQuant)
+		Else
+			@ 125, 197 	MSGET aValBaixa[4]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] When .F.
+		Endif
+		
+		// 5. Moeda
+		
+		@ 138, 006 	MSGET aDescMoeda[5]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 138, 044 	MSGET aVlrAtual[5]	  	SIZE 060, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+			@ 138, 119 	MSGET aVlResid[5] 	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+			@ 138, 197 	MSGET aValBaixa[5]	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When aVlrAtual[5] != 0 .And. lInforma .And. cMotivo='9';
+			Valid AF035Valor(aValBaixa[5],5,nQtdOrig,nQuant)
+		Else
+			@ 135, 197 	MSGET aValBaixa[5]	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+		Endif
+		
+	Else
+		// 1. Moeda
+		
+		@ 085, 006 	MSGET aDescMoeda[1]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 085, 044 	MSGET aVlrAtual[1]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[1] When .F.
+			@ 085, 119 	MSGET aVlResid[1] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1] When .F.
+			@ 085, 197 	MSGET aValBaixa[1]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1] When lInforma ;
+			Valid AF035Valor(aValBaixa[1],1,nQtdOrig,nQuant)
+		Else
+			@ 085, 197 	MSGET aValBaixa[1]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[1]	WHEN .F.
+		Endif
+		
+		// 2. Moeda
+		
+		@ 098, 006 	MSGET aDescMoeda[2]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 098, 044 	MSGET aVlrAtual[2]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[2] When .F.
+			@ 098, 119 	MSGET aVlResid[2] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] When .F.
+			@ 098, 197 	MSGET aValBaixa[2]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] When aVlrAtual[2] != 0 .And. lInforma;
+			Valid AF035Valor(aValBaixa[2],2,nQtdOrig,nQuant)
+		Else
+			@ 098, 197 	MSGET aValBaixa[2]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[2] WHEN .F.
+		Endif
+		
+		// 3. Moeda
+		
+		@ 111, 006 	MSGET aDescMoeda[3]	  SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 111, 044 	MSGET aVlrAtual[3]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[3] When .F.
+			@ 111, 119 	MSGET aVlResid[3] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3] When .F.
+			@ 111, 197 	MSGET aValBaixa[3]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3] When aVlrAtual[3] != 0 .And. lInforma;
+			Valid AF035Valor(aValBaixa[3],3,nQtdOrig,nQuant)
+		Else
+			@ 111, 197 	MSGET aValBaixa[3]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[3]	WHEN .F.
+		Endif
+		
+		// 4. Moeda
+		@ 125, 006 	MSGET aDescMoeda[4]   SIZE 30, 10 OF oDlg PIXEL WHEN .F.
+		If ! lCancela
+			@ 125, 044 	MSGET aVlrAtual[4]	  SIZE 060, 10 OF oDlg PIXEL Picture aPicture[4] When .F.
+			@ 125, 119 	MSGET aVlResid[4] 	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] When .F.
+			@ 125, 197 	MSGET aValBaixa[4]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] When aVlrAtual[4] != 0 .And. lInforma;
+			Valid AF035Valor(aValBaixa[4],4,nQtdOrig,nQuant)
+		Else
+			@ 125, 197 	MSGET aValBaixa[4]	  SIZE 063, 10 OF oDlg PIXEL Picture aPicture[4] WHEN .F.
+		Endif
+		
+		// 5. Moeda
+		
+		@ 138, 006 	MSGET aDescMoeda[5]   SIZE 30, 10 OF oDlg PIXEL When .f.
+		If ! lCancela
+			@ 138, 044 	MSGET aVlrAtual[5]	  	SIZE 060, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+			@ 138, 119 	MSGET aVlResid[5] 	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+			@ 138, 197 	MSGET aValBaixa[5]	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When aVlrAtual[5] != 0 .And. lInforma;
+			Valid AF035Valor(aValBaixa[5],5,nQtdOrig,nQuant)
+		Else
+			@ 135, 197 	MSGET aValBaixa[5]	  	SIZE 063, 10 OF oDlg PIXEL Picture aPicture[5] When .F.
+		Endif
+	Endif
+	
+	//for nj := 1 To 5
+	//	AF035Valor(aValBaixa[nj],nj,nQtdOrig,nQuant)
+	//next nj
+	
+	@ 160, 150 	SAY STR0011 		SIZE 063, 10 OF oDlg PIXEL  //"Valor de Venda"
+	@ 159, 197 	MSGET onVlVend 		VAR nVlVend 	SIZE 063, 10 OF oDlg PIXEL PICTURE aPicture[1] ;
+	VALID nVlVend > 0.00 WHEN ! lCancela .And. lInforma .and. lvlvend
+	
+	If ! lCancela .And. ExistBlock("AF035CHA")
+		ExecBlock("AF035CHA",.F.,.F.)
+	Endif
+	
+	DEFINE SBUTTON FROM 075, 270 TYPE 1 ENABLE OF oDlg ACTION ( nOpt:=TudOk(nOpt,nVlVend,lBxFilho, lCancela,cMotivo, cNota, cSerie, cNFItem ),IIf(nOpt ==1,Odlg:End(),.F.))
+	DEFINE SBUTTON FROM 090, 270 TYPE 2 ENABLE OF oDlg ACTION ( nOpt:=0,oDlg:End() )
+	ACTIVATE MSDIALOG oDlg ON INIT (oBaixa035:SetFocus(),CheckCombo(onVlVend,lBxFilho,@lVlVend))
+Else
+	aValidGet:= {}
+	nQuant := 0
+	lBxFilho := .F.
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTQUANT'})) > 0
+		nQuant	:=	aAutoCab[nT,2]
+		Aadd(aValidGet,{'nQuant' ,aAutoCab[nT,2],"!Empty(dBaixa030) .And. AF035DtBx(dBaixa030) .And. AF035Resid(dBaixa030,nQuant,"+Str(nQtdOrig)+","+Str(nPercBaixa,17,2)+","+Str(nUfir,17,2)+")",.T.})
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTDTBX'})) > 0
+		dBaixa030 :=	aAutoCab[nT,2]
+		Aadd(aValidGet,{'dBaixa030' ,aAutoCab[nT,2],"!Empty(dBaixa030)	 .And. AF035DtBx(dBaixa030) .And. AF035Resid(dBaixa030,nQuant,"+Str(nQtdOrig)+",@nPercBaixa,"+Str(nUfir)+")",.T.})
+		nPercBaixa:=nQuant/nQtdOrig*100				
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTMOTBX'})) > 0
+		cMotivo :=	aAutoCab[nT,2]
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTPERCBX'})) > 0
+		If nQuant == 0
+			nPercBaixa :=	aAutoCab[nT,2]
+			Aadd(aValidGet,{'nPercBaixa' ,aAutoCab[nT,2],"AF035Perc(nPercBaixa,@nQuant,nQtdOrig) .And. AF035Resid(dBaixa030,nQuant,"+Str(nQtdOrig)+",@nPercBaixa,"+Str(nUfir)+")",.T.})
+		Endif
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTNOTA'})) > 0
+		cNota :=	aAutoCab[nT,2]
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTSERIE'})) > 0
+		cSerie := aAutoCab[nT,2]
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTBXFILHOS'})) > 0
+		lBxFilho := aAutoCab[nT,2]
+	EndIf
+	If (nT := ascan(aAutoCab,{|x| x[1]='AUTVLRVENDA'})) > 0
+		nVlVend := aAutoCab[nT,2]
+		Aadd(aValidGet,{'nVlVend' ,aAutoCab[nT,2],"nVlVend > 0",.T.})
+	EndIf
+	
+	If ! SN3->(MsVldGAuto(aValidGet)) // consiste os gets
+		nOpt := 0 // Cancela
+	Else
+		nOpt := 1  // Confirma
+	EndIf
+Endif
+
+//AVP2
+//Nao permite baixa parcial para bens classificados como ORCAMENTO
+If nOpt == 1 .and. SN1->N1_PATRIM == 'O' .and. nPercBaixa < 100
+	Help(" ",1,"AFBXTPORC",,STR0085,1,0) //"Bens classificados como Orçamento somente podem sofrer baixa total"
+	nOpt := 2  // Redigita
+Endif
+	
+Return nOpt
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Af035Parcial³ Autor ³ Wagner Mobile Costa   ³ Data ³18.04.2002³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Faz geracao do novo registro do SN3 e baixa o atual           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³Af035Parcial(cBase, cItem, cSeq, cTpBaixa, bComple, dBaixa)   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ SigaAtf														³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function Af035Parcial(cBase, cItem, cSeq, dBaixa, bComple, cTpBaixa,nQtdOrig, nPropSF9, cIdMov)
+
+Local aSN3Cmp := {}, nMaior, nSavRec := SN3->(Recno())
+Local nDifDep   := 0
+Local i
+Local nSuf
+Local aAmplia 		:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local __nQuantas 	:= If(lMultMoed,AtfMoedas(),5)
+Local aVORIG 		:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local aVRDACM 		:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local aVRDBAL 		:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local aVRDMES 		:= If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+//Acrescentado por Fernando Radu Muscalu em 13/05/2011
+//Implementacao de Rateio da ficha do ativo
+Local cRatAnt	:= ""
+Local cRevAnt	:= ""
+Local aRateio	:= {}
+
+DEFAULT cTpBaixa := "1"		// 1=Baixa Normal, 2=Baixa Adiantamento
+
+//AVP
+DEFAULT cIDMOV := ""
+
+DbSelectArea("SN3")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Procuro por baixas Parciais.                                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSeek(XFilial("SN3") + cBase + cItem)
+cSeekSN3 := xFilial("SN3") + cBase + cItem
+nMaior := 0
+dbEval(	{ || nMaior := If( Val(SN3->N3_SEQ) > nMaior, Val(SN3->N3_SEQ), nMaior )},,;
+{ || cSeekSN3 == SN3->N3_FILIAL+SN3->N3_CBASE+SN3->N3_ITEM })
+
+SN3->(dbGoto(nSavRec))
+
+//Acrescentado por Fernando Radu Muscalu em 13/05/2011
+If AFXVerRat()
+	If SN3->N3_RATEIO == "1"
+		cRatAnt	:= SN3->N3_CODRAT
+		cRevAnt	:= AF011GETREV(SN3->N3_CODRAT)
+		aRateio := Af030LoadRat(cRatAnt,cRevAnt)
+		DBSELECTAREA("SN3")
+	Endif
+EndIf
+
+cSeq := StrZero(nMaior+1,3)
+
+aSN3Cmp	:= {}
+For i:=1 To FCount()
+	cNomCmp := FieldName(i)
+	AAdd(aSN3Cmp,{cNomCmp, &cNomCmp})
+Next
+nVrcBal1 := SN3->N3_VRCBAL1
+nVrcAcm1 := SN3->N3_VRCACM1
+
+nPercAux := aValBaixa[Val(cMoedaAtf)] / aVlrAtual[Val(cMoedaAtf)]
+If !lUmaVez
+	nPercAux := nPercAtiv
+Endif
+
+Reclock("SN3")
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+For i:= 1 To __nQuantas
+	cMoeda := Alltrim(Str(i))
+	If i>9
+		SN3->&('N3_VRDME'+cMoeda) 	-= Round(SN3->&("N3_VRDME"+cMoeda) * nPercAux, X3Decimal("N3_VRDME"+cMoeda))
+		SN3->&('N3_VRDBA'+cMoeda) 	-= Round(SN3->&("N3_VRDBA"+cMoeda) * nPercAux, X3Decimal("N3_VRDBA"+cMoeda))
+		SN3->&('N3_VRDAC'+cMoeda) 	-= Round(SN3->&("N3_VRDAC"+cMoeda) * nPercAux, X3Decimal("N3_VRDAC"+cMoeda))
+		SN3->&('N3_VORIG'+cMoeda)  	-= Round(SN3->&("N3_VORIG"+cMoeda) * nPercAux, X3Decimal("N3_VORIG" +cMoeda))
+		aAmplia[i] 					:= Round(SN3->&("N3_AMPLI"+cMoeda) * nPercAux, X3Decimal("N3_AMPLI" +cMoeda))
+		SN3->&('N3_AMPLI'+cMoeda) 	-= aAmplia[i]
+	Else
+		SN3->&('N3_VRDMES'+cMoeda) 	-= Round(SN3->&("N3_VRDMES"+cMoeda) * nPercAux, X3Decimal("N3_VRDMES"+cMoeda))
+		SN3->&('N3_VRDBAL'+cMoeda) 	-= Round(SN3->&("N3_VRDBAL"+cMoeda) * nPercAux, X3Decimal("N3_VRDBAL"+cMoeda))
+		SN3->&('N3_VRDACM'+cMoeda) 	-= Round(SN3->&("N3_VRDACM"+cMoeda) * nPercAux, X3Decimal("N3_VRDACM"+cMoeda))
+		SN3->&('N3_VORIG'+cMoeda)  	-= Round(SN3->&("N3_VORIG"+cMoeda)  * nPercAux, X3Decimal("N3_VORIG" +cMoeda))
+		aAmplia[i] 					:= Round(SN3->&("N3_AMPLIA"+cMoeda) * nPercAux, X3Decimal("N3_AMPLIA" +cMoeda))
+		SN3->&('N3_AMPLIA'+cMoeda) 	-= aAmplia[i]
+	EndIf
+Next	// Proporcionalizar o valor da ampliacao no caso de baixa parcial BOPS 9613
+SN3->N3_IDBAIXA := "1"
+SN3->N3_VRCACM1 -= Round(SN3->N3_VRCACM1 * nPercAux, X3Decimal("N3_VRCACM1"))
+SN3->N3_VRCMES1 -= Round(SN3->N3_VRCMES1 * nPercAux, X3Decimal("N3_VRCMES1"))
+SN3->N3_VRCBAL1 -= Round(SN3->N3_VRCBAL1 * nPercAux, X3Decimal("N3_VRCBAL1"))
+SN3->N3_VRCDM1  -= Round(SN3->N3_VRCDM1  * nPercAux, X3Decimal("N3_VRCDM1"))
+SN3->N3_VRCDB1  -= Round(SN3->N3_VRCDB1  * nPercAux, X3Decimal("N3_VRCDB1"))
+SN3->N3_VRCDA1  -= Round(SN3->N3_VRCDA1  * nPercAux, X3Decimal("N3_VRCDA1"))
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+If lMultMoed
+	aVORIG  := AtfMultMoe("SN3","N3_VORIG")
+	aAmplia	:= AtfMultMoe("SN3","N3_AMPLIA")
+	aVRDACM := AtfMultMoe("SN3","N3_VRDACM")
+	aVRDBAL := AtfMultMoe("SN3","N3_VRDBAL")
+	aVRDMES := AtfMultMoe("SN3","N3_VRDMES")
+Else
+	aVORIG[1]  := SN3->N3_VORIG1 ; aVORIG[2]  := SN3->N3_VORIG2 ; aVORIG[3]  := SN3->N3_VORIG3 ; aVORIG[4]  := SN3->N3_VORIG4 ; aVORIG[5]  := SN3->N3_VORIG5
+	aAmplia[1] := SN3->N3_AMPLIA1; aAmplia[2] := SN3->N3_AMPLIA2; aAmplia[3] := SN3->N3_AMPLIA3; aAmplia[4] := SN3->N3_AMPLIA4; aAmplia[5] := SN3->N3_AMPLIA5
+	aVRDACM[1] := SN3->N3_VRDACM1; aVRDACM[2] := SN3->N3_VRDACM2; aVRDACM[3] := SN3->N3_VRDACM3; aVRDACM[4] := SN3->N3_VRDACM4; aVRDACM[5] := SN3->N3_VRDACM5
+	aVRDBAL[1] := SN3->N3_VRDBAL1; aVRDBAL[2] := SN3->N3_VRDBAL2; aVRDBAL[3] := SN3->N3_VRDBAL3; aVRDBAL[4] := SN3->N3_VRDBAL4; aVRDBAL[5] := SN3->N3_VRDBAL5
+	aVRDMES[1] := SN3->N3_VRDMES1; aVRDMES[2] := SN3->N3_VRDMES2; aVRDMES[3] := SN3->N3_VRDMES3; aVRDMES[4] := SN3->N3_VRDMES4; aVRDMES[5] := SN3->N3_VRDMES5
+EndIf
+
+nVRCMES1 := SN3->N3_VRCMES1
+nVRCBAL1 := SN3->N3_VRCBAL1
+nVRCDM1  := SN3->N3_VRCDM1
+nVRCDB1  := SN3->N3_VRCDB1
+nVRCDA1  := SN3->N3_VRCDA1
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Grava Registro de Baixa (N3_BAIXA="1") em separado qdo esta parcial.³
+//³ O reg.de baixa ( N3_BAIXA="1" ) ser  gravado pela diferenca entre o ³
+//³ reg. original salvo em aSN3Cmp e o reg. acima. Este ‚ o reg. que fi-³
+//³ car  para futuras baixas ou c lculos.                               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If bComple <> Nil
+	Eval(bComple)
+Endif
+
+MsUnlock()
+
+nRemanesc := SN3->(RECNO())
+
+//AVP
+//Se for um tipo AVP
+If lAvpAtf .and. SN3->N3_TIPO == '14'
+	aRecCtb := AF035AVP(.F.,dBaixa030,nPercAux,cIdMov)
+Endif	
+	
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Grava Registro de Baixa em separado qdo esta parcial 					³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Reclock("SN3",.T.)
+For i:=1 To FCount()
+	cNomCmp := aSN3Cmp[i][1]
+	Replace &cNomCmp With aSN3Cmp[i][2]
+Next
+SN3->N3_BAIXA		:= cTpBaixa
+SN3->N3_IDBAIXA 	:= "1"
+SN3->N3_DTBAIXA	:= dBaixa
+SN3->N3_NOVO	 	:= "1"
+SN3->N3_QUANTD 	:= nQtdOrig // Guardo a quantidade existente no dia da baixa
+SN3->N3_PERCBAI 	:= nPercAux // Guardo percentual baixado
+
+// *******************************************
+// Grava o numero da guia de abate 
+// *******************************************
+If cPaisLoc == "PTG"  	
+	SN3->N3_SEQBX   := cAbatAtf	  
+EndIf
+
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+For i := 1 To __nQuantas
+	cMoeda := Alltrim(Str(i))
+	If i>9
+		&('SN3->N3_VORIG'+cMoeda)	-= aVORIG[i]
+		&('SN3->N3_VRDME'+cMoeda)	-= aVRDMES[i]
+		&('SN3->N3_VRDAC'+cMoeda)	-= aVRDACM[i]
+		&('SN3->N3_VRDBA'+cMoeda)	-= aVRDBAL[i]
+		&('SN3->N3_AMPLI'+cMoeda)	-= aAmplia[i]
+	Else
+		&('SN3->N3_VORIG'+cMoeda)	-= aVORIG[i]
+		&('SN3->N3_VRDMES'+cMoeda)	-= aVRDMES[i]
+		&('SN3->N3_VRDACM'+cMoeda)	-= aVRDACM[i]
+		&('SN3->N3_VRDBAL'+cMoeda)	-= aVRDBAL[i]
+		&('SN3->N3_AMPLIA'+cMoeda)	-= aAmplia[i]
+		// Proporcionalizar o valor da ampliacao no caso de baixa parcial BOPS 9613
+	EndIf
+Next
+
+SN3->N3_VRCACM1 -= nVRCACM1
+SN3->N3_VRCMES1 -= nVRCMES1
+SN3->N3_VRCBAL1 -= nVRCBAL1
+SN3->N3_VRCDM1  -= nVRCDM1
+SN3->N3_VRCDB1  -= nVRCDB1
+SN3->N3_VRCDA1  -= nVRCDA1
+SN3->N3_BXICMS  := nPropSf9
+SN3->N3_SEQ 	:= cSeq
+SN3->N3_SEQREAV := cSeqReav
+
+If bComple <> Nil
+	Eval(bComple)
+Endif
+
+MsUnlock()
+
+//Acrescentado por Fernando Radu Muscalu em 13/05/2011
+//Inclusao do rateio para a nova sequencia do item da ficha de ativo
+//de acordo com o rateio da sequencia anterior, pois trata-se de uma baixa parcial da ficha do ativo
+If AFXVerRat()
+	If len(aRateio) > 0
+		Begin Transaction
+		If AF011Grv(3,aRateio)
+			Reclock("SN3",.F.)
+			SN3->N3_RATEIO := "1"
+			SN3->N3_CODRAT := aRateio[1,1]
+			SN3->(MsUnlock())
+		Endif
+		End Transaction
+	Endif
+EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035Resid ³ Autor ³ Cesar C S Prado		  ³ Data ³ 03/06/94 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Acha o valor residual baseado na data da baixa				³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035	- Usada somente na baixa de um item                 ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function AF035Resid(dData,nQuant,nQtdOrig)
+Local nMoeda, nTaxa, nValTaxa
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+Local aDias     := If(lMultMoed,AtfMultMoe(,,{|x| 0}), {0,0,0,0,0} )
+Local __nQuantas:= If(lMultMoed,AtfMoedas(),5)
+Local nDias     := Day(LastDay(dData))   //nro de dias no mes da baixa
+Local nDiasDepr := Day(dData)          // Nro de dias a depreciar
+Local nResidual := 0
+Local nTaxaCorr := 0                    //Taxa para corre‡Æo
+Local nDiferenca:= 0
+Local cN1TipoNeg := Alltrim(SuperGetMv("MV_N1TPNEG",.F.,"")) // Tipos de N1_PATRIM que aceitam Valor originais negativos
+Local cN3TipoNeg := Alltrim(SuperGetMv("MV_N3TPNEG",.F.,"")) // Tipos de N3_TIPO que aceitam Valor originais negativos
+Local cMoedaAtf := GetMV("MV_ATFMOED")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³																								³
+//³						  V A L O R   R E S I D U A L 								³
+//³																								³
+//ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+//³																								³
+//³ Valor residual e' a quantia a ser depreciada de um bem.                ³
+//³																								³
+//³ Se o valor da baixa for superior ao valor residual, a diferenca entre	³
+//³ esses valores representa LUCRO a ser devidamente contabilizado.			³
+//³																								³
+//³ Custo da Baixa = Valor Original em Moeda Forte 								³
+//³																								³
+//ÃÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄ´
+//³ Valor	 ³ Depr.   ³ Depr.ate ³ Depr.   ³ Valor	 ³ Valor   ³ Lucro(+)³
+//³ Original ³ Acum.   ³ Dt Baixa ³ Acum.   ³ Residual ³ Baixa   ³			³
+//ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄ´
+//³ 1.000,00 ³  300,00 ³	 20,00 ³  320,00 ³	680,00 ³  680,00 ³	 0,00 ³
+//ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄ´
+//³ 1.000,00 ³  300,00 ³	 20,00 ³  320,00 ³	680,00 ³  780,00 ³  100,00 ³
+//ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄ´
+//³ 2.000,00 ³2.000,00 ³	  0,00 ³ 	0,00 ³	  0,00 ³  200,00 ³  200,00 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÙ
+
+aVlrAtual[1] := SN3->N3_VORIG1+SN3->N3_VRCACM1+SN3->N3_AMPLIA1
+
+// *******************************
+// Controle de multiplas moedas  *
+// *******************************
+For nMoeda := 1 To __nQuantas
+	cMoeda    := Alltrim(Str(nMoeda))
+	
+	If cMoeda =="1"
+		nResidual := SN3->N3_VRDACM1+SN3->N3_VRCDA1
+		If SN3->N3_TIPO = "05" .Or. (SN1->N1_PATRIM $ cN1TipoNeg) .Or. (SN3->N3_TIPO $ cN3TipoNeg)
+			nResidual := SN3->N3_VORIG1+SN3->N3_AMPLIA1+SN3->N3_VRCACM1+Abs(nResidual)
+		Else
+			nResidual := Abs(SN3->N3_VORIG1+SN3->N3_AMPLIA1+SN3->N3_VRCACM1-nResidual)
+		Endif
+	Else
+		nResidual := SN3->&(If(nMoeda>9,'N3_VRDAC','N3_VRDACM')+cMoeda)
+		If SN3->N3_TIPO = "05" .Or. (SN1->N1_PATRIM $ cN1TipoNeg) .Or. (SN3->N3_TIPO $ cN3TipoNeg)
+			nResidual := SN3->&('N3_VORIG'+cMoeda)+SN3->&(If(nMoeda>9,'N3_AMPLI','N3_AMPLIA')+cMoedaAtf)+Abs(nResidual)
+		Else
+			nResidual := Abs(SN3->&('N3_VORIG'+cMoeda)+SN3->&(If(nMoeda>9,'N3_AMPLI','N3_AMPLIA')+cMoedaAtf)-nResidual)
+		Endif
+	End
+	aVlResid[nMoeda] := nResidual
+	
+	If cPaisLoc $ "ARG|BRA|COS"
+		If SN1->N1_CONSAB == "1"
+			nDiasDepr := 0
+		Else
+			nDiasDepr := (LastDay(dData)-FirstDay(dData))+1
+		EndIf
+	Else
+		If Month(SN3->N3_DINDEPR) == Month(dData) .And.;
+			Year(SN3->N3_DINDEPR) == Year(dData)
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Nro de dias a depreciar qdo a baixa ‚ feita no mesmo mˆs e ano da³
+			//³ data de in¡cio de deprecia‡ao.                                   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			nDiasDepr := (dData-SN3->N3_DINDEPR)+1
+		ElseIf Month(SN3->N3_DINDEPR) > Month(dData) .And.;
+			Year(SN3->N3_DINDEPR) == Year(dData)
+			nDiasDepr := 0
+		Endif
+	EndIf
+	
+	aVRDACM[nMoeda]  := SN3->&(If(nMoeda>9,'N3_VRDAC','N3_VRDACM')+cMoeda)
+	
+	If nQuant < nQtdOrig
+		aVlResid[nMoeda]  := Round(aVlResid[nMoeda]  / nQtdOrig * nQuant, X3Decimal("N3_VORIG"+cMoeda))
+		aValBaixa[nMoeda] := Round(aValBaixa[nMoeda] / nQtdOrig * nQuant, X3Decimal("N3_VORIG"+cMoeda))
+		aVRDACM[nMoeda]   := Round(aVRDACM[nMoeda]	 / nQtdOrig * nQuant, X3Decimal(If(nMoeda>9,'N3_VRDAC','N3_VRDACM')+cMoeda))
+	EndIf
+	
+	aValBaixa[nMoeda] := Round(aVlrAtual[nMoeda] / nQtdOrig * nQuant, X3Decimal("N3_VORIG"+cMoeda))
+	aValBaixa[nMoeda] := Round(aValBaixa[nMoeda], X3Decimal("N3_VORIG"+cMoeda))
+	aVlResid[nMoeda]  := Round(aVlResid[nMoeda] , X3Decimal("N3_VORIG"+cMoeda))
+	aVRDACM[nMoeda]   := Round(aVRDACM[nMoeda]	, X3Decimal(If(nMoeda>9,'N3_VRDAC','N3_VRDACM')+cMoeda))
+	If nMoeda == 1
+		nVRCDA1  := SN3->N3_VRCDA1
+	EndIf
+	
+Next
+
+Return .T.
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Atf035Fil ³ Autor ³ Claudio Donizete   	³ Data ³22/09/06  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Define Topo da MsSelect()   								  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA030 													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Atf035Fil(nTipo)
+Local cChave
+// nTipo = 1 -> Verificando o topo da MsSelect
+// nTipo = 2 -> Verificando o fim da Msselect
+If nTipo==1
+	//	cChave := cFilialI+cBasei+cItemi
+	cChave := cFilIni+cBasei+cItemi
+	
+ElseIf nTipo==2
+	//	cChave := cFilialF+cBasef+cItemf
+	cChave := cFilFim+cBasef+cItemf	
+EndIf
+
+Return cChave
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³AF035VLAUTO³ Autor ³ ARNALDO RAYMUNDO JR.  ³ Data ³ 20/08/08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ VALIDACAO DOS ITENS SELECIONADOS PARA BAIXA AUTOMATICA	   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035 													   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+STATIC FUNCTION AF035VLAUTO()
+
+LOCAL lRet := .T.
+Local lAF030VLBX	:=  ExistBlock("AF030VLBX")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Avalia retorno do ponto de entrada AF030VLBX        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+IF lAF030VLBX
+	lRet := ExecBlock("AF030VLBX",.F.,.F.,{"ATFA035","AUTO"})
+	IF ValType(lRet) != "L"
+		lRet := .T.
+	ENDIF
+ENDIF
+
+RETURN lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³ Ana Paula N. Silva     ³ Data ³08/12/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³		1 - Pesquisa e Posiciona em um Banco de Dados         ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function MenuDef()
+Local aRotina := {	{ STR0001, "AF035Pesq"  , 0 , 1},;  //"Pesquisar"
+{ STR0002, "ATFVISUAL"  , 0 , 2},;  //"Visualizar"
+{ STR0003, "AF035Baixa" , 0 , 4},;  //"Baixar"
+{ STR0004, "AF035Cance" , 0 , 5},;  //"Cancelar"
+{ STR0048, 'AF035Auto("SN3",SN3->(Recno()),6,.F.)'  , 0 , 6},;  // "Baixa Autom."
+{ STR0049, 'AF035Auto("SN3",SN3->(Recno()),6,.T.)' , 0 , 5},;	 // "Cancela Autom."
+{ STR0058, "AtfLegenda", 0 , 5 , ,.F. } }		// "Legenda"
+Return(aRotina)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³AF035VLDMOT³ Autor ³ FELIPE C. SEOLIN      ³ Data ³ 01/12/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ VALIDACAO DO MOTIVO DE BAIXA INFORMADO                 	   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035 												  	   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function AF035VLDMOT(aValidMot,cMotivo)
+Local lRet		:= .T.
+Local cValidMot	:= ArrToStr(aValidMot,",")	// Converter array para string
+
+If !Empty(aValidMot) .and. aScan(aValidMot,{|x| x == SubStr(cMotivo,1,2)}) == 0
+	lRet := .F.
+	Help(" ",1,"ATFNOMOTVLD",,STR0064 + CRLF + STR0065 + cValidMot,1,0) //"Motivo de baixa selecionado não é válido."###"Utilizar um dos motivos válidos: "
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ARRTOSTR  ³ Autor ³ FELIPE C. SEOLIN      ³ Data ³ 01/12/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ CONVERTE ARRAY PARA STRING			                 	   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035 												  	   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function ARRTOSTR(aValidMot,cSepara)
+Local cStr := ""
+Local nInd := 0
+
+For nInd := 1 to Len(aValidMot)
+	cStr += aValidMot[nInd] + cSepara
+Next
+
+cStr := SubStr(cStr,1,Len(cStr) - 1)
+Return cStr
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³A035VlNotaºAutor  ³Microsiga           º Data ³  07/26/11   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Valida se a nota fiscal de saida foi estornada/excluida    º±±
+±±º          ³ para permitir cancelar a baixa                             º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                        º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function A035VlNota(cNota,cSerie)
+Local lRet := .T.
+Local aArea := GetArea()
+Local aAreaSF2 := SF2->(GetArea())
+
+SF2->(dbSetOrder(1)) //F2_FILIAL+F2_DOC+F2_SERIE+F2_CLIENTE+F2_LOJA+F2_FORMUL+F2_TIPO
+If SF2->(dbSeek( xFilial("SF2") + cNota + cSerie ))
+	lRet:= .F.
+EndIf
+
+
+RestArea(aAreaSF2)
+RestArea(aArea)
+Return lRet
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AF035AVP  ³ Autor ³ Mauricio Pequim Jr	  ³ Data ³ 24.10.11 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa a apuracao do AVP para a filial atual				  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ lTotal = Indica se a baixa eh total ou parcial             ³±±
+±±³          ³ dBaixa = Data da baixa                                     ³±±
+±±³          ³ nPerc  = Percentual baixado (baixa parcial)                ³±±
+±±³          ³ cIdMov = Id do movimento do bem (SN4->N4_IDMOV)            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ ATFA035																	  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function AF035AVP(lTotal,dBaixa,nPerc,cIdMov)
+
+Local nValAvp		:= 0
+Local nValVp		:= 0
+Local aAreaAvp		:= GetArea()
+Local nRecConst	:= 0 
+Local cIdProcAvp	:= ""
+
+DEFAULT lTotal := .F.
+DEFAULT dBaixa := dDataBase
+DEFAULT nPerc	:= 0
+DEFAULT cIdMov	:= ""
+
+//Posiciono tabela FNF no registro de constituicao ativo
+dbSelectArea("FNF")
+FNF->(dbSetOrder(4)) //FNF_FILIAL+FNF_CBASE+FNF_ITEM+FNF_TPMOV+FNF_STATUS
+If MsSeek(xFilial("FNF")+SN3->(N3_CBASE+N3_ITEM)+"1"+"1")
+
+	//Identificador de processo atual
+	cIdProcAVP	:= GetSxeNum('FNF','FNF_IDPROC','FNF_IDPROC'+cEmpAnt,3)
+
+	//Guardo registro da constituicao do AVP atual
+	nRecConst := FNF->(RECNO())
+	
+	//Posiciono na Ficha do ativo
+	SN1->(dbSetOrder(1))
+	SN1->(MsSeek(xFilial("SN1")+FNF->(FNF_CBASE+FNF_ITEM)))		
+
+	//Apuro o AVP ate a data da baixa
+	AFCalcAVP("A",FNF->FNF_TAXA,FNF->FNF_INDAVP,,FNF->FNF_PERIND,dBaixa,@nValVP,@nValAVP,SN1->N1_DTAVP)		
+
+	//Gravo a apropriacao do AVP por baixa
+	AfGrvAvp(cFilAnt,"3",dDataBase,FNF->FNF_CBASE,FNF->FNF_ITEM,FNF->FNF_TIPO,FNF->FNF_TPSALDO,' ',FNF->FNF_SEQ,,nValAvp,.F.,,,,,cIdProcAVP,aRecCTB,,cIdMov)
+
+	//Se baixa total, realizo o AVP
+	If lTotal
+
+		//Posiciono no registro de constituicao atual
+		FNF->(dbGoto(nRecConst))
+		
+		nValAVP := FNF->FNF_BASE - ( FNF->(FNF_AVPVLP + FNF_ACMAVP) )
+
+		//Gravo a realizacao do AVP por baixa - TOTAL
+		AfGrvAvp(cFilAnt,"4",dDataBase,FNF->FNF_CBASE,FNF->FNF_ITEM,FNF->FNF_TIPO,FNF->FNF_TPSALDO,' ',FNF->FNF_SEQ,,nValAvp,.F.,,,,,cIdProcAVP,aRecCTB,.T.,cIdMov)
+
+	Else
+
+		//Posiciono no registro de constituicao atual
+		FNF->(dbGoto(nRecConst))
+		
+		nValAVP := ( FNF->(FNF_VALOR - FNF_ACMAVP) ) * nPerc
+
+		//Gravo a realizacao do AVP por baixa - PARCIAL
+		//Gravo a baixa do AVP - Parcial ((AVP Constituido - AVP Acumulado) * Percentual de baixa
+		AfGrvAvp(cFilAnt,"4",dDataBase,FNF->FNF_CBASE,FNF->FNF_ITEM,FNF->FNF_TIPO,FNF->FNF_TPSALDO,' ',FNF->FNF_SEQ,,nValAvp,.F.,,,,,cIdProcAVP,aRecCTB,.F. /*lBxTotal*/,cIdMov)
+
+		//Posiciono no registro de constituicao atual
+		FNF->(dbGoto(nRecConst))
+
+		//Gravo constituicao do saldo restante do AVP
+		AfGrvAvp(cFilAnt,"1",dDataBase,FNF->FNF_CBASE,FNF->FNF_ITEM,FNF->FNF_TIPO,FNF->FNF_TPSALDO,' ',FNF->FNF_SEQ,,nValAvp,.F.,,,,,cIdProcAVP,aRecCTB,.F. /*lBxTotal*/,cIdMov)
+	Endif	
+
+	// Confirma o cIdProcAVP
+	ConfirmSX8()
+
+Endif
+
+RestArea(aAreaAVP)
+
+Return aRecCTB
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Fa035Mark14³ Autor ³ Mauricio Pequim Jr	  ³ Data ³ 24.10.11 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Efetua marcacao do Tipo 14 quando Tipo 10 for marcado      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ lTodos   = Marca todos os registros								  ³±±
+±±³          ³ nQtdBens = Quantidade de bens marcados (controle de tela)  ³±±
+±±³          ³ cMarca	= Controle de marcacao de registros			        ³±±
+±±³          ³ lF035Fil	= Informa existencia do ponto de entrada "F035FIL"³±±
+±±³          ³ lMarca	= Define se marca ou desmarca o Tipo 14 			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ ATFA035																	  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Function Fa035Mark14(lTodos,nQtdBens,cMarca,lF035Fil,lMarca)
+
+Local aArea	:= GetArea()	
+Local nRecAtual := SN3->(Recno())
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+DEFAULT lTodos		:= .F.
+DEFAULT nQtdBens	:= 0
+DEFAULT lMarca		:= .T.
+DEFAULT lF035Fil	:= .F.
+//AVP
+//Ao selecionar o Tipo 10, ja sera marcado o Tipo 14
+If !lTodos .and. lAvpAtf .and. SN3->N3_TIPO $ ('10' + cTypes10)
+	SN3->(dbSetOrder(11)) //N3_FILIAL+N3_CBASE+N3_ITEM+N3_TIPO+N3_BAIXA+N3_TPSALDO
+	If	SN3->(MsSeek( xFilial("SN3")+SN3->(N3_CBASE+N3_ITEM)+'14'+"0"+SN3->N3_TPSALDO)) .AND. ;
+			(!lF035Fil 	.Or. &(ExecBlock("F035FIL",.f.,.f.)))
+		RecLock("SN3")
+		IF lMarca
+	 		SN3->N3_OK := cMarca 
+	 		nQtdBens++
+		Else
+	 		SN3->N3_OK := ""
+	 		nQtdBens--
+	 		nQtdBens:= Iif (nQtdBens <=0,0,nQtdBens)
+		Endif
+		MsUnlock()
+	Endif
+Endif			
+
+RestArea(aArea)
+SN3->(dbGoto(nRecAtual))
+
+Return
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Af035Nota   ³ Autor ³                      ³ Data ³ 13.06.12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Exige a digitação do Numero da Nota caso o motivo da baixa   ³±±
+±±             23-Devolução e a Pergunta 'Valida Nota de Devolução' seja    ³±±
+±±             'Sim'                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Af035Nota                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ ATFA035                                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Af035Nota(cNota, cMotivo )
+Local aArea := GetArea()
+Local lValidaNFD := SuperGetMV("MV_AF30NDV", .F., .F.)
+
+If cPaisLoc == "BRA"
+	If lValidaNFD	// Sim -> Valida Nota de Devolução
+		If cMotivo = '23' //Devolução de Item da Nota
+			If Empty(cNota)
+				Help(" ",1, "AF030NFDV",, STR0088,1,0) //'O Nro/Série/Item da Nota devem ser informados se o parâmetro MV_AF30NDV for T e o motivo da baixa for 23-Devolução'
+				Return( .F.)
+			EndIf
+		EndIf
+	EndIf
+EndIf
+RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Af035Serie  ³ Autor ³                      ³ Data ³ 13.06.12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Exige a digitação da Serie da Nota caso o motivo da baixa    ³±±
+±±             23-Devolução e a Pergunta 'Valida Nota de Devolução' seja    ³±±
+±±             'Sim'                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Af035Serie(cNota, cSerie, cMotivo )                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ ATFA035                                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Af035Serie(cNota, cSerie, cMotivo )
+Local aArea := GetArea()
+Local lValidaNFD := SuperGetMV("MV_AF30NDV", .F., .F.)
+
+If cPaisLoc == "BRA"
+	If lValidaNFD	// Sim -> Valida Nota de Devolução - paramentro somente para Brasil
+		If cMotivo = '23' //Devolução de Item da Nota
+			If !Empty(cNota) .and. Empty(cSerie)
+				Help(" ",1, "AF030NFDV",,STR0088,1,0) //'O Nro/Série/Item da Nota devem ser informados se o parâmetro MV_AF30NDV for T e o motivo da baixa for 23-Devolução'
+				Return( .F.)
+			EndIf
+		EndIf
+	EndIf
+EndIf
+RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Af035Item   ³ Autor ³                      ³ Data ³ 13.06.12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Exige a digitação do Item  da Nota caso o motivo da baixa    ³±±
+±±             23-Devolução e a Pergunta 'Valida Nota de Devolução' seja    ³±±
+±±             'Sim'                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Af035Serie(cNota, cSerie, cNFItem, cMotivo )                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ ATFA035                                                      ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Af035Item(cNota, cSerie, cNFItem, cMotivo )
+Local aArea := GetArea()
+Local lValidaNFD := SuperGetMV("MV_AF30NDV", .F., .F.)
+
+If cPaisLoc == "BRA"
+	If lValidaNFD	// Sim -> Valida Nota de Devolução
+		If cMotivo = '23' //Devolução de Item da Nota
+			If !Empty(cNota) .and. !Empty(cSerie) .and. Empty(cNFItem)
+				Help(" ",1, "AF030NFDV",,STR0088,1,0) //'O Nro/Série/Item da Nota devem ser informados se o parâmetro MV_AF30NDV for T e o motivo da baixa for 23-Devolução'
+				Return( .F.)
+			EndIf
+		EndIf
+	EndIf
+EndIf
+RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Af030RetFil³ Autor ³ TOTVS			     ³ Data ³ 28/12/11 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA030 												  	   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Af035RetFil(nOpc)
+Local lRet	:= .T.
+Local nTamFil := TamSx3("N1_FILIAL")[1]
+
+If nOpc == 1
+	cFil := cFilialI
+Else
+	If cFilialF < cFilialI
+		lRet := .F.
+	Else
+		cFil := cFilialF
+	Endif
+Endif
+
+If lRet	
+	
+	cFil := Substr(cFil,1,nTamFil)
+
+	If nOpc == 1
+		cFilIni := xFilial("SN1",cFil) 
+	Else
+		cFilFim := xFilial("SN1",cFil) 
+	Endif
+Endif
+
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Fa035Mk15  ³ Autor ³ Mauricio Pequim Jr	³ Data ³ 11.09.12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Efetua marcacao do Tipo 15 quando Tipo 10 for marcado      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ lTodos   = Marca todos os registros						  ³±±
+±±³          ³ nQtdBens = Quantidade de bens marcados (controle de tela)  ³±±
+±±³          ³ cMarca	= Controle de marcacao de registros			      ³±±
+±±³          ³ lF035Fil	= Informa existencia do ponto de entrada "F035FIL"³±±
+±±³          ³ lMarca	= Define se marca ou desmarca o Tipo 15 		  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ ATFA030													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+//MRG
+Function Fa035Mk15(lTodos,nQtdBens,cMarca,lF035Fil,lMarca,lCancela)
+
+Local aArea		:= GetArea()	
+Local aAreaSN3	:= SN3->(GetArea())
+Local nRecAtual := SN3->(Recno())
+Local lMargem 	:= AFMrgAtf()			//Verifica implementacao da Margem Gerencial
+Local cBaixa	:= "0"
+Local cTypes10		:= IIF(lIsRussia,"*" + AtfNValMod({1}, "*"),"") // CAZARINI - 14/03/2017 - If is Russia, add new valuations models - main models
+
+DEFAULT lTodos		:= .F.
+DEFAULT nQtdBens	:= 0
+DEFAULT lMarca		:= .T.
+DEFAULT lF035Fil	:= .F.
+DEFAULT lCancela	:= .F.
+
+If lCancela
+	cBaixa := "1"
+Endif
+
+//Ao selecionar o Tipo 10, ja sera marcado o Tipo 15
+If !lTodos .and. lMargem .and. SN3->N3_TIPO $ ('10#13' + cTypes10)
+	SN3->(dbSetOrder(11)) //N3_FILIAL+N3_CBASE+N3_ITEM+N3_TIPO+N3_BAIXA+N3_TPSALDO
+	If	SN3->(MsSeek( xFilial("SN3")+SN3->(N3_CBASE+N3_ITEM)+'15'+cBaixa+SN3->N3_TPSALDO)) .AND. ;
+			(!lF035Fil 	.Or. &(ExecBlock("F035FIL",.f.,.f.)))
+		RecLock("SN3")
+		IF lMarca
+	 		SN3->N3_OK := cMarca 
+	 		nQtdBens++
+		Else
+	 		SN3->N3_OK := ""
+	 		nQtdBens--
+	 		nQtdBens:= Iif (nQtdBens <=0,0,nQtdBens)
+		Endif
+		MsUnlock()
+	Endif
+Endif			
+
+RestArea(aArea)
+SN3->(RestArea(aAreaSN3))
+SN3->(dbGoto(nRecAtual))
+
+Return
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³AjustFil   ³ Autor ³ TOTVS			     ³ Data ³ 13/03/13 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ ATFA035 												  	   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function AjFilial(cFil)
+Local cFilAux		:= ""
+Local aModoCompSN1	:= {}
+Local cLayoutEmp    := FWSM0Layout()
+Local nPosEmpresa	:= At("E",cLayoutEmp)
+Local nPosUnidade 	:= At("U",cLayoutEmp)
+Local nPosFilial 	:= At("F",cLayoutEmp)
+Local nTamFilial 	:= Len(Alltrim(cLayoutEmp))
+Local lGestao		:= Iif( lFWCodFil, ( "E" $ FWSM0Layout() .And. "U" $ FWSM0Layout() ), .F. )	// Indica se usa Gestao Corporativa
+Local cEmp			:= ""
+Local cUnid			:= ""
+Local nX	        := 0
+Local aSM0	    	:= AdmAbreSM0()
+
+If lGestao
+	cEmp  	:=  Subs(cFil,nPosEmpresa, nPosUnidade-nPosEmpresa)  
+	cUnid 	:=  Subs(cFil,nPosUnidade, nPosFilial-nPosUnidade)  
+	cFilAux	:=	Subs(cFil,nPosFilial, nTamFilial)  
+		
+	aAdd(aModoCompSN1, FWModeAccess("SN1",1) )
+	aAdd(aModoCompSN1, FWModeAccess("SN1",2) )
+	aAdd(aModoCompSN1, FWModeAccess("SN1",3) )
+		
+  	If aModoCompSN1[1] == 'E'     
+		For nX := 1 to Len(aSM0) 
+			If aSM0[nX][3] == cEmp
+				cFilAnt := aSM0[nX][2]
+				Exit
+			Endif	
+		Next
+	EndIf
+		
+	If aModoCompSN1[2] == 'E'     
+		For nX := 1 to Len(aSM0) 
+			If aSM0[nX][3] == cEmp .And. aSM0[nX][4] == cUnid
+				cFilAnt := aSM0[nX][2]
+				Exit
+			Endif	
+		Next
+	EndIf
+
+	If aModoCompSN1[3] == 'E'     
+		For nX := 1 to Len(aSM0) 
+			If aSM0[nX][3] == cEmp .And. aSM0[nX][4] == cUnid .And. aSM0[nX][5] == cFilAux
+				cFilAnt := aSM0[nX][2]
+				Exit
+			Endif	
+		Next
+	EndIf     
+Else
+	cFilAnt := cFil
+Endif
+
+Return

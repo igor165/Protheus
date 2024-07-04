@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Form. LPCO vs. N.c.m"
+	#define STR0002 "Detalles Form. LPCO vs. N.c.m"
+	#define STR0003 "Aviso"
+	#define STR0004 "Producto informado tiene N.c.m diferente del vinculado al formulario LPCO."
+	#define STR0005 "¡No es posible modificar la N.c.m vinculada cuando hay uno o más productos vinculados con esta N.c.m!"
+	#define STR0006 "¡No es posible borrar registro de Formulario vs. Organismo anuente integrado!"
+	#define STR0007 "Detalles Formulario vs. N.c.m"
+	#define STR0008 "¡No existe este formulario registrado para el organismo anuente informado!"
+	#define STR0009 "¡Existe vinculación de la n.c.m informada al formulario actual de este organismo anuente!"
+	#define STR0010 "¡El campo ‘¿Obligatorio?' en la línea ### de registro de los productos vinculados no fue definido!"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "LPCO Form x N.c.m"
+		#define STR0002 "Details LPCO Form x N.c.m"
+		#define STR0003 "Notification"
+		#define STR0004 "Product has N.c.m different than the one associated to LPCO form."
+		#define STR0005 "You cannot edit the  N.c.m associated when there is one or more products already associated with this N.c.m !"
+		#define STR0006 "Unable to delete the Form x Consenting Entity integrated!"
+		#define STR0007 "Details Form x N.c.m"
+		#define STR0008 "No form registered for consenting body informed!"
+		#define STR0009 "The n.c.m informed is already linked to the current form of this consenting entity!"
+		#define STR0010 "Field 'Required?' in the row ### of associated products record not defined!"
+	#else
+		#define STR0001 "Form. LPCO x N.c.m"
+		#define STR0002 "Detalhes Form. LPCO x N.c.m"
+		#define STR0003 "Aviso"
+		#define STR0004 "Produto informado possui N.c.m diferente da associada ao formulário LPCO."
+		#define STR0005 "Não é possível alterar a N.c.m associada quando há um ou mais produtos já associados com esta N.c.m !"
+		#define STR0006 "Não é possível excluir registro de Formulário x Órgão Anuente integrado!"
+		#define STR0007 "Detalhes Formulário x N.c.m"
+		#define STR0008 "Não existe este formulário cadastrado para o órgão anuente informado!"
+		#define STR0009 "Já existe vinculação da n.c.m informada ao formulário atual deste órgão anuente!"
+		#define STR0010 "O campo 'Obrigatório?' na linha ### de registro dos produtos associados não foi definido!"
+	#endif
+#endif

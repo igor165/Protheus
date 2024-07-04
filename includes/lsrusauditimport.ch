@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Directorio no válido, verifique la clave 'DIR' en las configuraciones del entorno, en el INI"
+	#define STR0002 "No hay archivos de datos"
+	#define STR0003 "Archivo clave no encontrado en el bloque."
+	#define STR0004 "No hay archivos por validarse."
+	#define STR0005 "Nombre del archivo de bloque se violó: #1"
+	#define STR0006 "Falla en la firma"
+	#define STR0007 "Falla de integridad en el archivo: #1"
+	#define STR0008 "El archivo se borró del bloque."
+	#define STR0009 "Falla en el hash link del archivo, continuidad de los datos comprometida."
+	#define STR0010 "Bloque de archivos importado."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Directory invalid, check, the key ‘DIR’ in the configurations of the INI environment"
+		#define STR0002 "No data files"
+		#define STR0003 "Key file not found in the block."
+		#define STR0004 "No files to be validated."
+		#define STR0005 "Block file name was violated: #1"
+		#define STR0006 "Failure in the subscription!"
+		#define STR0007 "Integrity failure in the file: #1"
+		#define STR0008 "File was deleted from the block."
+		#define STR0009 "Failure in the hash link of the file, continuity of data was compromised."
+		#define STR0010 "Files block already imported."
+	#else
+		#define STR0001 "Diretório inválido, verifique a chave 'DIR' nas configurações do ambiente no INI"
+		#define STR0002 "Não há arquivos de dados"
+		#define STR0003 "Arquivo chave não encontrado no bloco."
+		#define STR0004 "Não há arquivos a serem validados."
+		#define STR0005 "Nome do arquivo de bloco foi violado: #1"
+		#define STR0006 "Falha na assinatura!"
+		#define STR0007 "Falha de integridade no arquivo: #1"
+		#define STR0008 "O arquivo foi deletado do bloco."
+		#define STR0009 "Falha no hash link do arquivo, continuidade dos dados comprometida."
+		#define STR0010 "Bloco de arquivos já importado."
+	#endif
+#endif

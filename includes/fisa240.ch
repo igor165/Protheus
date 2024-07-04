@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Procesando carga inicial de reglas para movimientos..."
+	#define STR0002 "Cálculo de recuperación, resarcimiento y complementación del ICMS ST"
+	#define STR0003 "Diccionario de datos desactualizado. Por favor, aplique las actualizaciones necesarias."
+	#define STR0004 "Rutinas disponibles"
+	#define STR0005 "Recuperación, resarcimiento y complementación del ICMS ST"
+	#define STR0006 "Cálculo de Recuperación /Resarcimiento /Complementación"
+	#define STR0007 "Reglas para movimientos"
+	#define STR0008 "Informe de verificación"
+	#define STR0009 "Generación del archivo"
+	#define STR0010 "Archivo de reglas para movimientos - Resarcimiento ICMS-ST"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Processing Initial Load of Rules for Transactions"
+		#define STR0002 "Calculation of ICMS ST Recovery, Reimbursement and Complementation"
+		#define STR0003 "Data dictionary is out of date. Please apply the needed updates."
+		#define STR0004 "Available Routines"
+		#define STR0005 "ICMS ST Recovery, Reimbursement and Complementation"
+		#define STR0006 "Calculation of Recovery/Reimbursement/Complementation"
+		#define STR0007 "Transaction Rules"
+		#define STR0008 "Checking Report"
+		#define STR0009 "File generation"
+		#define STR0010 "Transaction Rules Register - ICMS-ST Refund"
+	#else
+		#define STR0001 "Processando Carga Inicial de Regras para Movimentos..."
+		#define STR0002 "Apuração do Recuperação, Ressarcimento e Complementação do ICMS ST"
+		#define STR0003 "Dicionário de dados desatualizado. Favor aplicar as atualizações necessárias."
+		#define STR0004 "Rotinas Disponíveis"
+		#define STR0005 "Recuperação, Ressarcimento e Complementação do ICMS ST"
+		#define STR0006 "Apuração da Recuperação /Ressarcimento /Complementação"
+		#define STR0007 "Regras para Movimentos"
+		#define STR0008 "Relatório de Conferência"
+		#define STR0009 "Geração do Arquivo"
+		#define STR0010 "Cadastro de Regras para Movimentos - Ressarcimento ICMS-ST"
+	#endif
+#endif

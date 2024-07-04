@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Operaciones para distribución - TOTVS JURÍDICO"
+	#define STR0002 "Buscar"
+	#define STR0003 "Visualizar"
+	#define STR0004 "Incluir"
+	#define STR0005 "Modificar"
+	#define STR0006 "Borrar"
+	#define STR0007 "Imprimir"
+	#define STR0008 "Operaciones de distribución"
+	#define STR0009 "Error al ejecutar la Importación. Verifique el log del sistema"
+	#define STR0010 "Ya existe modelo registrado con el nombre de #1!"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Distribution operations - TOTVS LEGAL"
+		#define STR0002 "Search"
+		#define STR0003 "View"
+		#define STR0004 "Add"
+		#define STR0005 "Edit"
+		#define STR0006 "Delete"
+		#define STR0007 "Print"
+		#define STR0008 "Distribution operations"
+		#define STR0009 "Error executing Import. Check system log"
+		#define STR0010 "There already is model registered in the name of #1!"
+	#else
+		#define STR0001 "Operações para distribuição - TOTVS JURIDICO"
+		#define STR0002 "Pesquisar"
+		#define STR0003 "Visualizar"
+		#define STR0004 "Incluir"
+		#define STR0005 "Alterar"
+		#define STR0006 "Excluir"
+		#define STR0007 "Imprimir"
+		#define STR0008 "Operações de distribuição"
+		#define STR0009 "Erro ao executar a Importação, Verifique o log do sistema"
+		#define STR0010 "Já existe modelo cadastrado com o nome de #1!"
+	#endif
+#endif

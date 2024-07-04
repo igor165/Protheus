@@ -1,0 +1,137 @@
+#INCLUDE "APWEBSRV.CH"
+#INCLUDE "PROTHEUS.CH"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Definicao do Web Service de Controle do Usuario                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+WSSERVICE MtExecuteQuery DESCRIPTION "Serviço de execução de consultas" NAMESPACE "http:webservices.microsiga.com.br/mtexecutequery.apw" //"Serviço de execução de consultas"
+WSDATA Header                 AS Array OF BrwHeader
+WSDATA HeaderType             AS String
+WSDATA UserCode               AS String
+WSDATA QueryStmt              As String
+WSDATA ResultFile             As String
+WSDATA Delimiter              As String
+WSDATA QueryStatus			  As String
+
+WSMETHOD GetExecuteQuery      DESCRIPTION "Método de execução de consultas"
+ENDWSSERVICE
+
+WSMETHOD GETEXECUTEQUERY WSRECEIVE UserCode,QueryStmt,ResultFile,Delimiter WSSEND QueryStatus WSSERVICE MtExecuteQuery
+Local aRetIni	 := {}
+Local aTam       := {}
+Local cAliasQry  :=""
+Local cArqExp    := ::ResultFile
+Local cError     := ""
+Local cLinha     := ""
+Local cQuery     := "" 
+Local cSeparador := ::Delimiter      
+Local lRetorno   := .T.
+Local lPrimLin   := .T.
+Local nI         := 0
+Local nHdlArq    := 0
+Local oLastError := ErrorBlock({|e| cError := (e:Description + e:ErrorStack)} )
+
+IF FindFunction("PCPWSInit")
+	aRetIni := PCPWSInit()
+Else
+	aRetIni := {.T.,""}
+EndIf	
+
+IF aRetIni[1]
+	nHdlArq    := FCreate(cArqExp,0)
+	cAliasQry  := GetNextAlias()
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Verificacao do acesso                                                   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If PrtChkUser(::UserCode,"MTEXECUTEQUERY","GETEXECUTEQUERY")
+		If nHdlArq == -1
+			SetSoapFault("GETEXECUTEQUERY","Erro na criação do arquivo "+cArqExp)
+			lRetorno := .F.
+		EndIf
+
+		If lRetorno
+			cQuery  := CHANGEQUERY(::QueryStmt)
+			
+			DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQry)
+
+			If empty(cError)
+				nCampos := FCOUNT()
+				
+				While (cAliasQry)->(!Eof())
+				    If lPrimLin == .T.
+	  				   cLinha := ""
+					
+					   For nI := 1 to nCampos
+					       cLinha +=  StrTran(FieldName(nI),"_","-")
+						
+						   If nI < nCampos
+							   cLinha += cSeparador
+						   EndIf
+					   Next nI
+					
+					   cLinha += Chr(13)+Chr(10)
+					
+					   fWrite(nHdlArq,cLinha)
+					   
+					   lPrimLin := .F.
+					EndIf
+
+					cLinha := ""				
+					
+					For nI := 1 to nCampos
+						cVar   := ""
+					    cLinha += '"'
+						If ValType(FieldGet(nI)) == "C"
+							cVar +=  AllTrim(FieldGet(nI))
+						Elseif ValType(FieldGet(nI)) == "N"
+							cVar += AllTrim(cValToChar(FieldGet(nI)))
+						Elseif ValType(FieldGet(nI)) == "D"
+							cVar += AllTrim(Day2Str(FieldGet(nI))+"/"+Month2Str(FieldGet(nI))+"/"+Year2Str(FieldGet(nI)))
+						Elseif ValType(FieldGet(nI)) == "L"
+							cVar += If(FieldGet(nI), ".T.", ".F.")
+						ElseIf Type(FieldName(nI)) == "M"
+							If Len(FieldGet(nI)) = 0
+								cVar += Space(aTam[1])
+							Else
+								cVar += AllTrim(FieldGet(nI))
+							EndIf
+						EndIf
+						
+						cVar := StrTran( cVar, "'" , " " ) 
+						cVar := StrTran( cVar, '"' , " " ) 
+
+						cLinha += cVar
+					    cLinha += '"'
+						
+						If nI < nCampos
+							cLinha += cSeparador
+						EndIf
+					Next nI
+					
+					cLinha += Chr(13)+Chr(10)
+									
+					fWrite(nHdlArq,cLinha)
+					
+					(cAliasQry)->(DbSkip())
+				End
+			EndIf
+				
+			FClose(nHdlArq)
+		EndIf
+		
+		ErrorBlock(oLastError)
+		
+		If !empty(cError)
+			SetSoapFault("GETEXECUTEQUERY","Erro na execução da consulta "+cError)
+			lRetorno := .F.
+			::QueryStatus := cError
+		EndIf
+	Else
+		lRetorno := .F.
+	EndIf 
+Else
+	lRetorno := .F.
+	SetSoapFault("GETEXECUTEQUERY",aRetIni[2])
+EndIf	
+
+Return(lRetorno)

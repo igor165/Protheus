@@ -1,0 +1,5 @@
+#INCLUDE "PROTHEUS.CH"
+
+Function GCPR007B()
+
+Return Nil

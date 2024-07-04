@@ -1,0 +1,1238 @@
+#INCLUDE "ATFA081.ch"
+
+
+// 17/08/2009 - Ajuste para filiais com mais de 2 caracteres.
+
+// POSICOES DO ARRAY aAjVal (VALORES AJUSTADOS)
+// Usada no calculo de Ajuste por inflacao
+// 1) C: Tipo de Lancamento de Movimentacao
+//		07 - Correcao	
+//		08 - Correcao da Depreciacao
+// 2) C: Nome do campo
+// 3) N: Valor original
+// 4) N: Valor ajustado com indice de inflacao
+// 5) A: Campos equivalentes no SN3 
+// 		Campos de Correcao do Bem
+//			N3_VRCMES - Mes
+//			N3_VRCBAL - Ano em exercicio
+//			N3_VRCACM - Acumulado
+// 		Campos de Correcao da Depreciacao
+// 			N3_VRCDM  - Mes
+//			N3_VRCDB  - Ano em Exercicio
+//			N3_VRCDA  - Acumulado
+#DEFINE _LcTipoMov		1
+#DEFINE _LcNomeCpo		2
+#DEFINE _LcVlrOrig		3
+#DEFINE _LcVlrAjus		4
+#DEFINE _LcCposSN3		5
+
+// POSICOES DO ARRAY aDesAjVal (VALORES AJUSTADOS)
+// Usada no descalculo de Ajuste por inflacao
+// 1) N: Item de Movimentacao
+// 2) N: Numero da Moeda da Movimentacao
+// 3) C: Tipo de Lancamento de Movimentacao
+//		07 - Correcao	
+//		08 - Correcao da Depreciacao
+// 4) N: Valor lancado no SN4
+// 5) A: Campos equivalentes no SN3 
+// 		Campos de Correcao do Bem
+//			N3_VRCMES - Mes
+//			N3_VRCBAL - Ano em exercicio
+//			N3_VRCACM - Acumulado
+// 		Campos de Correcao da Depreciacao
+// 			N3_VRCDM  - Mes
+//			N3_VRCDB  - Ano em Exercicio
+//			N3_VRCDA  - Acumulado
+#DEFINE _DeItemMov		1
+#DEFINE _DeMoedMov		2
+#DEFINE _DeTipoMov		3
+#DEFINE _DeValrMov		4
+#DEFINE _DeCposSN3		5
+
+// POSICOES DO ARRAY aMoedas (Moedas usadas no sistema)
+// 1) N: Numero  Moeda
+// 2) C: Simbolo Moeda
+// 3) C: Nome    Moeda
+// 4) N: Taxa    Moeda no SM2
+#DEFINE _MdNumero		1
+#DEFINE _MdSimbolo		2
+#DEFINE _MdNome			3
+#DEFINE _MdTaxa			4
+
+// POSICOES DO ARRAY aCposN3 (Nomes dos campos a serem gravados em SN3)
+// 					aCposN3 := 	{	{'N3_VRCMES','N3_VRCBAL','N3_VRCACM'} )
+//									{'N3_VRCDM' ,'N3_VRCDB' ,'N3_VRCDA' } )
+//								{
+// Linha 1) Tipo de Movimento 07 - Correcao
+// Linha 2) Tipo de Movimento 08 - Correcao da Depreciacao
+#DEFINE _CpN3Corre		1
+#DEFINE _CpN3CorDe		2
+
+// TRADUCAO DE CH'S PARA PORTUGAL
+
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+Static lMultMoed := .T.
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATFA081B	  ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Anulacao do Calculo do Ajuste por Inflacao de Ativos       	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³*	Para util. esta rotina deve-se criar os seguintes Parametros³±±
+±±³			 ³	MV_ATFINFL  tipo L  conteudo (T-verdadeiro F-falso)  		³±±
+±±³			 ³	            -> Indica se e' obrigatorio realizar Ajuste por	³±±
+±±³			 ³	            inflacao do Ativo Fixo  		                ³±±
+±±³			 ³	MV_ATFINDT  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo ajuste por inflacao realizado	³±±
+±±³			 ³	MV_VIRAATF  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo fechamento anual do Ativo Fixo³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATFA081B()
+
+Local aArea			:= GetArea()
+Local lValid		:= .T.
+Local nA			:= 0
+Local lGrv			:= .F.
+Local lValPar		:= .F.
+Local dDtAjuAnt		:= dDataBase
+Local dDtUltDep		:= GetNewPar("MV_ULTDEPR","")	// Dt da Ultima Depreciacao
+Local dDtUltAju		:= GetNewPar("MV_ATFINDT","") 	// Dt do Ultimo Ajuste por Inflacao
+Local dDataVir 		:= GetNewPar("MV_VIRAATF","")	// Dt do Ultimo Fechamento Anual
+Local dDtBxAju		:= dDataBase					// Dt da Baixa para Ajustar por Inflacao
+Local cTipAjuste	:= GetNewPar("MV_TPAJINF","A")	// Tipo de Ajuste ( Anual ou Mensal)
+Private	nTotal		:= 0
+Private nHdlPrv		:= 0
+Private cArquivo	:= ""
+Private cPadrao		:= ""
+Private cLoteAtf	:= ""
+Private lPadrao		:= .F.
+Private lAtfCont 	:= .F.
+Private lLancVis	:= .F.
+Private lLancAgl	:= .F.
+Private aCposN3		:= {}
+Private aMoedas		:= {}
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+//Private nQtdeMd		:= 0
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Alimenta as Variaveis Private usadas nos     ³
+//³ dois processos ( Ajuste e Descalculo do Aj.) ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ATF081Var("B")
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³  ..:: INICIO ::..  ³
+//³Validacoes da rotina³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+//////////////////////////////
+// Valida os parametros em SX6
+lValid := ATF081ExMV()
+
+////////////////////////////////////
+// Somente pode-se anular ajuste 
+// por inflacao no mes de Dezembro
+
+If  cTipAjuste == "A" .And. lValid .And. ( Month(dDtBxAju) <> 12 )
+	MsgStop( OemToAnsi(STR0001), OemToAnsi(STR0002) ) //" O Cancelamento so pode ser executado no mes de dezembro."###" Mes Invalido"
+	lValid := .F.
+EndIf
+
+////////////////////////////////////
+// Valida data da ultima depreciacao
+If lValid .And. ( dDtBxAju <> dDtUltDep )
+	MsgStop( OemToAnsi(STR0003), OemToAnsi(STR0004) ) //" Data do sistema deve ser igual a ultima depreciacao."###" Data invalida"
+	lValid := .F.
+EndIf
+
+///////////////////////////////////////////
+// Valida se Ajuste ainda nao foi realizado
+If lValid .And. ( dDtUltAju < dDtBxAju )
+	MsgStop( OemToAnsi(STR0005), OemToAnsi(STR0006) ) //" Nao e possivel anular o calculo, pois o ajuste ainda nao foi processado."###" Ajuste por inflacao ainda nao processado"
+	lValid := .F.
+EndIf
+
+///////////////////////////////////////////////
+// Valida se Fechamento Anual jah foi realizado
+If lValid .And. ( dDtBxAju == dDataVir )
+	MsgStop( OemToAnsi(STR0007), OemToAnsi(STR0008) ) //" Encerramento anual ja realizado, nao e possivel anular calculo de ajuste por inflacao apos encerramento do ano."###" Impossivel voltar passo."
+	lValid := .F.
+EndIf
+
+/////////////////
+// Pergunta Final
+If lValid .And. !MsgYesNo( OemToAnsi(STR0009) + DtoC(dDtUltAju) ) //" Deseja anular o ultimo ajuste por inflacao realizado em : "
+	lValid := .F.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Validacoes da rotina³
+//³   ..:: FIM ::..    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Apos todas as validacoes inicia processo de  ³
+//³ descalculo ajuste por inflacao do Ativo Fixo ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lAtfCont // Contabiliza On-Line
+	If lValid .And. Pergunte("AFA081")
+		lLancVis := ( mv_par01 = 1 )
+		lLancAgl := ( mv_par02 = 1 )
+	Else
+		lValid   := .F.
+	EndIf
+EndIf
+If lValid   
+	dDtAjuAnt := AtfDtAjAnt()
+	
+	Processa( {|lEnd| lGrv := ATF81BProc( dDtUltAju )},, OemToAnsi(STR0010) ) //" Anulando ajuste...."
+	
+	If lGrv 
+		MsgAlert( OemToAnsi(STR0011) ) //" Ajuste anulado com sucesso !"
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Altera valor da variavel MV_ATFINFDT (Data do Ultimo Ajuste por inflacao)³
+		//³  -> voltando a data do Penultimo Ajuste, possibilitando um novo ajuste   ³
+		//³     para o periodo Atual											     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If cTipAjuste =="A"
+			PUTMV("MV_ATFINDT",Alltrim(str(year(ddatabase)-1))+"1231")
+		Else
+			PUTMV("MV_ATFINDT", DTOS(FirstDay(dDataBase)-1))
+		EndIf
+	Else
+		MsgAlert( OemToAnsi(STR0012) )	 //" Nao foi anulado ajuste !"
+	Endif
+Endif
+
+RestArea( aArea )
+Return
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATFA081A	  ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Ajuste por Inflacao de Ativos             	    			³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³*	Para util. esta rotina deve-se criar os seguintes Parametros³±±
+±±³			 ³	MV_ATFINFL  tipo L  conteudo (T-verdadeiro F-falso)  		³±±
+±±³			 ³	            -> Indica se e' obrigatorio realizar Ajuste por	³±±
+±±³			 ³	            inflacao do Ativo Fixo  		                ³±±
+±±³			 ³	MV_ATFINDT  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo ajuste por inflacao realizado	³±±
+±±³			 ³	MV_VIRAATF  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo fechamento anual do Ativo Fixo³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATFA081A()
+
+Local aArea			:= GetArea()
+Local nA			:= 0
+Local lGrv			:= .F.
+Local lValid		:= .T.
+Local lValPar		:= .F.
+Local dDtUltDep		:= GetNewPar("MV_ULTDEPR","")	// Dt da Ultima Depreciacao
+Local dDtUltAju		:= GetNewPar("MV_ATFINDT","")  	// Dt do Ultimo Ajuste por Inflacao
+Local dDtBxAju		:= dDataBase					// Dt da Baixa para Ajustar por Inflacao
+Local dDtAux		:= dDtUltAju
+Local cTipAjuste	:= GetNewPar("MV_TPAJINF","A")	// Tipo de Ajuste ( Anual ou Mensal)
+Private	nTotal		:= 0
+Private nHdlPrv		:= 0
+Private cArquivo	:= ""
+Private cPadrao		:= ""
+Private cLoteAtf	:= ""
+Private lPadrao		:= .F.
+Private lAtfCont 	:= .F.
+Private lLancVis	:= .F.
+Private lLancAgl	:= .F.
+Private aIndReaj	:= {} // {Ano-C,Mes-C,Indice-N} - Indices de reajustes para o ano corrente
+Private aCposN3		:= {}
+Private aMoedas		:= {}
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+//Private nQtdeMd		:= 0
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Alimenta as Variaveis Private usadas nos     ³
+//³ dois processos ( Ajuste e Descalculo do Aj.) ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ATF081Var("A")
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³  ..:: INICIO ::..  ³
+//³Validacoes da rotina³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+//////////////////////////////
+// Valida os parametros em SX6
+lValid := ATF081ExMV()
+
+////////////////////////////////////////////////
+// Efetua carga no array com indices de inflacao
+// a partir do Mes da Primeira Movimentacao     
+DbSelectArea("SIE")
+DbSetOrder(1)
+While ( dDtAux <= dDtBxAju )
+	If DbSeek( xFilial("SIE") + Str(Year(dDtAux),4,0) + StrZero(Month(dDtAux),2,0) )
+		Aadd( aIndReaj, {SIE->IE_EXERCIC, SIE->IE_MES, SIE->IE_INDICE} )
+	Else
+		MsgStop( OemToAnsi(STR0013), OemToAnsi(STR0014) ) //" Nao existem indices para todos os meses do periodo, favor cadastra-los."###" Indices incompletos"
+		lValid := .F.
+		Exit
+	Endif
+	dDtAux := IncMes( dDtAux )
+EndDo
+
+////////////////////////////////////////////
+// Valida se todas as moedas em uso possuem 
+// indice no cadastro de moeda na Data atual
+If lValid
+	//********************************
+	// Controle de multiplas moedas  *
+	//********************************
+	For nA := 1 To __nQuantas
+		If Empty( aMoedas[nA][_MdTaxa] )   
+			MsgStop( OemToAnsi(STR0015)+aMoedas[nA][_MdNome], OemToAnsi(STR0016) ) //" Taxa invalida para a Moeda "###" Taxa invalida"
+			lValid := .F.
+			Exit
+		Endif
+	Next nA
+Endif
+
+//////////////////////////////
+// Somente pode-se ajustar por 
+// inflacao no mes de Dezembro	
+If cTipAjuste=="A" .And.  lValid .And. ( Month(dDtBxAju) <> 12 )
+	MsgStop( OemToAnsi(STR0017), OemToAnsi(STR0002) ) //" O Calculo so pode ser executado no mes de dezembro"###" Mes Invalido"
+	lValid := .F.
+EndIf
+
+////////////////////////////////////
+// Valida data da ultima depreciacao
+If lValid .And. ( dDtBxAju <> dDtUltDep )
+	MsgStop( OemToAnsi(STR0018), OemToAnsi(STR0019) ) //" Data do sistema deve ser igual a ultima depreciacao "###" Data"
+	lValid := .F.
+EndIf   
+
+///////////////////////////////////////////
+// Valida se ja' foi ajustado por esta data
+If lValid .And. ( dDtBxAju == dDtUltAju )
+	MsgStop( OemToAnsi(STR0020), OemToAnsi(STR0021) ) //" Ajuste por inflacao nesta data ja realizado, nao e possivel ajustar mais de uma vez"###" Ajuste ja processado."
+	lValid := .F.
+EndIf
+
+/////////////////
+// Pergunta Final
+If lValid .And. !MsgYesNo( OemToAnsi(STR0022) + DtoC(dDtUltAju) + ") - (" + DtoC(dDtBxAju) + ")" ) //" Deseja ajustar por inflacao no periodo de : ("
+	lValid := .F.
+Endif            
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Validacoes da rotina³
+//³   ..:: FIM ::..    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Apos todas as validacoes inicia processo de ³
+//³ ajuste por inflacao do Ativo Fixo           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lAtfCont // Contabiliza On-Line
+	If lValid .And. Pergunte("AFA081")
+		lLancVis := ( mv_par01 = 1 )
+		lLancAgl := ( mv_par02 = 1 )
+	Else
+		lValid   := .F.
+	EndIf
+EndIf
+If lValid   
+
+	Processa( {|lEnd| lGrv := ATF81AProc( dDtUltAju, dDtBxAju )},, OemToAnsi(STR0023) ) //" Ajustando..."
+	
+	If lGrv 
+		MsgAlert( OemToAnsi(STR0024) ) //" Ajustado com sucesso !"
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Altera valor da variavel MV_ATFINFDT (Data do Ultimo Ajuste por inflacao)³
+		//³para controles internos e impossibilitar novo ajuste em periodo          ³
+		//³ja' ajustado.                                                            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		PUTMV("MV_ATFINDT",DTOS(dDtBxAju))
+	Else
+		MsgAlert( OemToAnsi(STR0025) )	 //" Nao foi Ajustado !"
+	Endif
+Endif
+
+RestArea(aArea)
+Return
+
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF81AProc ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa calculo de  Ajuste por Inflacao de Ativos (periodo)	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpD1 = Data Inicial do Calculo								³±±
+±±³			 ³ ExpD2 = Data Final   do Calculo								³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Se processo foi realizado com sucesso				³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATF81AProc( dDtIni, dDtFim )
+
+Local aArProc		:= GetArea()
+Local nA			:= 0
+Local dDtAux		:= dDtIni
+Local nPosN3		:= 0
+Local lRetProc 		:= .F.
+Local aCposVal		:= {} // Lista de Campos com valores no SN3 para serem Ajustados
+Local cCpo			:= ""
+Local cBase  		:= ""
+Local cItem  		:= ""
+Local nValOri		:= 0  
+Local nValorAtual	:= 0  
+Local nValor		:= 0
+Local nValorAnt		:= 0
+Private aAjVal		:= {} 
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Alimenta aCposVal 			³
+	//³PS: Nao colocar o numero     ³
+	//³equivalente da moeda         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+  	aCposVal :=	{ "N3_VRDBAL", "N3_VRDACM" }
+   		
+	DbSelectArea("SN1")
+	DbSetOrder(1)
+	DbSeek( xFilial("SN1") )
+	
+	ProcRegua( RecCount() )
+	
+	While ( N1_FILIAL==xFilial("SN1") ) .And. ( !SN1->(Eof()) )
+	
+		IncProc()
+		
+		DbSelectArea("SN1")
+		DbSetOrder(1)
+		cBase  := SN1->N1_CBASE
+		cItem  := SN1->N1_ITEM
+		aAjVal := {}
+		
+		DbSelectArea("SN3")
+		DbSetOrder(1)
+		If DbSeek( xFilial("SN3")+cBase+cItem )                                   
+		    
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³..:: Define a data inicial de ajuste por inflacao ::.. ³
+			//³														  ³
+			//³Para os casos de o Ativo comprados no                  ³
+			//³ano em exercicio, utilizando entao o indice entre      ³
+			//³os meses equivalentes e nao do Ano em Exercicio        ³
+			//³inteiro                                                ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If ( N3_AQUISIC > dDtIni )
+				dDtAux := N3_AQUISIC
+			Else   
+				dDtAux := dDtIni   
+			Endif
+			
+			nValOri		:= 	SN3->N3_VORIG1
+			nValorAtual := ATF081Calc( nValOri, "V", dDtAux, dDtFim ) // "V" - Valor do Bem
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ ..:: Array para gravacao ::.. ³
+			//³ Ajuste do Bem                 ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			Aadd( aAjVal, { "07", "", nValorAtual, nValorAtual-nValOri, aCposN3[_CpN3Corre] } )
+
+			For nA := 1 To Len(aCposVal)
+				cCpo := aCposVal[nA] + "1"
+				If aCposVal[nA] == "N3_VRDACM"
+					nValorAnt := SN3->(&cCpo)-SN3->N3_VRDBAL1
+				Else
+					nValorAnt := SN3->(&cCpo)
+				Endif
+				
+				nValor := ATF081Calc( nValorAnt, "M", dDtAux, dDtFim ) // "M" - Valor de Movimentos do Bem
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ ..:: Array para gravacao ::.. ³
+				//³ Ajuste da Depreciacao         ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				Aadd( aAjVal, { "08", cCpo, nValor, nValor-nValorAnt, aCposN3[_CpN3CorDe] } )
+			Next nA
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Grava valores ajustados pela inflacao ³
+			//³ nas tabelas envolvidas no processo    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			Begin Transaction
+				lRetProc := ATF081AGrv()
+			End Transaction
+                                       
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Envia para Lancamento Contabil ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lRetProc .And. ( nHdlPrv > 0 )
+				RodaProva(nHdlPrv,nTotal)
+				cA100Incl(cArquivo,nHdlPrv,3,cLoteAtf,lLancVis,lLancAgl)
+			Endif
+
+		Endif
+		
+		SN1->(DbSkip())
+	EndDo
+	
+RestArea( aArProc )
+Return( lRetProc )
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF81BProc ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa anulacao do Calculo do ultimo Ajuste por inflacao  	³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpD1 = Data do Ultimo Ajuste por Inflacao					³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Se calculo foi desfeito com sucesso					³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATF81BProc( dDtDesAju )
+
+Local aArProc		:= GetArea()
+Local nA			:= 0
+Local nPosN3		:= 0
+Local lRetProc 		:= .F.
+Local cCpo			:= ""
+Local cBase  		:= ""
+Local cItem  		:= ""
+Local nItem			:= 0
+Local nValor		:= 0
+Private aDesAjVal	:= {} 
+
+   		
+	DbSelectArea("SN1")
+	DbSetOrder(1)
+	DbSeek( xFilial("SN1") )
+	
+	ProcRegua( RecCount() )
+	
+	While ( SN1->N1_FILIAL==xFilial("SN1") ) .And. ( !SN1->(Eof()) )
+	
+		IncProc()         
+		
+		lPadrao	:= VerPadrao(cPadrao)
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Cria cabecalho do Lancamento para este Ativo ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lAtfCont .And. lPadrao
+			nHdlPrv := HeadProva(cLoteAtf,"ATFA081",Substr(cUsername,1,6),@cArquivo)   
+			nTotal	:= 0
+		EndIf
+		
+		DbSelectArea("SN1")
+		DbSetOrder(1)
+		cBase     := SN1->N1_CBASE
+		cItem     := SN1->N1_ITEM
+		aDesAjVal := {}
+		
+		DbSelectArea("SN4")
+		DbSetOrder(5) // N4_FILIAL+N4_CBASE+N4_ITEM+DTOS(N4_DATA)
+		If DbSeek( xFilial("SN4")+cBase+cItem+DtoS(dDtDesAju) )
+		    
+			nItem := 1
+			
+			While ( cBase+cItem+DtoS(dDtDesAju) == SN4->N4_CBASE+SN4->N4_ITEM+Dtos(SN4->N4_DATA) )
+				
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Somente serao processado lancamentos no SN4 dos tipos³
+				//³07 - Correcao do Bem                                 ³
+				//³08 - Correcao da Depreciacao do Bem                  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If !( SN4->N4_OCORR $ "07|08" )
+					SN4->(DbSkip())
+				Else   
+				
+					//********************************
+					// Controle de multiplas moedas  *
+					//********************************
+					For nA := 1 To __nQuantas
+					
+						cCpo 	:= "SN4->N4_VLROC" + Alltrim( Str(nA,2,0) )
+						nValor 	:= &cCpo
+						
+						If ( SN4->N4_OCORR == "07" )
+							nPosN3 := _CpN3Corre
+						ElseIf ( SN4->N4_OCORR == "08" )
+							nPosN3 := _CpN3CorDe
+						EndIf
+						
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ ..:: Array para gravacao ::.. ³
+						//³ Descalculo do Ajuste do Bem   ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						Aadd( aDesAjVal, { nItem, nA, SN4->N4_OCORR, nValor, aCposN3[nPosN3] } )
+						
+					Next nA
+					
+					nItem++        
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Efetua lancamento padrao. ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If lAtfCont .And. lPadrao .And. ( nHdlPrv > 0 )
+						nTotal += DetProva(nHdlPrv,cPadrao,"ATFA081",cLoteAtf)
+					EndIf
+					
+					RecLock("SN4",.F.)
+					SN4->(DbDelete())
+					MsUnlock()
+					SN4->(DbSkip())
+				Endif
+			
+			EndDo
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Cancela valores ajustados pela inflacao   ³
+			//³ nas tabelas envolvidas no processo        ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			Begin Transaction
+				lRetProc := ATF081BGrv( cBase, cItem )
+			End Transaction
+			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Envia para Lancamento Contabil ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lRetProc .And. ( nHdlPrv > 0 )
+				RodaProva(nHdlPrv,nTotal)
+				cA100Incl(cArquivo,nHdlPrv,3,cLoteAtf,lLancVis,lLancAgl)
+			Endif
+			
+		Endif
+		
+		SN1->(DbSkip())
+	EndDo
+	
+RestArea( aArProc )
+Return( lRetProc )
+
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF081Calc ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Calcula Ajuste por inflacao de Ativos (por periodo)			³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpN1 = Valor a ser corrigido pela inflacao					³±±
+±±³			 ³ ExpC2 = Tipo do Valor (V-valor original, M-movimento diverso)³±±
+±±³			 ³ ExpD3 = Data Inicial do Calculo								³±±
+±±³			 ³ ExpD4 = Data Final   do Calculo								³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetN1 = Valor ajustado conforme indices de inflacao			³±±
+±±³     	 ³         Obs: Caso nao eh possivel calcular, retorna mesmo	³±±
+±±³     	 ³              valor passado por parametro.					³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ATF081Calc( nValor, cTipoVal, dDataIni, dDataFim )
+
+Local aArCalc	:= GetArea()
+Local lTipCalc	:= .T. // Somente para mudar forma de Calculo que foi passado pelo cliente (.T.) e que achamos correto (.F.)
+Local nPosInd	:= 0
+Local nA		:= 0
+Local lValAno	:= .T.
+Local nAno,nMes := 0 // Somente para uso do For
+Local nMesIni	:= Month( dDataIni )
+Local nAnoIni	:= Year(  dDataIni )
+Local nMesFim	:= Month( dDataFim )
+Local nAnoFim	:= Year(  dDataFim )
+Local nQtdeAno	:= 0
+Local nQtdeMes	:= 0
+Local nRetCalc	:= 0  // Valor de Retorno ( valor jah corrigido por inflacao )
+Local aIndices	:= {} // Array com todos os indices do periodo selecionado
+Local nIndice	:= 0  // Indice de inflacao do Periodo Selecionado
+Local nIndIni	:= 0  // Indice de inflacao ( Data Inicial )
+Local nIndFim	:= 0  // Indice de inflacao ( Data Final   )
+
+
+nQtdeAno := nAnoFim - nAnoIni
+Do Case
+	Case ( nQtdeAno = 0 ) // Perido pertence ao mesmo ano de exercicio
+		nQtdeMes := nMesFim - nMesIni + 1
+	Case ( nQtdeAno = 1 )
+		nQtdeMes := (12-nMesIni+1)+nMesFim
+	Case ( nQtdeAno > 1 ) // Nao eh possivel ajustar entre 3 anos
+		lValAno := .F.
+EndCase
+
+If lValAno .And. ( Abs(nValor) > 0 )
+
+	nPosInd := aScan(aIndReaj, {|x| x[1]==Str(nAnoIni,4,0) .And. x[2]==StrZero(nMesIni,2,0)})
+	nIndIni	:= 0
+	nIndFim	:= 0
+	
+	If ( nPosInd > 0 )
+		nIndIni	:= aIndReaj[nPosInd,3]
+		nIndFim	:= aIndReaj[Len(aIndReaj),3]
+		
+		Do Case
+			Case cTipoVal == "V" // Valor do Bem
+				nIndice  := nIndFim / nIndIni
+				nRetCalc := nValor * nIndice
+				
+			Case cTipoVal == "M" // Lancamento de correcoes
+				If lTipCalc // Calculo do cliente            
+					nIndice  := nIndFim / nIndIni
+					nRetCalc := nValor * nIndice
+				Else // Calculo que acreditamos estar correto (ainda nao testado)
+					For nA := nPosInd+1 To Len(aIndReaj)               
+						nIndice  := aIndReaj[nA,3] / aIndReaj[nA-1,3]
+						nRetCalc += nValor * nIndice
+					Next nA
+				Endif			
+				
+		EndCase	
+	Else
+		nRetCalc := nValor
+	EndIf
+
+Else
+	nRetCalc := nValor
+Endif
+
+RestArea( aArCalc )
+Return( nRetCalc )
+
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF081AGrv ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Grava valores ajustados por Inflacao							³±±
+±±³          ³ SN3 - Totalizadores											³±±
+±±³          ³ SN4 - Lancamento de movimentacoes 							³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Retorna se gravou com sucesso em todas as tabelas	³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Atf081AGrv( )
+
+Local lRetGrv 	:= .F.
+Local nA	 	:= 0
+Local nB	 	:= 0
+Local nC	 	:= 0
+Local nTam	 	:= Len( aAjVal )
+Local cConta	:= ""
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+Local aValorMoed
+Local __nQuantas := If(lMultMoed,AtfMoedas(),5)
+
+lPadrao	:= VerPadrao(cPadrao)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Cria cabecalho do Lancamento para este Ativo ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lAtfCont .And. lPadrao
+	nHdlPrv := HeadProva(cLoteAtf,"ATFA081",Substr(cUsername,1,6),@cArquivo)   
+	nTotal	:= 0
+EndIf
+
+For nA := 1 To nTam
+	If ( aAjVal[nA][_LcVlrOrig] > 0 )
+		Do Case
+			Case ( aAjVal[nA][_LcTipoMov] == "07" )
+				cConta := SN3->N3_CCORREC
+				
+			Case ( aAjVal[nA][_LcTipoMov] == "08" )
+				cConta := SN3->N3_CDESP
+		EndCase
+		RecLock( "SN4", .T. )
+			SN4->N4_FILIAL	:= xFilial("SN4")
+			SN4->N4_CBASE	:= SN3->N3_CBASE
+			SN4->N4_ITEM	:= SN3->N3_ITEM
+			SN4->N4_TIPO	:= SN3->N3_TIPO
+			SN4->N4_OCORR	:= aAjVal[nA][_LcTipoMov]
+			SN4->N4_TIPOCNT	:= "2"
+			SN4->N4_CONTA	:= cConta
+			SN4->N4_DATA	:= dDataBase
+			SN4->N4_TXMEDIA	:= aMoedas[Val(GetMv("MV_ATFMOED")),_MdTaxa]
+			SN4->N4_TXDEPR	:= SN3->N3_TXDEPR1
+			SN4->N4_CCUSTO	:= SN3->N3_CUSTBEM
+			SN4->N4_SEQ		:= SN3->N3_SEQ 
+
+			If cPaisLoc == "RUS"
+				 SN4->N4_UID	:= RU01UUIDV4()
+			EndIF
+			//********************************
+			// Controle de multiplas moedas  *
+			//********************************
+			For nB := 1 To __nQuantas
+				If ( SN4->( FieldPos("N4_VLROC"+Alltrim(Str(nB,2,0))) ) <> 0 )
+					&( SN4->("SN4->N4_VLROC"+Alltrim(Str(nB,2,0)))  ) := Round( xMoeda( aAjVal[nA,_LcVlrAjus], 1, aMoedas[nB,_MdNumero], dDataBase,,,, aMoedas[nB,_MdTaxa] ), MsDecimais(aMoedas[nB,_MdNumero]) )
+				Endif
+			Next nB
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Efetua lancamento padrao. ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lAtfCont .And. lPadrao .And. ( nHdlPrv > 0 )
+				nTotal  += DetProva(nHdlPrv,cPadrao,"ATFA081",cLoteAtf)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³Grava data da contabilizacao³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				SN4->N4_DCONTAB := dDataBase
+			EndIf
+		MsUnLock()
+		RecLock("SN3",.F.)
+		For nC := 1 To Len(aAjVal[nA,_LcCposSN3])
+
+			//********************************
+			// Controle de multiplas moedas  *
+			//********************************
+			For nB := 1 To __nQuantas
+				If Len(aAjVal[nA,_LcCposSN3,nC])=9 .or. nB>9
+					//***********************************************
+					// Para mais de 9 moedas deixa 8 casas no campo *
+					//***********************************************
+					aAjVal[nA,_LcCposSN3,nC]	:= SUbStr(aAjVal[nA,_LcCposSN3,nC],1,8)
+				EndIf
+				If Len(aAjVal[nA,_LcCposSN3,nC])=9 .and. nB>9
+					If ( SN3->( FieldPos(SubStr(aAjVal[nA,_LcCposSN3,nC],1,8)+Alltrim(Str(nB))) ) <> 0 )
+						&((SubStr(aAjVal[nA,_LcCposSN3,nC],1,8)+Alltrim(Str(nB)))  ) += Round( xMoeda( aAjVal[nA,_LcVlrAjus], 1, aMoedas[nB,_MdNumero], dDataBase,,,, aMoedas[nB,_MdTaxa] ), MsDecimais(aMoedas[nB,_MdNumero]) )
+					Endif				
+				Else
+					If ( SN3->( FieldPos(aAjVal[nA,_LcCposSN3,nC]+Alltrim(Str(nB))) ) <> 0 )
+						&((aAjVal[nA,_LcCposSN3,nC]+Alltrim(Str(nB)))  ) += Round( xMoeda( aAjVal[nA,_LcVlrAjus], 1, aMoedas[nB,_MdNumero], dDataBase,,,, aMoedas[nB,_MdTaxa] ), MsDecimais(aMoedas[nB,_MdNumero]) )
+					Endif
+				EndIf
+			Next nB
+		Next nC
+		MsUnLock()
+		DbCommit()              
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Atualiza Saldos do Ativo Fixo ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		//********************************
+		// Controle de multiplas moedas  *
+		//********************************
+		If lMultMoed
+			aValorMoed	:= AtfMultMoe("SN3","N3_VRCACM")
+		EndIf
+		ATFSaldo(SN3->N3_CCORREC,dDataBase,"6"	,SN3->N3_VRCACM1,SN3->N3_VRCACM1,SN3->N3_VRCACM2,SN3->N3_VRCACM3,;
+				SN3->N3_VRCACM4,SN3->N3_VRCACM5,"+",,SN3->N3_SUBCCOR,,SN3->N3_CLVLCOR, aValorMoed )
+		//********************************
+		// Controle de multiplas moedas  *
+		//********************************
+		If lMultMoed
+			aValorMoed	:= AtfMultMoe("SN3","N3_VRCDA")
+		EndIf
+		ATFSaldo(SN3->N3_CDESP  ,dDataBase,"7"	,SN3->N3_VRCDA1,SN3->N3_VRCDA2,SN3->N3_VRCDA3,;
+				SN3->N3_VRCDA4,SN3->N3_VRCDA5,"+",,SN3->N3_SUBCDES,,SN3->N3_CLVLDES, aValorMoed )
+
+	Endif
+Next nA
+lRetGrv := .T.
+
+Return(lRetGrv)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF081BGrv ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Grava descalculo de valores ajustados por Inflacao			³±±
+±±³          ³ SN3 - Totalizadores											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = SN4->N4_CBASE										³±±
+±±³			 ³ ExpC2 = SN4->N4_ITEM											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Retorna se gravou com sucesso em todas as tabelas	³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function Atf081BGrv( cBs, cIt )
+
+Local aArGrv	:= GetArea()  
+Local cCpo		:= ""
+Local lRetGrv 	:= .F.
+Local nA	 	:= 0
+Local nB	 	:= 0
+Local nTam	 	:= Len( aDesAjVal )
+
+DbSelectArea("SN3")
+DbSetOrder(1)
+If DbSeek( xFilial("SN3") + cBs + cIt )
+
+	RecLock( "SN3", .F. )
+	For nA := 1 To nTam
+
+		For nB := 1 To Len( aDesAjVal[nA,_DeCposSN3] )
+			//********************************
+			// Controle de multiplas moedas  *
+			//********************************
+			If aDesAjVal[nA,_DeMoedMov]>9 .and. Len(aDesAjVal[nA,_DeCposSN3,nB])=9
+				//***********************************************
+				// Para mais de 9 moedas deixa 8 casas no campo *
+				//***********************************************
+				aDesAjVal[nA,_DeCposSN3,nB] := SubStr(aDesAjVal[nA,_DeCposSN3,nB],1,8)
+			EndIf
+			cCpo := aDesAjVal[nA,_DeCposSN3,nB] + Alltrim( Str(aDesAjVal[nA,_DeMoedMov]))
+			If ( SN3->(FieldPos(cCpo)) <> 0 )
+				&(cCpo) -= aDesAjVal[nA,_DeValrMov]
+			EndIf
+			
+		Next nB
+
+	Next nA
+	MsUnLock()
+	DbCommit()
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza Saldos do Ativo Fixo ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	ATFSaldo(SN3->N3_CCORREC,dDataBase,"6"	,AtfMultMoe("SN3","N3_VRCACM"),;
+		"-",,SN3->N3_SUBCCOR,,SN3->N3_CLVLCOR)
+	ATFSaldo(SN3->N3_CDESP  ,dDataBase,"7"	,AtfMultMoe("SN3","N3_VRCDA"),;
+		"-",,SN3->N3_SUBCDES,,SN3->N3_CLVLDES)
+	
+	lRetGrv := .T.
+	
+Endif
+
+RestArea( aArGrv )
+Return(lRetGrv)
+
+
+/////////////////////////
+// Funcoes Auxiliares  //
+// Static Functions	   //
+/////////////////////////                            
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AtfDtAjAnt ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Busca data do Ajuste anterior para anular calculo			³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ( Void )  													³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetD1 = Data do ajuste anterior								³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AtfDtAjAnt()
+Local aArDt	 := GetArea()
+Local dDtAt	 := dDataBase
+Local dRetDt := dDtAt
+
+DbSelectArea("SN4")
+DbSetOrder(6)
+If DbSeek( xFilial("SN4") + "07" + DtoS(dDtAt) )
+	SN4->(DbSkip(-1))
+	dRetDt := SN4->N4_DATA
+EndIf
+
+RestArea( aArDt )
+Return( dRetDt )
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ AtfMoedas  ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Monta Array com dados das Moedas Utilizadas Pelo Sistema		³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ( Void )  													³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetA1 = Moedas												³±±
+±±³     	 ³         [1] N: Numero  Moeda									³±±
+±±³     	 ³         [2] C: Simbolo Moeda									³±±
+±±³     	 ³         [3] C: Nome    Moeda									³±±
+±±³     	 ³         [4] N: Taxa    Moeda no SM2							³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function AtfMoedas()
+Local nA		:= 0
+Local aArMd		:= GetArea()
+Local aArSX6	:= {}
+Local nMoeda	:= 0
+Local aAux		:= {}
+Local aRet 		:= {} // Array com dados das Moedas Utilizadas Pelo Sistema
+
+DbSelectArea("SX6")
+DbSetOrder(1) // X6_FILIAL+X6_VAR
+DbSeek( xFilial("SX6")+"MV_SIMB" )
+While !Eof() .And. Left( SX6->X6_VAR, 7 ) == "MV_SIMB"
+	aArSX6 := SX6->(GetArea())
+	If !Empty( GetMv(SX6->X6_VAR) )	
+		nMoeda := Val( Alltrim(SubStr(SX6->X6_VAR,8,2)) )
+		DbSelectArea("SM2")
+		DbSetOrder(1) // M2_DATA
+		DbSeek( dDataBase )       
+		
+		aAux := {}
+		Aadd( aAux, {,,,} )
+		aAux[ 1, _MdNumero  ] := nMoeda
+		aAux[ 1, _MdSimbolo ] := GetMv( SX6->X6_VAR )
+		aAux[ 1, _MdNome    ] := GetMv( "MV_MOEDA"+Alltrim(Str(nMoeda)) )
+		aAux[ 1, _MdTaxa    ] := If( nMoeda=1, 1 , SM2->&("M2_MOEDA"+Alltrim(Str(nMoeda))) )
+
+		Aadd( aRet,	aAux[1] )
+	Endif
+	SX6->(RestArea( aArSX6 ))
+	SX6->(DbSkip())
+EndDo
+
+RestArea( aArMd )
+Return( aRet )
+
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ValMvAtf   ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Auxilia na mensagem de erro do Parametro MV_ATFINFL			³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpL1 = REFERENCIA -> Validacao da inexistencia do Parametro ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = sempre .F.											³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ValMvAtf(lValid)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Seta a Variavel como .T. para a mensagem de erro³
+//³diferenciar que o Parametro MV_ATFINFL nao      ³
+//³existe no arquivo SX6.                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lValid := .T.
+Return(.F.)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ExistMV    ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Verifica existencia de Parametro MV_ no SX6					³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpC1 = Nome do Parametro MV_ 								³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Resultado da busca									³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ExistMV( cMV )
+Local lRet 	:= .F.
+Local aAr	:= GetArea()
+
+DbSelectArea("SX6")
+DbSetOrder(1) // X6_FIL+X6_VAR
+If DbSeek( xFilial("SX6")+cMV ) 
+	lRet := .T.
+Endif
+
+RestArea(aAr)
+Return(lRet)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ IncMes     ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Incrementa 1 Mes a Data Passada.						   		³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpD1 = Data													³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetD1 = Data incrementada em 1 Mes							³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function IncMes( dData )
+
+Local aArMes 	:= GetArea()
+Local nMes	 	:= Month( dData )
+Local nAno	 	:= Year(  dData )  
+
+dData := CtoD( StrZero(F_UltDia(dData),2,0) +"/"+ StrZero(nMes,2,0) +"/"+ Str(nAno,4,0) ) 
+dData += 1
+
+RestArea( aArMes )
+Return( dData )
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF081ExMV ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida Existencia e Conteudo dos paremetros MV_ da rotina	³±±
+±±³          ³ *** 															³±±
+±±³			 ³	MV_ATFINFL  tipo L  conteudo (T-verdadeiro F-falso)  		³±±
+±±³			 ³	            -> Indica se e' obrigatorio realizar Ajuste por	³±±
+±±³			 ³	            inflacao do Ativo Fixo  		                ³±±
+±±³			 ³	MV_ATFINDT  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo ajuste por inflacao realizado	³±±
+±±³			 ³	MV_VIRAATF  tipo D  conteudo 20081231 (aaaammdd)    		³±±
+±±³			 ³	            -> Data do ultimo fechamento anual do Ativo Fixo³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ RetL1 = Resultado da validacao de todos MV_					³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ATF081ExMV()
+
+Local aArMV1	:= GetArea()
+Local lValMV 	:= .T.	
+Local lValPar	:= .F.
+                 
+If lValMV .And. !GetNewPar("MV_ATFINFL",If(ExistMV("MV_ATFINFL"),.F.,ValMvAtf(@lValPar)))
+	If lValPar
+		MsgStop( OemToAnsi(STR0026), OemToAnsi(STR0027) ) //" Paramentro MV_ATFINFL inexistente, favor cria-lo."###" MV_ATFINFL nao existe"
+	Else
+		MsgStop( OemToAnsi(STR0028), OemToAnsi(STR0029) ) //" Paramentro MV_ATFINFL desabilitado, esta rotina nao pode ser executada."###" MV_ATFINFL desabilitado"
+	Endif
+	lValMV := .F.
+EndIf
+
+If lValMV .And. Empty( GetNewPar("MV_ATFINDT","") )
+	MsgStop( OemToAnsi(STR0030), OemToAnsi(STR0031) ) //" Paramentro MV_ATFINDT inexistente, favor cria-lo."###" MV_ATFINDT nao existe"
+	lValMV := .F.
+EndIf
+
+If lValMV .And. Empty( GetNewPar("MV_VIRAATF","") )
+	MsgStop( OemToAnsi(STR0032), OemToAnsi(STR0033) ) //" Parametro MV_VIRAATF inexistente, favor cria-lo."###" MV_VIRAATF nao existe"
+	lValMV := .F.
+EndIf
+
+RestArea( aArMV1 )
+Return( lValMV )
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³ ATF081Var  ³ Autor ³ Cristiano Denardi     ³ Data ³ 16/11/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Alimenta as variaveis comuns para todas as funcoes	   		³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Paises Localizados											³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ (Void)														³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno	 ³ Nil															³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function ATF081Var( cProc )
+Local aArVar := GetArea()
+
+///////////////////
+// Alimenta aMoedas
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+aMoedas	:= AtfMoedas()
+
+///////////////////
+// Alimenta aMoedas
+//********************************
+// Controle de multiplas moedas  *
+//********************************
+//nQtdeMd	:= Len( aMoedas )
+
+///////////////////
+// Alimenta aCposN3
+Aadd( aCposN3, {'N3_VRCMES','N3_VRCBAL','N3_VRCACM'} )
+Aadd( aCposN3, {'N3_VRCDM' ,'N3_VRCDB' ,'N3_VRCDA' } )
+
+///////////////////////////////////////
+// Lanc. Contabil (Ajuste por Inflacao) 
+// 	- Pilar sugeriu criar novos
+If cProc == "A" // Ajusta
+	cPadrao	:= "850"
+ElseIf cProc == "B" // Cancela Ajuste
+	cPadrao	:= "851"
+Endif
+
+////////////////////////////////
+// Verifica se Existe Lancamento
+lPadrao	:= VerPadrao(cPadrao)
+
+/////////////////////////////////////////////////
+// Verifica o numero do Lote do modulo Ativo Fixo
+DbSelectArea("SX5")
+DbSeek(cFilial+"09ATF")
+cLoteAtf := SubStr(X5Descri(),1,4)
+
+///////////////////////////////////
+// Verifica se Contab. esta On Line
+lAtfCont := IIf(Trim(GetMv("MV_ATFCONT"))="O",.T.,.F.)
+
+RestArea( aArVar )
+Return Nil

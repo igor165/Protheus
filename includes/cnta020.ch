@@ -1,0 +1,48 @@
+#ifdef SPANISH
+	#define STR0001 "Tipos de Contrato"
+	#define STR0002 "Item en uso, no puede borrarse"
+	#define STR0003 "Incluir"
+	#define STR0004 "Buscar"
+	#define STR0005 "Visualizar"
+	#define STR0006 "Modificar"
+	#define STR0007 "Borrar"
+	#define STR0008 "Informe - Ciclo de vida"
+	#define STR0009 "Conforme el comunicado vía TOTVS News y TDN, esta rutina se descontinuará a partir del día #1[data_cut]#."
+	#define STR0010 "A partir de esta fecha no será posible acceder a esta rutina."
+	#define STR0011 "Esta, se sustituirá por la nueva rutina de archivo de Tipos de contratos (CNTA021) que ya está disponible en el repositorio de objetos."
+	#define STR0012 "La sustitución de la rutina tiene como objetivo la evolución del producto. Sugerimos que acceda a la sección Ciclo de vida del TOTVS News del módulo Gestión de contratos."
+	#define STR0013 "Esta rutina se descontinuó en #1[data_cut]#."
+	#define STR0014 "Utilice la rutina correspondiente CNTA021."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Contract Types "
+		#define STR0002 "Item in use, thus, it cannot be deleted"
+		#define STR0003 "Add"
+		#define STR0004 "Search"
+		#define STR0005 "View"
+		#define STR0006 "Edit"
+		#define STR0007 "Delete"
+		#define STR0008 "Report - Life Cycle"
+		#define STR0009 "As reported on TOTVS News and TDN, this routine will be discontinued from day #1[data_cut]#."
+		#define STR0010 "From this date onward you can no longer access this routine."
+		#define STR0011 "It will be replaced by the new Types of Contracts routine (CNTA021) which is already available in the objects repository."
+		#define STR0012 "The substitution of the routine aims to evolve the product. We recommend accessing the Life Cycle section of TOTVS News of Contracts Management Module."
+		#define STR0013 "This routine was discontinued on #1[data_cut]#."
+		#define STR0014 "Use corresponding routine CNTA021."
+	#else
+		#define STR0001 If( cPaisLoc $ "ANG|PTG", "Tipos De Contrato", "Tipos de Contrato" )
+		#define STR0002 If( cPaisLoc $ "ANG|PTG", "Item em uso, não pode ser apagado", "Item em uso, nao pode ser deletado" )
+		#define STR0003 "Incluir"
+		#define STR0004 "Pesquisar"
+		#define STR0005 "Visualizar"
+		#define STR0006 "Alterar"
+		#define STR0007 "Excluir"
+		#define STR0008 "Informe - Ciclo de vida"
+		#define STR0009 "Conforme comunicado via TOTVS News e TDN, esta rotina será descontinuada a partir do dia #1[data_cut]#."
+		#define STR0010 "A partir desta data não será mais possível acessar esta rotina."
+		#define STR0011 "Ela será substituída pela nova rotina de cadastro de Tipos de Contratos (CNTA021) que já está disponível no repositório de objetos."
+		#define STR0012 "A substituição da rotina visa a evolução do produto. Sugerimos que acesse a seção de Ciclo de Vida do TOTVS News do Módulo de Gestão de Contratos."
+		#define STR0013 "Esta rotina foi descontinuada em #1[data_cut]#."
+		#define STR0014 "Utilizar a rotina correspondente CNTA021."
+	#endif
+#endif

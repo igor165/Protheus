@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "No se pudo realizar la baja de la cuota '"
+	#define STR0002 ""
+	#define STR0003 "Error no identificado al ejecutar la rutina."
+	#define STR0004 "Recepción por TOTVS Anticipa"
+	#define STR0005 "Prorrogación de"
+	#define STR0006 "a"
+	#define STR0007 ""
+	#define STR0008 ""
+	#define STR0009 ""
+	#define STR0010 ""
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Unable to post installment ‘"
+		#define STR0002 ""
+		#define STR0003 "Unidentified error during routine execution."
+		#define STR0004 "Receive through TOTVS Antecipa"
+		#define STR0005 "Extension from"
+		#define STR0006 "to"
+		#define STR0007 ""
+		#define STR0008 ""
+		#define STR0009 ""
+		#define STR0010 ""
+	#else
+		#define STR0001 "Não foi possível realizar a baixa da parcela '"
+		#define STR0002 ""
+		#define STR0003 "Erro não identificado na execução da rotina."
+		#define STR0004 "Recebimento pelo TOTVS Antecipa"
+		#define STR0005 "Prorrogação de "
+		#define STR0006 " para "
+		#define STR0007 ""
+		#define STR0008 ""
+		#define STR0009 ""
+		#define STR0010 ""
+	#endif
+#endif

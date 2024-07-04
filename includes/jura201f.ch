@@ -1,0 +1,45 @@
+#ifdef SPANISH
+	#define STR0001 "Não existe cotação do dia "
+	#define STR0002 "Não existe cotação mensal"
+	#define STR0003 " para a(s) moeda(s): "
+	#define STR0004 "A(s) Moeda(s) "
+	#define STR0005 " está(ão) bloqueda(s)!"
+	#define STR0006 "La moneda '#1' está bloqueada."
+	#define STR0007 "No existe cotización diaria en la moneda '#1' para la fecha '#2'."
+	#define STR0008 "No existe cotización mensual en la moneda '#1' para el año mes '#2'."
+	#define STR0009 "No existe cotización diaria en la moneda '#1' para la fecha '#2', en la sucursal '#3'."
+	#define STR0010 "La cotización del día #1 para la moneda #2 está con valor en cero."
+	#define STR0011 "Indique una cotización válida para la moneda y fecha indicadas, y realice la operación nuevamente."
+	#define STR0012 "Cotización del mes de #1 de #2 para la moneda #3 no existe."
+	#define STR0013 "Cotización del mes de #1 de #2 para la moneda #3 está con valor en cero."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "There is no quotation of the day "
+		#define STR0002 "There is no monthly quotation"
+		#define STR0003 " for the currency(ies): "
+		#define STR0004 "The Currency(ies) "
+		#define STR0005 " is(are) blocked!"
+		#define STR0006 "Currency '#1' is blocked."
+		#define STR0007 "No daily quote in currency '#1' for date '#2'."
+		#define STR0008 "No monthly quote in currency '#1' for year-month '#2'."
+		#define STR0009 "No daily quote in currency '#1' for date '#2' in the branch '#3'."
+		#define STR0010 "The quotation of the day #1 for currency #2 has value zero."
+		#define STR0011 "Indicate a valid quotation for the currency and date indicated, then execute the operation again."
+		#define STR0012 "Quotation of the month from #1 to #2 for currency #3 does not exist."
+		#define STR0013 "Quotation of the month from #1 to #2 for currency #3 does not exist."
+	#else
+		#define STR0001 "Não existe cotação do dia "
+		#define STR0002 "Não existe cotação mensal"
+		#define STR0003 " para a(s) moeda(s): "
+		#define STR0004 If( cPaisLoc $ "ANG|PTG", "A(s) moeda(s) ", "A(s) Moeda(s) " )
+		#define STR0005 If( cPaisLoc $ "ANG|PTG", " está(ão) bloqueda(s).", " está(ão) bloqueda(s)!" )
+		#define STR0006 "A moeda '#1' está bloqueada."
+		#define STR0007 "Não existe cotação diária na moeda '#1' para a data '#2'."
+		#define STR0008 "Não existe cotação mensal na moeda '#1' para o ano-mês '#2'."
+		#define STR0009 "Não existe cotação diária na moeda '#1' para a data '#2', na filial '#3'."
+		#define STR0010 "A cotação do dia #1 para a moeda #2 está com valor zerado."
+		#define STR0011 "Indique uma cotação válida para a moeda e data indicadas, e realize a operação novamente."
+		#define STR0012 "Cotação do mês de #1 de #2 para a moeda #3 não existe."
+		#define STR0013 "Cotação do mês de #1 de #2 para a moeda #3 está com valor zerado."
+	#endif
+#endif

@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Servicio genérico para control de la información de Adicionales"
+	#define STR0002 "Método para modificar adicionales de los empleados"
+	#define STR0003 "/api/rh/v1/additional"
+	#define STR0004 "v1"
+	#define STR0005 "Error en la validación de la recepción del mensaje"
+	#define STR0006 "Información additionalId ausente o no válida."
+	#define STR0007 "No fue posible reconocer el paquete recibido. Verifique la información y envíe nuevamente."
+	#define STR0008 "Ocurrió una falla en la devolución de la información."
+	#define STR0009 "¡Error desconocido en el proceso!"
+	#define STR0010 "Error en la ejecución de la operación"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generic service for control of Additional information"
+		#define STR0002 "Method to change additional staff"
+		#define STR0003 "/api/rh/v1/additional"
+		#define STR0004 "v1"
+		#define STR0005 "Error validating message receipt"
+		#define STR0006 "Information additionalId absent or invalid."
+		#define STR0007 "The received package could not be recognized. Check the information and send again."
+		#define STR0008 "Failed to return information."
+		#define STR0009 "Unknown error in the process."
+		#define STR0010 "Error executing operation"
+	#else
+		#define STR0001 "Serviço genérico para controle das informações de Adicionais"
+		#define STR0002 "Metodo para alterar adicionais dos funcionarios"
+		#define STR0003 "/api/rh/v1/additional"
+		#define STR0004 "v1"
+		#define STR0005 "Erro na validação do recebimento da mensagem"
+		#define STR0006 "Informação additionalId ausente ou inválida."
+		#define STR0007 "Não foi possível reconhecer o pacote recebido. Verifique a informação e envie novamente."
+		#define STR0008 "Ocorreu uma falha no retorno da informação."
+		#define STR0009 "Erro desconhecido no processo!"
+		#define STR0010 "Erro na execucao da operacao"
+	#endif
+#endif

@@ -1,0 +1,886 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "GPEA080.CH"
+
+//Para uso eSocial - verificacao nivel dos campos necessarios
+Static aSocialNiv	:= If( cPaisLoc == 'BRA', If(Findfunction("fGM17Nivel"),fGM17Nivel("GPEA080"), {.T.,""}),{.T.,""})
+Static lIntegDef	:= FindFunction("GETROTINTEG") .And. FindFunction("FWHASEAI")
+Static lIntTAF		:= ((SuperGetMv("MV_RHTAF",, .F.,cFilAnt) == .T.) .AND. Val(SuperGetMv("MV_FASESOC",/*lHelp*/,' ',cFilAnt)) >= 1 )
+Static lMiddleware	:= If( cPaisLoc == 'BRA' .AND. Findfunction("fVerMW"), fVerMW(), .F. )
+Static cVersEnvio	:= ""
+Static cVersGPE		:= ""
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³ GPEA080  ³ Autor ³ Fernando Joly         ³ Data ³ 10/09/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Cadastro de Turno de Trabalho                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ GPEA080()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Generico ( DOS e Windows )                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ BOPS ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Leandro Dr. ³15/10/12³M12RH1³Requisito RHU210_03_03. Unificao da Folha ³±±
+±±³Raquel Hager³03/07/14³TPZKE4³Inclusao de replicas versao 11  com itens ³±±
+±±³            ³        ³      ³do eSocial.					              ³±±
+±±³Allyson M.  ³16/10/15³TTPMJ1³Ajuste p/ integracao com TSA no metodo    ³±±
+±±³            ³        ³      ³executado na alteracao.			   		  ³±±
+±±³Cícero Alves³29/07/16³TVRQ30³Implemetado o ponto de entrada GP080GRV   ³±±±±±±±±±±±±±±±±±
+±±³Claudinei S.³23/02/18³DRHESOCP-3221  ³Tratamento para o campo M->R6_TPJORN de acordo  ³±±
+±±³            ³        ³               ³com o leiaute 2.3 (não havia sido replicado P12)³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function GPEA080(aCab,nOpcAuto)
+Local aIndexSR6		:= {}
+Local cFiltraSR6	:= ""
+Local nCampo		:= 0
+Local aNotCmp		:= {}
+Local nAt			:= 36
+
+Default aCab		:= {}
+Default nOpcAuto	:= 0
+
+Private lAutoExec	:= .F.
+Private aAutoCab	:= aCab
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Define Array contendo as Rotinas a executar do programa      ³
+³ ----------- Elementos contidos por dimensao ------------     ³
+³ 1. Nome a aparecer no cabecalho                              ³
+³ 2. Nome da Rotina associada                                  ³
+³ 3. Usado pela rotina                                         ³
+³ 4. Tipo de Transa‡„o a ser efetuada                          ³
+³    1 - Pesquisa e Posiciona em um Banco de Dados             ³
+³    2 - Simplesmente Mostra os Campos                         ³
+³    3 - Inclui registros no Bancos de Dados                   ³
+³    4 - Altera o registro corrente                            ³
+³    5 - Remove o registro corrente do Banco de Dados          ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Private aRotina := MenuDef() // ajuste para versao 9.12 - chamada da funcao MenuDef() que contem aRotina
+Private bFiltraBrw	:= {|| NIL }
+Private cCadastro	:= OemToAnsi(STR0009)	//'Turnos de Trabalho'
+Private aDicioT		:= {}
+Private aAcho		:= {}
+Private aEdita      := {}
+
+	// ENCONTRA A VERSÃO DO LEIAUTE DO ESCOCIAL.
+	If FindFunction("fVersEsoc")
+		fVersEsoc("S2200", .F.,,, @cVersEnvio, @cVersGPE)
+	EndIf
+	
+	// Perfoms Standard Upload for Work Shifts
+	If cPaisLoc $ "RUS"
+	   If !ChkVazio("SR6",.F.)
+			MsAguarde( { || GpIniWf()} , OemtoAnsi(STR0033)) // "Loading standard Work Shifts"
+	   EndIf
+	EndIf
+	
+	// Inicializa o filtro utilizando a funcao FilBrowse
+	cFiltraRh := CHKRH("GPEA080","SR6","1")
+	bFiltraBrw 	:= {|| FilBrowse("SR6",@aIndexSR6,@cFiltraRH) }
+	Eval(bFiltraBrw)
+	
+	// Ajustar o uso dos campos em relacao ao Pyme
+	If FindFunction( "Pyme_Dic_Ajust" )
+		Pyme_Dic_Ajust("SR6", .F.)
+	EndIf
+	
+	If cVersGPE < "9.0.00"
+		If SR6->(ColumnPos("R6_ESNOTU")) > 0
+			aAdd( aNotCmp , "R6_ESNOTU" )
+		Endif	
+		If SR6->(ColumnPos("R6_TPJOR1")) > 0	
+			aAdd( aNotCmp , "R6_TPJOR1" )
+		Endif	
+	Endif	
+	
+	// Retirado o campo Tipo de Hora extra interjornada da interface
+	aAdd( aNotCmp, "R6_HEINTER") 
+	
+	//--Monta o Array com os Campos do sx3 e quando usado marca com x
+	SX3->(dbSetOrder(1))
+	SX3->(dbSeek("SR6"))
+	While SX3->(! Eof()) .And. SX3->X3_ARQUIVO = 'SR6'
+		nPos := Ascan(aNotCmp,{|x| Alltrim(x) == Alltrim(SX3->X3_CAMPO)})
+		If nPos == 0
+			nCampo := nCampo + 1
+			Aadd(aDicioT, X3Titulo()+Space(14)+CHR(179)+"["+If (X3USO(SX3->X3_USADO),"X"," ")+"]"+Space(5)+SX3->X3_CAMPO+Space(3)+STRZERO(SX3->X3_TAMANHO,3)+STRZERO(SX3->X3_DECIMAL,2)+ "01"+ Strzero(nCampo,3) )
+		Endif
+		SX3->(dbSkip())
+	Enddo
+
+	aAcho := {}
+	aEdita:= {} 
+	nAt 	:= If(Len(aDicioT) > 0, AT( "R6_", aDicioT[1] ),nAt )		
+	If cVersGPE < "9.0.00" 
+		Aeval(aDicioT, {|x| If( !(SubStr(x, nAt, 9) $ "R6_ESNOTU|R6_TPJOR1"), Aadd(aAcho, Substr(x, nAt, 10)), "")})
+		aEdita := aAcho
+	ElseIf cVersGPE >= "9.0.00" 
+		Aeval(aDicioT, {|x|  Aadd(aAcho, Substr(x, nAt, 10) )})
+		If SR6->(ColumnPos("R6_TPJOR1")) > 0	
+			Aeval(aDicioT, {|x| If( SubStr(x, nAt, 9) <> "R6_TPJORN",  Aadd(aEdita, Substr(x, nAt, 10)), "")})
+		Else
+			aEdita := aAcho
+		Endif	
+	Endif
+
+	If Len(aAcho) = 0
+		Return
+	Endif
+
+	// Endereca a funcao de BROWSE
+	dbSelectArea ('SR6')
+	dbGoTop()
+	If nOpcAuto != 0 .AND. Len(aAutoCab) > 0
+		lAutoExec := .T.
+		MBrowseAuto(nOpcAuto,aAutoCab,'SR6',.T.,.T.)
+	Else
+		mBrowse(06,01,22,75,'SR6')
+	EndIf
+
+	// Deleta o filtro utilizando a funcao FilBrowse
+	EndFilBrw("SR6",aIndexSr6)
+
+Return( Nil )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³Sr6When()   ³ Autor ³Marinaldo de Jesus    ³ Data ³12/06/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Verificar os Campos do SR6 onde sera utilizada a ShowTipoDia ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³X3_WHEN                                                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Sr6When( cTipoDia , l1Elem , lDisplay )
+Local cCpos	:= "M->R6_AUTOSAI*M->R6_INTERNT"
+Local cVar	:= Upper( Alltrim( ReadVar() ) )
+Local lRet	:= .T.
+
+Static __cWhenLastVar__
+
+DEFAULT __cWhenLastVar__ := "__cWhenLastVar__"
+
+IF ( cVar $ cCpos )
+	IF !( __cWhenLastVar__ == cVar )
+		CposInitWhen()
+	EndIF
+	IF ( CposInitWhen( NIL , .T. ) )
+		IF ( cVar == "M->R6_AUTOSAI" )
+			ShowTipoDia( "CDN" )
+		ElseIF ( cVar == "M->R6_INTERNT" )
+			ShowTipoDia()
+		EndIF
+		CposInitWhen( .F. )
+	EndIF
+Else
+	IF ( GetSx3Cache( SubStr( cVar , 4 ) , "X3_CAMPO" ) == NIL )
+		ShowTipoDia( cTipoDia , l1Elem , lDisplay )
+	Else
+		CposInitWhen()
+	EndIF
+EndIF
+
+__cWhenLastVar__ := cVar
+
+Return( lRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ Gpea080ChkDel	³Autor³Marinaldo de Jesus ³ Data ³30/08/2002³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descricao ³Verificar se um Turno de Trabalho pode ser Deletado			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³ GPEA080													³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea080ChkDel( cAlias , nReg , nOpcx )
+Local aArea			:= GetArea()
+Local aAreas		:= {}
+Local cFilSR6
+Local cTurno
+Local cMsgYesNo
+Local cTitLog
+Local nAreas
+Local uRet
+Local cAliasRJ8   := "RJ8"
+Local lCopiaTab  := ChkFile("RJ7") .And. ChkFile("RJ8")
+Local cStatRJ7   := .F.
+Local nHoraInicio := 0
+
+nHoraInicio := Seconds()
+
+	//SRA
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SRA->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "RA_FILIAL"
+					aAreas[nAreas,02,02] := "RA_TNOTRAB"
+	aAreas[nAreas,03] := RetOrdem( "SRA" , "RA_FILIAL+RA_TNOTRAB" , .T. )
+
+	//SPJ
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SPJ->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "PJ_FILIAL"
+					aAreas[nAreas,02,02] := "PJ_TURNO"
+	aAreas[nAreas,03] := RetOrdem( "SPJ" , "PJ_FILIAL+PJ_TURNO" , .T. )
+
+	//SP8
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SP8->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "P8_FILIAL"
+					aAreas[nAreas,02,02] := "P8_TURNO"
+	aAreas[nAreas,03] := RetOrdem( "SP8" , "P8_FILIAL+P8_TURNO" , .T. )
+
+	//SPG
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SPG->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "PG_FILIAL"
+					aAreas[nAreas,02,02] := "PG_TURNO"
+	aAreas[nAreas,03] := RetOrdem( "SPG" , "PG_FILIAL+PG_TURNO" , .T. )
+
+	//SPF
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SPF->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "PF_FILIAL"
+					aAreas[nAreas,02,02] := "PF_TURNODE"
+	aAreas[nAreas,03] := RetOrdem( "SPF" , "PF_FILIAL+PF_TURNODE" , .T. )
+
+	//SPF
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SPF->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "PF_FILIAL"
+					aAreas[nAreas,02,02] := "PF_TURNOPA"
+	aAreas[nAreas,03] := RetOrdem( "SPF" , "PF_FILIAL+PF_TURNOPA" , .T. )
+
+	//SP2
+	aAdd( aAreas , Array( 03 ) )
+	nAreas := Len( aAreas )
+	aAreas[nAreas,01] := SP2->( GetArea() )
+	aAreas[nAreas,02] := Array( 2 )
+					aAreas[nAreas,02,01] := "P2_FILIAL"
+					aAreas[nAreas,02,02] := "P2_TURNO"
+	aAreas[nAreas,03] := RetOrdem( "SP2" , "P2_FILIAL+P2_TURNO" , .T. )
+
+	cMsgYesNo := STR0010	//"O Sistema Agora Ira efetuar a Verificacao para ver se o Turno Selecionado para"
+	cMsgYesNo += CRLF
+	cMsgYesNo += STR0011	//"Exclusao esta sendo utilizado. A verifica‡„o pode ser demorada !!"
+	cMsgYesNo += CRLF
+	cMsgYesNo += CRLF
+	cMsgYesNo += STR0012	//"Confirma a exclus„o do Turno?"
+
+	cTitLog := STR0018		//"Log de Ocorrencias na Exclusao de Turnos do Ponto"
+
+	( cAlias )->( MsGoto( nReg ) )
+	cFilSR6	:= xFilial( "SR6" )
+	cTurno	:= SR6->R6_TURNO
+
+	uRet := ChkDelRegs(cAlias		,;	//01 -> Alias de Dominio
+						nReg			,;	//02 -> Registro do Dominio
+						nOpcx			,;	//03 -> Opcao para a AxDeleta
+						cFilSR6		,;	//04 -> Filial do do Dominio
+						cTurno			,;	//05 -> Chave do do Dominio
+						aAreas			,;	//06 -> Array contendo informacoes dos arquivos a serem pesquisados
+						cMsgYesNo		,;	//07 -> Mensagem para MsgYesNo
+						cTitLog		,;	//08 -> Titulo do Log de Delecao
+						NIL				,;	//09 -> Mensagem para o corpo do Log
+						.T.				,;	//10 -> Se executa AxDeleta
+						.T.				,;	//11 -> Se deve Mostrar o Log
+						NIL				,;	//12 -> Array com o Log de Exclusao
+						NIL		 		,;	//13 -> Array com o Titulo do Log
+						NIL				,;	//14 -> Bloco para Posicionamento no Arquivo
+						NIL				,;	//15 -> Bloco para a Condicao While
+						NIL				,;	//16 -> Bloco para Skip/Loop no While
+						NIL				,;	//17 -> Verifica os Relacionamentos no SX9
+						NIL				,;	//18 -> Alias que nao deverao ser Verificados no SX9
+						NIL		 	 	,;	//19 -> Se faz uma checagem soft
+						lAutoExec		 ;	//20 -> Se esta executando rotina automatica
+					  )
+
+	If lIntegDef .And. Valtype( uRet )=="L" .And. uRet
+		FwIntegdef("GPEA080")
+	EndIf
+
+
+
+	If !IsBlind() .And. lCopiaTab .And. uRet
+
+		//Gera a chave para validação da filial na tabela RJ7
+		//Chave composta por: Filial da RJ7 + Cód. da Tabela + Filial Logada(cadastro)
+		cChave:= xFilial("RJ7")+"3"+cFilAnt
+		cStatRJ7 := fVldRJ7(1,cChave)
+
+		If cStatRJ7 //Inclusao
+			Begin Transaction
+
+				 Reclock( cAliasRJ8, .T. )
+
+				( cAliasRJ8 )->RJ8_FILIAL  := xFilial( "RJ8" )
+				( cAliasRJ8 )->RJ8_FILPAR  := ""
+				( cAliasRJ8 )->RJ8_TABELA  := "3"
+				( cAliasRJ8 )->RJ8_CONTEU  := xFilial("SR6") + SR6->R6_TURNO
+				( cAliasRJ8 )->RJ8_DATA    := Date()
+				( cAliasRJ8 )->RJ8_HORA    := SecsToTime(nHoraInicio)
+				( cAliasRJ8 )->RJ8_OPERAC  := "3"
+				( cAliasRJ8 )->RJ8_USUARI  := UsrRetName(RetCodUsr())
+				( cAliasRJ8 )->RJ8_STATUS  := "0"
+				( cAliasRJ8 )->RJ8_ESOCIA  := "1"
+				( cAliasRJ8 )->RJ8_MSGLOG  := OemToAnsi(STR0035) + SR6->R6_TURNO //"EXCLUSAO DE TURNO DE TRABALHO COD: "
+
+				( cAliasRJ8 )->( MsUnlock() )
+
+
+			End Transaction
+		Endif
+	Endif
+
+
+RestArea( aArea )
+
+Return( uRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ Gpea080Mnt		³Autor³  Inovacao RH	  ³ Data ³ 30/06/11 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descricao ³ Rotina de Manutencao.									    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ GPEA080                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea080Mnt(cAlias , nReg , nOpcx )
+Local nOpca 		:= 0
+Local lTSREP		:= SuperGetMv( "MV_TSREP" , NIL , .F. )
+Local lTsa 			:= SuperGetMv("MV_TSAINT", Nil, .F.)
+Local bEAITrigger 	:= {|| FwIntegdef( "GPEA080" ) }
+Local aParamProc  	:= { 	{|| }, ; 	// processamento antes de exibir a janela
+						{|| .T.},;		// complemento de validação
+						{|| } , ; 		// processamento na transação
+						{|| } } 		// apos a transação
+Local cMsBlql		:= ""
+Local lAltMsBlql	:= .F.
+Local lMsBlql		:= SR6->( FieldPos( "R6_MSBLQL" ) ) != 0
+Local cAliasRJ8   	:= "RJ8"
+Local lCopiaTab  	:= ChkFile("RJ7") .And. ChkFile("RJ8")
+Local cStatRJ7   	:= .F.
+Local nHoraInicio 	:= 0
+
+Static lContinua		:= .T.
+
+Private oObjREP		:= Nil
+
+nHoraInicio := Seconds()
+
+	// Inicializa a integracao via WebServices TSA
+	If lTSREP
+		oObjREP := PTSREPOBJ():New()
+		If lMsBlql
+			cMsBlql := SR6->R6_MSBLQL
+		EndIf
+	EndIf
+
+	If lIntegDef .And. !IsInCallStack("GPA936ThA")
+		aParamProc[3] := bEAITrigger
+	EndIf
+
+	If !lAutoExec .And. !(aSocialNiv[1])
+		MsgAlert(aSocialNiv[2],OemToAnsi(STR0013))
+		Return
+	EndIf
+	If Len(aAcho) > 0
+		nOpca := AxAltera(cAlias,nReg,nOpcx,aAcho,aEdita,Nil,NIL,"Gp80TOk()",NIL,NIL,NIL, aParamProc,Iif(lAutoExec,aAutoCab,NIL))
+	Else
+		nOpca := AxAltera(cAlias,nReg,nOpcx,NIL,NIL,NIL,NIL,"Gp80TOk()",NIL,NIL,NIL, aParamProc,Iif(lAutoExec,aAutoCab,NIL))
+	Endif
+
+	If nOpca == 1
+	   	If lTSREP
+	   		If lMsBlql
+	   			lAltMsBlql := (cMsBlql == "1" .And. SR6->R6_MSBLQL == "2")//Estava bloqueado e alterado para nao bloqueado
+	   		EndIf
+			/*/
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Executa o WebServices TSA - Turno de Trabalho                ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			If oObjREP:WSShiftWork( If(	nOpcX == 3 .Or. lAltMsBlql .Or. !lTsa, 1, 2 ) )
+				/*/
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Grava o Log do controle de exportacao WebServices TSA        ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				oObjRep:WSUpdRHExp( "SR6" )
+			Endif
+	   	EndIf
+	EndIf
+
+	aParamProc := aSize( aParamProc, 0 )
+
+
+	If nOpca == 1 .And. !IsBlind() .And. lCopiaTab
+
+		//Gera a chave para validação da filial na tabela RJ7
+		//Chave composta por: Filial da RJ7 + Cód. da Tabela + Filial Logada(cadastro)
+		cChave:= xFilial("RJ7")+"3"+cFilAnt
+		cStatRJ7 := fVldRJ7(1,cChave)
+
+		if cStatRJ7
+			Begin Transaction
+
+				 Reclock( cAliasRJ8, .T. )
+
+				( cAliasRJ8 )->RJ8_FILIAL  := xFilial( "RJ8" )
+				( cAliasRJ8 )->RJ8_FILPAR  := ""
+				( cAliasRJ8 )->RJ8_TABELA  := "3"
+				( cAliasRJ8 )->RJ8_CONTEU  := xFilial("SR6") + SR6->R6_TURNO
+				( cAliasRJ8 )->RJ8_DATA    := Date()
+				( cAliasRJ8 )->RJ8_HORA    := SecsToTime(nHoraInicio)
+				( cAliasRJ8 )->RJ8_OPERAC  := "2"
+				( cAliasRJ8 )->RJ8_USUARI  := UsrRetName(RetCodUsr())
+				( cAliasRJ8 )->RJ8_STATUS  := "0"
+				( cAliasRJ8 )->RJ8_ESOCIA  := "1"
+				( cAliasRJ8 )->RJ8_MSGLOG  := OemToAnsi(STR0036) + SR6->R6_TURNO //"ALTERACAO DE TURNO DE TRABALHO COD: "
+
+				( cAliasRJ8 )->( MsUnlock() )
+
+			End Transaction
+		Endif
+
+	Endif
+
+Return
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ Gpea080Inc		³Autor³  Inovacao RH	  ³ Data ³ 02/04/13 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descricao ³ Rotina de Inclusao.									    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ GPEA080                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gpea080Inc(cAlias , nReg , nOpcx )
+Local nOpcA
+Local bEAITrigger := {|| FwIntegdef( "GPEA080" ) }
+Local aParamProc  := { 	{|| }, ;  		// processamento antes de exibir a janela
+						{|| .T.} ,; 	// complemento de validação
+						{|| }   , ;		// processamento na transação
+						{|| } }  		// apos a transação
+Local cAliasRJ8   := "RJ8"
+Local cStatRJ7    := .F.
+Local lCopiaTab   := ChkFile("RJ7") .And. ChkFile("RJ8")
+Local nHoraInicio := 0
+
+nHoraInicio := Seconds()
+
+	If lIntegDef
+		aParamProc[3] := bEAITrigger
+	EndIf
+
+	If Type("lAutoExec") == "U"
+		lAutoexec := .F.
+	EndIf
+
+	If !lAutoExec .and. !(aSocialNiv[1])
+		MsgAlert(aSocialNiv[2],OemToAnsi(STR0013))
+		Return
+	EndIf
+
+	If Len(aAcho) > 0
+		nOpcA := AxInclui(cAlias,nReg,nOpcx,aAcho,Nil,aEdita,"Gp80TOk()",Nil,Nil,Nil, aParamProc,Iif(lAutoExec,aAutoCab,Nil))
+	Else
+		nOpcA := AxInclui(cAlias,nReg,nOpcx,Nil,Nil,Nil,"Gp80TOk()",Nil,Nil,Nil, aParamProc,Iif(lAutoExec,aAutoCab,Nil))
+	Endif
+
+	aParamProc := aSize( aParamProc, 0 )
+
+
+	if nOpcx == 3 .And. nOpcA == 1
+
+		 If !IsBlind() .And. lCopiaTab
+
+			//Gera a chave para validação da filial na tabela RJ7
+			//Chave composta por: Filial da RJ7 + Cód. da Tabela + Filial Logada(cadastro)
+			cChave:= xFilial("RJ7")+"3"+cFilAnt
+			cStatRJ7 := fVldRJ7(1,cChave)
+
+			if cStatRJ7
+				Begin Transaction
+					 Reclock( cAliasRJ8, .T. )
+
+					( cAliasRJ8 )->RJ8_FILIAL  := xFilial( "RJ8" )
+					( cAliasRJ8 )->RJ8_FILPAR  := ""
+					( cAliasRJ8 )->RJ8_TABELA  := "3"
+					( cAliasRJ8 )->RJ8_CONTEU  := xFilial("SR6") + SR6->R6_TURNO
+					( cAliasRJ8 )->RJ8_DATA    := Date()
+					( cAliasRJ8 )->RJ8_HORA    := SecsToTime(nHoraInicio)
+					( cAliasRJ8 )->RJ8_OPERAC  := "1"
+					( cAliasRJ8 )->RJ8_USUARI  := UsrRetName(RetCodUsr())
+					( cAliasRJ8 )->RJ8_STATUS  := "0"
+					( cAliasRJ8 )->RJ8_ESOCIA  := "1"
+					( cAliasRJ8 )->RJ8_MSGLOG  := OemToAnsi(STR0034) + SR6->R6_TURNO //"INCLUSAO DE TURNO DE TRABALHO COD: "
+
+					( cAliasRJ8 )->( MsUnlock() )
+
+				End Transaction
+			EndIf
+
+		Endif
+	Endif
+
+Return .T.
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ Gp80TOk		³Autor³  Glaucia Messina  ³ Data ³ 25/01/14 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descricao ³ Valida se campos necessarios para eSocial estao preenchidos³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ GPEA080                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gp80TOk()
+
+	Local lReturn		:= .T.
+	Local cMsg			:= ""
+	Local cCampos		:= ""
+	Local lTpJorn1      := SR6->(ColumnPos("R6_TPJOR1")) > 0 
+
+	Static cEFDAviso	:= If(cPaisLoc == 'BRA' .AND. Findfunction("fEFDAviso"), fEFDAviso(), "0")
+
+	If cVersGPE < "9.0.00" .And. M->R6_TPJORN == "00"
+        Help(' ', 1, OemtoAnsi(STR0013),, + CRLF + OemToAnsi(STR0046) + Alltrim(M->R6_TPJORN) + OemToAnsi(STR0047), 1, 0) //"Atenção"##"Valor informado: "##" para o campo Tp. Jornada inválido."
+		lReturn := .F.
+	EndIf
+
+	If lReturn .And. cEFDAviso <> "2" .and. cPaisLoc == "BRA"
+
+		If  cVersGPE < "9.0.00" 
+			If Empty(M->R6_TPJORN)  
+				cCampos:= OemtoAnsi(STR0023)+CRLF		//"Tipo Jornada"
+			ElseIf SUBSTR(M->R6_TPJORN,2,1) == "9" .And. EMPTY(M->R6_DTPJOR)
+				cCampos+= OemtoAnsi(STR0024)+CRLF	//"Descricao Tipo Jornada"
+			Endif	
+		Else 
+			If lTpJorn1 .And. Empty(M->R6_TPJOR1) 
+				cCampos:= OemtoAnsi(STR0023)+CRLF		//"Tipo Jornada"
+			ElseIf (lTpJorn1 .And. M->R6_TPJOR1 == "9") .And. EMPTY(M->R6_DTPJOR)
+				cCampos+= OemtoAnsi(STR0024)+CRLF	//"Descricao Tipo Jornada"
+			EndIf
+		Endif	
+
+		If cCampos <> ""
+			cMsg:= OemtoAnsi(STR0025)				//"O(s)  seguinte(s) campos (e)sao obrigatorios na eSocial, "
+			cMsg+= OemtoAnsi(STR0026)+ CRLF 		//" conforme o conteúdo do parâmetro MV_EFDAVIS, "
+
+			If cEFDAviso=="0"
+				cMsg+= OemtoAnsi(STR0027) + CRLF + CRLF + cCampos		//"mas nao sera impeditivo para a gravacao dos dados deste Turno."
+			Else
+				cMsg+= OemtoAnsi(STR0028)+ CRLF + CRLF + cCampos		//"e sera necessario o preenchimento dos mesmos para efetivar a gravacao dos dados deste Turno."
+			EndIf
+
+			If cEFDAviso == "1"
+				lReturn :=  .F.
+			EndIf
+			If !lAutoExec .Or. cEFDAviso == "1"
+				If lAutoExec
+					AutoGrLog(OemtoAnsi(STR0029) + cMsg)
+				Else
+					Help("",1,OemtoAnsi(STR0029),,cMsg,1,0) //"Campo nao preenchido"
+				EndIf
+			Endif
+		EndIf
+	EndIf
+
+	//-- Ponto de entrada deve ficar sempre após todas as validações
+	If lReturn
+		If ExistBlock("GP080GRV")
+			ExecBlock("GP080GRV", .F., .F.)
+		EndIf
+	EndIF
+
+Return( lReturn )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ IntegDef		³Autor³  				  ³ Data ³ 28/03/13 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ GPEA080                                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function IntegDef( cXML, nTypeTrans, cTypeMessage, cVersao )
+Local aRet := {}
+
+aRet:= GPEI080( cXml, nTypeTrans, cTypeMessage, cVersao )
+
+Return aRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Funcao    ³ MenuDef		³Autor³  Luiz Gustavo     ³ Data ³04/12/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descricao ³Isola opcoes de menu para que as opcoes da rotina possam    ³
+³          ³ser lidas pelas bibliotecas Framework da Versao 9.12 .      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³GPEA080                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function MenuDef()
+
+ Local aRotina := {;
+						{ STR0004 , 'PesqBrw'  		, 0 , 1,,.F. } ,;	//'Pesquisar'
+						{ STR0005 , 'Gpea080Vis'	, 0 , 2 } ,;		//'Visualizar'
+						{ STR0006 , 'Gpea080Inc'	, 0 , 3 } ,;		//'Incluir'
+						{ STR0007 , 'Gpea080Mnt'	, 0 , 4 } ,;		//'Alterar'
+						{ STR0008 , 'Gpea080ChkDel'	, 0 , 5 }  ;		//'Excluir'
+					 }
+Return aRotina
+
+Function SR6F3(cCampo,l1Elem)
+
+Static lPassou
+Local cTipoDia	:= "CDFNS"
+Local aTpDia		:= {}
+Local aOpc			:= {}
+Local cTitulo		:= ""
+Local cMvParDef		:= ""
+Local cMvPar		:= ""
+Local nTpDia		:= 0
+Local nTpDias		:= 0
+Local nPosTpDia		:= 0
+Local uRet			:= NIL
+
+l1Elem			:= IF( l1Elem == NIL .and. ValType( l1Elem ) != "L" , .T. , .F. )
+
+If Alltrim(cCampo) == "R6_AUTOSAI"
+	cTipoDia	:= supergetmv("MV_AUTOSAI",,"CFDN")
+EndIf
+
+aAdd( aTpDia , { "C" , "Compensado"	} )	//"Compensado"
+aAdd( aTpDia , { "D" , "DSR"	} )	//"DSR"
+aAdd( aTpDia , { "F" , "Feriado"	} )	//"Feriado"
+aAdd( aTpDia , { "N" , "Nao Trabalhado"	} )	//"Nao Trabalhado"
+aAdd( aTpDia , { "S" , "Trabalhado" 	} )	//"Trabalhado"
+
+
+CursorWait()
+
+    cMvPar				:= &( Alltrim( ReadVar() ) )
+	cTipoDia			:= Upper( AllTrim( cTipoDia ) )
+	l1Elem				:= IF( ValType( l1Elem ) != "L" , .F. , l1Elem )
+	MvRet				:= Alltrim( ReadVar() )
+
+	nTpDias := Len( cTipoDia )
+	For nTpDia := 1 To nTpDias
+		IF ( nPosTpDia := aScan( aTpDia , { |x| x[1] == SubStr( cTipoDia , nTpDia , 1 ) } ) ) > 0
+			cMvParDef += aTpDia[ nPosTpDia , 01 ]
+			aAdd( aOpc , aTpDia[ nPosTpDia , 01 ] += ( "-" + aTpDia[ nPosTpDia , 02 ] ) )
+		EndIF
+	Next nX
+
+CursorArrow()
+
+IF ( uRet := ( cMvPar != NIL ) )
+	IF f_Opcoes(@cMvPar,cTitulo,aOpc,cMvParDef,12,49,l1Elem,1)
+		If !(IsInCallStack("AXVISUAL")) //Altera apenas se não for visualização
+			&(MvRet) := cMvPar
+			VAR_IXB :=cMvPar
+		EndIf
+	EndIF
+EndIF
+
+return .T.
+
+/*/{Protheus.doc} GpIniWf
+Performs upload of standard Work Shitfs
+for Russia localization.
+@author raquel.andrade
+@since 10/09/2018
+@version 1.0
+@project MA3 - Russia
+/*/
+Function GpIniWf()
+Local aArea   	:= GetArea()
+
+	DbSelectArea("SR6")
+	DbSetOrder(1)
+
+	Begin Transaction
+
+		If !dbSeek(xFilial("SR6")+"001")
+			If Reclock("SR6",.T.)
+				SR6->R6_FILIAL 	    := xFilial("SR6")
+				SR6->R6_TURNO	    := "001"
+				SR6->R6_DESC 	    := OemtoAnsi(STR0030) // 40-HOUR WORKING WEEK
+		      	SR6->R6_HRDIA   	:= 8
+			 	SR6->(MsUnlock())
+			EndIf
+		EndIf
+
+		If !dbSeek(xFilial("SR6")+"002")
+			If Reclock("SR6",.T.)
+				SR6->R6_FILIAL 	    := xFilial("SR6")
+				SR6->R6_TURNO	    := "002"
+				SR6->R6_DESC 	    := OemtoAnsi(STR0031) //36-HOUR WORKING WEEK
+		      	SR6->R6_HRDIA   	:= 7.12
+			 	SR6->(MsUnlock())
+			EndIf
+		EndIf
+
+		If !dbSeek(xFilial("SR6")+"003")
+			If Reclock("SR6",.T.)
+				SR6->R6_FILIAL 	    := xFilial("SR6")
+				SR6->R6_TURNO	    := "003"
+				SR6->R6_DESC 	    := OemtoAnsi(STR0032) // 24-HOUR WORKING WEEK
+		      	SR6->R6_HRDIA   	:= 4.48
+			 	SR6->(MsUnlock())
+			EndIf
+		EndIf
+
+	End Transaction
+
+	Dbclosearea()
+
+	RestArea(aArea)
+
+Return
+
+/*/{Protheus.doc} GpeRetCBox
+Retorna opções para o X3_CBOX
+@type function
+@version 12.1.25
+@author felipe.alves
+@since 28/01/2021
+@return String, Retorna opções para o X3_CBOX
+/*/
+
+Function GpeRetCBox(nOpcCBox as Numeric)
+Local cOpcCBox := ""
+
+Default nOpcCBox := 0
+
+	If FindFunction("fVersEsoc")
+		fVersEsoc("S1050", .F.,,, @cVersEnvio, @cVersGPE)
+	EndIf
+
+	If (nOpcCBox == 1)
+		If cVersGPE < "9.0.00" .Or. (cVersGPE >= "9.0.00" .And.  SR6->(ColumnPos("R6_TPJOR1")) > 0 )	
+			cOpcCBox += "00=" + STR0037 + ";" 	//"Descontinuado"
+			cOpcCBox += "01=" + STR0038 + ";"	//"Horário diário e folga fixos "
+			cOpcCBox += "02=" + STR0039 + ";"	//"12 x 36"
+			cOpcCBox += "03=" + STR0040 + ";"	//"Horário diário fixo e folga variável"
+			cOpcCBox += "09=" + STR0045 + ";"	//"Demais tipos de jornada"
+		Else
+			cOpcCBox += "02=" + STR0039 + ";"	//"12 x 36"
+			cOpcCBox += "03=" + STR0040 + ";"	//"Horário diário fixo e folga variável"
+			cOpcCBox += "04=" + STR0041 + ";"	//"Jornada com horário diário fixo e folga fixa (no domingo)"
+			cOpcCBox += "05=" + STR0042 + ";"	//"Jornada com horário diário fixo e folga fixa (exceto no domingo)"
+			cOpcCBox += "06=" + STR0043 + ";"	//"Jornada com horário diário fixo e folga fixa (em outro dia da semana), com folga adicional periódica no domingo"
+			cOpcCBox += "07=" + STR0044 + ";"	//"Turno ininterrupto de revezamento"
+			cOpcCBox += "09=" + STR0045 + ";"	//"Demais tipos de jornada"
+		Endif
+	ElseIf (nOpcCBox == 2)
+		cOpcCBox += "2=" + STR0039 + ";"	//"12 x 36"
+		cOpcCBox += "3=" + STR0040 + ";"	//"Horário diário fixo e folga variável"
+		cOpcCBox += "4=" + STR0041 + ";"	//"Jornada com horário diário fixo e folga fixa (no domingo)"
+		cOpcCBox += "5=" + STR0042 + ";"	//"Jornada com horário diário fixo e folga fixa (exceto no domingo)"
+		cOpcCBox += "6=" + STR0043 + ";"	//"Jornada com horário diário fixo e folga fixa (em outro dia da semana), com folga adicional periódica no domingo"
+		cOpcCBox += "7=" + STR0044 + ";"	//"Turno ininterrupto de revezamento"
+		cOpcCBox += "9=" + STR0045 + ";"	//"Demais tipos de jornada"
+	Endif	
+Return(cOpcCBox)
+
+/*/{Protheus.doc} fTpJornVld
+Valida opções para o X3_VALID
+@type function
+@version 12.1.25
+@author Silvia Taguti
+@since 16/03/2021
+/*/
+Function fTpJornVld()
+
+Local lTpJornVld := .T.
+Local cVar	:= Upper( Alltrim( ReadVar() ) )
+
+Begin Sequence
+
+	IF !( lTpJornVld := NaoVazio() )
+		Break
+	EndIF
+
+	If ("M->R6_TPJOR1" $ cVar )
+		If !( lTpJornVld := Pertence( GpeRetCBox( 2 ) ) )
+			Break
+		EndIF
+	Endif	
+	If ("M->R6_TPJORN" $ cVar )
+		If !( lTpJornVld := Pertence( GpeRetCBox( 1 ) ) )
+			Break
+		EndIF
+	Endif
+
+End Sequence
+
+Return( lTpJornVld )
+
+/*/{Protheus.doc} Gpea080Vis
+Visualização
+@type function
+@version 12.1.25
+@author Silvia Taguti
+@since 17/03/2021
+/*/
+Function Gpea080Vis(cAlias , nReg , nOpcx )
+
+Local 	nOpca	:= 0
+Default cAlias	:= "SR6"
+Default nOpcx 	:= 2
+Default nReg	:= ( cAlias )->( Recno() )
+
+	If Len(aAcho) > 0
+		nOpca := AxVisual( cAlias , nReg , nOpcx , aAcho)
+	Else
+		nOpca := AxVisual( cAlias , nReg , nOpcx)
+	Endif
+
+Return( nOpca)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³WhenTolNrºAutor  ³ RH - Manutenção    º Data ³  23/01/20    º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Rotina de validacao do when do campo PA_TOLHRNR            º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ PONA060                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function WhenSepAdN()
+Local lRet		:= .T.
+
+If !(M->R6_ACRENOT == "S" .And. M->R6_IDACREN == "S")
+	If M->R6_SPADNOT == "S"
+		Alert(STR0048) //"O campo 'Separ Ac Not' foi alterado para Não e foi bloqueado para edição. Caso seja necessário alterar para Sim os campos 'Apenas Ac.No' e 'Id.Acre.Not'. precisam estar com Sim."
+	EndIf
+
+	M->R6_SPADNOT := "N"
+	lRet := .F.
+EndIf
+
+Return lRet

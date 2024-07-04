@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Generación de los títulos de gastos e ingresos"
+	#define STR0002 "Solamente en caja con estatus finalizado es posible generar los títulos de gastos e ingresos."
+	#define STR0003 "Títulos generados con éxito"
+	#define STR0004 "Generación de los títulos de gastos e ingresos"
+	#define STR0005 "No se encontraron gastos y/o ingresos para generarse"
+	#define STR0006 "Generación de los títulos de gastos e ingresos"
+	#define STR0007 "Baja automática de título de gasto"
+	#define STR0008 "Baja automática de título de ingreso"
+	#define STR0009 "Error al grabar el estatus del título"
+	#define STR0010 "Generación de los títulos de gastos e ingresos"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Generation of income and expense bills"
+		#define STR0002 "You can only generate Income and Expense bills in cash with closed status."
+		#define STR0003 "Bills generated with success"
+		#define STR0004 "Generation of income and expense bills"
+		#define STR0005 "No income and/or expense found for generation"
+		#define STR0006 "Generation of income and expense bills"
+		#define STR0007 "Automatic posting of expense bill"
+		#define STR0008 "Automatic posting of income bill"
+		#define STR0009 "Error saving bill status"
+		#define STR0010 "Generation of income and expense bills"
+	#else
+		#define STR0001 "Geração dos Títulos de Despesas e Receitas"
+		#define STR0002 "Somente em caixa com status fechado é possível gerar os títulos de Despesas e Receitas."
+		#define STR0003 "Títulos gerados com sucesso"
+		#define STR0004 "Geração dos Títulos de Despesas e Receitas"
+		#define STR0005 "Não foram encontradas despesas e/ou receitas para serem gerados"
+		#define STR0006 "Geração dos Títulos de Despesas e Receitas"
+		#define STR0007 "Baixa automatica de título de despesa"
+		#define STR0008 "Baixa automatica de título de receita"
+		#define STR0009 "Erro ao gravar o status do título"
+		#define STR0010 "Geração dos Títulos de Despesas e Receitas"
+	#endif
+#endif

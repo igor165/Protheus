@@ -1,0 +1,632 @@
+<% 
+#DEFINE cBrwGrid 	"BrwGrid"
+#DEFINE nLarBrw 		"655"
+#DEFINE nAltBrw 		"250"
+#DEFINE nTamFs  		"660"
+
+Local oHtml		:= WCHtml():New() 
+Local tpPortal	:= getTpPortal()
+local lExbBtn	:= .t.
+
+//P.E. para não exibir botão de inclusão
+if ExistBlock("PPLSNEXBINC")
+	lExbBtn := ExecBlock("PPLSNEXBINC",.F.,.F.,{})
+endif
+%>
+
+<%=oHtml:getDType(.T.,.T.)%>
+
+<script language="JavaScript">  
+<!--  
+//-------------------------------------------------------------------
+//	Define nome do browse 
+//-------------------------------------------------------------------
+var cBrwGrid		= <%="'"+cBrwGrid+"'"%> 
+var oBrwGrid
+var cCodMat			= <%="'"+cCodMat+"'"%>;
+var cTipModalAlert  = '<i class="fa fa-exclamation-triangle" style="font-weight: bold; color: #000; text-shadow: 0 1px 0 #fff; filter: alpha(opacity=20); opacity: .2;"></i>&nbsp;&nbsp;&nbsp;Alerta'; 
+
+//-------------------------------------------------------------------
+aMotivo = {};
+cCpfTitBrw = "";
+cMatTitBrw = "";
+
+function incluiBen(x){
+
+var cCpf = '';
+
+<% If tpPortal != 3 %>
+	if (cCpfTitBrw.length > 0){
+		if (confirm("Confirma a inclusão de dependente para esta família?")){
+			window.frames.location="W_PPLCADGEN.APW?cChave=PPLINCBEN&cDataAux="+cCpfTitBrw+"|"+cMatTitBrw;
+		}
+		else{
+			modalBS("<i style='color:#639DD8;'></i>&nbsp;&nbsp;Informe o CPF do Titular", "<input name='cCpf' id='cCpf' onblur='window.frames['principal'].validaCampoZ(this);' required value=''> " , "@Concluir~window.frames['principal'].closePopZ();", "white~#84CCFF");
+		}
+	}else
+	{
+		modalBS("<i style='color:#639DD8;'></i>&nbsp;&nbsp;Informe o CPF do Titular", "<input name='cCpf' id='cCpf' onblur='window.frames['principal'].validaCampoZ(this);' required value=''> " , "@Concluir~window.frames['principal'].closePopZ();", "white~#84CCFF");
+	}
+<% Else %>
+	
+	if (isEmpty(cMatTitBrw)){
+		modalBS("Atenção", '<p>Familia Bloqueada</p>', "@OK~closeModalBS();", "white~ #f8c80a", "large"); 
+	}else{
+		Ajax.open("W_PPLVLDFAM.APW?cMatTit="+cMatTitBrw, {
+				callback: verificaFamBlq, 
+				error: exibeErro} );
+	}	
+	
+<% EndIf %>
+
+}
+
+function verificaFamBlq(x){
+
+	var msgRet = x.split("|")
+	
+	if (msgRet[0] == "true"){
+		window.frames.location="W_PPLCADGEN.APW?cChave=PPLINCBEN&cDataAux="+cCpfTitBrw+"|"+cMatTitBrw+"&cRotinLGPD=PPLSOLMBEN";
+		Ajax.progresso(); 
+	}
+	else{
+		modalBS("Atenção", '<p>Está família encontra-se com bloqueio futuro, sendo assim, não é possível realizar a inclusão de um novo beneficiário.</p>', "@OK~closeModalBS();", "white~ #f8c80a", "large"); 
+	}
+}
+
+function closePopZ()
+{
+	cCpf = parent.document.getElementById('cCpf').value;
+	
+	if (cCpf.length > 0) {
+		closeModalBS();
+		window.frames.location="W_PPLCADGEN.APW?cChave=PPLINCBEN&cDataAux="+cCpf;
+	}
+	else
+		alert('Informe o CPF do titular');
+}
+
+function validaCampoZ(v)
+{
+	if (!(validarCPF(v,"número inválido")))
+		v.focus();
+}
+//-------------------------------------------------------------------
+//	Checa Matricula
+//-------------------------------------------------------------------
+function fCheckMat(oObj) {
+
+	var lRet = true;
+	
+	if ( !isEmpty( getField('Field_MATUSU') ) )	 {
+		if (lRet){
+			getGatCmp('PLGATBA1','Field_MATUSU',null,1);
+			
+		}
+	 	else return lRet;	
+	} 
+}
+
+//-----------------------------------------------------------
+// Função que exibe a grid de solicitações
+//-----------------------------------------------------------
+function pesqBen() {	
+	if ('<%= Alltrim(Str(HttpSession->USR_INFO[1]:OWSUSERLOGPLS:nTpPortal)) %>' == '3'){
+		if ('<%= Alltrim(Str(Len(HttpSession->USR_INFO[1]:OWSUSERLOGPLS:OWSLISTOFOPE:OWSSOPERADORA))) %>' == '0'){
+			var cCpf	 	= '<%= HttpSession->USR_INFO[1]:CUSERLOGIN %>';
+		}else{
+			var cMatric	 	= cCodMat;
+		}		
+	}else{
+		var cMatric	 	= getField('Field_MATUSU');
+		var cCpf	 	= getField('Field_CPF');
+	}
+
+	if (isEmpty(cMatric) ){
+		var cWhere 		= "Field_CPF=" + cCpf; 
+		
+	} else {
+		var cWhere 		= "Field_MATUSU=" + cMatric;
+		
+	}
+	//valida parametros
+	if ( isEmpty(cMatric) && isEmpty(cCpf) ) {
+		alert('Por favor, informe pelo menos um dos filtros!');
+		return
+	}
+	//-----------------------------------------------------------
+	// Limpa o browse de beneficiários
+	//-----------------------------------------------------------
+	if (wasDef( typeof(oBrwGrid) ) ) {
+		oBrwGrid.setEmptyDiv();
+	}
+	//-----------------------------------------------------------
+	// verifica se foi chamado pela navegacao
+	//-----------------------------------------------------------
+	var cBuscaTReg = getGridCall(cBrwGrid,'pesqBen');
+	
+	//-----------------------------------------------------------
+	// web function que vai executar a query do grid						   
+	//-----------------------------------------------------------
+	Ajax.open("W_PPLGDGRID.APW?cFunName=PLSGETBA1&nPagina=" + getField(cBrwGrid+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg, {
+				callback: carregaGridBen, 
+				error: exibeErro} );
+}
+
+//-----------------------------------------------------------
+// callback da função que pega os dados para preencher o grid
+//-----------------------------------------------------------
+function carregaGridBen(v) { 
+
+	var aResult = v.split("|");
+	//-----------------------------------------------------------
+	// Se existe registro define propriedades
+	//-----------------------------------------------------------
+	var nQtdReg		= aResult[1];  
+	var nQtdPag 	= aResult[2];
+    var aHeader 	= eval(aResult[4]);
+    var lContinua	= eval(aResult[7]);
+    var cMsg 		= aResult[6];
+    var nRegPagBen	= aResult[3];
+    var aDadBen 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+
+	//----------------------------------------------------------------------------
+	// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+	//----------------------------------------------------------------------------
+	if (lContinua) {		
+		//-----------------------------------------------------------
+		// Cria objeto do browse
+		//-----------------------------------------------------------
+		oBrwGrid = new gridData(cBrwGrid);
+		//-----------------------------------------------------------
+		// Monta Browse 
+		//-----------------------------------------------------------
+		oBrwGrid.load({fFunName:'pesqBen',
+							nRegPagina:nRegPagBen,
+							nQtdReg:nQtdReg,
+							nQtdPag:nQtdPag,
+							lOverflow:true,
+							lShowLineNumber:false,
+							lChkBox:false,
+							aBtnFunc:"[{info:'Editar',img:'lapis.gif',funcao:'fAltBen'},{info:'Excluir',img:'004.gif',funcao:'gravaPre'}]",
+							aHeader: aHeader,							
+							aCols: aDadBen});
+
+
+				if(oBrwGrid.aCols.length > 0){
+
+					var z = 0;
+					var w = 0;
+					var imgEditar = null;
+					var imgAnexar = null;
+					var imgObs = null;
+					var oCell = null;
+					var lLeg = false;
+					var lHabilitaEdit = false; //Só irá habilitar quando status = 'A'
+					var lHabilitaAnexo = false; //só irá habilitar quanto status = 'B'
+					var oTable = oBrwGrid.getObjCols();
+
+					//While nas linhas da grid
+					while ((z < oTable.rows.length)) {
+						lLeg = false;
+						lHabilitaEdit = false;
+						lHabilitaAnexo = false;
+	
+						//For nas colunas da linha
+						for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+							oCell = oTable.rows[z].cells[w];
+
+							if((oCell.innerHTML) == "TITULAR")
+							{					
+								cCpfTitBrw = oTable.rows[z].cells[w-2].innerHTML;
+								cMatTitBrw = oTable.rows[z].cells[0].innerHTML;
+							} 
+						}
+
+						z++;
+					}
+
+					<% If (HttpSession->lExclui)!='.T.' %>
+
+					z = 0;
+					w = 0;
+					$('#tabBrwGrid thead tr th:contains("Excluir")').css('display', 'none');				
+
+					//While nas linhas da grid
+					while ((z < oTable.rows.length)) {
+						lLeg = false;
+						lHabilitaEdit = false;
+						lHabilitaAnexo = false;
+						
+						//For nas colunas da linha
+						for (var w = 0; w <= (oTable.rows[z].cells.length - 1); w++) {
+							oCell = oTable.rows[z].cells[w];
+
+							if((oCell.innerHTML).search("004.gif") != -1 )
+							{				
+								$(oCell).css('display', 'none');				
+							}
+	
+						}
+
+						if(!lHabilitaEdit)
+						{
+							
+						}
+
+						z++;
+					}
+					<% EndIf %>
+				}
+	}		
+
+}
+
+//-----------------------------------------------------------
+// Função que altera os dados do beneficiário
+//-----------------------------------------------------------
+function fAltBen(cRecno) {	
+    
+	Ajax.progresso(); 
+    cRecno = cRecno.toString().replace(/[^\d]+/g,"");
+	window.frames.location="W_PPLCADGEN.APW?cChave=PPLALTBEN&cRecno="+cRecno+"&cDataAux="+cCpfTitBrw+"|"+cMatTitBrw+"&cRotinLGPD=PPLSOLMBEN";
+} 
+
+//-----------------------------------------------------------
+// Função que chama a tela de seleção de motivo e anexos da exclusão
+//-----------------------------------------------------------
+function fExcBen(cDados) {	
+
+	cDadSplit = cDados.split("~");
+	cRecno 	= cDadSplit[1];
+	cAlitab = "BBA";
+	cRec 	= cDadSplit[1];
+	cChave 	= cDadSplit[0];
+	aMotBlo	= document.getElementById('Field_MOTIVO_HIdden').value.split('~');
+
+	Ajax.open("W_PPLUPGEN.APW?cModo=2&cRecno="+ cRecno +"&cChave="+cChave+"&NumInd=1&cAlitab="+cAlitab, {callback: mostraUpload, error: mostraUpload} );
+
+	comboLoad('Field_MOTBLO',aMotivo);
+} 
+
+//-----------------------------------------------------------
+// Função que faz a primeira gravação da exclusão do beneficiário
+//-----------------------------------------------------------
+function gravaPre(cDados)
+{
+	cRecno 	= cDados;
+	aMotBlo	= document.getElementById('Field_MOTIVO_HIdden').value.split('~');
+	
+	if (confirm("Deseja realmente Excluir o beneficiário?"))
+	{
+		Ajax.open("W_PLEXCBEN1.APW?&cRecno="+ cRecno + "&cCodMot=" + aMotBlo[0], {callback: confirma, error: exibeErro} );
+	}
+
+	
+}
+
+function confirma(v){ 
+
+	var aRetConfirma = v.split("~");
+
+	if(aRetConfirma[0] == "true"){
+		 modalBS(cTipModalAlert, '<p>'+ aRetConfirma[1] +'</p>', "@OK~closeModalBS();", "white~ #f8c80a", "large");  
+	}else{
+		document.getElementById('codRecBBA').value = v;
+		fExcBen(v);
+	}
+}
+
+//----------------------------------------------------------
+//  tela de upload e seleção de motivo
+//----------------------------------------------------------
+function mostraUpload(v) {
+	var CHTM = document.getElementById("CHTM");
+	var conblur = " window.frames['principal'].setVlrOnblur(); ";
+
+	CHTM.innerHTML = v;
+
+	modalBS("<i style='color:#639DD8;'></i>&nbsp;&nbsp;Anexos de bloqueio", "<div class='alert alert-warning alert-dismissible' id='alert_doc0' role='alert' > </div> <input type='hidden' name='cMotivo' id='cMotivo' value='2'> <div id='CHTM1'> <select name='Field_MOTIVO_HIdden0' id='Field_MOTIVO_HIdden0' onblur = " + conblur + " class='form-control  TextoInputOB  ' ><option value='0' selected=''>--------Selecione um  Motivo--------</option></select> </div> <form name='frmUpl' id='frmUpl' action='' method='post'>" + CHTM.innerHTML  +  "</form> <br><br>", "@Concluir~window.frames['principal'].closePop(" + cRec + ");", "white~#84CCFF");  
+	
+	parent.document.getElementById('cMotivo').value = aMotivo;
+	
+	if (arrayMotivo() == 1){
+		document.getElementById("Field_MOTIVO_HIdden").click();
+	}
+
+	parent.document.getElementById("closeModal").onclick = 'window.frames["principal"].closePop(' + cRec + ');';
+		//pego o botão da tela de anexos genericas e faço o click para carregar a grid de documentos
+		parent.document.getElementById("btn_Oculto").style.display="none";
+		parent.document.getElementById("btn_Oculto").click();
+		
+	parent.comboLoad("Field_MOTIVO_HIdden0",aMotivo);
+
+}
+
+//-----------------------------------------------------------
+// Função que altera o alertBS com a lista de documentos
+//-----------------------------------------------------------
+function setVlrOnblur() {
+
+	document.getElementById('Field_MOTIVO_HIdden').selectedIndex = parent.document.getElementById('Field_MOTIVO_HIdden0').selectedIndex;
+ 	document.getElementById('Field_MOTIVO_HIdden').click();
+	
+}
+
+//-----------------------------------------------------------
+// Tamanho do aMotivo para exibir o alert corretamente
+//-----------------------------------------------------------
+function arrayMotivo(){
+	return aMotivo.length;
+}
+
+//-----------------------------------------------------------
+// Faz a pós gravação da solicitação
+//-----------------------------------------------------------
+function closePop(cRecno){
+	var x = parent.document.getElementById('Field_MOTIVO_HIdden0').value.split("~");
+	var dtExclu = parent.document.getElementById('DtExclu').value;
+
+	parent.document.getElementById("closeModal").removeAttribute("onclick"); //removo a função de onclick que coloquei na modal generica
+	
+	Ajax.open("W_PLEXC2BEN.APW?&cRecno="+ cRecno + "&cCodMot=" + x[0] + "&dDtExclu=" + dtExclu , { callback: Finaliza_Soli, error: exibeErro});
+}   
+
+function fechaPop(v){
+	alert(v);
+	closeModalBS();
+	fGetProt();
+}  
+
+//-----------------------------------------------------------
+// Carrega o combo de motivos
+//-----------------------------------------------------------
+function locadMotivo(){
+	Ajax.open("W_PLBMTBLOQ.APW", { callback: carregaCombo, error: exibeErro});
+	
+}
+
+function carregaCombo(v){
+		
+	var aResult2 	= v.split("|");
+	var aCols2		= {};
+	var nqtdTip2 	= 0;
+	var nI			= 0;
+	var aRet		= {};
+
+	if (!isEmpty(aResult2)) {
+		aCols2 = eval(aResult2[0]);
+		nqtdTip2 = aCols2.length;	
+		aRet = new Array(nqtdTip2);
+	}
+
+	for (nI=0; nI < nqtdTip2; nI++)
+	{
+     	aRet[nI] = aCols2[nI][1].value; 
+    }
+	
+	comboLoad("Field_MOTIVO_HIdden",aRet);
+
+	aMotivo = aRet;
+
+	parent.comboLoad("Field_MOTBLO",aMotivo);
+}
+
+function fcarrComb(x)
+{
+	comboLoad('Field_MOTIVO_HIdden0', aMotivo);
+}
+
+//-----------------------------------------------------------
+// Preenche o alertBS
+//-----------------------------------------------------------
+function preencheAlertBS(lista_doc) {
+	
+	var aLista = lista_doc.split("@");
+	var cText = '<strong>Atenção!</strong> É necesário anexar o(s) seguinte(s) documento(s): ';
+	var nTam = aLista.length;
+	
+	for (var i = 0; i < nTam; i++)
+	{
+		cText += aLista[i]+'<br>';
+	}
+
+	if (aLista.length == 1){
+		cText = '';
+	}
+	
+	document.getElementById('alert_doc').innerHTML = cText;
+	parent.document.getElementById('alert_doc0').innerHTML = cText;
+}
+
+function buscaDoc(codigoMotivo)
+{
+	aCodMot = codigoMotivo.split("~");
+	
+	Ajax.open("W_PLBLIDOC.APW?cCOdMOt=" + aCodMot[0], {callback:preencheAlertBS, Erro: exibeErro} );
+}
+
+
+function Finaliza_Soli(v){ 
+
+	var aRetSoli = v.split("|");
+
+	if ( parent.document.getElementById("anexo").value == 0){ 
+		alert("É necessário anexar pelo menos um arquivo");
+	 
+	 //usuário bloqueado na data digitada
+	}else if(aRetSoli[0] == "true")  {
+		alert(aRetSoli[1]); //mensagem de retorno
+	
+	//usuário não está bloqueado na data digitada
+	}else if(aRetSoli[0] == "false")  {
+		if(aRetSoli[2] == "true"){
+			alert(aRetSoli[3]);
+		}	
+		closeModalBS();
+		ChamaPoP('W_PPLRELGEN.APW?cFunName=PLSIMPBEN&cRecno=' + aRetSoli[1],'bol','yes',0,925,605);	  
+	} 
+}
+</script>
+
+<%
+
+//-------------------------------------------------------------------
+//	Instanciando o form
+//-------------------------------------------------------------------
+
+oForm := WCForm():New("Form1")  
+oForm:setTitle("Solicitação/ Manutenção Beneficiários")
+
+//-------------------------------------------------------------------
+//	Tabela principal
+//-------------------------------------------------------------------
+
+oTabela := WCTable():New()
+
+//-------------------------------------------------------------------
+	//	Criando uma linha
+	//-------------------------------------------------------------------
+	<% If HttpSession->USR_INFO[1]:OWSUSERLOGPLS:nTpPortal==2%>
+		
+		oLiBen := WCLine():New()
+
+		//-------------------------------------------------------------------
+		//		Criando um fieldset para os campos
+		//-------------------------------------------------------------------
+ 		oFSPar := WCFieldSet():New("Selecionar Beneficiário",nTamFs,"10","10")
+			    
+			
+				//-------------------------------------------------------------------
+				// Campo F3 matrícula para o portal empresa
+				//-------------------------------------------------------------------
+				oMatUsu := WCComponent():New("F","Field_MATUSU","Clique na lupa para selecionar o beneficiário:","26","21")
+				oMatUsu:setJSKeyPre("return TxtBoxFormat(this, event,'9999.9999.999999.99-9');")
+				oMatUsu:setJsFF3("return ChamaPoP('W_PPLSXF3.APW?cFunName=PLSF3BA1&F3Nome=Field_MATUSU&F3CmpDes=Field_MATUSU,Field_NOMUSR','jF3','yes');")
+				oMatUsu:setJSBlur("fCheckMat(this);")
+				oFSPar:setAddCFS(oMatUsu)
+				
+				//-------------------------------------------------------------------
+				// Campo Nome que recebe o retorno do F3 acima
+				//-------------------------------------------------------------------
+				oNomUsr := WCComponent():New("F","Field_NOMUSR","Nome","60")
+				oNomUsr:setReadOnly()
+				oFSPar:setAddCFS(oNomUsr)
+				
+				//-------------------------------------------------------------------
+				//	Botão Pesquisar
+				//-------------------------------------------------------------------
+				oBPesq := WCComponent():New("B","BProcPesq","Pesquisar")
+				oBPesq:setJsFunc("pesqBen();")   
+				oBPesq:setOpenGrp(.T.)
+				oBPesq:setCloseGrp(.T.)
+				oBPesq:setInlineB(.T.)
+				oBPesq:setXS("12")
+				oBPesq:setSM("12")
+				oBPesq:setMD("12")
+				oBPesq:setLG("1")
+				oFSPar:setAddCFS(oBPesq)
+//				oFSPar:setAddCFS(oMsg) 
+				
+				//-------------------------------------------------------------------
+				//	 Adicionando o fieldset na linha
+				//-------------------------------------------------------------------
+			oLiBen:setAddComp(oFSPar)
+
+				//-------------------------------------------------------------------
+				//	Adicionando a linha na tabela principal
+				//-------------------------------------------------------------------
+			oTabela:setAddLine(oLiBen)
+		<% EndIf %>
+			
+	//-------------------------------------------------------------------
+	//	Criando outra linha
+	//-------------------------------------------------------------------
+	oLiGrid := WCLine():New()
+		
+		//-------------------------------------------------------------------
+		//	 Fieldset
+		//-------------------------------------------------------------------
+		oFSGriBen := WCFieldSet():New("Beneficiários Ativos",nTamFs,"10","10")
+			
+		//-------------------------------------------------------------------
+		//	Browse (grid) de beneficiários e opcionais
+	  	//-------------------------------------------------------------------
+		cGrid := WCComponent():New("BW",cBrwGrid)
+		cGrid:setBrWidth(nLarBrw)
+		oFSGriBen:setAddCFS(cGrid)  
+
+		//-------------------------------------------------------------------
+		//	Adicionando o fieldset na linha
+  		//-------------------------------------------------------------------
+		oLiGrid:setAddComp(oFSGriBen)
+
+	 //-------------------------------------------------------------------
+	 //	 Adicionando a linha na tabela principal
+    //-------------------------------------------------------------------
+	oTabela:setAddLine(oLiGrid)	
+
+	//-------------------------------------------------------------------
+	//	Criando nova linha
+	//-------------------------------------------------------------------
+	oLiBtn1 := WCLine():New()
+		
+		//-------------------------------------------------------------------
+		//	Botão Incluir Novo Beneficiário
+		//-------------------------------------------------------------------
+		if lExbBtn
+			oBInc := WCComponent():New("B","BProcBen","Incluir novo beneficiário")
+			oBInc:setJsFunc("incluiBen(this);")   
+			oBInc:setAlign('center')
+			oBInc:setXS("12")
+			oBInc:setSM("12")
+			oBInc:setMD("12")
+			oBInc:setLG("3")
+			oLiBtn1:setAddComp(oBInc)
+		endif
+
+
+	oLiCHTM := WCLine():new()
+		
+		oCHTM := WCComponent():new("CHTM")		
+		oCHTM:setValue("<div id='CHTM' style='display:none'>  </div> <div style='display:none' class='alert alert-warning alert-dismissible' id='alert_doc' role='alert' > </div>")
+
+		oCHTM1 := WCComponent():new("CHTM")		
+		oCHTM1:setValue("<div id='CHTM1' style='display:none'>  <select name='Field_MOTIVO_HIdden' id='Field_MOTIVO_HIdden' class='form-control  TextoInputOB  ' onclick='buscaDoc(this.value);'><option value='0' selected=''>--------Selecione uma  Motivo--------</option></select> </div>")
+
+		oLiCHTM:setAddComp(oCHTM)
+		oLiCHTM:setAddComp(oCHTM1)
+	
+	//-------------------------------------------------------------------
+	//	Adicionando a linha na tabela principal
+	//-------------------------------------------------------------------
+	oTabela:setAddLine(oLiBtn1)
+	oTabela:setAddLine(oLiCHTM)
+	
+oForm:setAddFieldHidden('anexo', '0')
+oForm:setAddFieldHidden('codRecBBA', '')
+
+//-------------------------------------------------------------------
+//	Adicionando a tabela principal no form
+//-------------------------------------------------------------------
+oForm:setAddTables(oTabela)
+
+//-------------------------------------------------------------------
+//	Adicionando o form no HTML
+//-------------------------------------------------------------------
+oHtml:setObj(oForm)
+
+%>
+
+<%=oHtml:loadWC()%> 
+
+<script language="JavaScript">
+<!--                 
+	
+	if ('<%= Alltrim(Str(HttpSession->USR_INFO[1]:OWSUSERLOGPLS:nTpPortal)) %>' == '3'){
+		pesqBen();
+	}
+//-->
+	locadMotivo();
+
+</script> 

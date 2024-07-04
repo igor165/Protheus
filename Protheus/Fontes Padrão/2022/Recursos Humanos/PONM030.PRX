@@ -1,0 +1,788 @@
+#INCLUDE "PONM030.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "PONCALEN.CH"
+
+Static lPnm030CposBlock         
+Static lPort1510 		:= Port1510() 	//Verifica se Portaria 1510/2009 esta em vigor.
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONM030  ³ Autor ³ Equipe Advanced RH    ³ Data ³10/04/1996³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Gera‡„o das Marca‡”es                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON										              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ BOPS ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Leandro Dr. ³13/04/14³      ³Retirada de ajustes, database e FieldPos  ³±±
+±±³            ³        ³      ³que nao serao utilizados na P12.		  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function PONM030()
+	
+	Local aArea			:= GetArea()
+	Local aSays			:= {}
+	Local aButtons		:= {}
+	Local cPerg			:= "PNM030"
+	Local cSvFilAnt		:= cFilAnt
+	Local lBarG1ShowTm 	:= .F.
+	Local lBarG2ShowTm 	:= .F.
+	Local nOpcA			:= 0
+	
+	Private cCadastro	:= OemToAnsi( STR0001 ) // "Geração das Marcações"
+	Private lAbortPrint	:= .F.
+	
+	//Ofuscamento LGPD
+	Private aFldRot 	:= {'RA_NOME'}
+	Private aOfusca	 	:= If(FindFunction('ChkOfusca'), ChkOfusca(), {.T., .F.}) //[1] Acesso; [2]Ofusca
+	Private lOfuscaNom 	:= .F. 
+	Private aFldOfusca 	:= {}
+	Private lSchedule  	:= IsBlind()
+	
+	If aOfusca[2]
+		aFldOfusca := FwProtectedDataUtil():UsrNoAccessFieldsInList( aFldRot ) // CAMPOS SEM ACESSO
+		If aScan( aFldOfusca, { |x| x:CFIELD == "RA_NOME" } ) > 0
+			lOfuscaNom := FwProtectedDataUtil():IsFieldInList( "RA_NOME" )
+		EndIf
+	EndIf
+	
+	DEFAULT lPnm030CposBlock := ExistBlock("PNM030CPOS")
+	
+	If lPort1510
+		cCadastro += fPortTit() //Complementa titulo da tela com dizeres referente a portaria.
+	EndIf
+	
+	// Só Executa se os Modos de Acesso dos Arquivos Relacionados estiverm OK
+	If ValidArqPon() 
+		
+		If lSchedule
+			nOpcA := 1
+		Else
+			aAdd(aSays,OemToAnsi( STR0003 ) ) // "Este programa tem como objetivo gerar automaticamente as  marcações"
+			aAdd(aSays,OemToAnsi( STR0004 ) ) // "do funcion rio de acordo com o calend rio de horas e suas exceções."
+			aAdd(aSays,OemToAnsi( STR0037 ) ) // "Obs.: A rotina não irá sobreescrever marcações originais."
+			
+			aAdd( aButtons, { 5, .T. , { ||  Pergunte( cPerg , .T. ) } } )
+			aAdd( aButtons, { 1, .T. , { |o| nOpcA := 1, If( GpConfOk(), FechaBatch(), nOpcA := 0 ) } } )
+			aAdd( aButtons, { 2, .T. , { |o| FechaBatch() }} )
+			
+			FormBatch( cCadastro, aSays, aButtons )
+		EndIf
+		
+		If ( nOpcA == 1 )
+			// Verifica se deve Mostrar Cálculo de Tempo nas BarGauge
+			lBarG1ShowTm := ( SuperGetMv("MV_PNSWTG1", NIL, "N") == "S" )
+			lBarG2ShowTm := ( SuperGetMv("MV_PNSWTG2", NIL, "S") == "S" )
+			
+			// Executa o Processo de Geração de Marcações
+			If lSchedule
+				Pnm030Processa( cPerg )
+			Else
+				Proc2BarGauge( { || Pnm030Processa( cPerg ) }, STR0001, NIL, STR0024, .T., lBarG1ShowTm, lBarG2ShowTm )	// "Geração das Marcações "###" Gerando Marcações..."
+			EndIf
+		EndIf
+		
+	EndIf
+	
+	cFilAnt := cSvFilAnt
+	RestArea( aArea )
+	
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ Pnm030Processa  ³ Equipe Advanced RH     ³ Data ³30/04/1996³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa a Geracao das Marcacoes                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON							             			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function Pnm030Processa( cPerg )
+
+Local aAreaSRA			:= SRA->( GetArea() )
+Local aAreaSP8			:= SP8->( GetArea() )
+Local aTabCalend		    := {}
+Local aNReg				:= {}
+Local aTpMarc			:= {}
+Local aNewMarc			:= {}
+Local aMarcacoes		:= {} 
+Local aMarcNoGER		:= {}	
+Local aMarcAux			:= {}
+Local aTabMarc			:= {}
+Local aTabPadrao		:= {} 
+Local aLogs				:= {}
+Local aLogDet			:= {}
+Local aLogTitle			:= {}
+Local aRecsSR6			:= {}
+Local aRecsBarG			:= {}
+
+
+Local bSraScope			:= { || .T. }
+Local bAcessaSRA 		:= &("{ || " + ChkRH("PONM030","SRA","2") + "}")
+
+Local cFilDe			:= ""
+Local cFilAte			:= ""
+Local cCCDe				:= ""
+Local cCCAte			:= ""
+Local cCustoGrv			:= ""
+Local cMatDe			:= ""
+Local cMatAte			:= "" 
+Local cMarc				:= ""
+Local cTurDe			:= ""
+Local cTurAte			:= ""
+Local cRegDe    		:= ""
+Local cRegAte   		:= ""
+Local cCategoria		:= "" 
+Local cFilOld    		:= "__cFilOld__"
+Local cFil       		:= "" 
+Local cFlag				:= ""
+Local cTno       		:= ""
+Local cMat       		:= ""
+Local cSeq       		:= ""
+Local cSitFolh			:= "" 
+Local cTurno     		:= ""
+Local cTpMarcs   		:= ""
+Local cCc        		:= ""
+Local cFilTnoDe	 		:= ""
+Local cFilTnoAte 		:= ""
+Local cTimeIni	 		:= Time()
+Local cLastFil			:= "__cLastFil__"
+Local cFilTnoSRA 		:= "__cFilTnoSRA__"
+Local cFilTnoOld 		:= "__cFilTnoOld__"
+Local cFilTnoSeqOld		:= "__cFilTnoSeqOld__"
+Local cMsgBarG1			:= ""
+Local cSvFilAnt			:= cFilAnt
+Local cAutoSai			:= ""
+
+Local dPerIni			:= Ctod("//")
+Local dPerFim			:= Ctod("//")
+Local dDataIni			:= Ctod("//")
+Local dDataFim			:= Ctod("//")
+Local dDemissa			:= Ctod("//")
+Local dAdmissa			:= Ctod("//")
+Local dPerIGeA			:= Ctod("//")
+Local dPerFGeA			:= Ctod("//")
+
+Local lSobrepoe			:= .T.
+Local lAleato			:= .F.
+Local lSR6Comp			:= Len( Alltrim( xFilial( "SR6" ) ) ) < FwGetTamFilial 
+Local lIncProcG1		:= .T.
+Local lChkRegra			:= .F.
+Local lSemMarc			:= .F.
+Local lCompleta			:= .F.
+
+Local nMinuto     		:= 0
+Local nLastRec			:= 0
+Local nRecsSR6			:= 0
+Local nIncPercG1		:= 0
+Local nIncPercG2		:= 0
+Local nCount1Time		:= 0        
+Local nLoop				:= 0
+Local nCount			:= 0    
+Local nLoop2			:= 0
+Local nCount2			:= 0 
+Local nX				:= 0
+
+Local aStruSRA	 	:= {}
+Local aTempSRA	 	:= SRA->( dbStruct() )
+Local aCposSRA	 	:= {}
+Local cQuery	 	:= ""
+Local cQueryCond	:= ""	
+Local lQueryOpened	:= .F.
+Local nContField 	:= 0
+Local uRet			:= NIL
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carregando as Perguntas 								       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Pergunte( cPerg , .F. )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Atribuindo as Perguntas as variaveis do Programa		       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cFilDe		:= mv_par01				//Filial De
+cFilAte		:= mv_par02				//Filial Ate
+cCCDe		:= mv_par03				//Centro de Custo De
+cCCAte		:= mv_par04				//Centro de Custo Ate
+cMatDe		:= mv_par05				//Matricula De
+cMatAte		:= mv_par06				//Matricula Ate
+dDataIni	:= mv_par07				//Data Inicial
+dDataFim	:= mv_par08				//Data Final
+cTpMarcs	:= mv_par09				//Tipos de Marcacoes a Gerar
+lSobrepoe	:= ( mv_par10 == 1 ) 	//Se Sobrepoe as Marcacoes Existentes	
+cRegDe		:= mv_par11				//Regra De
+cRegAte		:= mv_par12				//Regra Ate
+lAleato		:= ( mv_par13 == 1 )	//Se Gera Marcacoes Aleatroias	
+nMinuto		:= Abs( mv_par14 )		//Minutos para a Aleatoriedade das Marcacoes
+cTurDe		:= mv_par15				//Turno De
+cTurAte		:= mv_par16				//Turno Ate
+lCompleta	:= ( mv_par17 == 1 )	//Se Completa Marcacoes
+lSemMarc	:= ( mv_par18 == 1 )	//Se Gera marcacoes para Funcionario Sem Marcacoes
+cAutoSai	:= mv_par19 			//Se Gera marcacoes de Intervalo para Dias Nao Trabalhados
+lChkRegra	:= ( mv_par20 == 1 )	//Se Segue a Regra de Apontamento na Geracao das Marcacoes 
+cCategoria	:= mv_par21				//Categorias para serem geradas as marcacoes
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta as Variaveis de Memoria que Serao Utilizadas na  Geracao³
+³ Automatica de Marcacoes									   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF !( lChkRegra )
+	SetMemVar( "PA_MARCAUT" , cTpMarcs						, .T. )
+	SetMemVar( "PA_ALEATOR" , IF( lAleato	, "S" , "N" )	, .T. )
+	SetMemVar( "PA_MINALEA" , nMinuto						, .T. )
+	SetMemVar( "PA_AUTOMSM" , IF( lSemMarc  , "S" , "N" )	, .T. )
+	SetMemVar( "PA_COMPMAR" , IF( lCompleta , "S" , "N" )	, .T. )
+	SetMemVar( "R6_AUTOSAI" , cAutoSai						, .T. )
+EndIF
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seleciona o Ordem e Retorna o Numero de Registros      	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+SRA->( dbSetOrder( RetOrdem( "SRA","RA_FILIAL+RA_TNOTRAB" ) ) )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Cria o Bloco dos Funcionarios que atendam ao Scopo	   	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+bSraScope	:= { ||;
+						(;                                 
+							( RA_FILIAL		>= cFilDe ) .and. ( RA_FILIAL	<= cFilAte ) .and. ;
+							( RA_REGRA		>= cRegDe ) .and. ( RA_REGRA	<= cRegAte ) .and. ;
+							( RA_MAT		>= cMatDe ) .and. ( RA_MAT		<= cMatAte ) .and. ;
+							( RA_CC			>= cCCDe  ) .and. ( RA_CC		<= cCCAte  ) .and. ;
+							( RA_TNOTRAB	>= cTurDe ) .and. ( RA_TNOTRAB	<= cTurAte ) .and. ;
+							( RA_CATFUNC $ cCategoria ) ;
+						);
+				}
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta apenas os Campos do SRA que serao Utilizados           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nContField	:= Len(aTempSRA)
+aAdd( aCposSRA , "RA_FILIAL"	)
+aAdd( aCposSRA , "RA_MAT" 		)	
+aAdd( aCposSRA , "RA_NOME"		)
+aAdd( aCposSRA , "RA_CC"		)
+aAdd( aCposSRA , "RA_TNOTRAB"	)
+aAdd( aCposSRA , "RA_SEQTURN"	)
+aAdd( aCposSRA , "RA_REGRA"  	)
+aAdd( aCposSRA , "RA_ADMISSA"  	)
+aAdd( aCposSRA , "RA_DEMISSA"  	)
+aAdd( aCposSRA , "RA_SITFOLH"  	)
+aAdd( aCposSRA , "RA_CATFUNC"  	)
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Verifica e Seta os campos a mais incluidos no Mex             ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/				
+fAdCpoSra(aCposSra)
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Ponto de Entrada para Campos do Usuario                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( lPnm030CposBlock )
+	IF ( ValType( uRet := ExecBlock("PNM030CPOS",.F.,.F.,aCposSRA) ) == "A" )
+		IF ( Len( uRet ) >= Len( aCposSRA ) )
+			aCposSRA := aClone(uRet)
+			uRet	 := NIL
+		EndIF
+	EndIF
+EndIF
+For nX := 1 To nContField
+	IF ( aScan( aCposSRA , { |x| x == AllTrim( aTempSRA[ nX , 1 ] ) } ) > 0 )
+		aAdd( aStruSRA , aClone( aTempSRA[ nX ] ) )
+	EndIF
+Next nX
+
+aCposSRA	:= aTempSRA := NIL
+nContField	:= Len( aStruSRA )
+
+cQuery := "SELECT "
+For nX := 1 To nContField
+	cQuery += aStruSRA[ nX , 1 ] + ", "
+Next nX
+cQuery 		:= SubStr( cQuery , 1 , Len( cQuery ) - 2 )
+
+cQueryCond	+= " FROM "
+cQueryCond	+= InitSqlName("SRA") + " SRA "
+cQueryCond	+= " WHERE "
+cQueryCond	+= " ( "
+cQueryCond	+= 		"SRA.RA_DEMISSA='"+Space(Len(Dtos(dDataIni)))+"'"
+cQueryCond	+= 		" OR "
+cQueryCond	+= 		"SRA.RA_DEMISSA>='"+Dtos(dDataIni)+"'"
+cQueryCond	+= " ) "
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_ADMISSA<='"+Dtos(dDataFim)+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_FILIAL>='"+cFilDe+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_FILIAL<='"+cFilAte+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_CC>='"+cCCDe+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_CC<='"+cCCAte+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_MAT>='"+cMatDe+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_MAT<='"+cMatAte+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_REGRA>='"+cRegDe+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_REGRA<='"+cRegAte+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_TNOTRAB>='"+cTurDe+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.RA_TNOTRAB<='"+cTurAte+"'"
+cQueryCond	+= " AND "
+cQueryCond	+= "SRA.D_E_L_E_T_=' ' "
+
+cQuery	    += cQueryCond
+cQuery		+= "ORDER BY "+SqlOrder( SRA->( IndexKey() ) )
+cQuery		:= ChangeQuery(cQuery)
+
+SRA->( dbCloseArea() ) //Fecha o SRA para uso da Query
+IF ( lQueryOpened := MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,cQuery),"SRA",.T.,.T.) )
+	For nX := 1 To nContField
+		IF ( aStruSRA[nX,2] <> "C" )
+			TcSetField("SRA",aStruSRA[nX,1],aStruSRA[nX,2],aStruSRA[nX,3],aStruSRA[nX,4])
+		EndIF
+	Next nX
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery := "SELECT COUNT(*) NLASTREC "
+	cQuery += cQueryCond
+	cQuery := ChangeQuery(cQuery)
+   	IF ( MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,cQuery),"__QRYCOUNT",.T.,.T.) )
+		nLastRec := __QRYCOUNT->NLASTREC
+		__QRYCOUNT->( dbCloseArea() )
+	Else
+		MsAguarde( { || SRA->( dbEval( { || ++nLastRec } ) ) } , STR0029 + STR0030 )	//'Aguarde...'###'Selecionaldo Funcionarios'
+		SRA->( dbGotop() )
+	EndIF
+Else
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura Arquivo Padrao e Ordem                             ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	ChkFile( "SRA" )
+	SRA->( dbSetOrder( RetOrdem( "SRA","RA_FILIAL+RA_TNOTRAB" ) ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	aRecsBarG := {}
+	CREATE SCOPE aRecsBarG FOR Eval( bSraScope )
+	nLastRec := SRA->( ScopeCount( aRecsBarG ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Procura e posiciona no primeiro funcion rio.                ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	SRA->( dbSeek( cFilDe + cTurDe , .T. ) )
+EndIF
+nContField := 0
+
+If !lSchedule
+	// Inicializa a Mensagem para a IncProcG2() ( Funcionarios )
+	IncProcG2( OemToAnsi( STR0024 ) , .F. )	//"Gerando Marcações..."
+	
+	// Inicializa a Regua para a IncProcG2() ( Funcionarios )
+	BarGauge2Set( nLastRec )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Inicializa Filial/Turno De/Ate							   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cFilTnoDe	:= ( cFilDe  + cTurDe )
+cFilTnoAte	:= ( cFilAte + cTurAte )
+
+Begin Sequence
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Processa a Geracao de Marcacoes                              ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	While SRA->(;
+					!Eof();
+					.and.;
+					(;
+							( ( cFilTnoSRA := ( ( cFil := RA_FILIAL ) + ( cTno := RA_TNOTRAB ) ) ) >= cFilTnoDe );
+							.and. ;
+	                        ( cFilTnoSRA <= cFilTnoAte );
+	                 );
+	            )     
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Consiste filtro do intervalo De / Ate.                       ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF SRA->( !Eval( bSraScope ) )
+			SRA->( dbSkip() )
+			Loop
+		EndIF
+
+        /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Aborta o processamento 	 								   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lAbortPrint )
+			aAdd( aLogDet , STR0013 ) //"Geracao das marcacoes calcelada pelo usuario"
+			Break
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Redefine variaveis.										   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cMat		:= SRA->RA_MAT
+		cSeq		:= SRA->RA_SEQTURN
+		cTurno		:= SRA->RA_TNOTRAB
+		cCc			:= SRA->RA_CC
+		cSitFolh	:= SRA->RA_SITFOLH
+		dDemissa	:= SRA->RA_DEMISSA
+		dAdmissa	:= SRA->RA_ADMISSA
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Atualiza a Mensagem para a IncProcG1() ( Turnos )			   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !( cFilTnoSeqOld == ( cFilTnoSRA + cSeq ) )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza o Filial/Turno/Sequencias Anteriores				   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cFilTnoSeqOld := ( cFilTnoSRA + cSeq )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza a Mensagem para a BarGauge do Turno 				   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cMsgBarG1 := ( STR0021 + " " + cFil + " - " + STR0022 + " " + cTno + " - " + Left(AllTrim( fDesc( "SR6" , cTno , "R6_DESC" , NIL , cFil , 01 ) ),50) + " " + STR0023 + " " + cSeq )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Verifica se Houve Troca de Filial para Verificacai dos Turnos³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF !( cLastFil == SRA->RA_FILIAL )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Atualiza o Filial Anterior								   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				cLastFil := SRA->RA_FILIAL
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Obtem o % de Incremento da 2a. BarGauge					   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nIncPercG1 := SuperGetMv( "MV_PONINC1" , NIL , 5 , cLastFil )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Obtem o % de Incremento da 2a. BarGauge					   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nIncPercG2 := SuperGetMv( "MV_PONINCP" , NIL , 5 , cLastFil )
+				
+				If !lSchedule
+					// Realimenta a Barra de Gauge para os Turnos de Trabalho
+					If ( !lSR6Comp .or. ( nRecsSR6 == 0 ) )
+						CREATE SCOPE aRecsSR6 FOR ( R6_FILIAL == cLastFil .or. Len ( Alltrim ( R6_FILIAL ) ) = 0 ) 
+						nRecsSR6 := SR6->( ScopeCount( aRecsSR6 ) )
+					EndIF
+					
+					// Define o Contador para o Processo 1
+					--nCount1Time
+					
+					//Define o Numero de Elementos da BarGauge
+					BarGauge1Set( nRecsSR6 )
+					
+					//Inicializa Mensagem na 1a BarGauge
+					IncProcG1( cMsgBarG1, .F. )
+				EndIf
+				
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Reinicializa a Filial/Turno Anterior                         ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				cFilTnoOld := "__cFilTnoOld__"
+            EndIF
+			
+			If !lSchedule
+				// Verifica se Deve Incrementar a Gauge ou Apenas Atualizar a Mensagem
+				IF ( lIncProcG1 := !( cFilTnoOld == cFilTnoSRA ) )
+					cFilTnoOld := cFilTnoSRA
+				EndIF
+				
+				//Incrementa a Barra de Gauge referente ao Turno
+				//"Filial:"###"Turno:"###"Sequencia:"
+				IncPrcG1Time( cMsgBarG1 , nRecsSR6 , cTimeIni , .F. , nCount1Time , nIncPercG1 , lIncProcG1 )
+			EndIf
+		EndIF
+		
+		If !lSchedule
+			// Movimenta a Régua de Processamento
+			IncPrcG2Time( OemToAnsi( STR0020 ) , nLastRec , cTimeIni , .T. , 2 , nIncPercG2 ) //"Marcações Geradas:"
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Consiste Situacao na Folha.                                  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF (;
+				( cSitFolh == "E" );
+				.or.;
+				(;
+					( cSitFolh == "D" );
+					.and.;
+					( dDemissa < dDataIni );
+				);
+			)
+			SRA->( dbSkip() )
+			Loop
+		EndIF
+        
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Consiste controle de acessos e filiais validas               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF (;
+				!( cFil $ fValidFil() );
+				.or.;
+				SRA->( !Eval( bAcessaSRA ) );
+			)
+			SRA->( dbSkip() )
+			Loop
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Quebra de Filial											  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !( cFilOld == cFil )
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Carrega a Nova Filial                                       ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cFilOld 	:= cFil
+			cFilAnt		:= IF( Len(Alltrim( cFilOld )) > 0 , cFilOld , cFilAnt )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Reinicializa a Tabela de Horario Padrao                     ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF xRetModo( "SRA" , "SPJ" , .F. )
+				aTabPadrao := {}
+			EndIF
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Verifica o Periodo de Apontamento                           ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF !CheckPonMes( @dPerIni , @dPerFim , .F. , .T. , .T. , cFilOld )
+				aAdd( aLogDet , STR0002 )	//"Periodo para geracao das marcacoes invalido."
+				aAdd( aLogDet , STR0008 + " " + cFil + " " + STR0009 ) //"As marcacoes para a filial"###"nao foram geradas"
+				Break
+			EndIF
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Consiste o Periodo de Apontamento                             ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF (;
+					( dDataFim < dDataIni );
+					.or.;
+					( dDataIni > dPerFim );
+					.or.;
+					( dDataFim < dPerIni );
+				)	
+				aAdd( aLogDet , STR0002 )	//"Periodo para geracao das marcacoes invalido."
+				aAdd( aLogDet , STR0008 + " " + cFil + " " + STR0009 ) //"As marcacoes para a filial"###"nao foram geradas"
+				Break
+			EndIF
+
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Cria Calendario com o periodo completo com Trocas de Turno  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aTabCalend := {}
+		IF !CriaCalend( dPerIni , dPerFim , cTurno , cSeq , @aTabPadrao , @aTabCalend , cFil , cMat , cCc , {} , NIL , NIL , .F. )
+			aAdd( aLogDet , STR0014 + " " + STR0021 + " " + cFil + " " + STR0022 + " " + cTurno )	//"Tabela de Horario Padrao nao cadastrada para o Turno corrente"###"Filial:"###"Turno:"
+			aAdd( aLogDet , STR0008 + " " + cFil + " " + STR0022 + " " + cTurno + " " + STR0009 )	//"As marcacoes para a filial"###"nao foram geradas"###"Turno:"
+			SRA->( dbSkip() )
+			Loop
+		EndIF  
+		
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Define o Periodo para a Geracao das Marcacoes Automaticas   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		dPerIGeA		:= Max( dPerIni , dDataIni )
+		dPerFGeA		:= Min( dPerFim , dDataFim )
+		IF (;
+				( dAdmissa > dPerIni );
+				.and.;
+				( dAdmissa <= dPerFim );
+				.and.;
+				( dAdmissa >= dDataIni );
+			)	
+			dPerIGeA	:= dAdmissa
+		EndIF
+		IF (;
+				( dDemissa < dPerFim );
+				.and.;
+				!Empty( dDemissa );
+			)	
+			dPerFGeA	:= dDemissa
+		EndIF
+		dPerIGeA	:= Max( dPerIGeA , dPerIni  )
+		dPerFGeA	:= Min( dPerFGeA , dPerFim  )
+		IF ( dPerFGeA < dPerIGeA )
+			SRA->( dbSkip() )
+			Loop
+		EndIF	
+
+        /*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Cria array com as marca‡”es do Periodo para o funcion rio.  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		IF !GetMarcacoes(	@aMarcacoes 		,;	//01 -> Marcacoes dos Funcionarios
+							aTabCalend			,;	//02 -> Calendario de Marcacoes
+							NIL					,;	//03 -> Tabela Padrao
+							NIL					,;	//04 -> Turnos de Trabalho
+							dPerIGeA			,;	//05 -> Periodo Inicial
+							dPerFGeA			,;	//06 -> Periodo Final
+							NIL					,;	//07 -> Filial
+					    	cMat				,;	//08 -> Matricula
+							NIL					,;	//09 -> Turno
+							NIL					,;	//10 -> Sequencia de Turno
+							NIL					,;	//11 -> Centro de Custo
+							NIL					,;	//12 -> Alias para Carga das Marcacoes
+							NIL					,;	//13 -> Se carrega Recno em aMarcacoes
+							NIL					,;	//14 -> Se considera Apenas Ordenadas
+							NIL					,;  //15 -> Verifica as Folgas Automaticas
+							NIL					,;  //16 -> Se Grava Evento de Folga Mes Anterior
+							NIL          		,;	//17 -> Se Carrega as Marcacoes Automaticas
+							NIL              	,;	//18 -> Registros de Marcacoes Automaticas que deverao ser Deletados
+							NIL         		,;	//19 -> Bloco para avaliar as Marcacoes Automaticas que deverao ser Desprezadas
+							.F.					 ;	//20 -> Se Considera o Periodo de Apontamento das Marcacoes
+					 	)
+			SRA->( dbSkip() )
+			Loop
+		EndIF
+
+		/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Gera marca‡oes Autom ticas.                                 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/ 
+
+		aMarcAux:={}
+		IF PutMarcAuto( aTabCalend , @aMarcacoes , dPerIGeA , dPerFGeA , cFil , lChkRegra , lSobrepoe, @aMarcAux )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Grava as Marcacoes no SP8                                   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			PutMarcacoes( aMarcacoes , cFil , cMat , "SP8" , .F. , .T. )
+		EndIF
+                                    
+	    //-- Inclui ocorrencias de marcacoes não geradas
+		If !Empty(aMarcAux)
+			AADD(aMarcNoGer,{cMat + "-" + If(lOfuscaNom,Replicate('*',15),SRA->RA_NOME),aMarcAux})        
+		Endif
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Seleciona pr¢ximo funcion rio.                              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		SRA->( dbSkip() )
+
+	End While
+
+End Sequence
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Fecha a Query Montada e Restaura o SRA padrao               ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( lQueryOpened )
+	SRA->( dbCloseArea() )
+	ChkFile( "SRA" )
+EndIF
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Gera o Log de Inconsistencias                                ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF !Empty( aLogDet ) .OR. !Empty( aMarcNoGer)
+	aAdd( aLogTitle , STR0025 ) //"Log de Ocorrencias na Geracao de Marcacoes"
+    IF !Empty( aLogDet ) 
+	    aAdd(aLogs, aClone(aLogDet) )
+	Endif    
+    
+	IF !Empty( aMarcNoGer )    
+	   
+  		aAdd( aLogs, aClone(aMarcNoGer) )	
+   
+    	/*/
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Redefine o Array aMarcNoGer 								  ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+		aMarcNoGer := {}
+		IF ( ( nCount := Len( aLogs[Len(aLogs)] ) ) > 0 )
+    		aAdd( aMarcNoGer , STR0031 ) //"Marcações Não Geradas"
+	  	    aAdd( aMarcNoGer , __PrtThinLine() ) 
+			aAdd( aMarcNoGer , PADR(STR0032,10) + SPACE(1) + PADR(STR0033,90) + SPACE(1) +  STR0034 ) // ' Data     Marcações                                        Observação' 
+		  	For nLoop := 1 To nCount     
+		  	    nCount2		:=Len(aLogs[Len(aLogs), nLoop, 2 ] )
+		  	    cMat		:=aLogs[Len(aLogs), nLoop, 1 ]
+   		  	    aAdd( aMarcNoGer , __PrtThinLine() ) 
+		  	    aAdd( aMarcNoGer , cMat ) 
+   		  	    aAdd( aMarcNoGer , __PrtThinLine() ) 
+		  		For nLoop2:= 1 To nCount2
+				   	//-- Corre todas as marcacoes do dia 		
+				   	dData	:= PADR(Dtoc(aLogs[Len(aLogs), nLoop, 2, nLoop2, 1 ]),10) //Data
+				   	cMsg 	:= STR0035  // "Marcaçõpes em quantidade ímpar"	
+			   		cMarc	:= ""
+					For nX := 1 TO Len( aLogs[ Len(aLogs), nLoop, 2, nLoop2, 2] )     //Array das Marcacoes
+						If Len(cMarc) > 81 
+						   IF "IMPAR"$ UPPER(aLogs[Len(aLogs), nLoop, 2, nLoop2,3 ])  //Tipo de Ocorrencia ('Impar') 
+					  		  aAdd( aMarcNoGer , dData  + SPACE(1) +  PADR(cMarc, 90) )
+				  			  dData 	:= Space(10)
+							  cMarc	:= ""
+						   ENDIF
+						Endif		                              
+		    		
+		    			cFlag:=  If( aLogs[ Len(aLogs), nLoop,  2, nLoop2, 2, nX, 4 ] <> "A", Space(3), "[A]" )
+		    			cMarc+= StrTran(StrZero(aLogs[ Len(aLogs), nLoop,  2, nLoop2, 2, nX, 2 ],5,2),'.',':') + cFlag + Space(1)
+		    			
+					Next nX    
+					IF "IMPAR"$ UPPER(aLogs[Len(aLogs), nLoop,  2, nLoop2, 3 ]) 
+						aAdd( aMarcNoGer , dData + SPACE(1) +  PADR(cMarc, 90) + SPACE(1) + cMsg ) // "Marcaçõpes em quantidade ímpar"	
+					ENDIF	
+				Next nLoop2
+			Next nLoop
+		EndIF	
+		aLogs[ Len(aLogs) ] := aClone( aMarcNoGer )
+		
+    Endif
+    
+	fMakeLog( aLogs , aLogTitle , cPerg,,cPerg )
+EndIF
+
+cFilAnt	:= cSvFilAnt
+
+RestArea( aAreaSP8 )
+RestArea( aAreaSRA )
+
+Return( NIL )

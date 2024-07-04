@@ -1,0 +1,958 @@
+#INCLUDE "MATC080.CH"
+#INCLUDE "PROTHEUS.CH"
+#DEFINE USADO CHR(0)+CHR(0)+CHR(1)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATC080  ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 19/06/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Consulta de Acompanhamento de Producao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGAPCP                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATC080(lBat)
+LOCAL cOldAlias:=Alias()
+LOCAL lContinua:= .T.
+PRIVATE cCadastro:=OemToAnsi(STR0001)	//"Acompanhamento de Produ‡„o"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Variaveis utilizadas para parametros                         ³
+//³ mv_par01 // De  Ordem de Producao                            ³
+//³ mv_par02 // Ate Ordem de Producao                            ³
+//³ mv_par03 // De  Produto                                      ³
+//³ mv_par04 // Ate Produto                                      ³
+//³ mv_par05 // De  Data Inicio Aloc.                            ³
+//³ mv_par06 // Ate Data Inicio Aloc.                            ³
+//³ mv_par07 // De  Centro de Trabalho                           ³
+//³ mv_par08 // Ate Centro de Trabalho                           ³
+//³ mv_par09 // Lista OPs encerradas S - Sim N - Nao             ³
+//³ mv_par10 // Considera Operacoes Alocadas                     ³
+//³ mv_par11 // Ordenado por ? Ordem de Producao / Recurso       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !Pergunte("MTC080",.T.)
+	dbSelectArea(cOldAlias)
+	Return
+EndIf
+
+///-- Verifica se o SH8 esta locado para atualizacao por outro processo                
+If MV_PAR10 == 1 .And. IsLockSH8()
+	lContinua := .F.
+EndIf
+
+If lContinua
+	MC080Proc()
+EndIf
+
+dbSelectArea(cOldAlias)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MC080Proc³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 19/06/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Processamento da consulta                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGAPCP                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MC080Proc()
+LOCAL	cTrab 	:= ""
+LOCAL	cIndex	:= CriaTrab(NIL,.F.)
+LOCAL	cKey		:= ""
+LOCAL cCondicao:= ""
+LOCAL aCampos:={}
+LOCAL cPictQuant:=PesqPictQt("H6_QTDPROD",12)
+LOCAL cPedSC6:="",cItemSC6:="",dEntregaPV:=CTOD("  /  /  ")
+LOCAL oDlg
+LOCAL cNumOp:="",cItemOp:="",cSequenOP:="",cSeqGrdOp:=""
+LOCAL cNumOpAte:="",cItemOpAte:="",cSequenOPA:="",cSeqGrdAte:=""
+Local nTamCod   := TamSX3("B1_COD")[1]        
+Local oSize
+Local oTempTable	:= NIL 
+Local cTipoX3OP := TamSx3("BC_OP")[3]
+Local nTamX3OP	:= TamSx3("BC_OP")[1]
+Local nDecX3OP	:= TamSx3("BC_OP")[2]
+Local aButtons  := Nil
+
+PRIVATE 	aRotina   := { { "" , "        ", 0 , 2}}
+PRIVATE aTela[0][0],aGets[0]
+PRIVATE bCampo := { |nField| Field(nField) }
+PRIVATE CurLen,nPosAtu:=0,nPosAnt:=9999,nColAnt:=9999
+PRIVATE cSavScrVT,cSavScrVP,cSavScrHT,cSavScrHP
+PRIVATE nCampos := 0
+
+Default lAutomacao := .F.
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Cria arquivo de trabalho para mostrar consulta               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+AADD(aCampos,{"PRODUTO"		,"C",nTamCod,0})     
+AADD(aCampos,{"CTRAB"		,"C",06,0})
+AADD(aCampos,{"RECURSO"		,"C",06,0})
+AADD(aCampos,{"OP"			,cTipoX3OP,nTamX3OP,nDecX3OP})
+AADD(aCampos,{"OPERAC"      ,"C",2,0})
+AADD(aCampos,{"QTDOP"		,"N",14,4})
+AADD(aCampos,{"QTDOP2UM"   ,"N",14,4})
+AADD(aCampos,{"UM"			,"C",02,0})
+AADD(aCampos,{"DTFIM"		,"D",08,0})
+AADD(aCampos,{"DTPV"		,"D",08,0})
+AADD(aCampos,{"QTDENT"		,"N",14,4})
+AADD(aCampos,{"QTDENTREC"	,"N",14,4})
+AADD(aCampos,{"SALDO"		,"N",14,4})
+AADD(aCampos,{"DTENTREG"	,"D",08,0})
+
+
+oTempTable := FWTemporaryTable():New( "TRB" )
+oTempTable:SetFields( aCampos )
+	If mv_par11 == 1 //ORDENAR POR OP
+		oTempTable:AddIndex("indice1", {"OP"} )
+	ELSEIF mv_par11 == 2 //RECURSO
+		oTempTable:AddIndex("indice1", {"RECURSO"} )
+	ENDIF	
+
+oTempTable:Create()
+
+cTrab := oTempTable:GetRealName()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Posiciona areas corretamente                                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea("SC2")
+dbSetOrder(1)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Abre Arquivo da Carga Maquina Alocada                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If mv_par10 == 1
+	dbSelectArea("SH8")
+	If mv_par11 == 1
+		dbSetOrder(1)
+	Else
+		dbSetOrder(2)
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Montagem da IndRegua                                         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	cKey:=IndexKey()
+	cCondicao:="H8_OP>='"+mv_par01+"'.And.H8_OP<='"+mv_par02+"'.And."
+	cCondicao+="DTOS(H8_DTINI)>='"+DTOS(mv_par05)+"'.And."
+	cCondicao+="DTOS(H8_DTINI)<='"+DTOS(mv_par06)+"'.And."
+	cCondicao+="H8_CTRAB>='"+mv_par07+"'.And.H8_CTRAB<='"+mv_par08+"'"
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Cria Indice Condicional                                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IndRegua("SH8",cIndex,cKey,,cCondicao,OemToAnsi(STR0002))		//"Selecionando Registros..."
+	nIndex := RetIndex("SH8")
+	dbSelectArea("SH8")
+	dbSetOrder(nIndex+1)
+	dbGoTop()
+Else
+	dbSelectArea("SC2")
+	dbSetOrder(1)
+	cNumOp:=Substr(mv_par01,1,Len(SC2->C2_NUM))
+	cItemOp:=Substr(mv_par01,1+Len(cNumOp),Len(SC2->C2_ITEM))
+	cSequenOP:=Substr(mv_par01,1+Len(cNumOp)+Len(cItemOp),Len(SC2->C2_SEQUEN))
+	cSeqGrdOp:=Substr(mv_par01,1+Len(cNumOp)+Len(cItemOp)+Len(cSequenOp),Len(SC2->C2_ITEMGRD))
+
+	cNumOpAte:=Substr(mv_par02,1,Len(SC2->C2_NUM))
+	cItemOpAte:=Substr(mv_par02,1+Len(cNumOp),Len(SC2->C2_ITEM))
+	cSequenOPA:=Substr(mv_par02,1+Len(cNumOp)+Len(cItemOp),Len(SC2->C2_SEQUEN))
+	cSeqGrdAte:=Substr(mv_par02,1+Len(cNumOp)+Len(cItemOp)+Len(cSequenOp),Len(SC2->C2_ITEMGRD))
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Montagem da IndRegua                                         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If mv_par11 == 1
+		cKey:=IndexKey()
+	Else
+		cKey:= "C2_FILIAL+C2_RECURSO+C2_NUM+C2_ITEM+C2_SEQUEN+C2_ITEMGRD"
+	EndIf
+	cCondicao:="C2_FILIAL=='"+xFilial("SC2")+"'.AND.C2_NUM>='"+cNumOp+"'.And.C2_NUM<='"+cNumOpAte+"'.And."
+	cCondicao+="C2_ITEM>='"+cItemOp+"'.AND.C2_ITEM<='"+cItemOpAte+"'.And."
+	cCondicao+="C2_SEQUEN>='"+cSequenOp+"'.AND.C2_SEQUEN<='"+cSequenOpA+"'.And."
+	cCondicao+="C2_ITEMGRD>='"+cSeqGrdOp+"'.AND.C2_ITEMGRD<='"+cSeqGrdAte+"'.And."
+	cCondicao+="C2_PRODUTO>='"+mv_par03+"'.AND.C2_PRODUTO<='"+mv_par04+"'"
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Cria Indice Condicional                                      ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	IndRegua("SC2",cIndex,cKey,,cCondicao,OemToAnsi(STR0002))		//"Selecionando Registros..."
+	nIndex := RetIndex("SC2")
+	dbSelectArea("SC2")
+	dbSetOrder(nIndex+1)
+	dbGoTop()
+EndIf
+
+
+Do While !Eof()
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Abre Arquivo da Carga Maquina Alocada                        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If mv_par10 == 1
+		If SC2->(dbSeek(xFilial("SC2")+SH8->H8_OP))
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Valida c¢digo do produto                                     ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If SC2->C2_PRODUTO < mv_par03 .Or. SC2->C2_PRODUTO > mv_par04
+				dbSkip()
+				Loop
+			EndIf
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Caso nao mostre OPs encerradas, verifica se a OP esta em aberto³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If mv_par09 == 2 .And. !Empty(SC2->C2_DATRF)
+				dbSkip()
+				Loop
+			EndIf
+		Else
+			dbSkip()
+			Loop
+		EndIf
+	Else
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Caso nao mostre OPs encerradas, verifica se a OP esta em aberto³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If mv_par09 == 2 .And. !Empty(SC2->C2_DATRF)
+			dbSkip()
+			Loop
+		EndIf
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Variaveis utilizadas qdo OP por PV         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If SC2->C2_DESTINA == "P"
+		dEntregaPV:=CTOD("  /  /  ")
+		cPedSC6:=IF(!Empty(SC2->C2_PEDIDO),SC2->C2_PEDIDO,SC2->C2_NUM)
+		cItemSC6:=IF(!Empty(SC2->C2_ITEMPV),SC2->C2_ITEMPV,SC2->C2_ITEM)
+		SC6->(dbSetOrder(1))
+		If SC6->(dbSeek(xFilial("SC6")+cPedSC6+cItemSC6+SC2->C2_PRODUTO))
+			dEntregaPV:=SC6->C6_ENTREG
+		EndIf
+	EndIf
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Grava linha no arquivo de trabalho         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If mv_par10 == 1
+		RecLock("TRB",.T.)
+		Replace PRODUTO	With SC2->C2_PRODUTO
+		Replace QTDOP  	With SC2->C2_QUANT
+		Replace QTDOP2UM  With SC2->C2_QTSEGUM
+		Replace UM      With SC2->C2_UM
+		If SC2->C2_DESTINA == "P"
+			Replace DTPV With dEntregaPV
+		EndIf
+		Replace DTFIM  	With SH8->H8_DTFIM
+		Replace CTRAB	With SH8->H8_CTRAB
+		Replace RECURSO	With SH8->H8_RECURSO
+		Replace OP     	With SH8->H8_OP
+		Replace OPERAC 	With SH8->H8_OPER
+		Replace QTDENT  With SaldoOperac(SH8->H8_OP, SH8->H8_OPER)
+		Replace QTDENTREC With SaldoOperac(SH8->H8_OP, SH8->H8_OPER, SH8->H8_RECURSO)
+		Replace SALDO  	 With (SC2->C2_QUANT-QTDENT)
+		Replace DTENTREG With SC2->C2_DATRF
+		MsUnlock()
+		dbSelectArea("SH8")
+	Else
+		dbSelectArea("SH6")
+		dbSetOrder(3)
+		If dbSeek(cSeek:=xFilial("SH6")+SC2->C2_PRODUTO+SC2->C2_NUM+SC2->C2_ITEM+SC2->C2_SEQUEN+SC2->C2_ITEMGRD)
+			Do While ! Eof() .And. SH6->(H6_FILIAL + H6_PRODUTO + H6_OP)  == cSeek
+				RecLock("TRB",.T.)
+				Replace PRODUTO	With SC2->C2_PRODUTO
+				Replace QTDOP  	With SC2->C2_QUANT
+				Replace QTDOP2UM  With SC2->C2_QTSEGUM
+				Replace UM      With SC2->C2_UM
+				If SC2->C2_DESTINA == "P"
+					Replace DTPV With dEntregaPV
+				EndIf
+				Replace RECURSO	With SH6->H6_RECURSO
+				Replace OP     	With SH6->H6_OP
+				Replace OPERAC 	With SH6->H6_OPERAC
+				Replace QTDENT  With SaldoOperac(SH6->H6_OP, SH6->H6_OPERAC,, SH6->(RecNo()))
+				Replace QTDENTREC With SaldoOperac(SH6->H6_OP, SH6->H6_OPERAC, SH6->H6_RECURSO, SH6->(RecNo()))
+				Replace SALDO  	 With (SC2->C2_QUANT-QTDENT)
+				Replace DTENTREG With SC2->C2_DATRF
+				MsUnlock()
+				dbSelectArea("SH6")
+				dbSkip()
+			Enddo
+		Else
+			RecLock("TRB",.T.)
+			Replace PRODUTO	With SC2->C2_PRODUTO
+			Replace QTDOP  	With SC2->C2_QUANT
+			Replace QTDOP2UM  With SC2->C2_QTSEGUM
+			Replace UM      With SC2->C2_UM
+			If SC2->C2_DESTINA == "P"
+				Replace DTPV With dEntregaPV
+			EndIf
+			Replace OP     	With SC2->C2_NUM+SC2->C2_ITEM+SC2->C2_SEQUEN+SC2->C2_ITEMGRD
+			Replace QTDENT  With SC2->C2_QUJE
+			Replace QTDENTREC With SC2->C2_QUJE
+			Replace SALDO  	 With (SC2->C2_QUANT-SC2->C2_QUJE)
+			Replace DTENTREG With SC2->C2_DATRF
+			MsUnlock()
+		EndIf
+		dbSelectArea("SC2")
+	EndIf
+	dbSkip()
+EndDo
+
+If mv_par10 == 1
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Fecha Arquivo da Carga Maquina Alocada                       ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	RetIndex("SH8")
+	FErase(cIndex+OrdBagExt())
+Else
+	RetIndex("SC2")
+	FErase(cIndex+OrdBagExt())
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Montagem do AHeader.                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE aHeader := {}
+Aadd(aHeader,{STR0003,"PRODUTO"    ,PesqPict("SC2","C2_PRODUTO",nTamCod),nTamCod,0,"",USADO,"C",,""})	//"Produto"
+Aadd(aHeader,{STR0004,"CTRAB"      ,PesqPict("SH8","H8_CTRAB",6),6,0,"",USADO,"C",,""})		//"Centro Trabalho"
+Aadd(aHeader,{STR0005,"RECURSO"    ,PesqPict("SH8","H8_RECURSO",6),6,0,"",USADO,"C",,""})	    //"Recurso"
+Aadd(aHeader,{STR0006,"OP"         ,PesqPict("SH8","H8_OP",nTamX3OP),nTamX3OP,nDecX3OP,"",USADO,cTipoX3OP,,""})		//"Ordem de Producao"
+Aadd(aHeader,{STR0054,"OPERAC"     ,PesqPict("SH8","H8_OPER",2),2,0,"",USADO,"C",,""})		//"Operacao"
+Aadd(aHeader,{STR0007,"QTDOP"      ,PesqPictQt("C2_QUANT",14),14,4,"",USADO,"N",,""})			//"Qtd. Original"
+Aadd(aHeader,{STR0022,"QTDOP2UM"   ,PesqPictQt("C2_QTSEGUM",14),14,4,"",USADO,"N",,""})	 	//"Qtd. 2a. UM"
+Aadd(aHeader,{STR0008,"UM"         ,PesqPict("SC2","C2_UM",2),2,0,"",USADO,"C",,""})			//"Unidade"
+Aadd(aHeader,{STR0009,"DTFIM"      ,PesqPict("SH8","H8_DTFIM",8),8,0,"",USADO,"D",,""})		//"Dt. Final Aloc."
+Aadd(aHeader,{STR0010,"DTPV"       ,PesqPict("SC6","C6_ENTREG",8),8,0,"",USADO,"D",,""})		//"Dt. Entrega PV"
+Aadd(aHeader,{STR0011,"QTDENT"     ,PesqPictQt("C2_QUJE" ,14),14,4,"",USADO,"N",,""})	        //"Qtd. j  Produzida"
+Aadd(aHeader,{STR0084,"QTDENTREC"  ,PesqPictQt("C2_QUANT",14),14,4,"",USADO,"N",,""})	        //"Prod. Recurso"
+Aadd(aHeader,{STR0012,"SALDO"		,PesqPictQt("C2_QUANT",14),14,4,"",USADO,"N",,""})	        //"Saldo a Produzir"
+Aadd(aHeader,{STR0013,"DTENTREG"   ,PesqPict("SC2","C2_DATRF",8),8,0,"",USADO,"D",,""})      //"Dt. Final Prod."
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Montagem do aCols.                                           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+PRIVATE aCols := {}
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Calcula dimensões                                            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oSize := FwDefSize():New()
+oSize:AddObject( "GETDADOS"   ,  100, 70, .T., .T. ) // Totalmente dimensionavel
+oSize:AddObject( "BUTTON"     ,  100, 10, .T., .F. ) // Nao dimensiona Y
+
+oSize:lProp := .T. // Proporcional             
+oSize:aMargins := { 3, 3, 3, 3 } // Espaco ao lado dos objetos 0, entre eles 3 
+
+oSize:Process() // Dispara os calculos  
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Monta Dialog                                                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !lAutomacao
+DEFINE MSDIALOG oDlg TITLE cCadastro ;  //"Acompanhamento de Producao
+						FROM oSize:aWindSize[1],oSize:aWindSize[2] TO oSize:aWindSize[3],oSize:aWindSize[4] OF oMainWnd PIXEL
+						
+oGetDb := MsGetDB():New(oSize:GetDimension("GETDADOS","LININI"),oSize:GetDimension("GETDADOS","COLINI"),;
+						     oSize:GetDimension("GETDADOS","LINEND"),oSize:GetDimension("GETDADOS","COLEND"),;
+                             1,"AllwaysTrue","AllwaysTrue",,,,,,,"TRB")
+
+DEFINE SBUTTON FROM oSize:GetDimension("BUTTON","LININI"),oSize:GetDimension("BUTTON","COLEND")-28  TYPE 6 ACTION (C080Rel(),oDlg:End())	ENABLE OF oDlg        //"Imprimir"
+
+@ oSize:GetDimension("BUTTON","LININI"), oSize:GetDimension("BUTTON","COLEND")-100 BUTTON STR0023  SIZE 46 ,10  FONT oDlg:oFont ACTION M080Emp()   OF oDlg PIXEL   //"Empenhos"
+@ oSize:GetDimension("BUTTON","LININI"), oSize:GetDimension("BUTTON","COLEND")-150 BUTTON STR0024  SIZE 46 ,10  FONT oDlg:oFont ACTION M080Perda() OF oDlg PIXEL   //"Perdas"
+@ oSize:GetDimension("BUTTON","LININI"), oSize:GetDimension("BUTTON","COLEND")-200 BUTTON STR0025  SIZE 46 ,10  FONT oDlg:oFont ACTION M080Carga() WHEN (mv_par10 == 1) OF oDlg PIXEL   //"Operacoes Alocadas"
+@ oSize:GetDimension("BUTTON","LININI"), oSize:GetDimension("BUTTON","COLEND")-250 BUTTON STR0026  SIZE 46 ,10  FONT oDlg:oFont ACTION M080Rec()   OF oDlg PIXEL   //"Det. Recurso"
+@ oSize:GetDimension("BUTTON","LININI"), oSize:GetDimension("BUTTON","COLEND")-300 BUTTON STR0027  SIZE 46 ,10  FONT oDlg:oFont ACTION M080Fer()   WHEN (mv_par10 == 1) OF oDlg PIXEL   //"Ferramentas"
+
+If ExistBlock("MTC080BTN")
+	aButtons := ExecBlock("MTC080BTN",.F.,.F.)
+	If ValType(aButtons) != "A"
+		aButtons := Nil
+	EndIf
+EndIf                   
+
+ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar(oDlg,{|| oDlg:End()},{||oDlg:End()},,aButtons)
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Apaga Arquivos Temporarios                                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oTempTable:Delete()
+RETURN
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ C080Rel  ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 26/06/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Envia para funcao que faz a impressao da consulta.         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function C080Rel()
+LOCAL cTitulo  :=STR0014	//"ACOMPANHAMENTO DE PRODUCAO"
+LOCAL cDesc1   :=STR0015	//"Este programa ira imprimir a Consulta de Acompanhamento de  "
+LOCAL cDesc2   :=STR0016	//"Producao baseado na Carga Maquina, Apontamentos de Producao"
+LOCAL cDesc3   :=STR0017	//"e Carga Acumulativa."
+LOCAL cString  :="TRB"
+LOCAL wnrel    :="MATC080"
+
+PRIVATE cPerg   := "MTC080"
+PRIVATE aReturn := {STR0018,1,STR0019, 1, 2, 1, "",1 }	// "Zebrado"###"Administracao"
+PRIVATE nLastKey:=0
+
+Default lAutomacao := .F.
+
+If !lAutomacao 
+	wnRel:= SetPrint(cString,wnrel,cPerg,cTitulo,cDesc1,cDesc2,cDesc3,.F.,"",,,,.F.)
+
+	If nLastKey = 27
+		Return
+	Endif
+
+	SetDefault(aReturn,cString)
+
+	If nLastKey = 27
+		Return
+	Endif
+
+	RptStatus({|lEnd| C080Imp(@lEnd,ctitulo,wnRel)},ctitulo)
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ C080Imp  ³ Autor ³ Rodrigo de A. Sartorio³ Data ³ 26/06/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Envia para funcao que faz a impressao da consulta.         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function C080Imp(lEnd,ctitulo,wnRel)
+Local cCabec1:=""
+Local cCabec2:=""
+Local cTamanho :="G"
+Local cNomeProg:="MATC080"
+Local cbtxt    := SPACE(10)
+Local cbcont   := 0
+Local nTipo    := 0
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Salva as areas originais                                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local cAliasOld:=Alias(),nRecnoOld:=Recno(),nOrdOld:=IndexOrd()
+Local nTrbRecOld:=TRB->(Recno()),nTrbOrder:=TRB->(IndexOrd())
+
+Default lAutomacao := .F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa os codigos de caracter Comprimido/Normal da impressora ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nTipo  := IIF(aReturn[4]==1,15,18)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Monta o cabecalho do Relatorio                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cCabec1:=STR0020	//"PRODUTO                                        CENTRO    RECURSO                                  ORDEM DE    QTD. ORIGINAL  QTD.ORIG.2a.UM  UM  DT. FINAL   DATA DE           QTD. JA        SALDO A   DATA FINAL"
+cCabec2:=STR0021	//"                                               TRABALHO                                           PRODUCAO                                        ALOCACAO   ENTREGA PV       PRODUZIDA       PRODUZIR    PRODUCAO"
+//					   123456789012345 123456789012345678901234567890  123456   123456  123456789012345678901234567890  12345678901 12345678901234  12345678901234  12 1234567890   1234567890  12345678901234 12345678901234  1234567890
+//  				             1         2         3         4         5         6         7         8         9        10        11        12        13        14        15        16        17        18        19        20        21        22        23
+//  				   012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+
+li       := 80
+m_pag    := 1
+
+dbSelectArea("TRB")
+dbGoTop()
+If !lAutomacao
+SetRegua(RecCount())		//Total de Elementos da Regua
+EndIf
+While !EOF()
+	If !lAutomacao
+		IncRegua()
+		
+		IF li > 60
+			cabec(cTitulo,cCabec1,cCabec2,cNomeProg,cTamanho,nTipo)
+		EndIF
+	endIf
+	@ li,000 PSAY PRODUTO
+	SB1->(dbSeek(xFilial("SB1")+TRB->PRODUTO))
+	@ li,031 PSAY Substr(SB1->B1_DESC,1,30)
+	@ li,063 PSAY CTRAB	
+	@ li,072 PSAY RECURSO      
+	SH1->(dbSeek(xFilial("SH1")+TRB->RECURSO))
+	@ li,079 PSAY Substr(SH1->H1_DESCRI,1,30)
+	@ li,110 PSAY OP
+	@ li,124 PSAY QTDOP    PICTURE PESQPICT("SC2","C2_QUANT",14)
+	@ li,140 PSAY QTDOP2UM PICTURE PESQPICT("SC2","C2_QTSEGUM",14)
+	@ li,156 PSAY UM
+	@ li,160 PSAY DTFIM
+	@ li,169 PSAY DTPV
+	@ li,179 PSAY QTDENTREC   PICTURE PESQPICT("SC2","C2_QUJE",14)
+	@ li,194 PSAY SALDO       PICTURE PESQPICT("SC2","C2_QUANT",14)
+	@ li,209 PSAY DTENTREG  
+	li++
+	dbSkip()
+EndDO
+
+If !lAutomacao
+	IF li != 80
+		li++
+		roda(cbcont,cbtxt,"M")		
+	EndIF
+
+	Set Device To Screen
+
+	If aReturn[5] = 1
+		Set Printer TO
+		dbCommitAll()
+		Ourspool(wnrel)
+	Endif
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Restaura as areas originais                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAliasOld)
+dbSetOrder(nOrdOld)
+dbGoto(nRecnoOld)
+If cAliasOld != "TRB"
+	TRB->(dbGoto(nTrbRecOld))
+	TRB->(dbSetOrder(nTrbOrder))
+EndIf
+Return
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ M080Emp  ³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Mostra os Empenhos das OP's                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function M080Emp()
+
+Local aTrb := {}
+Local oDlg, oQual, nOAT, cDescPrd
+LOCAL cCadastro := STR0028 + TRB->OP	//"Consulta dos Empenhos OP: "
+
+SB1->(dbSeek(xFilial("SB1")+TRB->PRODUTO))
+cDescPrd := Substr(SB1->B1_DESC,1,30)
+
+dbSelectArea("SD4")
+dbSetOrder(2)
+dbSeek(xFilial("SD4")+TRB->OP)
+Do While !Eof() .And. D4_FILIAL+D4_OP == xFilial("SD4")+TRB->OP
+	AADD(aTrb,{})
+	AADD(aTrb[Len(aTrb)],D4_COD)
+	AADD(aTrb[Len(aTrb)],D4_LOCAL)
+	AADD(aTrb[Len(aTrb)],DTOC(D4_DATA))
+	AADD(aTrb[Len(aTrb)],TRANSFORM(D4_QTDEORI,PesqPictQt("D4_QTDEORI",14)) )
+	AADD(aTrb[Len(aTrb)],TRANSFORM(D4_QUANT, PesqPictQt("D4_QUANT",14)) )
+	AADD(aTrb[Len(aTrb)],D4_LOTECTL)
+	AADD(aTrb[Len(aTrb)],D4_NUMLOTE)
+	AADD(aTrb[Len(aTrb)],TRANSFORM(D4_QTSEGUM,PesqPictQt("D4_QTSEGUM",14)) )
+	AADD(aTrb[Len(aTrb)],TRANSFORM(D4_QSUSP,PesqPictQt("D4_QSUSP",14)) )
+	AADD(aTrb[Len(aTrb)],D4_SITUACA)
+	dbSkip()
+EndDo
+
+If Len(aTrb) > 0
+	DEFINE MSDIALOG oDlg TITLE cCadastro From 8, 05 To 28.5, 77 OF oMainWnd
+
+	@ .5 , 001 SAY STR0029 //"Produto:"
+	@ .4,  005 GET TRB->PRODUTO When .F.
+
+	@ 1.5, 001 SAY STR0030 //"Descricao:"
+	@ 1.4, 005 GET cDescPrd When .F.
+
+	@ 2.5, 001 LISTBOX oQual FIELDS  HEADER STR0031,STR0032,STR0033, STR0034,; //"Produto"###"Local"###"Data"###"Quantidade Original"
+		STR0035,STR0036, STR0037,STR0038, STR0039, STR0040  SIZE 268,092  //"Saldo"###"Lote"###"SubLote"###"Qtd. 2a. UM"###"Qtd. Suspensa"###"Situacao"
+	oQual:SetArray(aTrb)
+	oQual :bLine := {|| aTrb[oQual:nAT]}
+
+	DEFINE SBUTTON FROM 135,250  TYPE 1  ENABLE OF oDlg ACTION (oDlg:End())
+
+	ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAT := oQual:nAT,.t.)
+EndIf
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ M080Perda³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Mostra os Apontamentos de Perda das OP's                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function M080Perda()
+
+Local aTrb := {}
+Local oDlg, oQual, nOAT
+LOCAL cMotivo, cDescPrd
+LOCAL cCadastro := STR0041 + TRB->OP	//"Apontamento de Perdas OP: "
+Local aTabGen := {}
+Local nTamNum := TamSX3("X5_CHAVE")[1]
+
+//Busca a descrição do motivo de refugo.
+//Se o cliente tem os campos novos da CYO, então ele tem a melhoria em que foi retirada
+//o cadastro de refugo da SX5 e transferido para o SFCA003
+
+If !campoCYO() 
+   aTabGen := FWGetSX5('43')
+EndIf
+
+dbSelectArea("SBC")
+dbSetOrder(1)
+dbSeek(xFilial("SBC")+TRB->OP)
+SB1->(dbSeek(xFilial("SB1")+TRB->PRODUTO))
+cDescPrd := Substr(SB1->B1_DESC,1,30)
+
+CYO->(dbSetOrder(1))
+
+Do While SBC->(!Eof()) .And. SBC->(BC_FILIAL+BC_OP) == xFilial("SBC")+TRB->OP
+
+	If len(aTabGen) > 0 
+		nI := ASCAN(aTabGen, {|x| x[3]==Padr(SBC->BC_MOTIVO,nTamNum)}) 
+		If nI > 0
+			cMotivo := Substr(aTabGen[nI][4],1,35)
+		Else
+			cMotivo := ''
+		Endif
+	Else
+		IF CYO->(dbSeek(xFilial("CYO")+SBC->BC_MOTIVO))
+			cMotivo := CYO->CYO_DSRF
+		Else
+			cMotivo := ''
+		Endif
+	EndIF
+
+
+	AADD(aTrb,{})
+	AADD(aTrb[Len(aTrb)],SBC->BC_PRODUTO)
+	AADD(aTrb[Len(aTrb)],SBC->BC_LOCORIG)
+	AADD(aTrb[Len(aTrb)],SBC->BC_TIPO)
+	AADD(aTrb[Len(aTrb)],SBC->BC_MOTIVO)
+	AADD(aTrb[Len(aTrb)],cMotivo)
+	AADD(aTrb[Len(aTrb)],TRANSFORM(SBC->BC_QUANT,PesqPictQt("BC_QUANT",14)) )
+	AADD(aTrb[Len(aTrb)],SBC->BC_CODDEST)
+	AADD(aTrb[Len(aTrb)],SBC->BC_LOCAL)
+	AADD(aTrb[Len(aTrb)],TRANSFORM(SBC->BC_QTDDEST,PesqPictQt("BC_QTDDEST",14)) )
+	AADD(aTrb[Len(aTrb)],DTOC(SBC->BC_DATA))
+	AADD(aTrb[Len(aTrb)],SBC->BC_OPERADO)
+	AADD(aTrb[Len(aTrb)],SBC->BC_LOTECTL)
+	AADD(aTrb[Len(aTrb)],SBC->BC_NUMLOTE)
+	AADD(aTrb[Len(aTrb)],SBC->BC_DTVALID)
+	AADD(aTrb[Len(aTrb)],SBC->BC_RECURSO)
+	AADD(aTrb[Len(aTrb)],SBC->BC_OPERAC)
+	
+	SBC->(dbSkip())
+EndDo
+
+If Len(aTrb) > 0
+	DEFINE MSDIALOG oDlg TITLE cCadastro From 8, 05 To 28.5, 77 OF oMainWnd
+
+	@ .5 , 001 SAY STR0029 //"Produto:"
+	@ .4,  005 GET TRB->PRODUTO When .F.
+
+	@ 1.5, 001 SAY STR0030 //"Descricao:"
+	@ 1.4, 005 GET cDescPrd When .F.
+
+	@ 2.5, 001 LISTBOX oQual FIELDS HEADER STR0031,STR0042,STR0043, STR0044, STR0045, STR0034,; //"Produto"###"Local Origem"###"Tipo"###"Motivo Perda"###"Descricao Perda"###"Quantidade Original"
+		STR0046,STR0047, STR0048,STR0049,STR0050 ,STR0036, STR0051,STR0052,; //"Prd.Destino"###"Loc.Destino"###"Qtd.Destino"###"Dt.da Perda"###"Operador"###"Lote"###"Sub-Lote"###"Dt. Validade"
+		STR0053, STR0054    SIZE 268,092  //"Recurso"###"Operacao"
+	oQual:SetArray(aTrb)
+	oQual :bLine := {|| aTrb[oQual:nAT]}
+	DEFINE SBUTTON FROM 135,250  TYPE 1  ENABLE OF oDlg ACTION (oDlg:End())
+
+	ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAT := oQual:nAT,.t.)
+Else
+	Help(" ",1,"MTC050PER")
+EndIf
+
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ M080Carga³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Mostra as Operacoes Alocadas  (Carga Maquina)              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function M080Carga()
+
+Local aTrb := {}
+Local oDlg, oQual, nOAT
+LOCAL cCadastro := STR0055 + TRB->RECURSO 	 //"Operacoes Alocadas - Recurso : "
+LOCAL aDiaSemana := {STR0056,STR0057,STR0058,STR0059,STR0060,STR0061,STR0062}  //"DOMINGO"###"SEGUNDA"###"TERCA"###"QUARTA"###"QUINTA"###"SEXTA"###"SABADO"
+LOCAL nSetup
+
+cTipoTemp:=GetMV("MV_TPHR")
+
+dbSelectarea("SC2")
+dbSetOrder(1)
+dbSeek(xFilial("SC2")+TRB->OP)
+
+dbSelectarea("SB1")
+dbSeek(cFilial+SC2->C2_PRODUTO)
+If Empty(SC2->C2_ROTEIRO)
+	If !Empty(SB1->B1_OPERPAD)
+		cRoteiro:=SB1->B1_OPERPAD
+	Else
+		cRoteiro:="01"
+	EndIf
+Else
+	cRoteiro:=SC2->C2_ROTEIRO
+EndIf
+
+dbSelectArea("SH8")
+dbSetOrder(1)
+dbSeek(xFilial("SH8")+TRB->OP)
+
+Do While !Eof() .And. H8_FILIAL+H8_OP == xFilial("SH8")+TRB->OP
+
+	If SH8->H8_RECURSO != TRB->RECURSO
+		dbSkip()
+		loop
+	EndIf
+
+	SH4->(dbSeek(xFilial("SH4")+SH8->H8_FERRAM))
+
+	a630SeekSG2(1,SC2->C2_PRODUTO,SG2->( xFilial("SG2")+SC2->C2_PRODUTO+cRoteiro+SH8->H8_OPER ))
+    DbSelectArea("SH8")
+	nSetup := ConvTime(NIL,A690HoraCt(If(Empty(SG2->G2_FORMSTP),SG2->G2_SETUP,Formula(SG2->G2_FORMSTP))),NIL)
+	AADD(aTrb,{})
+	AADD(aTrb[Len(aTrb)],SH8->H8_OP)
+	AADD(aTrb[Len(aTrb)],TRANSFORM(SH8->H8_QUANT,PesqPictQt("H8_QUANT",14)) )
+	AADD(aTrb[Len(aTrb)],SH4->H4_CODIGO)
+	AADD(aTrb[Len(aTrb)],Substr(SH4->H4_DESCRI,1,14))
+	AADD(aTrb[Len(aTrb)],SG2->G2_OPERAC)
+	AADD(aTrb[Len(aTrb)],SubStr(SG2->G2_DESCRI,1,20))
+	AADD(aTrb[Len(aTrb)],SG2->G2_TPOPER)
+	AADD(aTrb[Len(aTrb)],DTOC(SH8->H8_DTINI) + ' - ' + aDiaSemana[Dow(SH8->H8_DTINI)])
+	AADD(aTrb[Len(aTrb)],SH8->H8_HRINI)
+	AADD(aTrb[Len(aTrb)],DTOC(SH8->H8_DTFIM) + ' - ' + aDiaSemana[Dow(SH8->H8_DTFIM)])
+	AADD(aTrb[Len(aTrb)],SH8->H8_HRFIM)
+	AADD(aTrb[Len(aTrb)],TRANSFORM(ConvTime(SH8->H8_BITUSO),PesqPictQt('G2_TEMPAD',7)) )
+	AADD(aTrb[Len(aTrb)],TRANSFORM(nSetup,If(cTipoTemp=='C',PesqPictQt('G2_TEMPAD',7),'') ) )
+	dbSkip()
+EndDo
+
+If Len(aTrb) > 0
+	DEFINE MSDIALOG oDlg TITLE cCadastro From 8, 05 To 28.5, 77 OF oMainWnd
+
+	@ .5 , 001 SAY STR0029 //"Produto:"
+	@ .4,  005 GET TRB->PRODUTO When .F.
+
+	@ 1.5, 001 SAY STR0030 //"Descricao:"
+	@ 1.4, 005 GET Substr(SB1->B1_DESC,1,30) When .F.
+
+	@ 2.5, 001 LISTBOX oQual FIELDS HEADER STR0063,STR0064, STR0065, STR0066,; //"OP"###"Quantidade"###"Ferramenta"###"Desc. Ferramenta"
+		STR0054,STR0067, STR0068, STR0069,STR0070,STR0071,; //"Operacao"###"Desc. Operacao"###"Tp.Operacao"###"Data Inicio"###"Inicio Alocacao"###"Data Final"
+		STR0072, STR0073,STR0074   SIZE 268,092 //"Termino Alocacao"###"Duracao"###"Setup"
+	oQual:SetArray(aTrb)
+	oQual :bLine := {|| aTrb[oQual:nAT]}
+	DEFINE SBUTTON FROM 135,250  TYPE 1  ENABLE OF oDlg ACTION (oDlg:End())
+
+	ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAT := oQual:nAT,.t.)
+EndIf
+
+Return .T.
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ M080Rec  ³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Mostra o Cadastro dos Recursos Utilizados                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function M080Rec()
+
+LOCAL aBackRot := AClone(aRotina)
+
+PRIVATE bCampo1 := { |nCPO| Field(nCPO) }
+PRIVATE aRotina := { {"","        "  , 0 , 1},;
+{"","          ", 0 , 2},;
+{"","          ", 0 , 3},;
+{"","          ", 0 , 4},;
+{"","          ", 0 , 5, 3} }
+
+Default lAutomacao := .F.
+
+dbSelectArea("SH1")
+dbSeek(xFilial("SH1")+TRB->RECURSO)
+
+If !lAutomacao
+a610Visual(alias(),recno(),2)
+EndIf
+
+aRotina := AClone(aBackRot)
+Return .T.
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ M080Fer  ³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Mostra as Ferramentas Utilizadas                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function M080Fer()
+Local aTrb := {}
+Local oDlg, oQual, nOAT
+LOCAL cCadastro := STR0075 //"Consulta das Ferramentas"
+dbSelectArea("SH8")
+dbSetOrder(1)
+dbSeek(xFilial("SH8")+TRB->OP)
+Do While !Eof() .And. H8_FILIAL+H8_OP == xFilial("SH8")+TRB->OP
+	If SH8->H8_RECURSO != TRB->RECURSO
+		dbSkip()
+		loop
+	EndIf
+	SH1->(dbSeek(xFilial("SH1")+TRB->RECURSO))	
+	dbSelectArea("SH4")
+	dbSeek(xFilial("SH4")+SH8->H8_FERRAM)
+	If !SH4->(Eof())
+		AADD(aTrb,{})
+		AADD(aTrb[Len(aTrb)],H4_CODIGO)
+		AADD(aTrb[Len(aTrb)],H4_DESCRI)
+		AADD(aTrb[Len(aTrb)],H4_VIDAUTI)
+		AADD(aTrb[Len(aTrb)],H4_TIPOVID)
+		AADD(aTrb[Len(aTrb)],DTOC(H4_DTAQUIS))
+		AADD(aTrb[Len(aTrb)],TRANSFORM(H4_VIDAACU,PesqPictQt("H4_QUANT",10)) )
+		AADD(aTrb[Len(aTrb)],TRANSFORM(H4_QUANT,PesqPictQt("H4_QUANT",10)) )
+		AADD(aTrb[Len(aTrb)],CalcData())
+	EndIf
+	SH8->(dbSkip())
+EndDo
+If Len(aTrb) > 0
+	DEFINE MSDIALOG oDlg TITLE cCadastro From 8, 05 To 28.5, 77 OF oMainWnd	
+	@ .5 , 001 SAY STR0076 //"Recurso:"
+	@ .4,  005 GET TRB->RECURSO When .F.	
+	@ 1.5, 001 SAY STR0030 //"Descricao:"
+	@ 1.4, 005 GET SH1->H1_DESCRI When .F.	
+	@ 2.5, 001 LISTBOX oQual FIELDS  HEADER STR0077,STR0078,STR0079, STR0080,; //"Codigo"###"Descricao"###"Vida Util"###"Tipo de Vida"
+		STR0081,STR0082, STR0064, STR0083 SIZE 268,092  //"Dt. Aquisicao"###"Vida Acumulativa"###"Quantidade"###"Vencimento"
+	oQual:SetArray(aTrb)
+	oQual :bLine := {|| aTrb[oQual:nAT]}	
+	DEFINE SBUTTON FROM 135,250  TYPE 1  ENABLE OF oDlg ACTION (oDlg:End())
+	ACTIVATE MSDIALOG oDlg CENTERED VALID (nOAT := oQual:nAT,.t.)
+Else
+	Help(" ",1,"MTC050FER")
+EndIf
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ CalcData ³ Autor ³ Patricia A. Salomao   ³ Data ³ 24/05/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Calcula o Venc. da  Ferramenta                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function CalcData()
+LOCAL dData,dDias
+dDias :=SH4->H4_VIDAUTI
+If SH4->H4_TIPOVID = "H"   // Hora
+	dDias := SH4->H4_VIDAUTI/24
+ElseIf SH4->H4_TIPOVID = "M"  // Mes
+	dDias := SH4->H4_VIDAUTI*30
+ElseIf SH4->H4_TIPOVID = "A"  //Ano
+	dDias := SH4->H4_VIDAUTI*365
+EndIf
+dData := SH4->H4_DTAQUIS+dDias
+Return(DTOC(dData))
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ SaldoOperac ³ Autor ³ Marcelo A. Iuspa      ³ Data ³ 05/11/02 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Calcula o Saldo de uma operacao (por recurso ou total)        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATC080                                                       ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function SaldoOperac(cOp, cOperacao, cRecurso, nRecNo)
+Local aSavAre := {Alias(), SH6->(IndexOrd()), SH6->(RecNo()), SC2->(IndexOrd()), SC2->(RecNo())}
+Local cSeek   := Nil
+Local nSaldo  := 0
+Local bBloco  := If(nRecNo == Nil, {|| .T.}, {|| SH6->(RecNo()) <= nRecNo})
+dbSelectArea("SC2")
+dbSetOrder(1)
+dbSeek(xFilial("SC2") + cOp)
+dbSelectArea("SH6")
+dbSetOrder(3)
+dbSeek(cSeek := xFilial("SH6") + SC2->C2_PRODUTO + cOp + cOperacao)
+Do While ! Eof() .And. SH6->(H6_FILIAL + H6_PRODUTO + H6_OP + H6_OPERAC) == cSeek .And. Eval(bBloco)
+	If cRecurso == Nil .Or. SH6->H6_RECURSO == cRecurso
+		nSaldo += SH6->(H6_QTDPROD + H6_QTDPERD)
+	Endif
+	dbSkip()
+Enddo
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Restaura as areas originais                                       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSetOrder(aSavAre[2])
+dbGoto(aSavAre[3])
+dbSelectArea("SC2")
+dbSetOrder(aSavAre[4])
+dbGoto(aSavAre[5])
+dbSelectArea(aSavAre[1])
+Return(nSaldo)

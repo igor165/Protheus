@@ -1,0 +1,437 @@
+#INCLUDE "PROTHEUS.CH"
+#include "PCPXFUNA.CH"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ClcPrzPcp()
+DEVOLVE O PRAZO DE ENTREGA DE UM PRODUTO
+
+@param cProduto	- Codigo do produto cujo prazo sera calculado.
+@param nQuant	- Quantidade a comprar/produzir.
+@param cFornece	- Codigo do fornecedor de compra.
+@param cLoja    - Loja do fornecedor de compra.
+@param lIniFim  - Indica se calcula pela data inicio.
+@param dData    - Data de referencia para calculo do prazo.
+@param cRotOP   - Roteiro informado na OP
+
+@author Michele Lais Girardi
+@since 07/02/2019
+@version P12
+@return nPrazo
+/*/
+//--------------------------------------------------------------------
+Function ClcPrzPcp(cProduto,nQuant,cFornece,cLoja,lIniFim,dData,cRotOP)
+Local aArea    := GetArea()
+Local aCalend  := {}
+Local nPrazo   := 0
+Local nHrsOper := 0
+Local nHrsCale := 0
+Local nHrsTot  := 0
+Local nQtdeAux := 0
+Local nX       := 0
+Local cRoteiro := ""
+Local dDataFim := dDataBase
+
+PRIVATE Quantidade := 0
+PRIVATE cTipoTemp  := SuperGetMV("MV_TPHR",.F.,"C")
+PRIVATE nPrecisao  := SuperGetMV("MV_PRECISA",.F.,4)
+
+Default nQuant 	 := 0
+Default cFornece := Space(30)
+Default cLoja 	 := Space(2)
+Default lIniFim  := .T.
+
+nQuant := IIF(nQuant == Nil .or. empty(nQuant),0,nQuant)
+
+DbSelectArea("SB1")
+If B1_COD != cProduto .or. xFilial("SB1") != B1_FILIAL
+	dbSeek(xFilial("SB1")+cProduto)
+Endif
+
+nQuant 		:= IIF(nQuant==0,RetFldProd(SB1->B1_COD,"B1_LE"),nQuant)
+nQuant 		:= IIF(nQuant==0,1,nQuant)
+Quantidade	:=	nQuant          // Para Usar em formulas
+
+//-- Se produto fabricado e MV_PEOPERA, calcula pelo G2
+If !Empty(cRotOP)
+	cValRot := cRotOP
+Else
+	If !Empty(SB1->B1_OPERPAD)
+		cValRot := SB1->B1_OPERPAD
+	Else
+		cValRot := '01'
+	EndIf
+EndIf
+
+cRoteiro  := A650VldRot(SB1->B1_COD, cValRot)
+
+SG2->(dbSetOrder(1))
+If SuperGetMV("MV_PEOPERA",.F.,.F.) .And. SG2->(dbSeek(xFilial("SG2")+SB1->B1_COD+cRoteiro)) .And. !Empty(dData)
+	dDataFim := dData
+
+	SH7->(dbSetOrder(1))
+	SH1->(dbSetOrder(1))
+	While !SG2->(EOF()) .And. SG2->(G2_FILIAL+G2_PRODUTO+G2_CODIGO) == xFilial("SG2")+SB1->B1_COD+cRoteiro
+		//-- Posiciona recurso
+		SH1->(dbSeek(xFilial("SH1")+SG2->G2_RECURSO))
+
+		// Calcula tempo de duracao baseado no Tipo de Operacao
+		If SG2->G2_TPOPER $ " 1"
+			nHrsOper := Round(nQuant*(If(Empty(A690HoraCt(SG2->G2_TEMPAD)),1,A690HoraCt(SG2->G2_TEMPAD))/If(Empty(SG2->G2_LOTEPAD),1,SG2->G2_LOTEPAD)),5)
+			If SH1->H1_MAOOBRA # 0
+				nHrsOper := Round(nHrsOper/SH1->H1_MAOOBRA,5)
+			EndIf
+		ElseIf SG2->G2_TPOPER == "4"
+			nQtdeAux := nQuant % If(Empty(SG2->G2_LOTEPAD),1,SG2->G2_LOTEPAD)
+			nQtdeAux := Int(nQuant) + If(nQtdeAux > 0,If(Empty(SG2->G2_LOTEPAD),1,SG2->G2_LOTEPAD) - nQtdeAux,0)
+			nHrsOper := Round(nQtdeAux * (If(Empty(A690HoraCt(SG2->G2_TEMPAD)),1,A690HoraCt(SG2->G2_TEMPAD)) / If(Empty(SG2->G2_LOTEPAD),1,SG2->G2_LOTEPAD)),5)
+			If SH1->H1_MAOOBRA # 0
+				nHrsOper := Round(nHrsOper/SH1->H1_MAOOBRA,5)
+			EndIf
+		ElseIf SG2->G2_TPOPER == "2" .Or. SG2->G2_TPOPER == "3"
+			nHrsOper := If(Empty(A690HoraCt(SG2->G2_TEMPAD)),1,A690HoraCt(SG2->G2_TEMPAD))
+		EndIf
+
+		nHrsOper += A690HoraCt(If(Empty(SG2->G2_FORMSTP),SG2->G2_SETUP,Formula(SG2->G2_FORMSTP)))	//-- Soma setup
+		nHrsOper += A690HoraCt(SG2->G2_TEMPEND)				//-- Soma tempo fim da operacao
+
+		//-- Obtem horas trabalhadas na semana pelo calendario
+		SH7->(dbSeek(xFilial("SH7")+SH1->H1_CALEND))
+		aCalend := A780Arrays(4)
+
+		//-- Aloca horas da operacao de acordo com horas do calendario
+		While nHrsOper > 0 .And. !Empty(aCalend[1]+aCalend[2]+aCalend[3]+aCalend[4]+aCalend[5]+aCalend[6]+aCalend[7])
+			//nX := If(Empty(Dow(dDataFim)-1),7,Dow(dDataFim)-1)
+			nXDow := Dow(dDataFim)
+			Do Case
+				Case nXDow == 0
+					nX := 7
+				Case nXDow == 1
+					nX := 7
+				Case nXDow > 1
+					nX := nXDow - 1
+			EndCase
+
+			If Empty(aCalend[nX])	//-- Dia nao util (pula o dia)
+				nHrsTot += 24
+
+				If lIniFim
+					dDataFim++
+				Else
+					dDataFim--
+				EndIf
+			Else					//-- Dia util (considera horas do dia)
+				nHrsCale := (Len(StrTran(aCalend[nX]," ","")) * (60 / nPrecisao)) / 60
+				nHrsTot += Min(nHrsCale,nHrsOper)
+				If nHrsCale <= nHrsOper
+					If lIniFim
+						dDataFim++
+					Else
+						dDataFim--
+					EndIf
+				EndIf
+				nHrsOper -= Min(nHrsCale,nHrsOper)
+			EndIf
+		End
+
+		SG2->(dbSkip())
+	End
+
+	nPrazo := Abs(dDataFim - dData)
+Else
+	If !Empty(nPrazo := Posicione("SA5",1,xFilial("SA5")+cFornece+cLoja+cProduto,"A5_PE"))
+		If SA5->A5_TIPE == "4" 		// Mes
+			nPrazo *= 30
+		ElseIf SA5->A5_TIPE == "3"	// Semana
+			nPrazo *= 7
+		ElseIf SA5->A5_TIPE == "5"	// Ano
+			nPrazo *= 365
+		ElseIf SA5->A5_TIPE == "1"	// Hora
+			nPrazo := Int(nPrazo/24)
+		EndIf
+	ElseIf Empty(RetFldProd(SB1->B1_COD,"B1_FORPRZ"))
+		nPrazo := RetFldProd(SB1->B1_COD,"B1_PE")
+		If RetFldProd(SB1->B1_COD,"B1_TIPE") == "M"		 // Mes
+			nPrazo *= 30
+		ElseIf RetFldProd(SB1->B1_COD,"B1_TIPE") == "S"	// Semana
+			nPrazo *= 7
+		ElseIf RetFldProd(SB1->B1_COD,"B1_TIPE") == "A"	// Ano
+			nPrazo *= 365
+		ElseIf RetFldProd(SB1->B1_COD,"B1_TIPE") == "H"	// Hora
+			nPrazo := Int(nPrazo/24)
+		EndIf
+	Else
+		nPrazo := Formula(RetFldProd(SB1->B1_COD,"B1_FORPRZ"))
+		If ValType(nPrazo) # "N"
+			Help(" ",1,"FORMUL")
+			nPrazo:=0
+		EndIf
+		nPrazo := IIF(nPrazo == Nil,0,nPrazo)  // Nao existe a formula
+	EndIf
+End
+
+RestArea(aArea)
+Return nPrazo
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o	 ³APrModRec     ³ Autor ³Rodrigo de A Sartorio³ Data ³ 21/03/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna codigo do produto a ser pesquisado no cadastro de    ³±±
+±±³          ³ produtos                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cRecurso  = Recurso posicionado a ser pesquisado             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso		 ³ Mata680,Mata681                                              ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function ModRecPCP(cRecurso)
+LOCAL cRet      := ""
+LOCAL cCusto    := ""
+LOCAL cGrupo    := ""
+LOCAL lTemIndice:= .F.
+LOCAL aArea     := GetArea()
+SH1->(dbSetOrder(1))
+
+If ExistBlock("MTAREMOD")
+	cRet := ExecBlock("MTAREMOD",.F.,.F.,{cRecurso})
+EndIf
+
+// Certifica-se de que o recurso esta posicionado
+If SH1->(MsSeek(xFilial("SH1")+cRecurso)) .And. Empty(cRet)
+	// Obtem os dados do recurso
+	cCusto:=SH1->H1_CCUSTO
+	cGrupo:=SH1->H1_GCCUSTO
+	cRet  :="MOD"+Alltrim(cCusto)
+	// Checa codigo de produto
+	SB1->(dbSetOrder(1))
+	If SB1->(MsSeek(xFilial("SB1")+cRet))
+		If SB1->B1_MSBLQL == '1'
+			lExistMod := .F.
+		Else
+			lExistMod := .T.
+		EndIf
+	Else
+		lExistMod := .F.
+	EndIf
+
+	If !lExistMod
+		dbSelectArea("SIX")
+		dbSeek("SB1")
+		While ("SB1" == INDICE) .and. !Eof()
+			cSixChave := AllTrim(CHAVE)
+			If SIX->ORDEM == "8" .And. cSixChave == "B1_FILIAL+B1_CCCUSTO+B1_GCCUSTO"
+				lTemIndice:=.T.
+				Exit
+			EndIf
+			dbSkip()
+		End
+		If lTemIndice
+			dbSelectArea("SB1")
+			SB1->(dbSetOrder(8))
+			SB1->(dbGotop())
+			dbSeek(xFilial("SB1")+cCusto+cGrupo)
+			While !Eof() .And. (SB1->B1_FILIAL+SB1->B1_CCCUSTO+SB1->B1_GCCUSTO == xFilial("SB1")+cCusto+cGrupo)
+				cRet := SB1->B1_COD
+				If SB1->B1_MSBLQL == '1' //Bloqueado
+					SB1->(dbSkip())
+				Else
+					Exit
+				EndIf
+			End
+		EndIf
+	EndIf
+EndIf
+RestArea(aArea)
+Return cRet
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³PCPCodUsr ³ Autor ³ Edson Maricate        ³ Data ³27.01.1999³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna o codigo do Usuario Corrente.                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ Void PCPCodUsr()                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ RetC1  - Codigo do usuario corrente.                       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico.                                                  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function PCPCodUsr(cUser)
+
+Local cCodUser	:= ""
+Local aUsers   	:= {}
+Local nPos     	:= 0
+Local nLenUSR  	:= 0
+
+//Default somente atribui se parâmetro recebido for nulo, se for vazio não atribui
+Default cUser := cUserName
+
+If GetRemoteType() == -1 // Verifica se o acesso é por Job/WebService
+	aUsers   	:= FwSFAllUsers()
+	nLenUSR  	:= Len(aUsers[1,3])
+	nPos        := aScan( aUsers, { |x| x[3] == RTRIM(cUser) } )
+
+	If nPos > 0
+		cCodUser := aUsers[nPos][2]
+	ElseIf !Empty(cUserName)
+		cCodUser := PCPCodUsr(cUserName)
+	EndIf
+
+	If Empty( cCodUser )
+		cCodUser := __cUserId
+	EndIf
+
+Else
+	cCodUser := __cUserId
+Endif
+
+Return cCodUser
+
+/*/{Protheus.doc} PCPConvDat
+Faz a conversão de uma data string, ou de string para data
+considerando o formato utilizado em API ('AAAA-MM-DD')
+
+@type  Function
+@author lucas.franca
+@since 16/11/2021
+@version P12
+@param xData, Character/Date, Data em formato String ou Date
+@param nTipo, Numeric       , Define o tipo de conversão
+                              1 - Character para Date
+                              2 - Date para Character
+@return xData, Character/Date, Retorna a data no formato especificado
+/*/
+Function PCPConvDat(xData, nTipo)
+	If !Empty(xData)
+		If nTipo == 1
+			xData := StoD(StrTran(xData, "-", ""))
+		Else
+			xData := StrZero(Year(xData),4) + "-" + StrZero(Month(xData),2) + "-" + StrZero(Day(xData),2)
+		EndIf
+	Else
+		If nTipo == 1
+			xData := CtoD("")
+		Else
+			xData := ""
+		EndIf
+	EndIf
+Return xData
+
+/*/{Protheus.doc} GetHelpPCP
+Retorna as informações da ultima função help ativada.
+@type  Function
+@author Lucas Fagundes
+@since 31/01/2022
+@version P12
+@param cDefault, Character, Mensagem padrão que será assumida como problema, caso não encontrar um help.
+@return aRet, Array, Array com as informções do help: aRet[1] - Código do help
+													  aRet[2] - Problema do help (se estiver vazio, retorna a mensagem padrão)
+													  aRet[3] - Solução do help
+/*/
+Function GetHelpPCP(cDefault)
+	Local aHelp     := FWGetUltHlp()
+	Local aRet      := {}
+	Local cCodHelp  := ""
+	Local cProbHelp := ""
+	Local cSoluHelp := ""
+	Local nIndex    := 0
+
+	Default cDefault := ""
+
+	If Len(aHelp) == 3
+		cCodHelp := AllTrim(aHelp[1])
+
+		For nIndex := 1 To Len(aHelp[2])
+			cProbHelp += Iif(!Empty(cProbHelp), " ", "") + AllTrim(aHelp[2,nIndex])
+		Next nIndex
+
+		For nIndex := 1 To Len(aHelp[3])
+			cSoluHelp += Iif(!Empty(cSoluHelp), " ", "") + AllTrim(aHelp[3,nIndex])
+		Next nIndex
+	EndIf
+
+	If Empty(cCodHelp) .And. Empty(cProbHelp) .And. Empty(cSoluHelp)
+		cProb := cDefault
+	EndIf
+
+	aAdd(aRet, cCodHelp)
+	aAdd(aRet, cProbHelp)
+	aAdd(aRet, cSoluHelp)
+
+Return aRet
+
+/*/{Protheus.doc} PCPVldApp
+Verifica se o ambiente possui os requisitos mínimos para a execução de telas PO-UI pela função FwCallApp.
+
+@type  Function
+@author lucas.franca
+@since 16/03/2022
+@version P12
+@return lRet, Logic, Identifica se o ambiente está parametrizado corretamente para execução de APP (FwCallApp)
+/*/
+Function PCPVldApp()
+	Local cBackend := ""
+	Local cGCTPURL := ""
+	Local lRet     := CanUseWebUI() //Verifica se está configurado via APP_ENVIRONMENT
+
+	//Se não estiver parametrizado para utilizar o APP_ENVIRONMENT, verifica se os parâmetros MV_BACKEND e MV_GCTPURL estão configurados
+	If !lRet
+		cBackend := SuperGetMV("MV_BACKEND", .F., "")
+		cGCTPURL := SuperGetMV("MV_GCTPURL", .F., "")
+
+		If Empty(cBackend+cGCTPURL)
+			//Nenhum dos dois parâmetros estão informados, e também não está com app_environment configurado.
+			Help(,,"HELP",, STR0001; //"As configurações de ambiente necessárias para a execução desta rotina não foram realizadas."
+			     ,1,0,,,,,, {STR0002}) //"Configure o ambiente através da chave 'app_environment', ou através dos parâmetros 'MV_BACKEND' e 'MV_GCTPURL'."
+
+		ElseIf Empty(cBackend) .Or. Empty(cGCTPURL)
+			//Um dos dois parâmetros não foi configurado.
+			Help(,,"HELP",, I18N(STR0003, {Iif(Empty(cBackend), "MV_BACKEND", "MV_GCTPURL")}); //"Parâmetro '#1[PAR]#' não foi configurado."
+				 ,1,0,,,,,, {STR0004}) //"Configure o parâmetro corretamente para executar esta rotina."
+
+		ElseIf Empty(HttpGet(cBackend))
+			//Não conseguiu resposta com o serviço REST configurado no parâmetro.
+			Help(,,"HELP",, I18N(STR0005, {"MV_BACKEND"}); //"Endereço configurado no parâmetro '#1[PAR]#' não está acessível."
+				 ,1,0,,,,,, {I18N(STR0006, {cBackend})}) //"Verifique se o serviço foi configurado corretamente e se o endereço informado no parâmetro está correto. O endereço parametrizado é: '#1[URL]#'."
+
+		ElseIf !ValidaHTTP(cGCTPURL)
+			//Não conseguiu resposta com o serviço HTTP configurado no parâmetro.
+			Help(,,"HELP",, I18N(STR0005, {"MV_GCTPURL"});//"Endereço configurado no parâmetro '#1[PAR]#' não está acessível."
+				 ,1,0,,,,,, {I18N(STR0006, {cGCTPURL})}) //"Verifique se o serviço foi configurado corretamente e se o endereço informado no parâmetro está correto. O endereço parametrizado é: '#1[URL]#'."
+
+		Else
+			//Todas as validações estão OK, retorna .T.
+			lRet := .T.
+		EndIf
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} ValidaHTTP
+Verifica se o serviço HTTP está configurado corretamente
+
+@type Static Function
+@author marcelo.neumann
+@since 05/08/2022
+@version P12
+@param cUrl, Character, Endereço do serviço HTTP
+@return lOk, Logic    , Indica se o serviço HTTP está válido
+/*/
+Static Function ValidaHTTP(cUrl)
+	Local cHeaders := ""
+	Local lOk      := .F.
+
+	HTTPQuote(cUrl, "OPTIONS", , , , , @cHeaders)
+	lOk := !Empty(cHeaders)
+
+Return lOk

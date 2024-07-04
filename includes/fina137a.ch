@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "API REST - EVENTO IMPLANTACIÓN | TOTVS SUPPLIER MÁS"
+	#define STR0002 "API REST - EVENTO IMPLANTACIÓN - MÉTODO POST"
+	#define STR0003 "#500"
+	#define STR0004 "#200"
+	#define STR0005 "Formato JSon no reconocido. Revisar la estructura y layout informado."
+	#define STR0006 "Campos obligatorios de cumplimentación no se informaron: EMPRESA"
+	#define STR0007 "Campos obligatorios de cumplimentación no se informaron: SUCURSAL"
+	#define STR0008 "Modalidad del Parámetro MV_SUPNATR, no está registrada."
+	#define STR0009 "Tipo del título del cuentas por pagar no se registró."
+	#define STR0010 "No hubo devolución con los datos informados: LINHADIGITAVEL y NOSSONUMERO"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "API REST - IMPLEMENTATION EVENT | TOTVS SUPPLIER PLUS"
+		#define STR0002 "API REST - IMPLEMENTATION EVENT | POST METHOD"
+		#define STR0003 "#500"
+		#define STR0004 "#200"
+		#define STR0005 "JSon format not recognized. Review the structure and layout informed."
+		#define STR0006 "Required fields not filled out: COMPANY"
+		#define STR0007 "Required fields not filled out: BRANCH"
+		#define STR0008 "Nature of Parameter MV_SUPNATR is not registered."
+		#define STR0009 "Type of accounts payable bill is not registered."
+		#define STR0010 "No return with the data entered: LINHADIGITAVEL AND NOSSONUMERO"
+	#else
+		#define STR0001 "API REST - EVENTO IMPLANTAÇÃO | TOTVS SUPPLIER MAIS"
+		#define STR0002 "API REST - EVENTO IMPLANTACAO - METODO POST"
+		#define STR0003 "#500"
+		#define STR0004 "#200"
+		#define STR0005 "Formato JSon não reconhecido. Revisar a estrutura e layout informado."
+		#define STR0006 "Campos Obrigatórios de preenchimento não informados: EMPRESA"
+		#define STR0007 "Campos Obrigatórios de preenchimento não informados: FILIAL"
+		#define STR0008 "Natureza do Parâmetro MV_SUPNATR, não esta cadastrada."
+		#define STR0009 "Tipo do título do contas a pagar não cadastrado."
+		#define STR0010 "Não houve retorno com os dados informados: LINHADIGITAVEL E NOSSONUMERO"
+	#endif
+#endif

@@ -1,0 +1,935 @@
+#include "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "MATI260.CH"                                    
+
+//------------------------------------------------------------------
+/*{Protheus.doc} MATI261
+Programa de interpretacao da mensagem unica
+
+@since 14/11/2012
+@version P11.5
+*/
+//------------------------------------------------------------------
+Function MATI261( cXML, nTypeTrans, cTypeMessage )
+Local lRet     := .T. 
+Local cXMLRet  := ""
+Local cError   := ""
+Local cWarning := "" 
+Local oXmlI261 := Nil 
+Local aAreaSD3 := SD3->(GetArea())
+Local cVersao  := ''
+Local aRet     := {}
+
+Private lMsErroAuto    := .F.
+Private lAutoErrNoFile := .T.
+Private oXmlBusin      := Nil
+
+//Variavel utilizada para indicar documento e numseq quando for integração
+Private cDocIntMU		:= ""
+Private cNSeqIntMU	:= ""
+
+If nTypeTrans == TRANS_RECEIVE
+
+	If cTypeMessage == EAI_MESSAGE_BUSINESS .OR. cTypeMessage == EAI_MESSAGE_RESPONSE
+		oXmlI261 := XmlParser(cXml, "_", @cError, @cWarning)
+		If oXmlI261 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+		
+			// Versão da mensagem
+			If Type(oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text) != "U" .And. !Empty(oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text)
+				cVersao := StrTokArr(oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text, ".")[1]
+			Else
+				If Type(oXmlI261:_TOTVSMessage:_MessageInformation:_StandardVersion:Text) != "U" .And. !Empty(oXmlI261:_TOTVSMessage:_MessageInformation:_StandardVersion:Text)
+					cVersao := StrTokArr(oXmlI261:_TOTVSMessage:_MessageInformation:_StandardVersion:Text, ".")[1]
+				Else
+					lRet    := .F.
+					cXmlRet := STR0005 //"Versão da mensagem não informada!"
+					Return {lRet, cXmlRet}
+				Endif
+			EndIf
+			
+			if cVersao == '1'
+				aRet := v1000(cXml, nTypeTrans, cTypeMessage)
+				
+				lRet    := aRet[1]
+				cXMLRet := aRet[2]
+			Else
+				lRet := .F.
+				cXmlRet := STR0006 //"A versão da mensagem informada não foi implementada!"
+				Return {lRet, cXmlRet}
+			Endif
+
+		Else
+			// "Falha ao gerar o objeto XML"
+			lRet := .F.
+			cXMLRet := STR0002 //"Falha ao manipular o XML"
+		EndIf
+	ElseIf   cTypeMessage == EAI_MESSAGE_WHOIS
+		cXMLRet := '1.001|1.002'                  
+	Endif
+ElseIf nTypeTrans == TRANS_SEND
+	aRet := v1000(cXml, nTypeTrans, cTypeMessage)
+	
+	lRet    := aRet[1]
+	cXMLRet := aRet[2]
+EndIf
+
+RestArea(aAreaSD3)
+
+Return { lRet, cXMLRet , "TRANSFERWAREHOUSE" }
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MTICalPrd()
+Soma a quantidade de produtos iguais do mesmo lote ou endereço
+para considerar no calculo do saldo anterior
+@author Leonardo Quintania
+@since 11/12/2013
+@version 1.0
+@return NIL
+/*/
+//-------------------------------------------------------------------
+Static Function MTIGetCod(cCodigo)
+
+While At('|',cCodigo) > 0
+	cCodigo:= Substr(cCodigo,At('|',cCodigo)+1)
+EndDo
+
+Return cCodigo
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MTICalPrd()
+Soma a quantidade de produtos iguais do mesmo lote ou endereço
+para considerar no calculo do saldo anterior
+@author Leonardo Quintania
+@since 11/12/2013
+@version 1.0
+@return NIL
+/*/
+//-------------------------------------------------------------------
+Static Function MTICalPrd(cChave,cArmazem,cLote,cEndereco,cNumSerie,aRecnos)
+Local nRet			:= 0
+Local aRestSD3		:= SD3->(GetArea())
+Local nX			:= 0
+
+Default cLote		:= ""
+Default cEndereco	:= ""
+Default cNumSerie	:= ""
+Default aRecnos	:= {}
+
+If !Empty(aRecnos)
+	For nX := 1 To Len(aRecnos)
+		SD3->(dbGoTo(aRecnos[nX]))
+		If SD3->(D3_FILIAL+D3_DOC+D3_COD+D3_LOCAL) == cChave+cArmazem .And. (Empty(cLote+cEndereco+cNumSerie) .Or. SD3->D3_LOTECTL == cLote .Or. SD3->D3_LOCALIZ == cEndereco .Or. SD3->D3_NUMSERI == cNumSerie)
+			nRet += SD3->D3_QUANT
+		EndIf
+	Next nX
+Else
+	SD3->(DbSetOrder(2))
+	If	SD3->(DbSeek(cChave))
+		While SD3->(!EOF()) .And. SD3->(D3_FILIAL+D3_DOC+D3_COD) == cChave
+			If cArmazem == SD3->D3_LOCAL .And. (Empty(cLote+cEndereco+cNumSerie) .Or. SD3->D3_LOTECTL == cLote .Or. SD3->D3_LOCALIZ == cEndereco .Or. SD3->D3_NUMSERI == cNumSerie)
+				nRet += SD3->D3_QUANT
+			Endif
+			SD3->(DbSkip())
+		EndDo
+	EndIf
+EndIf
+
+SD3->(RestArea(aRestSD3))
+Return nRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} v1000()
+Versão 1001 da integração
+
+@author Samantha Preima
+@since 09/05/2016
+@version 1.0
+@return NIL
+/*/
+//-------------------------------------------------------------------
+Static Function v1000( cXML, nTypeTrans, cTypeMessage )
+Local lRet      := .T.
+Local cMsg      := ''
+Local cXMLRet   := ''
+Local cMarca    := ""
+Local cVersao   := ''
+Local nX1       := 1
+Local nOpcx     := 0
+Local cLogErro  := ""
+Local cSubLote  := ' '
+Local cLote     := ' '
+Local cValInt   := ""
+Local cValExt   := ""
+Local cEvent    := "upsert"
+Local dDateFrom := dDataBase
+Local dDateTo   := dDataBase
+Local cProdIntOf   := ""
+Local cProdIntTo   := ""
+Local cArmzmIntTo  := ""
+Local cArmzmIntOf  := ""
+Local cProdExtOf   := ""
+Local cProdExtTo   := ""
+Local cArmzmExtTo  := ""      
+Local cArmzmExtOf  := ""         
+Local cUnMdExtOf   := ""
+Local cUnMdIntOf   := ""
+Local cUnMdExtTo   := ""
+Local cUnMdIntTo   := ""
+Local aTransf      := {}
+Local oXmlI261
+Local cError       := ''
+Local cWarning     := ''
+Local nCount       := 0
+Local lMI261RCV    := .T.
+Local nI           := 0
+Local aErroAuto    := {} 
+Local aTransfAux   := {} 
+Local oXmlBusinItem := nil
+Local lIntegPPI    := FindFunction("PCPIntgPPI") .And. PCPIntgPPI()
+Local dEmissao
+
+If nTypeTrans == TRANS_RECEIVE
+
+	oXmlI261 := XmlParser( cXml, "_", @cError, @cWarning )
+
+	//Business Message
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+		
+		//Valida se houve erro no parser
+		If ( oXmlI261 <> Nil ) .And. ( Empty(cError) ) .And. ( Empty(cWarning) )
+			dEmissao := Nil
+			If XmlChildEx(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT, '_REGISTERDATETIME') != Nil .And. ;
+			   !Empty(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_REGISTERDATETIME:Text)
+				dEmissao := StoD(getDate(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_REGISTERDATETIME:Text))
+				If Empty(dEmissao)
+					Return {.F., STR0011} //"Data de emissão (RegisterDateTime) informado de forma incorreta. Utilize o formato AAAA-MM-DD."
+				EndIf
+			EndIf
+			If Empty(dEmissao)
+				aAdd(aTransf,{"",dDataBase})
+			Else
+				aAdd(aTransf,{"",dEmissao})
+			EndIf
+			If XmlChildEx(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT, '_LISTOFTRANSFERWAREHOUSEITEM') == Nil
+				lRet    := .F.
+				cXMLRet := STR0007 // "Estrutura do XML incorreta: tag LISTOFTRANSFERWAREHOUSEITEM ausente."
+			Else
+				If ValType(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_LISTOFTRANSFERWAREHOUSEITEM:_TRANSFERWAREHOUSEITEM) <> "A" 
+					XmlNode2Arr(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_LISTOFTRANSFERWAREHOUSEITEM:_TRANSFERWAREHOUSEITEM,"_TRANSFERWAREHOUSEITEM")
+				EndIf	
+				nI := Len(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_LISTOFTRANSFERWAREHOUSEITEM:_TRANSFERWAREHOUSEITEM)
+			EndIf
+			
+			cMarca := oXmlI261:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			
+			IF cMarca == 'PPI'
+				IF !lIntegPPI						
+					lRet    := .F.
+					cXMLRet := STR0008 // 'Mensagem não pode ser processada pois integração com PPI está inativa'
+				
+					Return {lRet, cXMLRet}
+				Else
+					If Type(oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text) != "U" .And. !Empty(oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text)
+						cVersao := oXmlI261:_TOTVSMessage:_MessageInformation:_version:Text
+					EndIf
+					
+					if ! cVersao $ "1.001|1.002|1.003"
+						lRet    := .F.
+						cXMLRet := STR0009 // 'Integração com PPI ativa deve utilizar mensagem versão 1.003'
+					
+						Return {lRet, cXMLRet}
+					Endif
+				Endif
+			Endif
+
+			For nX1 := 1 To nI
+				
+				oXmlBusin := oXmlI261:_TotvsMessage:_BusinessMessage
+				If XmlChildEx(oXmlBusin, '_BUSINESSEVENT') <> Nil .And. XmlChildEx(oXmlBusin:_BusinessEvent, '_EVENT' ) <> Nil		
+				
+					If XmlChildEx(oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT, '_INTERNALID') <> Nil
+						cValExt := oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_INTERNALID:Text
+					EndIf
+						
+					If FindFunction("CFGA070INT") .OR. lIntegPPI
+					
+						IF lIntegPPI
+							cValInt := cValExt
+						Else
+							cValInt := CFGA070INT( cMarca, 'SD3', 'D3_NUMSEQ', cValExt )
+						Endif
+						
+						oXmlBusinItem := oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_LISTOFTRANSFERWAREHOUSEITEM
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_ITEMCODEFROM' ) <> Nil
+							// Efetua DE/PARA Produto Origem
+							if lIntegPPI
+								cProdIntOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_ITEMCODEFROM:TEXT
+							Else
+								cProdExtOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_ITEMCODEFROM:TEXT    
+								cProdIntOf	:= CFGA070INT( cMarca, 'SB1', 'B1_COD', cProdExtOf )
+								cProdIntOf	:= MTIGetCod(cProdIntOf)
+								
+								If Empty(cProdIntOf)
+									SB1->(dbSetOrder(1)) //B1_FILIAL+B1_COD								
+									If SB1->(dbSeek(xFilial("SB1") + PadR(cProdExtOf, TamSX3("B1_COD")[1])))
+										cProdIntOf := PadR(cProdExtOf, TamSX3("B1_COD")[1])
+									EndIf	
+								EndIf	
+					
+							Endif
+							
+							
+							If Type("lRunPPI") == "L" .And. lRunPPI
+								cPrdOrigem := cProdIntOf //(cPrdOrigem) definida no WSPCP.prw. Utilizada para gerar a tabela SOG
+							EndIf
+							
+							If Empty(cProdIntOf)
+								lRet    := .F.
+								cXMLRet += STR0012 + AllTrim(STR(nI)) + STR0013 + cProdExtOf  + CHR(10)//'Produto inválido ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_ITEMCODETO') <> Nil
+							// Efetua DE/PARA Produto Destino
+							if lIntegPPI
+								cProdIntTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_ItemCodeTo:Text
+							Else
+								cProdExtTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_ItemCodeTo:Text  
+								cProdIntTo	:= CFGA070INT( cMarca, 'SB1', 'B1_COD', cProdExtTo )
+								cProdIntTo	:= MTIGetCod(cProdIntTo)
+								
+								If Empty(cProdIntTo)
+									SB1->(dbSetOrder(1)) //B1_FILIAL+B1_COD								
+									If SB1->(dbSeek(xFilial("SB1") + PadR(cProdExtTo, TamSX3("B1_COD")[1])))
+										cProdIntTo := PadR(cProdExtTo, TamSX3("B1_COD")[1])
+									EndIf	
+								EndIf	
+								
+							Endif      
+							If Type("lRunPPI") == "L" .And. lRunPPI
+								cPrdDestin := cProdIntTo //(cPrdDestin) definida no WSPCP.prw. Utilizada para gerar a tabela SOG
+							EndIf
+							
+							If Empty(cProdIntTo)
+								lRet    := .F.
+								cXMLRet += STR0012 + AllTrim(STR(nI)) + STR0013 + cProdExtTo  + CHR(10) //'Produto inválido ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_WAREHOUSECODEFROM' ) <> Nil
+							//Efetua o De/para   Armazem de Origem
+							if lIntegPPI
+								cArmzmIntOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_WarehouseCodeFrom:Text
+							Else
+								cArmzmExtOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_WarehouseCodeFrom:Text
+								cArmzmIntOf	:= CFGA070INT( cMarca, 'NNR', 'NNR_CODIGO', cArmzmExtOf )  
+								cArmzmIntOf	:= MTIGetCod(cArmzmIntOf)
+							Endif
+							If Type("lRunPPI") == "L" .And. lRunPPI
+								cLocOrigem := cArmzmIntOf //(cLocOrigem) definida no WSPCP.prw. Utilizada para gerar a tabela SOG
+								If !validDepos(1,cLocOrigem,@cMsg,cPrdOrigem)
+									lRet    := .F.
+									cXmlRet := cMsg
+									Return {lRet, cXMLRet}
+								EndIf
+							EndIf
+							
+							If Empty(cArmzmIntOf)
+								lRet    := .F.
+								cXMLRet += STR0014 + AllTrim(STR(nI)) + STR0013 + cArmzmExtOf + CHR(10) //'Armazem inválido ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_WAREHOUSECODETO' ) <> Nil
+							//Efetua o De/para   Armazem de Destino
+							if lIntegPPI
+								cArmzmIntTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_WarehouseCodeTo:Text
+							Else
+								cArmzmExtTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_WarehouseCodeTo:Text
+								cArmzmIntTo	:= CFGA070INT( cMarca, 'NNR', 'NNR_CODIGO', cArmzmExtTo )
+								cArmzmIntTo	:= MTIGetCod(cArmzmIntTo)
+							Endif
+							If Type("lRunPPI") == "L" .And. lRunPPI
+								cLocDestin := cArmzmIntTo //(cLocDestin) definida no WSPCP.prw. Utilizada para gerar a tabela SOG
+								If !validDepos(2,cLocDestin,@cMsg,cPrdDestin)
+									lRet    := .F.
+									cXmlRet := cMsg
+									Return {lRet, cXMLRet}
+								EndIf
+							EndIf 
+							
+							If Empty(cArmzmIntTo)
+								lRet    := .F.
+								cXMLRet += STR0014 + AllTrim(STR(nI)) + STR0013 + cArmzmExtTo + CHR(10)	  //'Armazem inválido ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							  
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_UNITOFMEASUREFROM' ) <> Nil
+							//Efetua o De/para Unidade de Medida Origem
+							if lIntegPPI
+								cUnMdIntOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_UnitOfMeasureFrom:Text
+								If Empty(cUnMdIntOf)
+									SB1->(dbSetOrder(1)) //B1_FILIAL+B1_COD								
+									If SB1->(dbSeek(xFilial("SB1") + PadR(cProdIntOf, TamSX3("B1_COD")[1])))
+										cUnMdIntOf := SB1->B1_UM
+									EndIf									
+								EndIf
+							Else					
+								cUnMdExtOf	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_UnitOfMeasureFrom:Text
+								cUnMdIntOf	:= CFGA070INT( cMarca, 'SAH', 'AH_UNIMED', cUnMdExtOf )  
+								cUnMdIntOf	:= MTIGetCod(cUnMdIntOf)
+								
+								If Empty(cUnMdIntOf)
+									SAH->(dbSetOrder(1)) //AH_FILIAL+AH_UNIMED									
+									If SAH->(dbSeek(xFilial("SAH") + PadR(cUnMdExtOf, TamSX3("AH_UNIMED")[1])))
+										cUnMdIntOf := PadR(cUnMdExtOf, TamSX3("AH_UNIMED")[1])
+									EndIf	
+								EndIf	
+								
+							Endif 
+							
+							If Empty(cUnMdIntOf)
+								lRet    := .F.
+								cXMLRet += STR0015 + AllTrim(STR(nI)) + STR0013 + cArmzmExtTo + CHR(10)	  //'Unidade de Medida inválida ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_UNITOFMEASURETO' ) <> Nil
+							///Tratar o De/para Unidade de Medida Destino
+							if lIntegPPI
+								cUnMdIntTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_UnitOfMeasureTo:Text
+								If Empty(cUnMdIntTo)
+									SB1->(dbSetOrder(1)) //B1_FILIAL+B1_COD								
+									If SB1->(dbSeek(xFilial("SB1") + PadR(cProdIntTo, TamSX3("B1_COD")[1])))
+										cUnMdIntTo := SB1->B1_UM
+									EndIf									
+								EndIf
+							Else
+								cUnMdExtTo	:= oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_UnitOfMeasureTo:Text
+								cUnMdIntTo	:= CFGA070INT( cMarca, 'SAH', 'AH_UNIMED', cUnMdExtTo )
+								cUnMdIntTo	:= MTIGetCod(cUnMdIntTo)
+								
+								If Empty(cUnMdIntTo)
+				         			SAH->(dbSetOrder(1)) //AH_FILIAL+AH_UNIMED									
+									If SAH->(dbSeek(xFilial("SAH") + PadR(cUnMdExtTo, TamSX3("AH_UNIMED")[1])))
+										cUnMdIntTo := PadR(cUnMdExtTo, TamSX3("AH_UNIMED")[1])
+									EndIf	
+								EndIf
+								
+							Endif 
+							
+							If Empty(cUnMdIntTo)
+								lRet    := .F.
+								cXMLRet += STR0015 + AllTrim(STR(nI)) + STR0013 + cArmzmExtTo + CHR(10)	  //'Unidade de Medida inválida ou não encontrado no De/Para. Item: ' ### 'Código: '
+							EndIf
+							
+						EndIf
+					Endif
+				Else
+					lRet    := .F.
+					cXmlRet := STR0004 + "'BusinessEven' | 'Event'"//"Tag obrigatória não existe no xml "
+				Endif
+				
+				oXmlBusinItem := oXmlI261:_TOTVSMESSAGE:_BUSINESSMESSAGE:_BUSINESSCONTENT:_LISTOFTRANSFERWAREHOUSEITEM
+				
+				If lRet		
+					If Upper(oXmlBusin:_BusinessEvent:_Event:Text) == "UPSERT"
+		 				nOpcx:= 3  
+					ElseIf Upper(oXmlBusin:_BusinessEvent:_Event:Text) == "DELETE"
+						if lIntegPPI
+							lRet    := .F.
+							cXmlRet := 'Integração PPI não permite estorno'
+							
+							Return {lRet, cXMLRet}
+						Else
+							nOpcx := 6
+						Endif 
+					EndIf
+					aAdd(aTransf,{})
+					If nOpcx !=6
+						aAdd(aTransf[nX1+1],{"D3_COD"   	, PADR(cProdIntOf ,TAMSX3("D3_COD")[1])    								,NIL})
+						aAdd(aTransf[nX1+1],{"D3_DESCRI" , ""               																,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_UM"     , PADR(cUnMdIntOf ,TAMSX3("AH_UNIMED")[1]) 								,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_LOCAL"  , PADR(cArmzmIntOf ,TAMSX3("NNR_CODIGO")[1])  								,NIL})
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_ADDRESSFROM' ) <> NIL
+							aAdd(aTransf[nX1+1],{"D3_LOCALIZ", PADR(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_AddressFrom:Text ,TAMSX3("D3_LOCALIZ")[1]) 		,NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_LOCALIZ", CriaVar("D3_LOCALIZ")			,NIL})
+						EndIf
+						aAdd(aTransf[nX1+1],{"D3_COD"    , PADR(cProdIntTo ,TAMSX3("D3_COD")[1])  									,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_DESCRI" , ""               																,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_UM"     , PADR(cUnMdIntTo ,TAMSX3("AH_UNIMED")[1])    							,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_LOCAL"  , PADR(cArmzmIntTo ,TAMSX3("NNR_CODIGO")[1])								,NIL})
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_ADDRESSTO' ) <> NIL
+							aAdd(aTransf[nX1+1],{"D3_LOCALIZ", PADR(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_AddressTo:Text ,TAMSX3("D3_LOCALIZ")[1])			,NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_LOCALIZ", CriaVar("D3_LOCALIZ")			,NIL})
+						EndIf 
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_NUMBERSERIES' ) <> NIL
+							aAdd(aTransf[nX1+1],{"D3_NUMSERI", oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_NumberSeries:Text		,NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_NUMSERI", CriaVar("D3_NUMSERI")			,NIL})
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_LOTNUMBERFROM') <> NIL
+							cLote := PadR(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_LotNumberFrom:Text, TamSX3('D3_LOTECTL')[1])
+							aAdd(aTransf[nX1+1],{"D3_LOTECTL", cLote 												, NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_LOTECTL", CriaVar("D3_LOTECTL")			,NIL})
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_SUBLOTNUMBER' ) <> NIL
+							cSubLote := PadR( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_SubLotNumber:Text, TamSX3('D3_NUMLOTE')[1] )
+							aAdd(aTransf[nX1+1],{"D3_NUMLOTE", PADR(cSubLote ,TAMSX3("D3_NUMLOTE")[1])																		, NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_NUMLOTE", CriaVar("D3_NUMLOTE")			,NIL})
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_LOTEXPIRATIONDATEFROM' ) <> NIL
+							dDateFrom := StrTran( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_LotExpirationDateFrom:Text, '-', '')
+							dDateFrom := STOD( dDateFrom )
+							aAdd(aTransf[nX1+1],{"D3_DTVALID", dDateFrom  																,NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_DTVALID", dDataBase  																,NIL})
+						EndIf
+						aAdd(aTransf[nX1+1],{"D3_POTENCI", Criavar("D3_POTENCI")      													,NIL}) 
+						
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_QUANTITY' ) <> NIL
+							aAdd(aTransf[nX1+1],{"D3_QUANT"  , val(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_Quantity:Text)  	,NIL})
+							If Type("lRunPPI") == "L" .And. lRunPPI
+								nQtdSOG := val(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_Quantity:Text) //(nQtdSOG) definida no WSPCP.prw. Utilizada para gerar a tabela SOG
+							EndIf
+						EndIf
+						aAdd(aTransf[nX1+1],{"D3_QTSEGUM", ""      																		,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_ESTORNO", ""     																		,NIL})
+						aAdd(aTransf[nX1+1],{"D3_NUMSEQ" , ""	  																			,NIL}) 
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_LOTNUMBERTO') <> NIL
+							aAdd(aTransf[nX1+1],{"D3_LOTECTL", PadR(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_LotNumberTo:Text, TamSX3('D3_LOTECTL')[1]),NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_LOTECTL", CriaVar("D3_LOTECTL")			,NIL})
+						EndIf
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_LOTEXPIRATIONDATETO' ) <> NIL
+							dDateTo := StrTran(oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_LotExpirationDateTo:Text, '-', '')
+							dDateTo := STOD( dDateTo )
+							aAdd(aTransf[nX1+1],{"D3_DTVALID", dDateTo  																	,NIL})
+						Else
+							aAdd(aTransf[nX1+1],{"D3_DTVALID", dDataBase  																,NIL})
+						EndIf
+						
+						aAdd(aTransf[nX1+1],{"D3_ITEMGRD",Criavar("D3_ITEMGRD"),NIL})
+						
+						if lIntegPPI
+							aAdd(aTransf[nX1+1],{"D3_OBSERVA", 'TOTVSMES',NIL})
+						Endif
+					Else
+						If XmlChildEx( oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1], '_ItemCodeFrom' ) <> NIL
+							aAdd(aTransf[nX1+1],{"D3_COD"	, oXmlBusinItem:_TRANSFERWAREHOUSEITEM[nX1]:_ItemCodeFrom:Text			,NIL})
+						EndIf
+						aAdd(aTransf[nX1+1],{"D3_CHAVE" 	,'E9'																			,NIL}) 
+						aAdd(aTransf[nX1+1],{"D3_NUMSEQ" 	,MTIGetCod(cValInt)															,NIL}) 
+						aAdd(aTransf[nX1+1],{"INDEX"		,4,})
+						SD3->(DbSetOrder(4))
+						SD3->(DbSeek(Alltrim(cValInt)))
+					Endif
+				Endif
+
+				If (ExistBlock('MI261GCP'))
+					aTransfAux := ExecBlock('MI261GCP',.F.,.F.,aTransf[nX1+1])
+					For nCount := 1 To Len(aTransfAux)
+						//Adiciona no array da aTransf somente os campos que não recebem informações do XML recebido.
+						If aScan(aTransf[nX1+1],{|x| Upper(AllTrim(x[1])) == Upper(AllTrim(aTransfAux[nCount,1])) }) == 0
+							aAdd(aTransf[nX1+1], {aTransfAux[nCount,1],aTransfAux[nCount,2], Nil})
+						EndIf
+					Next nCount
+				EndIf
+
+			Next nX1
+			
+			If ExistBlock("MI261RCV")
+				lMI261RCV := Execblock("MI261RCV",.F.,.F.,{oXmlI261})
+				If ValType( lMI261RCV ) == "L" .And. !lMI261RCV
+					lRet := .F.
+				EndIf
+			EndIf
+			   
+			If lRet
+				BeginTran()				
+					MSExecAuto({|x,y| MATA261(x,y)},aTransf,nOpcx)
+					If lMsErroAuto 
+						aErroAuto := GetAutoGRLog()
+						cLogErro := getMsgErro(aErroAuto)				
+						// Monta XML de Erro de execução da rotina automatica. 
+						lRet    := .F.
+						cXMLRet := cLogErro
+						DisarmTransaction()
+					Else               
+						lRet    := .T.
+						// Monta xml com status do processamento da rotina autmotica OK.
+						If nOpcx !=6
+							cValInt := cEmpAnt + '|' + xFilial('SD3') + '|' + cDocIntMU + '|' + cNSeqIntMU
+							CFGA070Mnt( cMarca, "SD3", "D3_NUMSEQ", cValExt, cValInt )
+							cXMLRet := '<ListOfInternalId>'
+			  				cXMLRet += 	'<InternalId>'
+			  				cXMLRet += 		'<Name>TransferWarehouse</Name>'
+							cXMLRet += 		'<Origin>'     + cValExt +'</Origin>'				
+							cXMLRet += 		'<Destination>'+ cValInt +'</Destination>'
+							cXMLRet += 	'</InternalId>'
+							cXMLRet += '</ListOfInternalId>'
+						Else
+							CFGA070Mnt( , "SD3", "D3_NUMSEQ", , cValInt, .T. )
+						Endif 
+					EndIf
+				EndTran()
+			Endif
+		Endif
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		oXmlI261 := XmlParser(cXml, "_", @cError, @cWarning)
+		If oXmlI261 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+			cMarca := oXmlI261:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+			cValInt := oXmlI261:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Destination:Text
+			cValExt := oXmlI261:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Origin:Text
+			oXmlI261 := oXmlI261:_TotvsMessage
+			//  Identifica se o processamento pelo parceiro ocorreu com sucesso.
+			If XmlChildEx( oXmlI261:_ResponseMessage:_ProcessingInformation, '_STATUS' ) <> Nil .And. ;
+				Upper(oXmlI261:_ResponseMessage:_ProcessingInformation:_Status:Text)=='OK'
+				If !Empty(cValExt) .And.!Empty(cValInt)
+					If CFGA070Mnt( cMarca, "SD3", "D3_NUMSEQ", cValExt, cValInt )
+						lRet    := .T.
+					EndIf
+				Else
+					lRet    := .F.
+				EndIf
+			Else
+				lRet    := .F.
+				cXmlRet := STR0010 // "Processamento pela outra aplicação não teve sucesso"
+				// Transforma estrutura das mensagens de erro em array
+				// para concatenar com a mensagem de retorno
+				If XmlChildEx( oXmlI261:_ResponseMessage:_ProcessingInformation, '_LISTOFMESSAGES' ) <> Nil .And. ;
+					ValType(oXmlI261:_ResponseMessage:_ProcessingInformation:_ListOfMessages)<>'A'
+					XmlNode2Arr(oXmlI261:_ResponseMessage:_ProcessingInformation:_ListOfMessages, "_ListOfMessages")
+				EndIf
+				For nCount := 1 To Len( oXmlI261:_ResponseMessage:_ProcessingInformation:_ListOfMessages )
+					If XmlChildEx( oXmlI261:_ResponseMessage:_ProcessingInformation:_ListOfMessages[nCount], '_MESSAGE' ) <> Nil
+						cXmlRet += ' | ' + oXmlI261:_ResponseMessage:_ProcessingInformation:_ListOfMessages[nCount]:_Message:Text
+					EndIf
+				Next nCount
+				If InTransact()
+					DisarmTransaction()
+				EndIf
+			EndIf
+		Else
+			lRet := .F.
+			cXMLRet := 	STR0003 + ' | ' + cError + ' | ' + cWarning //'Xml mal formatado '
+		EndIf
+	Endif
+ElseIf nTypeTrans == TRANS_SEND
+	If !Inclui .And. !Altera 
+	   cEvent := "delete"
+	EndIf   
+	
+	SD3->(dbGoTo(aRegSD3[1]))
+
+	cNumDoc := SD3->D3_DOC
+	cNumSeq := SD3->D3_NUMSEQ
+	
+	//Monta XML de envio de mensagem unica
+	cXMLRet := '<BusinessEvent>'
+	cXMLRet +=     '<Entity>TransferWarehouse</Entity>'
+	cXMLRet +=     '<Event>' + cEvent + '</Event>'
+	cXMLRet += '</BusinessEvent>'
+	
+	cXMLRet += '<BusinessContent>'
+	cXMLRet += 	'<CompanyId>' + cEmpAnt + '</CompanyId>'
+	cXMLRet += 	'<BranchId>' + xFilial("SD3") + '</BranchId>'
+	cXMLRet += 	'<CompanyInternalId>' + cEmpAnt + '|' + xFilial('SD3') + '</CompanyInternalId>'
+	cXMLRet += 	'<InternalId>' + cEmpAnt + '|' + RTrim(xFilial('SD3')) + '|' + cNumDoc + '|' + cNumSeq + '</InternalId>'
+	cXMLRet += 	'<Number>' + cNumSeq + '</Number>'
+	cXMLRet += 	'<RegisterDateTime>' + Transform(DToS(SD3->D3_EMISSAO),"@R 9999-99-99") + '</RegisterDateTime>'
+	
+	//-- Itens
+	cXMLRet += '<ListOfTransferWarehouseItem>'
+	
+	For nI := 1 To Len(aRegSD3)
+		SD3->(dbGoTo(aRegSD3[nI])) 
+		
+		If !Empty(nI % 2)
+			cXMLRet += '<TransferWarehouseItem>'
+			cXMLRet += 	'<InternalId>' + cEmpAnt + '|' + RTrim(xFilial('SD3')) + '|' + cNumDoc + '|' + cNumSeq + '</InternalId>'
+			cXMLRet += 	'<EmissionDate>' + Transform(DToS(SD3->D3_EMISSAO),"@R 9999-99-99") + '</EmissionDate>'
+		EndIf
+		
+		If SD3->D3_CF == "RE4"
+			cXMLRet += 	'<ItemCodeFrom>' + cEmpAnt + '|' + RTrim(xFilial('SB1')) + '|' + SD3->D3_COD + '</ItemCodeFrom>'
+			cXMLRet += 	'<UnitOfMeasureFrom>' + cEmpAnt + '|' + RTrim(xFilial('SAH')) + '|' + SD3->D3_UM + '</UnitOfMeasureFrom>'
+			cXMLRet += 	'<Quantity>' + cValToChar(SD3->D3_QUANT) + '</Quantity>'
+			cXMLRet += 	'<WarehouseCodeFrom>' + cEmpAnt + '|' + RTrim(xFilial('NNR')) + '|' + SD3->D3_LOCAL   + '</WarehouseCodeFrom>'
+			cXMLRet += 	'<LotNumberFrom>' + SD3->D3_LOTECTL + '</LotNumberFrom>'
+			cXMLRet += 	'<SubLotNumber>' + SD3->D3_NUMLOTE + '</SubLotNumber>'
+			cXMLRet += 	'<LotExpirationDateFrom>' + Transform(DToS(SD3->D3_DTVALID),"@R 9999-99-99") + '</LotExpirationDateFrom>'
+			cXMLRet += 	'<AddressFrom>' + SD3->D3_LOCALIZ + '</AddressFrom>'
+			cXMLRet += 	'<NumberSeries>' + SD3->D3_NUMSERI + '</NumberSeries>'			
+			SB2->(dbSeek(xFilial("SB2")+SD3->D3_COD+SD3->D3_LOCAL))
+						
+			cXMLRet +=		'<TotalStockFrom>' + AllTrim(cValToChar(SB2->B2_QATU + MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,,,,aRegSD3))) + '</TotalStockFrom>'				
+			If !Empty(SD3->D3_LOTECTL)
+				cXMLRet +=	'<LotStockFrom>' + AllTrim(cValToChar(SaldoLote(SD3->D3_COD,SD3->D3_LOCAL,SD3->D3_LOTECTL,,,,,dDataBase)+ MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,SD3->D3_LOTECTL,,,aRegSD3) )) + '</LotStockFrom>'
+			EndIf
+			If !Empty(SD3->D3_LOCALIZ)
+				cXMLRet +=	'<BinStockFrom>' + AllTrim(cValToChar(SaldoSBF(SD3->D3_LOCAL,SD3->D3_LOCALIZ,SD3->D3_COD,NIL,SD3->D3_LOTECTL,NIL,.T.)+ MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,SD3->D3_LOTECTL,SD3->D3_LOCALIZ,,aRegSD3))) + '</BinStockFrom>'
+			EndIf
+			If !Empty(SD3->D3_NUMSERI)
+				cXMLRet +=	'<SeriesStockFrom>' + AllTrim(cValToChar(SaldoSBF(SD3->D3_LOCAL,SD3->D3_LOCALIZ,SD3->D3_COD,SD3->D3_NUMSERI,SD3->D3_LOTECTL,NIL,.T.)+ MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,SD3->D3_LOTECTL,SD3->D3_LOCALIZ,SD3->D3_NUMSERI,aRegSD3))) + '</SeriesStockFrom>'
+			EndIf
+		ElseIf SD3->D3_CF == "DE4"
+			cXMLRet += 	'<ItemCodeTo>' + cEmpAnt + '|' + RTrim(xFilial('SB1')) + '|' + SD3->D3_COD + '</ItemCodeTo>'
+			cXMLRet += 	'<UnitOfMeasureTo>' + cEmpAnt + '|' + RTrim(xFilial('SAH')) + '|' + SD3->D3_UM + '</UnitOfMeasureTo>'	
+			cXMLRet += 	'<WarehouseCodeTo>' + cEmpAnt + '|' + RTrim(xFilial('NNR')) + '|' + SD3->D3_LOCAL   + '</WarehouseCodeTo>'
+			cXMLRet += 	'<LotNumberTo>' + SD3->D3_LOTECTL + '</LotNumberTo>'	
+			cXMLRet += 	'<LotExpirationDateTo>' + Transform(DToS(SD3->D3_DTVALID),"@R 9999-99-99") + '</LotExpirationDateTo>'		
+			cXMLRet += 	'<AddressTo>' + SD3->D3_LOCALIZ + '</AddressTo>'
+			
+			SB2->(dbSeek(xFilial("SB2")+SD3->D3_COD+SD3->D3_LOCAL))		
+			cXMLRet += 	'<TotalStockTo>'  + AllTrim(cValToChar(SB2->B2_QATU - MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,,,,aRegSD3))) + '</TotalStockTo>'
+			If !Empty(SD3->D3_LOTECTL)
+				cXMLRet +=	'<LotStockTo>' + AllTrim(cValToChar(SaldoLote(SD3->D3_COD,SD3->D3_LOCAL,SD3->D3_LOTECTL,,,,,dDataBase) - MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,SD3->D3_LOTECTL,,,aRegSD3))) + '</LotStockTo>'
+			EndIf			
+			If !Empty(SD3->D3_LOCALIZ)
+				cXMLRet +=	'<BinStockTo>' + AllTrim(cValToChar(SaldoSBF(SD3->D3_LOCAL,SD3->D3_LOCALIZ,SD3->D3_COD,NIL,SD3->D3_LOTECTL,NIL,.T.)- MTICalPrd(SD3->(D3_FILIAL+D3_DOC+D3_COD),SD3->D3_LOCAL,SD3->D3_LOTECTL,SD3->D3_LOCALIZ,,aRegSD3))) + '</BinStockTo>'
+			EndIf				
+			If !Empty(SD3->D3_NUMSERI)
+				cXMLRet +=	'<SeriesStockTo>' + AllTrim(cValToChar(SaldoSBF(SD3->D3_LOCAL,SD3->D3_LOCALIZ,SD3->D3_COD,SD3->D3_NUMSERI,SD3->D3_LOTECTL,NIL,.T.)- MTICalPrd(	SD3->(D3_FILIAL+D3_DOC+D3_COD), SD3->D3_LOCAL, SD3->D3_LOTECTL, SD3->D3_LOCALIZ, SD3->D3_NUMSERI,aRegSD3))) + '</SeriesStockTo>'
+			EndIf
+			SD3->(DbSkip())
+		EndIf		
+		
+		If Empty(nI % 2)
+			cXMLRet += '</TransferWarehouseItem>'
+		EndIf
+	Next nI
+	cXMLRet += '</ListOfTransferWarehouseItem>'
+	cXMLRet += '</BusinessContent>'
+EndIf
+
+Return { lRet, cXMLRet }
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³validDepos  ³ Autor ³ Fernando Joly Siquini ³ Data ³ 04/03/99 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Valida‡„o do campo Local                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ validDepos(ExpN1)                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpN1 = Indica se e Origem / Destino                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ .T. / .F.                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATI261                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function validDepos(nOrigDest,cLocOrig,cMsg,cProduto)
+	Static l261Local  := NIL
+	Local aArea       := { Alias()	, IndexOrd() , Recno() }
+	Local aSB2Area    := { 'SB2'	, SB2->(IndexOrd()) , SB2->(Recno()) }
+	Local lRet        := .T.
+	Local lContinua   := .T.
+	Local lRastroO    := .F.
+	Local lRastroD    := .F.
+	Local lLocalizO   := .F.
+	Local lLocalizD   := .F.
+	Local cLocal      := cLocOrig
+	Local cLocCQ      := GetMvNNR('MV_CQ','98')
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atribui valores as variaveis de Posicao utilizado no Siga Pyme   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Local lGrade      := If(FindFunction("MaGrade"),MaGrade(),.F.)
+	Local cVar        :=" "
+	Local lReferencia := .F.
+	Local lVer116    	:= (VAL(GetVersao(.F.)) == 11 .And. GetRpoRelease() >= "R6"  .Or.  VAL(GetVersao(.F.))  > 11)
+	Local lExiste     := .F.
+	
+	l261Local := If(l261Local==NIL,ExistBlock("A261LOC"),l261Local)
+	nOrigDest := If(nOrigDest==NIL,1,nOrigDest)
+		
+	If Empty(cLocal)
+		cMsg := 'Não informado depósito origem'
+		lContinua 	:= .F.
+		lRet		:= .F.
+	EndIf
+	
+	If lContinua
+		cProduto := PadR(cProduto,TamSX3("B1_COD")[1])
+		cLocal   := PadR(cLocal,TamSX3("B2_LOCAL")[1])
+		SB2->(dbSetOrder(1))
+	
+		If nOrigDest == 1
+	
+			If Empty(cProduto)
+				cMsg := 'Produto origem não foi preenchido.'
+				lContinua	:= .F.
+				lRet		:= .F.
+			EndIf
+	
+			If lContinua
+				lRastroO  := Rastro(cProduto)
+				lLocalizO := Localiza(cProduto,.T.)
+	
+				If cLocal == cLocCQ
+					cMsg := 'Não é permitida a transferência de Produtos do Armazem de Controle de Qualidade (definido através do parâmetro MV_CQ).'
+					lContinua	:= .F.
+					lRet		:= .F.
+				EndIf
+			EndIf	
+			If lContinua .And. l261Local
+				ExecBlock("A261LOC",.F.,.F., {cProduto,cLocal,nOrigDest})
+			EndIf
+	
+			If lContinua
+				If lGrade
+					cVar:=cProduto
+					lReferencia := MatGrdPrrf(@cVar)		
+				Endif
+				If !lReferencia
+					
+					If lVer116 //verifica se a versao suporta a tabela NNR
+						dbSelectArea('NNR')
+						NNR->(dbSetOrder(1))
+						if !NNR->(dbSeek(xFilial('NNR')+cLocal))
+							cMsg := 'Não encontrado depósito origem com a chave informada'
+							lContinua	:= .F.
+							lRet		:= .F.
+						Else
+							lExiste := .T.
+						Endif
+					Else
+						lExiste := .T.
+					Endif	
+					
+					IF lExiste
+						dbSelectArea("SB2")
+						dbSetOrder(1)
+						If !SB2->(dbSeek(xFilial('SB2')+cProduto+cLocal,.F.))
+							cMsg := 'O  Armazem informado como origem não existe para este produto.'
+							lContinua	:= .F.
+							lRet		:= .F.
+						EndIf
+					Endif
+				EndIf
+			EndIf
+		Else
+			If Empty(cProduto)
+				cMsg := "Produto destino não preenchido."
+				lContinua	:= .F.
+				lRet		:= .F.
+			EndIf
+	
+			If lContinua
+				lRastroD  := Rastro(cProduto)
+				lLocalizD := Localiza(cProduto,.T.)
+	
+				If l261Local
+					ExecBlock("A261LOC",.F.,.F., {cProduto,cLocal,nOrigDest})
+				EndIf
+				If lGrade
+					cVar:=cProduto
+					lReferencia := MatGrdPrrf(@cVar)		
+				Endif
+	
+				If !lReferencia
+					
+					If lVer116 //Verifica se a versao suporta a tabela NNR
+						dbSelectArea('NNR')
+						NNR->(dbSetOrder(1))
+						if !NNR->(dbSeek(xFilial('NNR')+cLocal))
+							cMsg := 'Não encontrado depósito destino com a chave informada'
+							lContinua	:= .F.
+							lRet		:= .F.
+						Else
+							lExiste := .T.
+						Endif
+					Else
+						lExiste := .T.
+					Endif
+					
+					IF lExiste
+						If !SB2->(dbSeek(xFilial('SB2')+cProduto+cLocal,.F.)) .And. GetMV('MV_VLDALMO') == 'S'
+							cMsg := 'O  Armazem informado como destino não existe para este produto.'
+							lContinua	:= .F.
+							lRet		:= .F.
+						EndIf
+					Endif
+				Endif
+			EndIf
+		EndIf
+	EndIf	
+	//-- Retorna Integridade do Sistema
+	dbSelectArea(aSB2Area[1]); dbSetOrder(aSB2Area[2]); dbGoto(aSB2Area[3])
+	dbSelectArea(aArea[1]); dbSetOrder(aArea[2]); dbGoto(aArea[3])
+Return lRet
+
+//-------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} getMsgErro
+
+Transforma o array com as informações de um erro em uma string para ser retornada.
+
+@param aErro - Array com a mensagem de erro, obtido através da função GetAutoGRLog
+
+@return cMsg - Mensagem no formato String
+
+@author  Lucas Konrad França
+@version P12
+@since   07/03/2018
+/*/
+//-------------------------------------------------------------------------------------------------
+Static Function getMsgErro(aErro)
+	Local cMsg   := ""
+	Local nCount := 0
+	
+	For nCount := 1 To Len(aErro)
+		If AT(':=',aErro[nCount]) > 0 .And. AT('< --',aErro[nCount]) < 1
+			Loop
+		EndIf
+		If AT("------", aErro[nCount]) > 0
+			Loop
+		EndIf
+		//Retorna somente a mensagem de erro (Help) e o valor que está inválido, sem quebras de linha e sem tags '<>'
+		If !Empty(cMsg)
+			cMsg += " "
+		EndIf
+		cMsg += AllTrim(StrTran( StrTran( StrTran( StrTran( StrTran( aErro[nCount], "/", "" ), "<", "" ), ">", "" ), CHR(10), " "), CHR(13), "") + ("|"))
+	Next nCount
+	
+	If Empty(cMsg) .And. Len(aErro) > 0
+		For nCount := 1 To Len(aErro)
+			If !Empty(cMsg)
+				cMsg += " "
+			EndIf
+			cMsg += AllTrim(StrTran( StrTran( StrTran( StrTran( StrTran( aErro[nCount], "/", "" ), "<", "" ), ">", "" ), CHR(10), " "), CHR(13), "") + ("|"))
+		Next nCount
+	EndIf
+
+Return cMsg
+
+//-------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} getDate
+
+Retorna somente a data de uma variável datetime
+
+@param dDateTime - Variável DateTime
+
+@return dDate - Retorna a data.
+
+@author  Lucas Konrad França
+@version P12
+@since   28/03/2018
+/*/
+//-------------------------------------------------------------------------------------------------
+Static Function getDate(dDateTime)
+   Local dDate := Nil
+   If AT("T",dDateTime) > 0
+      dDate := StrTokArr(dDateTime,"T")[1]
+   Else
+      dDate := StrTokArr(AllTrim(dDateTime)," ")[1]
+   EndIf
+   dDate := SubStr(dDate,1,4)+SubStr(dDate,6,2)+SubStr(dDate,9,2)
+Return dDate

@@ -1,0 +1,182 @@
+#include "SIGAWIN.CH"
+
+//Posicoes  do terceiro array recebido nos impostos a traves da matxfis...
+#DEFINE X_IMPOSTO    1 //Nome do imposto
+#DEFINE X_NUMIMP     2 //Sufixo do imposto
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³M460IGV   ¦ Autor ¦ William Yong           ¦ Data ¦ 27.06.01  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³Programa que Calcula IGV   (PERU)                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³MATA467/MATA468                                               ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±³Alterado  ³ Rafael de Paula Gonçalves                  ¦Data ¦ 05.11.09  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function M460IGV(cCalculo,nItem,aInfo)
+Local nDecs := 0
+Local nI	:= 0
+Local lXFis
+Local nBase := 0
+Local cAliasROT, cOrdemROT
+Local aImpRef,aImpVal
+Local aArea	  := GetArea()
+Local nRegFIE := 0 
+Local nValadi := 0
+Local lRegFie := Type("aRegFIE") <> "U"
+
+SetPrvt("AITEMINFO,xRet,CIMPINCID,_ALIQIVA")
+SetPrvt("NI,NEE")
+
+lXFis:=(MaFisFound() .And. ProcName(1)<>"EXECBLOCK")
+cAliasRot:= Alias()
+cOrdemRot:= IndexOrd()
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Observacao :                                                  ³
+³                                                               ³
+³ a variavel ParamIxb tem como conteudo um Array[2], contendo : ³
+³ [1,1] > Quantidade Vendida                                    ³
+³ [1,2] > Preco Unitario                                        ³
+³ [1,3] > Valor Total do Item, com Descontos etc...             ³
+³ [1,4] > Valor do Frete Rateado para Este Item ...             ³
+³ [1,5] > Array Contendo os Impostos já calculados, no caso de  ³
+³         incidência de outros impostos.                        ³
+³ [2,1] > Array xRet, Contendo as Informações do Imposto que³
+³         será calculado.                                       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+*/
+//+---------------------------------------------------------------+
+//¦ Caso seja pedido de Venda		         					  ¦
+//+---------------------------------------------------------------+	
+If !lXFis
+	aItemINFO:=ParamIxb[1]
+	xRet:=ParamIxb[2]
+	cImpIncid:=xRet[10]
+Endif
+
+nMoedaCor := IIf(Type("nMoedaCor")	=="U",1,nMoedaCor)
+nDecs := MsDecimais(nMoedaCor)
+_AliqIVA:=0
+
+//+---------------------------------------------------------------+
+//¦ Caso seja pedido de Venda		         					  ¦
+//+---------------------------------------------------------------+
+If !lXFis
+	DbSelectArea("SFB")
+	If DbSeek(xFilial() + xRet[1] )
+		_AliqIVA := FB_ALIQ
+	Endif
+	
+	xRet[2]  := _aliqIva                     					// Alíquota ( 19 %)
+	xRet[11] := aItemINFO[4]									// Rateio do Frete
+	xRet[13] := aIteMINFO[5]     								// Rateio de Despesas
+	xRet[3]  := aItemINFO[3]+aItemINFO[4]+aItemINFO[5]          // Base de Cálculo
+	
+	//Tira os descontos se for pelo liquido
+	If Subs(xRet[5],4,1) == "S"  .And. Len(xRet) >= 18 .And. ValType(xRet[18])=="N"
+		xRet[3]	-=	xRet[18]
+		nBase := xRet[3]
+	Endif
+	
+	If lRegFie .and. Len(aRegFIE) > 0
+		nRegFIE := 1
+		xRet[3] := Round(xRet[3] - aRegFIE[nRegFIE][10][nItReg] * xRet[3],nDecs)
+		nBase := xRet[3]
+	EndIf	
+	//+----------------------------------------------------------+
+	//¦ Soma a Base de Cálculo os Impostos Incidentes            ¦
+	//+----------------------------------------------------------+
+	nI := At( cImpIncid,";" )
+	nI := If( nI==0,Len( AllTrim( cImpIncid ) )+1,nI )
+	
+	While nI > 1
+		nEE:= AScan( aItemINFO[6],{|x| x[1] == Left(cImpIncid,nI-1) } )
+		If nEE> 0
+			xRet[3] := xRet[3]+aItemINFO[6,nEE,4]
+		Endif
+		cImpIncid := Stuff( cImpIncid,1,nI,"" )
+		nI := At( cImpIncid,";" )
+		nI := If( nI==0,Len( AllTrim( cImpIncid ) )+1,nI )
+	EndDo
+	
+	//+----------------------------------------------------------+
+	//¦ Efetua o Cálculo do Imposto                              ¦
+	//+----------------------------------------------------------+
+	xRet[4] := Round(xRet[2] * (xRet[3]/100),nDecs)
+Else
+	//+----------------------------------------------------------+
+	//¦ Valor da Base aplicada a Aliquota                        ¦
+	//+----------------------------------------------------------+ 
+	Do Case
+		Case cCalculo == "B"       
+			If FunName() $ "MATA410"
+				If M->C5_TPFRETE == "F"
+					xRet   := MaFisRet(nItem,"IT_VALMERC")+MaFisRet(nItem,"IT_FRETE")+MaFisRet(nItem,"IT_DESPESA")+MaFisRet(nItem,"IT_SEGURO")
+				Else
+					xRet   := MaFisRet(nItem,"IT_VALMERC")+MaFisRet(nItem,"IT_DESPESA")+MaFisRet(nItem,"IT_SEGURO")
+					If cPaisLoc == "PER" .AND. SD2->(FieldPos("D2_VALADI")) > 0
+						xRet -= MaFisRet(nItem,"IT_ADIANT")
+					EndIf					
+				EndIf
+			Else
+				xRet   := MaFisRet(nItem,"IT_VALMERC")+MaFisRet(nItem,"IT_FRETE")+MaFisRet(nItem,"IT_DESPESA")+MaFisRet(nItem,"IT_SEGURO")
+				If cPaisLoc == "PER" .AND. SD2->(FieldPos("D2_VALADI")) > 0
+					xRet -= MaFisRet(nItem,"IT_ADIANT")
+             	EndIf				
+			EndIf
+
+			If GetNewPar('MV_DESCSAI','1')=='1'
+				xRet	+= MaFisRet(nItem,"IT_DESCONTO")
+			Endif
+			
+			//Tira os descontos se for pelo liquido
+			nOrdSFC:=(SFC->(IndexOrd()))
+			nRegSFC:=(SFC->(Recno()))
+			SFC->(DbSetOrder(2))
+			If (SFC->(DbSeek(xFilial("SFC")+MaFisRet(nItem,"IT_TES")+ aInfo[X_IMPOSTO])))
+				cImpIncid:=Alltrim(SFC->FC_INCIMP)
+				If SFC->FC_LIQUIDO=="S"
+					xRet-=If(SFC->FC_CALCULO=="T",MaFisRet(nItem,"NF_DESCONTO"),MaFisRet(nItem,"IT_DESCONTO"))
+				Endif
+			Endif
+			SFC->(DbSetOrder(nOrdSFC))
+			SFC->(DbGoto(nRegSFC))
+			//+---------------------------------------------------------------+
+			//¦ Soma a Base de Cálculo os Impostos Incidentes                 ¦
+			//+---------------------------------------------------------------+
+			If !Empty(cImpIncid)
+				aImpRef:=MaFisRet(nItem,"IT_DESCIV")
+				aImpVal:=MaFisRet(nItem,"IT_VALIMP")
+				For nI:=1 to Len(aImpRef)
+					If !Empty(aImpRef[nI])
+						IF Trim(aImpRef[nI][1])$cImpIncid
+							xRet+=aImpVal[nI]
+						Endif
+					Endif
+				Next
+			Endif
+			
+		Case cCalculo == "A"
+			If SFB->(DbSeek(xFilial("SFB") + aInfo[X_IMPOSTO]))
+				_AliqIVA := SFB->FB_ALIQ
+			Endif
+			xRet:=_AliqIVA
+		Case cCalculo == "V"
+			nBase:=MaFisRet(nItem,"IT_BASEIV"+aInfo[X_NUMIMP])
+			_AliqIVA:=MaFisRet(nItem,"IT_ALIQIV"+aInfo[X_NUMIMP])
+			xRet := Round(((_aliqIVA * nBase)/100),nDecs+1)
+	EndCase
+
+Endif
+
+RestArea(aArea)
+
+Return( xRet )

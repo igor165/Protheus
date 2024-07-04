@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Stock rechazado en el MRP"
+	#define STR0002 "Devuelve todo el stock rechazado en el MRP"
+	#define STR0003 "Devuelve el stock rechazado de un registro MRP específico"
+	#define STR0004 "Incluye o actualiza uno o más stocks rechazados en el MRP"
+	#define STR0005 "Sincronización del stock rechazado en el MRP"
+	#define STR0006 "Borra uno o o más stocks rechazados en el MRP"
+	#define STR0007 "Borra los registros de stock rechazado en el MRP de un determinado producto"
+	#define STR0008 "No fue posible interpretar los datos recibidos."
+	#define STR0009 "Atributo '"
+	#define STR0010 "' No se informó."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Rejected Stock in MRP"
+		#define STR0002 "Return all Rejected Stock in MRP."
+		#define STR0003 "Return Rejected Stock from a specific MRP record."
+		#define STR0004 "Add or update one or more Rejected Stock in MRP."
+		#define STR0005 "Synchronization of Rejected Stock in MRP"
+		#define STR0006 "Delete one or more Rejected Stock in MRP."
+		#define STR0007 "Delete Rejected Stock records in a certain product MRP."
+		#define STR0008 "Unable to interpret data received."
+		#define STR0009 "Attribute ‘"
+		#define STR0010 "‘ not entered."
+	#else
+		#define STR0001 "Estoque Rejeitado no MRP"
+		#define STR0002 "Retorna todo o Estoque Rejeitado no MRP"
+		#define STR0003 "Retorna o Estoque Rejeitado de um registro MRP específico"
+		#define STR0004 "Inclui ou atualiza um ou mais Estoque Rejeitado no MRP"
+		#define STR0005 "Sincronização do Estoque Rejeitado no MRP"
+		#define STR0006 "Exclui um ou mais Estoque Rejeitado no MRP"
+		#define STR0007 "Deleta os registros de Estoque Rejeitado no MRP de um determinado produto"
+		#define STR0008 "Nao foi possível interpretar os dados recebidos."
+		#define STR0009 "Atributo '"
+		#define STR0010 "' Nao foi informado."
+	#endif
+#endif

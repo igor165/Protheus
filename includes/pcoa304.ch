@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Deducción del ingreso"
+	#define STR0002 "Visualizar"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Imprimir"
+	#define STR0007 "Copiar"
+	#define STR0008 "Cuenta contable no puede ser analítica."
+	#define STR0009 "Cuenta contable no existe."
+	#define STR0010 "Ya existe una deducción de ingresos en este año con esta cuenta"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Revenue Deduction"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "Print"
+		#define STR0007 "Copy"
+		#define STR0008 "Ledger Account cannot be detailed."
+		#define STR0009 "Ledger Account does not exist."
+		#define STR0010 "There already is deduction of revenue in this year with this account"
+	#else
+		#define STR0001 "Dedução da Receita"
+		#define STR0002 "Visualizar"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Imprimir"
+		#define STR0007 "Copiar"
+		#define STR0008 "Conta Contabil não pode ser analitica."
+		#define STR0009 "Conta Contabil não existe."
+		#define STR0010 "Já existe uma dedução de receita neste ano com esta conta"
+	#endif
+#endif

@@ -1,0 +1,1009 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "MATI105.ch"
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±º Function ³  MATI105JSON  º Autor ³ Flavio Martins   º Data ³  25/10/22  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Desc.    ³ Funcao de integracao com o adapter EAI para recebimento e    º±±
+±±º          ³ envio de informações da solicitacao ao armazem (SCP)         º±±
+±±º          ³ utilizando o conceito de mensagem unica no format JSON.      º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Param.   ³ xEnt - Variavel com conteudo json para envio/recebimento.    º±±
+±±º          ³ nTypeTrans - Tipo de transacao. (Envio/Recebimento)          º±±
+±±º          ³ cTypeMessage - Tipo de mensagem. (Business Type, WhoIs, etc) º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Retorno  ³ aRet - Array contendo o resultado da execucao e a mensagem   º±±
+±±º          ³        json de retorno.                                      º±±
+±±º          ³ aRet[1] - (boolean) Indica o resultado da execução da função º±±
+±±º          ³ aRet[2] - (caracter) Mensagem json para envio                º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Uso      ³ MATA105                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATI105Json(xEnt, nTypeTrans, cTypeMessage, cVersion, cTransac, lEAIObj, aRecSCP )
+Local lRet			:= .T.
+Local lExclui		:= .F.
+Local nI			:= 0
+Local nY			:= 0
+Local nX			:= 0
+Local nCount		:= 0
+Local aCab			:= {}
+Local aItens		:= {}
+Local aLinha		:= {}
+Local nOpcx			:= 0
+Local cLogErro		:= ""
+Local aErroAuto	:= {}
+Local cEvent		:= "upsert"
+Local cCodPro		:= ""
+Local cNumSA		:= ""
+Local cFilSA		:= ""
+Local nAux			:= 0
+Local cItemSCP		:= ""
+Local cAux			:= ""
+Local cProjeto		:= ""
+Local aRateio		:= {}
+Local aCCusto		:= {}
+Local aProject		:= {}
+Local aDePara		:= {}
+Local aRatCC		:= {}
+Local aRatProj		:= {}
+Local dDtEmis		:= Nil
+Local dDatPrf		:= Nil
+Local cSArVer		:= RTrim(PmsMsgUVer('REQUEST',			'MATA105')) //Versão da Solicitação de Armazém
+Local cCusVer		:= RTrim(PmsMsgUVer('COSTCENTER',		'CTBA030')) //Versão do Centro de Custo
+Local cUndVer		:= RTrim(PmsMsgUVer('UNITOFMEASURE',	'QIEA030')) //Versão da Unidade de Medida
+Local cLocVer		:= RTrim(PmsMsgUVer('WAREHOUSE',		'AGRA045')) //Versão do Local de Estoque
+Local cPrdVer		:= RTrim(PmsMsgUVer('ITEM',				'MATA010')) //Versão do Produto
+Local cPrjVer		:= RTrim(PmsMsgUVer('PROJECT',			'PMSA200')) //Versão do Projeto
+Local cTrfVer		:= RTrim(PmsMsgUVer('TASKPROJECT',		'PMSA203')) //Versão da Tarefa
+Local aAux			:= {}
+Local aVldCC		:= {}
+
+//Variaveis utilizadas no De/Para de Codigo Interno X Codigo Externo
+Local cValExt		:= "" //Codigo externo utilizada no De/Para de codigos - Tabela XXF
+Local cValInt		:= "" //Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cAlias		:= "SCP"
+Local cCampo		:= "CP_NUM"
+Local ofwEAIObj	    := FWEAIobj():NEW()
+Local cName         := ''
+Local cMsgRet		:= ''
+Local cRet			:= ''
+Local oListIntId
+
+Private lMsErroAuto		:= .F.
+Private lAutoErrNoFile	:= .T.
+Private cNumSAWS			:= ""
+
+Default aRecSCP			:= {}
+Default cVersion		:= ''
+Default cTransac		:= ''
+Default lEAIObj			:= .F.
+
+If ( Type("Inclui") == "U" )
+	Private Inclui := .F.
+EndIf
+
+If ( Type("Altera") == "U" )
+	Private Altera := .F.
+EndIf
+
+If nTypeTrans == TRANS_RECEIVE
+
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+
+		// Verifica se a marca foi informada
+		If xEnt:getHeaderValue("ProductName") != Nil .And. !Empty(xEnt:getHeaderValue("ProductName"))
+			cProduct := AllTrim(xEnt:getHeaderValue("ProductName"))
+		Else
+			lRet := .F.
+			cMsgRet += STR0001 // "A marca é obrigatória"
+			Return {lRet, cMsgRet}
+		EndIf
+
+		If xEnt:getHeaderValue("Type") != Nil .And. !Empty(xEnt:getHeaderValue("Type")) .And.;
+			xEnt:getPropValue("Type") == "001" // Se é Solicitação ao Armazém
+
+			aAux := IntChcEmp(xEnt, cAlias, cProduct)
+			If !aAux[1]
+				lRet		:= aAux[1]
+				cMsgRet		:= aAux[2]
+				Return {lRet, cMsgRet}
+			EndIf
+
+			If !Empty(xEnt:getPropValue("InternalId"))
+				cValExt := xEnt:getPropValue("InternalId")
+			Else
+				lRet		:= .F.
+				cMsgRet		:= STR0012 //"O InternalId é obrigatório!"
+				Return {lRet, cMsgRet}
+			EndIf
+
+			cValInt := RTrim(CFGA070INT(cProduct, cAlias, cCampo, cValExt))			
+
+			If Upper(xEnt:getHeaderValue('Event')) == 'DELETE'
+				nOpcx := 5 // Delete
+				lExclui := .T.
+
+				If Empty(cValInt)
+					lRet		:= .F.
+					cMsgRet		:= STR0013 //"SA não encontrada no de/para!"
+					Return {lRet, cMsgRet}
+				EndIf
+
+				cNumSA := PadR(Separa(cValInt, '|')[3], TamSX3("CP_NUM")[1])
+
+				If SCP->(dbSeek(xFilial("SCP") + cNumSA))
+
+					aAdd(aCab,	{"CP_FILIAL",	xFilial("SCP"),	Nil})
+					aAdd(aCab,	{"CP_NUM",		cNumSA,				Nil})
+					aAdd(aCab,	{"CP_EMISSAO",	SCP->CP_EMISSAO,	Nil})
+
+					While !SCP->(Eof()) .And. xFilial("SCP") + cNumSA == SCP->CP_FILIAL + SCP->CP_NUM
+						aAdd(aLinha, {"CP_ITEM",    SCP->CP_ITEM,    NIL })
+						aAdd(aLinha, {"CP_PRODUTO", SCP->CP_PRODUTO, NIL })
+						aAdd(aLinha, {"CP_QUANT",	 SCP->CP_QUANT,   NIL })
+						aAdd(aLinha, {"AUTDELETA",	 "S",             Nil })
+						aAdd(aItens, aClone(aLinha))
+						aLinha := {}
+
+						aAdd(aLinha, {"AFH_PROJET","", Nil})
+						aAdd(aLinha, {"AFH_TAREFA","", Nil})
+						aAdd(aLinha, {"AFH_QUANT",0,Nil})
+						aAdd(aLinha, {"AFH_ITEMSA","",Nil})
+						aAdd(aLinha, {"AFH_NUMSA",cNumSA,Nil})
+						aAdd(aLinha, {"AFH_REVISA","0001",Nil})
+						aAdd(aRatProj, aClone(aLinha))
+						aLinha := {}
+
+						cAux := IntSArExt(, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer, .T.)[2]
+						aAdd(aLinha, RTrim(CFGA070Ext(cProduct, cAlias, "CP_ITEM", cAux)))
+						aAdd(aLinha, cAux)
+						aAdd(aLinha, "CP_ITEM")
+						aAdd(aDePara, aLinha)
+						aLinha := {}
+
+						SCP->(dbSkip())
+					EndDo
+				Endif
+
+			ElseIf Upper(xEnt:getHeaderValue('Event')) == "UPSERT"
+				
+				If !Empty(cValInt)
+					nOpcx 	:= 4 // Update
+					cNumSA	:= PadR(Separa(cValInt, '|')[3], TamSX3("CP_NUM")[1])
+					cFilSA 	:= PadR(Separa(cValInt, '|')[2], TamSX3("CP_FILIAL")[1])
+
+					aAdd(aCab,{"CP_FILIAL"	, cFilSA, Nil})
+					aAdd(aCab,{"CP_NUM"		, cNumSA, Nil})
+				Else
+					nOpcx := 3 // Insert
+
+					cValInt := IntSArExt(/*cEmpresa*/, /*cFilial*/, "cNumSAWS", /*cItemSA*/, /*dDataEmissao*/, cSArVer, .T.)[2]
+
+					// Número da solicitação
+					If xEnt:getPropValue("Number") != NIL .And. !Empty(xEnt:getPropValue("Number"))
+
+						// Verifica se não possui numeração automática
+						If Empty(Posicione('SX3', 2, Padr('CP_NUM', 10), 'X3_RELACAO'))
+							cNumSA := xEnt:getPropValue("Number")
+
+							// Número da Solicitação
+							aAdd(aCab,{"CP_FILIAL"	, xFilial("SCP")	, Nil})
+							aAdd(aCab,{"CP_NUM"		, cNumSA			, Nil})
+						EndIf
+
+					ElseIf Empty(Posicione('SX3', 2, Padr('CP_NUM', 10), 'X3_RELACAO'))
+						lRet		:= .F.
+						cMsgRet	:= STR0014 //"Informe a tag Number."
+						Return {lRet, cMsgRet}
+					EndIf
+				EndIf
+
+				// Usuário requisitante
+				If xEnt:getPropValue("UserRequesterCode") != NIL .And. !Empty(xEnt:getPropValue("UserRequesterCode"))
+					// Obtém o Nome do usuário requisitante
+					cAux := xEnt:getPropValue("UserRequesterCode")
+					If !Empty(cAux)
+						aAdd(aCab, {"CP_SOLICIT", cAux, Nil})
+					Else
+						If Type(xEnt:getPropValue("UserRequesterName")) != NIL .And. !Empty(xEnt:getPropValue("UserRequesterName"))
+							aAdd(aCab, {"CP_SOLICIT", xEnt:getPropValue("UserRequesterName"), Nil})
+						Else
+							aAdd(aCab,{"CP_SOLICIT", "Administrador", Nil})
+						Endif
+					EndIf
+				ElseIf xEnt:getPropValue("UserRequesterName") != NIL .And. !Empty(xEnt:getPropValue("UserRequesterName"))
+					aAdd(aCab, {"CP_SOLICIT", xEnt:getPropValue("UserRequesterName"), Nil})
+				Else
+					aAdd(aCab,{"CP_SOLICIT", "Administrador", Nil})
+				EndIf
+
+				// Data de emissão da solicitação
+				If xEnt:getPropValue("RegisterDateTime") != NIL .And. !Empty(xEnt:getPropValue("RegisterDateTime"))
+					dDtEmis := Stod(StrTran(xEnt:getPropValue("RegisterDateTime"), "-", ""))
+				Else
+					dDtEmis := dDataBase
+				EndIf
+				aAdd(aCab, {"CP_EMISSAO", dDtEmis, Nil})
+
+				If xEnt:getPropValue("ListOfRequestItem") != NIL .And. Len(xEnt:getPropValue("ListOfRequestItem")) > 0
+					oReqItems := xEnt:getPropValue('ListOfRequestItem')
+				EndIf
+
+				For nI := 1 to Len(oReqItems)
+
+					aAdd( aLinha,{"CP_NUM" , cNumSA, Nil })
+																						
+					If oReqItems[nI]:getPropValue('Code') != NIL .And. !Empty(oReqItems[nI]:getPropValue('Code'))
+						cItemSCP := oReqItems[nI]:getPropValue('Code')
+						cItemSCP := I105Item(oReqItems, cItemSCP, nI)
+						aAdd(aLinha, {"CP_ITEM", cItemSCP, Nil})
+					Endif
+
+					aAdd(aDePara, Array(4))
+					aDePara[nI][1] := oReqItems[nI]:getPropValue('InternalId')
+					If nOpcx == 3
+						aDePara[nI][2] := IntSArExt(/*cEmpresa*/, /*cFilial*/, "cNumSAWS", cItemSCP, dDtEmis, cSArVer, .T.)[2]
+					Else
+						aDePara[nI][2] := IntSArExt(/*cEmpresa*/, /*cFilial*/, cNumSA, cItemSCP, dDtEmis, cSArVer, .T.)[2]
+					Endif
+					aDePara[nI][3] := 'CP_ITEM'
+
+					If oReqItems[nI]:getPropValue('ItemInternalid') != NIL .And. !Empty(oReqItems[nI]:getPropValue('ItemInternalid'))
+						aAux := IntProInt(oReqItems[nI]:getPropValue('ItemInternalid'), cProduct, cPrdVer) //MATI010
+						If !aAux[1]
+							lRet		:= aAux[1]
+							cMsgRet	:= aAux[2]
+							Return {lRet, cMsgRet}
+						Else
+							cCodPro := PadR(aAux[2][3], TamSX3("CP_PRODUTO")[1])
+							aAdd(aLinha, {"CP_PRODUTO", cCodPro, Nil})
+						EndIf
+					ElseIf 	oReqItems[nI]:getPropValue('ItemCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('ItemCode'))
+						cCodPro := PadR(oReqItems[nI]:getPropValue('ItemCode'), TamSX3("CP_PRODUTO")[1])
+						aAdd(aLinha, {"CP_PRODUTO", cCodPro, Nil})
+					EndIf
+
+					aAdd(aLinha, {"CP_DESCRI", Posicione('SB1', 1, FWxFilial( 'SB1') + cCodPro, 'B1_DESC' ), Nil } )
+
+					//-- Numero do boletim do PIMS
+					If oReqItems[nI]:getPropValue('Code') != NIL .And. !Empty(oReqItems[nI]:getPropValue('Code'))
+						aAdd(aLinha ,{'CP_NRBPIMS' 		, oReqItems[nI]:getPropValue('Code'), Nil} )
+					EndIf
+
+					//-- Tipo do item Requisitado do estoque ou comprado
+					If oReqItems[nI]:getPropValue('ItemType') != NIL .And. !Empty(oReqItems[nI]:getPropValue('ItemType'))
+						If SCP->(FieldPos("CP_CONSEST")) > 0
+							If AllTrim(oReqItems[nI]:getPropValue('ItemType')) == "000"
+								aAdd(aLinha, {"CP_CONSEST", "1", Nil})
+							Else
+								aAdd(aLinha, {"CP_CONSEST", "2", Nil})
+							EndIf
+						EndIf
+					EndIf
+
+					// Data de emissão da necessidade
+					If oReqItems[nI]:getPropValue('DeliveryDateTime') != NIL .And. !Empty(oReqItems[nI]:getPropValue('DeliveryDateTime'))
+						dDatPrf := Stod(StrTran(oReqItems[nI]:getPropValue('DeliveryDateTime'), "-", ""))
+					Else
+						dDatPrf := dDataBase
+					EndIf
+
+					aAdd(aLinha, {"CP_DATPRF", dDatPrf, Nil})
+
+					// Quantidade
+					If oReqItems[nI]:getPropValue('Quantity') != NIL .And. !Empty(oReqItems[nI]:getPropValue('Quantity'))
+						aAdd(aLinha, {"CP_QUANT", Val(AllTrim(oReqItems[nI]:getPropValue('Quantity'))), Nil})
+					EndIf
+
+					//Preço unitário
+					If oReqItems[nI]:getPropValue('UnitPrice') != NIL .And. !Empty(oReqItems[nI]:getPropValue('UnitPrice'))
+						aAdd(aLinha, {"CP_VUNIT", Val(AllTrim(oReqItems[nI]:getPropValue('UnitPrice'))), Nil})
+					EndIf
+
+					// Obtém o código interno da unidade de medida
+					If oReqItems[nI]:getPropValue('UnitOfMeasureInternalId') != NIL .And. !Empty(oReqItems[nI]:getPropValue('UnitOfMeasureInternalId'))
+						aAux := IntUndInt(oReqItems[nI]:getPropValue('UnitOfMeasureInternalId'), cProduct, cUndVer) //QIEI030
+						If !aAux[1]
+							lRet		:= aAux[1]
+							cMsgRet		:= aAux[2]
+							Return {lRet, cMsgRet}
+						Else
+							aAdd(aLinha,{"CP_UM", aAux[2][3], Nil})
+						EndIf
+					ElseIf oReqItems[nI]:getPropValue('UnitOfMeasureCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('UnitOfMeasureCode'))
+						aAdd(aLinha,{"CP_UM", oReqItems[nI]:getPropValue('UnitOfMeasureCode'), Nil})
+					EndIf
+
+					// Obtém o código interno do local de estoque
+					If oReqItems[nI]:getPropValue('WarehouseInternalId') != nil .And. !Empty(oReqItems[nI]:getPropValue('WarehouseInternalId')) 
+						aAux := IntLocInt(oReqItems[nI]:getPropValue('WarehouseInternalId'), cProduct, cLocVer) //AGRI045
+						If !aAux[1]
+							lRet		:= aAux[1]
+							cMsgRet		:= aAux[2]
+							Return {lRet, cMsgRet}
+						Else
+							aAdd(aLinha,{"CP_LOCAL", aAux[2][3], Nil})
+						EndIf
+					ElseIf oReqItems[nI]:getPropValue('WarehouseCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('WarehouseCode')) 
+						aAdd(aLinha,{"CP_LOCAL", oReqItems[nI]:getPropValue('WarehouseCode'), Nil})
+					EndIf
+
+					// Observação
+					If oReqItems[nI]:getPropValue('Observation') != NIL .And. !Empty(oReqItems[nI]:getPropValue('Observation')) 
+						aAdd(aLinha, {"CP_OBS", oReqItems[nI]:getPropValue('Observation'), Nil})
+					EndIf
+
+					// Obtém o código interno do centro de custo
+					If oReqItems[nI]:getPropValue('CostCenterInternalId') != NIL .And. !Empty(oReqItems[nI]:getPropValue('CostCenterInternalId')) 
+						aAux := IntCusInt(oReqItems[nI]:getPropValue('CostCenterInternalId'), cProduct, cCusVer) //CTBI030
+						If !aAux[1]
+							lRet		:= aAux[1]
+							cMsgRet		:= aAux[2]
+							Return {lRet, cMsgRet}
+						Else
+							aAdd(aLinha,{"CP_CC", aAux[2][3], Nil})
+						EndIf
+					ElseIf oReqItems[nI]:getPropValue('CostCenterCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('CostCenterCode')) 
+						aAdd(aLinha,{"CP_CC", oReqItems[nI]:getPropValue('CostCenterCode'), Nil})
+					EndIf
+
+					// Obtém a conta contábil
+					If oReqItems[nI]:getPropValue('AccountantAcountInternalId') != nil .And. !Empty(oReqItems[nI]:getPropValue('AccountantAcountInternalId')) 
+						aAux := CFGA070INT(cProduct, "CT1", "CT1_CONTA", oReqItems[nI]:getPropValue('AccountantAcountInternalId')) //CTBI020
+						If !Empty(aAux)
+							lRet		:= .F.
+							cMsgRet	:= STR0015 //"Conta contábil não encontrada no de/para."
+							Return {lRet, cMsgRet}
+						Else
+							aAdd(aLinha,{"CP_CONTA", RTrim(Separa(aAux)[3]), Nil})
+						EndIf
+					ElseIf oReqItems[nI]:getPropValue('AccountantAcountCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('AccountantAcountCode')) 
+						aAdd(aLinha,{"CP_CONTA", oReqItems[nI]:getPropValue('AccountantAcountCode'), Nil})
+					EndIf
+
+					// Obtém o código da ordem de produção
+					If oReqItems[nI]:getPropValue('MainOrderCode') != NIL .And. !Empty(oReqItems[nI]:getPropValue('MainOrderCode'))  
+						aAdd(aLinha,{"CP_OP", oReqItems[nI]:getPropValue('MainOrderCode'), Nil})
+					EndIf
+
+					aAdd(aItens, aClone(aLinha))
+					aLinha := {}
+
+					If oReqItems[nI]:getPropValue("ListOfApportionRequestItem") != nil .And. Len(oReqItems[nI]:getPropValue("ListOfApportionRequestItem")) > 0
+						oAppoItems := oReqItems[nI]:getPropValue("ListOfApportionRequestItem")
+
+						For nY := 1 To Len(oAppoItems)
+							
+							If oAppoItems[nY]:getPropValue('CostCenterInternalId') != nil .And. !Empty(oAppoItems[nY]:getPropValue('CostCenterInternalId'))  
+								
+								If oAppoItems[nY]:getPropValue('Percentual') != nil .And. !Empty(oAppoItems[nY]:getPropValue('Percentual'))  
+									aAux := IntCusInt(oAppoItems[nY]:getPropValue('CostCenterInternalId') , cProduct, cCusVer) //CTBI030
+									If !aAux[1]
+										lRet		:= .F.
+										cMsgRet		:= aAux[2] + STR0016 + AllTrim(oAppoItems[nY]:getPropValue('Code')) + "." //" Item "
+										Return {lRet, cMsgRet}
+									EndIf
+									aVldCC := IntVldCC(aAux[2][3], Date(), "MATI105")
+									// Valida o Centro de custo
+									If !aVldCC[1]
+										lRet		:= .F.
+										cMsgRet		:= aVldCC[2] + STR0016 + AllTrim(oAppoItems[nY]:getPropValue('Code')) + "." //" Item "
+										Return {lRet, cMsgRet}
+									EndIf
+									nAux := aScan(aCCusto, {|x| RTrim(x[3]) == RTrim(aAux[2][3])})
+									If nAux > 0
+										aCCusto[nAux][2] += Val(oAppoItems[nY]:getPropValue('Percentual'))
+									Else
+										aAdd(aCCusto, {cItemSCP, Val(oAppoItems[nY]:getPropValue('Percentual')), aAux[2][3], ""})
+									EndIf
+								Else
+									lRet		:= .F.
+									cMsgRet		:= STR0017 + AllTrim(oAppoItems[nY]:getPropValue('Code')) + "." //"Percentual de rateio inválido para o item "
+									Return {lRet, cMsgRet}
+								EndIf
+							Endif
+							// Se possui Centro de Custo Informado
+							// Obtém a conta contábil
+							If oAppoItems[nY]:getPropValue('AccountantAcountInternalId') != nil .And. !Empty(oAppoItems[nY]:getPropValue('AccountantAcountInternalId'))  
+								aAux := CFGA070INT(cProduct, "CT1", "CT1_CONTA", oAppoItems[nY]:getPropValue('AccountantAcountInternalId')) //CTBI020
+								If !Empty(aAux)
+									lRet		:= .F.
+									cMsgRet		:= STR0015 //"Conta contábil não encontrada no de/para."
+									Return {lRet, cMsgRet}
+								Else
+									aCCusto[Len(aCCusto)][4] := oAppoItems[nY]:getPropValue('AccountantAcountInternalId')
+									aAdd(aLinha,{"CP_CONTA", RTrim(Separa(aAux)[3]), Nil})
+								EndIf
+							EndIf
+							If oAppoItems[nY]:getPropValue('ProjectInternalId') != nil .And. !Empty(oAppoItems[nY]:getPropValue('ProjectInternalId'))  
+								// O projeto possui um código válido?
+								aAux := IntPrjInt(oAppoItems[nY]:getPropValue('ProjectInternalId'), cProduct, cPrjVer) //PMSI200 Retorna: Empresa|Filial|Projeto
+								If !aAux[1]
+									lRet		:= .F.
+									cMsgRet	:= aAux[2]
+									Return {lRet, cMsgRet}
+								Else
+									cProjeto := aAux[2][3]
+								EndIf
+								// Possui tarefa informada
+								If oAppoItems[nY]:getPropValue('TaskInternalId') != nil .And. !Empty(oAppoItems[nY]:getPropValue('TaskInternalId'))  
+									// A tarefa possui um código válido?
+									aAux := IntTrfInt(oAppoItems[nY]:getPropValue('TaskInternalId'), cProduct, cTrfVer) //PMSI203 Retorna: Empresa|Filial|Projeto|Revisao|Tarefa
+									If !aAux[1]
+										lRet		:= .F.
+										cMsgRet		:= aAux[2] + STR0016 + AllTrim(oAppoItems[nY]:getPropValue('Code')) + "." //" Item "
+										Return {lRet, cMsgRet}
+									EndIf
+								EndIf
+								// Possui quantidade informada
+								If oAppoItems[nY]:getPropValue('Quantity') != nil .And. !Empty(oAppoItems[nY]:getPropValue('Quantity'))  
+									// Verifica se já existe o projeto e tarefa para o item
+									nAux := aScan(aProject, {|x| Rtrim(x[1]) == Rtrim(aAux[2][3]) .And. Rtrim(x[3]) == Rtrim(aAux[2][5])})
+									// Caso já exista o projeto/tarefa aglutinar a quantidade
+									If nAux > 0
+										aProject[nAux][4] += Val(oAppoItems[nY]:getPropValue('Quantity'))
+									Else
+										// Projeto|Revisão|Tarefa|Quantidade|Solicitação|Item Solicitação|Produto
+										aAdd(aProject, {cProjeto, aAux[2][4], aAux[2][5], Val(oAppoItems[nY]:getPropValue('Quantity')), "cNumSAWS", cItemSCP, PadR(cCodPro, TamSX3("CP_PRODUTO")[1])})
+									EndIf
+								Else
+									lRet		:= .F.
+									cMsgRet		:= STR0019 + AllTrim(oAppoItems[nY]:getPropValue('Code')) + "." //"Quantidade do rateio inválido para o item "
+									Return {lRet, cMsgRet}
+								EndIf
+
+							Endif								
+
+						Next nY
+
+						//Caso tenha rateio de centro de custo excluir o centro de custo do item para evitar erro
+						If Len(aCCusto) > 0
+							nAux := aScan(aItens[nI], {|x| x[1] == "CP_CC"})
+							If nAux > 0
+								aDel(aItens[nI], nAux)
+								aSize(aItens[nI], Len(aItens[nI]) - 1)
+							EndIf
+						EndIf
+
+						If Len(aCCusto) > 0
+							// Monta o array com os itens do rateio de centro de custo agrupados por centro de custo
+							aAdd(aRatCC, Array(2))
+							aRatCC[nI][1] := cItemSCP // Nesta estrutura, a primeira posição do array de rateios deve ser o item
+							aRatCC[nI][2] := {}
+							// Loop para informar os dados de rateio por centro de custo
+							
+							For nY := 1 To Len(aCCusto)
+								aAdd(aLinha,	{"GS_ITEM",	StrZero(nY, 2),	Nil})
+								aAdd(aLinha,	{"GS_PERC",	aCCusto[nY][2],	Nil})
+								aAdd(aLinha,	{"GS_CC",	aCCusto[nY][3],	Nil})
+								aAdd(aRatCC[nI][2], aClone(aLinha))
+								aLinha := {}
+							Next nY
+
+						Endif
+
+						If Len(aCCusto) > 0
+							// Possui rateio de centro de custo?
+							aAdd(aLinha,{"CP_RATEIO", "1" ,Nil})
+						EndIf
+
+						aCCusto := {}
+
+						If Len(aProject) > 0
+							// Monta o array com os itens do rateio de projeto agrupados por projeto/tarefa
+							For nY := 1 To Len(aProject)
+								aAdd(aLinha,	{"AFH_PROJET",	aProject[nY][1],	Nil})
+								aAdd(aLinha,	{"AFH_REVISA",	aProject[nY][2],	Nil})
+								aAdd(aLinha,	{"AFH_TAREFA",	aProject[nY][3],	Nil})
+								aAdd(aLinha,	{"AFH_QUANT",	aProject[nY][4],	Nil})
+								aAdd(aLinha,	{"AFH_NUMSA",	aProject[nY][5],	Nil})
+								aAdd(aLinha,	{"AFH_ITEMSA",	aProject[nY][6],	Nil})
+								aAdd(aLinha,	{"AFH_COD",		aProject[nY][7],	Nil})
+								aAdd(aRatProj, aClone(aLinha))
+								aLinha := {}
+							Next nY
+						Endif
+
+						aProject := {}
+
+					Endif
+
+				Next nI
+
+			Endif
+
+			If nOpcx == 5
+				If lExclui
+					MSExecAuto({|x,y,z| MATA105(x,y,z)},aCab,aItens,nOpcx)
+				EndIf
+			Else
+				If Len(aRatCC) > 0
+					MSExecAuto({|x,y,w,z| MATA105(x,y,w,z)}, aCab, aItens, nOpcx, aRatCC)
+				Else
+					MSExecAuto({|x,y,w,z| MATA105(x,y,w,z)}, aCab, aItens, nOpcx, /*aRatCC*/)
+				Endif
+			EndIf
+
+			If lMsErroAuto
+				aErroAuto := GetAutoGRLog()
+
+				cLogErro := ""
+				For nI := 1 To Len(aErroAuto)
+					cLogErro += _NoTags(aErroAuto[nI])
+				Next
+
+				lRet		:= .F.
+				cMsgRet := EncodeUTF8(cLogErro)
+				msUnlockAll()
+			Else
+				If nOpcx != 5
+					// Atualiza o número da SA gerado no de/para
+					cValInt := StrTran(cValInt, "cNumSAWS", RTrim(cNumSAWS))
+
+					For nI := 1 To Len(aDePara)
+						aDePara[nI][2] := StrTran(aDePara[nI][2], "cNumSAWS", RTrim(cNumSAWS))
+					Next nI
+
+					// Atualiza o número da SA no rateio de projeto
+					For nI := 1 To Len(aRatProj)
+						If (n2Cnt := aScan(aRatProj[nI], {|x| x[1] == "AFH_NUMSA"})) > 0
+							aRatProj[nI, n2Cnt, 2] := cNumSAWS
+						EndIf
+					Next nI
+				EndIf
+
+				// Se não for exclusão
+				If nOpcx != 5
+					// Grava o registro na tabela XXF (de/para)
+					If !Empty(cValExt) .And. !Empty(cValInt)
+						CFGA070Mnt(cProduct, cAlias, cCampo, cValExt, cValInt, .F., 1)
+					Endif
+				Else
+					// Exclui o registro na tabela XXF (de/para)
+					If !Empty(cValExt) .And. !Empty(cValInt)
+						CFGA070Mnt(cProduct, cAlias, cCampo, cValExt, cValInt, .T., 1)
+					Endif
+				EndIf
+
+				ofwEAIObj:Activate()
+				ofwEAIObj:setProp("ReturnContent")
+				
+				If xEnt:getHeaderValue("Transaction") !=  nil
+					cName := xEnt:getHeaderValue("Transaction")
+				Endif		
+
+				ofwEAIObj:getPropValue("ReturnContent"):setprop('ListOfInternalId', {})
+				oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[1]:setprop("Name", cName,,.T.)
+				oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[1]:setprop("Origin", cValExt,,.T.)
+				oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[1]:setprop("Destination",cValInt,,.T.)
+
+				If Len(aRatProj) > 0
+					// Grava Projeto/Tarefa utilizando função do WS
+					pmsWsSA(cValToChar(nOpcx), aRatProj)
+				EndIf
+
+				For nI := 1 TO Len(aDePara)
+					If nOpcx != 5
+						// Grava o item na tabela XXF (de/para)
+						If !Empty(aDePara[nI][1]) .And. !Empty(aDePara[nI][2])
+							CFGA070Mnt(cProduct, cAlias, aDePara[nI][3], aDePara[nI][1], aDePara[nI][2], .F., 1)
+
+						Endif
+					Else
+						// Exclui o item na tabela XXF (de/para)
+						If !Empty(aDePara[nI][1]) .And. !Empty(aDePara[nI][2])
+							CFGA070Mnt(cProduct, cAlias, aDePara[nI][3], aDePara[nI][1], aDePara[nI][2], .T., 1)
+						Endif
+					EndIf
+
+					ofwEAIObj:getPropValue("ReturnContent"):setprop('ListOfInternalId', {})
+					oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[nI+1]:setprop("Name", cName,,.T.)
+					oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[nI+1]:setprop("Origin", aDePara[nI][1],,.T.)
+					oFwEAIObj:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")[nI+1]:setprop("Destination",aDePara[nI][2],,.T.)
+
+				Next nI
+
+				MsUnlockAll()      
+					
+			EndIf
+
+		Else
+			lRet	:= .F.
+			cMsgRet	:= 'Tag Type não enviada ou valor inválido'
+			Return {lRet, cMsgRet}
+		Endif
+
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+				
+		//-- Identifica se o processamento pelo parceiro ocorreu com sucesso
+		If Upper(xEnt:getPropValue("ProcessingInformation"):getPropValue("Status")) == "OK"
+		
+			If xEnt:getHeaderValue("ProductName") !=  nil .And. !Empty(xEnt:getHeaderValue("ProductName")) 
+				cProduct := xEnt:getHeaderValue("ProductName")
+			Endif
+
+			If Empty(cProduct)
+				lRet := .F.
+				cRet := ""	
+
+				ofwEAIObj:Activate()
+				ofwEAIObj:setProp("ReturnContent")
+				cRet := "Erro no retorno. A marca é obrigatória!"
+				ofwEAIObj:getPropValue("ReturnContent"):setProp("Error", cRet)
+																						
+				Return { lRet, ofwEAIObj, "ITEM" }					
+
+			Endif							
+
+			oListIntId := xEnt:getPropValue("ReturnContent"):getPropValue("ListOfInternalId")
+
+			For nCount := 1 To Len(oListIntId)
+
+				If oListIntId[nCount]:getPropValue('Name') == 'Request'
+					cCampo := 'CP_NUM'
+				ElseIf oListIntId[nCount]:getPropValue('Name') == 'RequestItem' 
+					cCampo := 'CP_ITEM'
+				Endif
+
+				cValInt := oListIntId[nCount]:getPropValue('Destination') 
+				cValExt := oListIntId[nCount]:getPropValue('Origin') 
+
+				If !Empty(cValExt) .And.!Empty(cValInt)
+					CFGA070Mnt(cProduct, 'SCP', cCampo, cValExt, cValInt)
+
+					lRet := .T.
+				Else
+					lRet := .F.
+				EndIf
+
+			Next nCount
+
+		EndIf
+
+	Endif
+
+ElseIf nTypeTrans == TRANS_SEND
+
+	cNumSA	:= SCP->CP_NUM
+
+	oFwEAIObj:Activate()
+	oFwEAIObj:setEvent(cEvent)
+
+	oFwEAIObj:setProp('Number'				,RTrim(SCP->CP_NUM))
+	oFwEAIObj:setProp('UserRequesterCode'	,RTrim(SCP->(CP_SOLICIT)))
+	oFwEAIObj:setProp('UserRequesterName'	,RTrim(SCP->(CP_SOLICIT)))
+	oFwEAIObj:setProp('RegisterDateTime'	,Transform(DToS(SCP->CP_EMISSAO), "@R 9999-99-99"))
+
+	oFwEAIObj:setProp("ListOfRequestItem")
+
+	SCP->(dbSetOrder(1))
+
+	If SCP->(dbSeek(xFilial("SCP")+cNumSA))
+
+		While SCP->( !Eof() .And. SCP->CP_FILIAL + SCP->CP_NUM == xFilial("SCP")+cNumSA )
+
+			If ( Len( aRecSCP ) == 0 .Or. Len( aRecSCP ) > 0 .And. Ascan( aRecSCP, SCP->(Recno() ) ) > 0 )
+
+				nX++
+
+				oFwEAIObj:setProp("ListOfRequestItem", {})
+
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("Code",	SCP->CP_ITEM)
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("InternalId", IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer, .T.)[2])
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("ItemCode",	RTrim(SCP->CP_PRODUTO))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("ItemInternalId", IntProExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_PRODUTO, cPrdVer)[2])
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("Quantity",	RTrim(cValToChar(SCP->CP_QUANT)))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("QuantityReached", '')
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("UnitPrice", RTrim(cValToChar(SCP->CP_VUNIT)))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("TotalPrice", RTrim(cValToChar(SCP->CP_QUANT * SCP->CP_VUNIT)))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("UnitOfMeasureCode", RTrim(SCP->CP_UM))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("UnitOfMeasureInternalId", IntUndExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_UM, cUndVer)[2])
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("WarehouseCode", SCP->CP_LOCAL)
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("WarehouseInternalId", IntLocExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_LOCAL, cLocVer)[2])
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("DeliveryDateTime",  Transform(DToS(SCP->CP_DATPRF),"@R 9999-99-99"))
+
+				If SCP->CP_RATEIO == "1"
+					oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterCode", '')
+					oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterInternalId", '')
+					oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("AccountantAcountCode", '')
+				Else
+					If Empty(SCP->CP_CC)
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterCode", '')
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterInternalId", '')
+					Else
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterCode", RTrim(SCP->CP_CC))
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("CostCenterInternalId", IntCusExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_CC, cCusVer)[2])
+					EndIf
+
+					If Empty(SCP->CP_CONTA)
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("AccountantAcountCode", '')
+					Else
+						oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("AccountantAcountCode", RTrim(SCP->CP_CONTA))
+					EndIf
+
+				Endif
+
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("MainOrderCode", RTrim(SCP->CP_OP))
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("Observation", RTrim(SCP->CP_OBS) )
+				oFwEAIObj:getPropValue("ListOfRequestItem")[nX]:setProp("Status", RTrim(SCP->CP_STATUS))
+
+				If IsIntegTop() //Possui integração com o RM Solum
+					aRateio := RatSA(SCP->CP_NUM, SCP->CP_ITEM)
+
+					If !(Empty(aRateio))
+						oFwEAIObj:setProp("ListOfApportionRequestItem")
+
+						For nI := 1 To Len(aRateio)
+							oFwEAIObj:setProp("ListOfApportionRequestItem", {})
+
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("InternalId", IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer, .T.)[2] + '|' + PadL(nI, 2, "0"))
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("DepartamentCode", '')
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("DepartamentInternalId", '')
+
+							If Empty(aRateio[nI][1])
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("CostCenterInternalId", '')
+							Else
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("CostCenterInternalId", IntCusExt(/*cEmpresa*/, /*cFilial*/, aRateio[nI][1], cCusVer)[2])
+							EndIf
+
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("AccountantAcountInternalId", '')
+
+							If Empty(aRateio[nI][6])
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("ProjectInternalId", '')
+							Else
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("ProjectInternalId", IntPrjExt(/*cEmpresa*/, /*cFilial*/, aRateio[nI][6], cPrjVer)[2])
+							EndIf
+
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("SubProjectInternalId", '')
+
+							If Empty(aRateio[nI][6]) .Or. Empty(aRateio[nI][7])
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("TaskInternalId", '')
+							Else
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("TaskInternalId", IntTrfExt(/*cEmpresa*/, /*cFilial*/, aRateio[nI][6], '0001', aRateio[nI][7], cTrfVer)[2])
+							EndIf
+
+							If Empty(aRateio[nI][4])
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("Value", '')
+							Else
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("Value", cValToChar(aRateio[nI][4] * SCP->CP_QUANT / 100))
+							EndIf
+
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("Percentual", RTrim(cValToChar(aRateio[nI][5])))
+							oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("Quantity", RTrim(cValToChar(aRateio[nI][8])))
+
+						Next nI
+
+					EndIf
+				ElseIf SCP->CP_RATEIO == "1"
+					If AliasInDic("SGS")
+						//Rateio por Centro de Custo
+						SGS->(dbSetOrder(1))
+
+						If SGS->(dbSeek(xFilial("SGS") + SCP->CP_NUM + SCP->CP_ITEM))
+							oFwEAIObj:setProp("ListOfApportionRequestItem")
+
+							nI := 0
+
+							While !SGS->(EOF()) .And. SGS->GS_FILIAL + SGS->GS_SOLICIT + SGS->GS_ITEMSOL == SCP->CP_FILIAL + SCP->CP_NUM + SCP->CP_ITEM
+								
+								nI++
+
+								oFwEAIObj:setProp("ListOfApportionRequestItem", {})
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("InternalId", IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer, .T.)[2])
+
+								If !Empty(AllTrim(SGS->GS_CC))
+									oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("CostCenterInternalId", IntCusExt(/*cEmpresa*/, /*cFilial*/, SGS->GS_CC, cCusVer)[2])
+								EndIf
+
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("AccountantAcountInternalId", SGS->GS_CONTA)
+								oFwEAIObj:getPropValue("ListOfApportionRequestItem")[nI]:setProp("Percentual", cValToChar(SGS->GS_PERC))
+
+								SGS->(DbSkip())
+							EndDo
+
+						EndIf
+					EndIf
+				EndIf
+
+			EndIf
+
+			SCP->(DbSkip())
+		EndDo
+	EndIf
+
+Endif
+
+Return {.T., oFwEAIObj}
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntChcEmp
+Função que retorna a filial do registro recebido.
+O RM permite estar logado em uma filial no contexto e manipular registros
+de outras filiais. Neste caso o EAI utiliza a filial do Messageinformation
+(contexto) para logar no Protheus e esta função altera a filial corrente
+para a filial do registro.
+No execauto dos formulários MVC não informamos o código da filial. Ele
+utiliza a filial logada.
+
+@param   oEAIObEt Objeto JSON
+@param   cAlias   Alias da tabela do cadastro
+@param   cProduto Produto da integração
+@author  Totvs Cascavel
+@version P11
+@since   08/05/2018
+
+@return aEmpresas Valor booleano indicando se o de/para de empresa
+         foi informado corretamente e a filial a ser utilizada no cadastro.
+         
+         Realizado ajuste para trabalhar com objeto JSON
+/*/
+//-------------------------------------------------------------------
+Static Function IntChcEmp(xEnt, cAlias, cProduto)
+
+   Local aFilialP := {}
+   Local cEmp     := ""
+   Local cFil     := ""
+   Local cEmpProt := ""
+   Local cFilProt := ""
+   Local lLog     := FindFunction("AdpLogEAI")
+
+   If xEnt:getHeaderValue("CompanyId") != nil .And. !Empty(xEnt:getHeaderValue("CompanyId") )
+      cEmp := xEnt:getHeaderValue("CompanyId")
+   EndIf
+
+   If xEnt:getHeaderValue("BranchId") != nil .And. !Empty(xEnt:getHeaderValue("BranchId") )
+      cFil := xEnt:getHeaderValue("BranchId")
+   EndIf
+
+   // Se o cadastro é compartilhado a nível de filial ou a nível de empresa no RM
+   // As tags CompanyID e BranchId podem vir vazias
+   If Empty(cEmp)
+      If lLog
+         AdpLogEAI(2, "Empresa compartilhada." + Chr(10) + "Tag CompanyId do BusinessContent veio vazia.") //"Empresa compartilhada." "Tag CompanyId do BusinessContent veio vazia."
+      EndIf
+   EndIf
+
+   If Empty(cFil)
+      If lLog
+         AdpLogEAI(2, "Filial compartilhada." + Chr(10) + "Tag BranchId do BusinessContent veio vazia.") //"Filial compartilhada." "Tag BranchId do BusinessContent veio vazia."
+      EndIf
+   EndIf
+
+   If Empty(cEmp) .Or. Empty(cFil)
+      aAdd(aFilialP, .T.)
+      aAdd(aFilialP, cFilProt)
+
+      Return aFilialP
+   EndIf
+   
+   aFilialP := FWEAIEMPFIL(cEmp, cFil, UPPER(cProduto))
+
+   If Empty(aFilialP)
+      If lLog
+         AdpLogEAI(2, "Empresa/Filial " + cEmp + "/" + cFil + " recebida no BusinessContent não esta cadastrada no de/para para o produto " + cProduto + ".") //"Empresa/Filial " " recebida no BusinessContent não esta cadastrada no de/para para o produto "
+      EndIf
+
+      cEmpProt := cEmpAnt
+      cFilProt := cFilAnt
+   Else
+      cEmpProt := aFilialP[1]
+      cFilProt := aFilialP[2]
+   EndIf
+
+   If cEmpProt != cEmpAnt
+      If lLog
+         AdpLogEAI(2, "Empresa" + " " + cEmpProt + " recebida no BusinessContent é diferente da empresa " + cEmpAnt + " enviada no MessageInformation.") //"Empresa" " recebida no BusinessContent é diferente da empresa " " enviada no MessageInformation."
+      EndIf
+
+      cEmpProt := cEmpAnt
+      cFilProt := cFilAnt
+   EndIf
+
+   aFilialP := {}
+
+   If cFilAnt != cFilProt
+      If lLog
+         AdpLogEAI(2, "Alteração de filial.") //"Alteração de filial."
+         AdpLogEAI(2, "Filial Anterior: " + cFilAnt) //"Filial Anterior: "
+      EndIf
+
+      cFilAnt := cFilProt
+
+      If lLog
+         AdpLogEAI(2, "Nova Filial: " + cFilAnt) //"Nova Filial: "
+      EndIf
+   EndIf
+
+   aAdd(aFilialP, .T.)
+   aAdd(aFilialP, cFilProt)
+   
+Return aFilialP
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} I105Item
+Retorna o Código do para Ser Informado no atributo CP_ITEM, Ajustando
+o Conteúdo Quando a Solicitação tiver acima de 99 Itens.
+
+@param   aItSCP     	Vetor de Objetos com os Itens
+@param   cItemAtu     	Código do Item a Ser Retornado
+@param   nPosAtu       	Posição Atual do Vetor de Objetos de Itens Sendo Processado
+
+@author  Paulo V. Beraldo
+@version P12
+@since   Out/2018
+@return  cRet 			String com o valor do Item da Solicitacao a Ser Processado.
+
+@sample  I105Item( aItSCP, '01', 1 ) irá retornar '01' | I105Item( aItSCP, '105', 105 ) irá retornar '9F'
+/*/
+//-------------------------------------------------------------------
+Static Function I105Item(aItSCP, cItemAtu, nPosAtu)
+Local cRet		:= ''
+Local nInd		:= 0
+Local nTamCod	:= 0
+Local cCaract	:= 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+Local lAlfaNum 	:= .F.
+
+Default aItSCP	:= {}
+Default nPosAtu	:= 1
+Default cItemAtu:= ''
+Default lJson 	:= .F.
+
+nTamCod := Len( AllTrim( cItemAtu ) )
+For nInd := 1 To nTamCod
+	cAux := SubStr( cItemAtu, nInd, 1 )
+	If ( AllTrim( cAux ) $ cCaract ) .Or. ( AllTrim( cAux ) $ Lower( cCaract ) )
+		lAlfaNum := .T.
+		Exit
+	EndIf
+Next nInd
+
+If lAlfaNum
+	cRet :=  PadL( cItemAtu, TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+Else
+	cRet :=  PadL( I105Int2Hx( Val( cItemAtu ) ), TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+EndIf
+
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} I105Int2Hx
+Funcao Responsavel por Converter o Codigo do Item Numerico em Alfa-Numerico
+@param   xCodItem Codigo do Item Recebido via Integracao
+
+@author  Paulo V. Beraldo
+@version P12
+@since   Jun/2020
+@return  cRet String Codigo do Item Convertido
+
+/*/
+//-------------------------------------------------------------------
+Static Function I105Int2Hx( nItem )
+Local nInd  := 0
+Local cRet  := ''
+Local cAux  := StrZero( 0, TamSx3( 'CP_ITEM' )[ 1 ] )
+
+Default nItem := 0
+
+While .T.
+	If nItem <= 0
+		cRet := cAux
+		Exit
+	Else
+		nInd ++
+		cAux := PadL( Soma1( cAux ), TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+		If nInd == nItem
+			cRet := cAux
+			Exit
+		EndIf
+	EndIf
+EndDo
+
+Return cRet

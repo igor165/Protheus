@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Envío del pedido"
+	#define STR0002 "Cantidad Pedido"
+	#define STR0003 "Cantidad Integración"
+	#define STR0004 "Saldo Pedido"
+	#define STR0005 "Problema al actualizar tabla temporal con la cantidad de la integración."
+	#define STR0006 "Actualice la pantalla de envío de pedidos e intente nuevamente."
+	#define STR0007 "Saldo para integrar ([VAR01]) del producto [VAR02] ítem [VAR03] es menor que la cantidad digitada."
+	#define STR0008 "Ajuste la cantidad para la integración."
+	#define STR0009 "Saldo para integración ([VAR01]) es menor que la cantidad digitada."
+	#define STR0010 "Cantidad informada no debe ser negativa."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Submission of Order"
+		#define STR0002 "Quantity Order"
+		#define STR0003 "Integration Quantity"
+		#define STR0004 "Requested Balance"
+		#define STR0005 "Problem updating the temporary table with the integration quantity."
+		#define STR0006 "Update the orders submission screen and try again."
+		#define STR0007 "Balance for integration ([VAR01]) of the product [VAR02] item [VAR03] is lower than the quantity entered."
+		#define STR0008 "Adjust the quantity for integration."
+		#define STR0009 "Balance for integration ([VAR01]) is lower than the quantity entered."
+		#define STR0010 "Qty entered cannot be negative."
+	#else
+		#define STR0001 "Envio de Pedido"
+		#define STR0002 "Quantidade Pedido"
+		#define STR0003 "Quantidade Integração"
+		#define STR0004 "Saldo Pedido"
+		#define STR0005 "Problema ao atualizar tabela temporária com a quantidade da integração."
+		#define STR0006 "Atualize a tela de envio de pedidos e tente novamente."
+		#define STR0007 "Saldo para integração ([VAR01]) do produto [VAR02] item [VAR03] é menor que a quantidade digitada."
+		#define STR0008 "Ajuste a quantidade para a integração."
+		#define STR0009 "Saldo para integração ([VAR01]) é menor que a quantidade digitada."
+		#define STR0010 "Quantidade informada não pode ser negativa."
+	#endif
+#endif

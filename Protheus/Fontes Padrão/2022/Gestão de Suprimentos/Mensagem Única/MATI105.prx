@@ -1,0 +1,1217 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "MATI105.ch"
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±º Function ³  MATI105  º Autor ³ Alex Egydio          º Data ³  27/12/12  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Desc.    ³ Funcao de integracao com o adapter EAI para recebimento e    º±±
+±±º          ³ envio de informações da solicitacao ao armazem (SCP)         º±±
+±±º          ³ utilizando o conceito de mensagem unica.                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Param.   ³ cXML - Variavel com conteudo xml para envio/recebimento.     º±±
+±±º          ³ nTypeTrans - Tipo de transacao. (Envio/Recebimento)          º±±
+±±º          ³ cTypeMessage - Tipo de mensagem. (Business Type, WhoIs, etc) º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Retorno  ³ aRet - Array contendo o resultado da execucao e a mensagem   º±±
+±±º          ³        Xml de retorno.                                       º±±
+±±º          ³ aRet[1] - (boolean) Indica o resultado da execução da função º±±
+±±º          ³ aRet[2] - (caracter) Mensagem Xml para envio                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Uso      ³ MATA105                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Function MATI105( cXml, nTypeTrans, cTypeMessage, cVersion, cTransac, lEAIObj, aRecSCP )
+Local aArea			:= GetArea()
+Local aAreaSCP		:= SCP->(GetArea())
+Local lRet			:= .T.
+Local lExclui		:= .F.
+Local cXMLRet		:= ""
+Local cError		:= ""
+Local cWarning		:= ""
+Local n1Cnt			:= 0
+Local n2Cnt			:= 0
+Local aCab			:= {}
+Local aItens		:= {}
+Local aItSCP		:= {}
+Local aLinha		:= {}
+Local nOpcx			:= 0
+Local cLogErro		:= ""
+Local aErroAuto	:= {}
+Local cEvent		:= "upsert"
+Local cCodPro		:= ""
+Local cNumSA		:= ""
+Local cFilSA		:= ""
+Local nAux			:= 0
+Local cItemSCP		:= ""
+Local cAux			:= ""
+Local cProjeto		:= ""
+Local aRateio		:= {}
+Local aCCusto		:= {}
+Local aProject		:= {}
+Local aDePara		:= {}
+Local aRatCC		:= {}
+Local aRatProj		:= {}
+Local aRet			:= {}
+Local dDtEmis		:= Nil
+Local dDatPrf		:= Nil
+Local cSArVer		:= RTrim(PmsMsgUVer('REQUEST',			'MATA105')) //Versão da Solicitação de Armazém
+Local cCusVer		:= RTrim(PmsMsgUVer('COSTCENTER',		'CTBA030')) //Versão do Centro de Custo
+Local cUndVer		:= RTrim(PmsMsgUVer('UNITOFMEASURE',	'QIEA030')) //Versão da Unidade de Medida
+Local cLocVer		:= RTrim(PmsMsgUVer('WAREHOUSE',		'AGRA045')) //Versão do Local de Estoque
+Local cPrdVer		:= RTrim(PmsMsgUVer('ITEM',				'MATA010')) //Versão do Produto
+Local cPrjVer		:= RTrim(PmsMsgUVer('PROJECT',			'PMSA200')) //Versão do Projeto
+Local cTrfVer		:= RTrim(PmsMsgUVer('TASKPROJECT',		'PMSA203')) //Versão da Tarefa
+Local aAux			:= {}
+Local aVldCC		:= {}
+
+//Variaveis utilizadas no De/Para de Codigo Interno X Codigo Externo
+Local cMarca		:= "" //Armazena a Marca (LOGIX,PROTHEUS,RM...) que enviou o XML
+Local cValExt		:= "" //Codigo externo utilizada no De/Para de codigos - Tabela XXF
+Local cValInt		:= "" //Codigo interno utilizado no De/Para de codigos - Tabela XXF
+Local cAlias		:= "SCP"
+Local cCampo		:= "CP_NUM"
+
+Private oXmlM105			:= Nil
+Private oXmlM105Aux		:= Nil
+Private oXmlAuxR			:= Nil
+Private lMsErroAuto		:= .F.
+Private lAutoErrNoFile	:= .T.
+Private cNumSAWS			:= ""
+
+Default aRecSCP			:= {}
+Default cVersion		:= ''
+Default cTransac		:= ''
+Default lEAIObj			:= .F.
+
+If ( Type("Inclui") == "U" )
+	Private Inclui := .F.
+EndIf
+
+If ( Type("Altera") == "U" )
+	Private Altera := .F.
+EndIf
+
+//Integracao via JSON
+If lEAIObj
+	Return MATI105Json( cXml, nTypeTrans, cTypeMessage, cVersion, cTransac, lEAIObj )
+EndIf
+
+//Tratamento do recebimento de mensagens
+If ( nTypeTrans == TRANS_RECEIVE )
+	//-- Recebimento da WhoIs
+	If ( cTypeMessage == EAI_MESSAGE_WHOIS )
+		cXMLRet := '1.001|1.002|1.003|1.004|1.005|1.008|1.009'
+	//-- Recebimento da Response Message
+	ElseIf ( cTypeMessage == EAI_MESSAGE_RESPONSE )
+		// Faz o parser do XML de retorno em um objeto
+		oXmlM105 := xmlParser(cXml, "_", @cError, @cWarning)
+
+		// Se não houve erros na resposta
+		If Upper(oXmlM105:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_Status:Text) == "OK"
+
+			// Verifica se a marca foi informada
+			If Type("oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text)
+				cMarca := oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text
+			Else
+				lRet		:= .F.
+				cXmlRet	:= STR0005 //"Erro no retorno. TAG Product é obrigatória!"
+				Return {lRet, cXmlRet}
+			EndIf
+
+			If Type("oXmlM105:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId") <> "U"
+				// Se não for array, faz a transformação
+				If Type("oXmlM105:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId") != "A"
+					XmlNode2Arr(oXmlM105:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId, "_InternalId")
+				EndIf
+
+				For n1Cnt := 1 To Len(oXmlM105:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId)
+					// Obtém a posição atual do objeto
+					oXmlM105Aux := oXmlM105:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId[n1Cnt]
+
+					aAdd(aDePara, Array(3))
+
+					// Verifica se o InternalId foi informado
+					If Type("oXmlM105Aux:_Origin:Text") != "U" .And. !Empty(oXmlM105Aux:_Origin:Text)
+						// Só armazena se for Request ou Item. Não armazena Rateio
+						If oXmlM105Aux:_Name:Text $ 'Request, RequestItem'
+							aDePara[n1Cnt][1] := oXmlM105Aux:_Origin:Text
+						EndIf
+					Else
+						lRet		:= .F.
+						cXmlRet	:= STR0006 //"Erro no retorno. O OriginalInternalId é obrigatório!"
+						Return {lRet, cXmlRet}
+					EndIf
+
+					// Verifica se o código externo foi informado
+					If Type("oXmlM105Aux:_Destination:Text") != "U" .And. !Empty(oXmlM105Aux:_Destination:Text)
+						// Só armazena se for Request ou Item. Não armazena Rateio
+						If oXmlM105Aux:_Name:Text $ 'Request, RequestItem'
+							aDePara[n1Cnt][2] := oXmlM105Aux:_Destination:Text
+						EndIf
+					Else
+						lRet		:= .F.
+						cXmlRet	:= STR0007 //"Erro no retorno. O DestinationinternalId é obrigatório!"
+						Return {lRet, cXmlRet}
+					EndIf
+
+					If oXmlM105Aux:_Name:Text $ "Request"
+						aDePara[n1Cnt][3] := cCampo
+					ElseIf oXmlM105Aux:_Name:Text $ "RequestItem"
+						aDePara[n1Cnt][3] := "CP_ITEM"
+					EndIf
+				Next n1Cnt
+
+				// Obtém a mensagem original enviada
+				If Type("oXmlM105:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text)
+					cXml := oXmlM105:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text
+				Else
+					lRet		:= .F.
+					cXmlRet	:= STR0008 //"Conteúdo do MessageContent vazio!"
+					Return {lRet, cXmlRet}
+				EndIf
+
+				// Faz o parse do XML em um objeto
+				oXmlM105 := XmlParser(cXml, "_", @cError, @cWarning)
+
+				// Se não houve erros no parse
+				If oXmlM105 != Nil .And. Empty(cError) .And. Empty(cWarning)
+					If Upper(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+						// Grava informações do cabeçalho no de/para
+						If !Empty(cValExt) .And. !Empty(cValInt)
+							CFGA070Mnt(cMarca, cAlias, cCampo, cValExt, cValInt, .F., 1)
+						Endif
+					Else
+						// Exclui informações do cabeçalho no de/para
+						If !Empty(cValExt) .And. !Empty(cValInt)
+							CFGA070Mnt(cMarca, cAlias, cCampo, cValExt, cValInt, .T., 1)
+						Endif
+					EndIf
+
+					// Loop para manipular os itens no de/para
+					For n1Cnt := 1 To Len(aDePara)
+						If Upper(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+							// Grava informações de itens no de/para
+							If !Empty(aDePara[n1Cnt][2]) .And. !Empty(aDePara[n1Cnt][1])
+								CFGA070Mnt(cMarca, cAlias, aDePara[n1Cnt][3], aDePara[n1Cnt][2], aDePara[n1Cnt][1], .F., 1)
+							Endif
+						ElseIf Upper(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE"
+							// Exclui informações de itens no de/para
+							If !Empty(aDePara[n1Cnt][2]) .And. !Empty(aDePara[n1Cnt][1])
+								CFGA070Mnt(cMarca, cAlias, aDePara[n1Cnt][3], aDePara[n1Cnt][2], aDePara[n1Cnt][1], .T., 1)
+							Endif
+						Else
+							lRet		:= .F.
+							cXmlRet	:= STR0009 //"Evento do retorno inválido!"
+						EndIf
+					Next n1Cnt
+				Else
+					lRet		:= .F.
+					cXmlRet	:= STR0010 //"Erro no parser do retorno!"
+					Return {lRet, cXmlRet}
+				EndIf
+			Endif
+		Else
+			// Se não for array, faz a transformação
+			If Type("oXmlM105:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message") != "A"
+				XmlNode2Arr(oXmlM105:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message, "_Message")
+			EndIf
+
+			// Percorre o array para obter os erros gerados
+			For n1Cnt := 1 To Len(oXmlM105:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message)
+				cError := oXmlM105:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message[n1Cnt]:Text + Chr(10)
+			Next n1Cnt
+
+			lRet		:= .F.
+			cXmlRet	:= cError
+		EndIf
+	//-- Receipt Message (Aviso de receb. em transmissoes assincronas)
+	ElseIf ( cTypeMessage == EAI_MESSAGE_RECEIPT )
+		cXMLRet := STR0003	//'Mensagem recebida'
+	//-- Recebimento da Business Message
+	ElseIf ( cTypeMessage == EAI_MESSAGE_BUSINESS )
+		oXmlM105 := XmlParser( cXml, "_", @cError, @cWarning )
+
+		//Valida se houve erro no parser
+		If ( oXmlM105 <> Nil ) .And. ( Empty(cError) ) .And. ( Empty(cWarning) )
+			If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Type:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Type:Text)
+				// Se é Solicitação ao Armazém
+				If AllTrim(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Type:Text) == "001"
+					// Marca
+					If Type("oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text)
+						cMarca := oXmlM105:_TOTVSMessage:_MessageInformation:_Product:_name:Text
+					Else
+						lRet		:= .F.
+						cXmlRet	:= STR0011 //"Informe a Marca!"
+						Return {Ret, cXmlRet}
+					EndIf
+
+					// Verifica se a filial atual é a mesma filial de inclusão do cadastro
+					aAux := IntChcEmp(oXmlM105, cAlias, cMarca)
+					If !aAux[1]
+						lRet		:= aAux[1]
+						cXmlRet	:= aAux[2]
+						Return {lRet, cXmlRet}
+					EndIf
+
+					// InternalId
+					If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text)
+						cValExt := oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text
+					Else
+						lRet		:= .F.
+						cXmlRet	:= STR0012 //"O InternalId é obrigatório!"
+						Return {lRet, cXmlRet}
+					EndIf
+
+					// Obtém o valor interno da tabela XXF (de/para)
+					cValInt := RTrim(CFGA070INT(cMarca, cAlias, cCampo, cValExt))
+
+					If Upper(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE"
+						nOpcx := 5 // Delete
+						lExclui := .T.
+
+						If Empty(cValInt)
+							lRet		:= .F.
+							cXmlRet	:= STR0013 //"SA não encontrada no de/para!"
+							Return {lRet, cXmlRet}
+						EndIf
+
+						cNumSA := PadR(Separa(cValInt, '|')[3], TamSX3("CP_NUM")[1])
+						If SCP->(dbSeek(xFilial("SCP") + cNumSA))
+
+							aAdd(aCab,	{"CP_FILIAL",	xFilial("SCP"),	Nil})
+							aAdd(aCab,	{"CP_NUM",		cNumSA,				Nil})
+							aAdd(aCab,	{"CP_EMISSAO",	SCP->CP_EMISSAO,	Nil})
+
+							While !SCP->(Eof()) .And. xFilial("SCP") + cNumSA == SCP->CP_FILIAL + SCP->CP_NUM
+								aAdd(aLinha, {"CP_ITEM",    SCP->CP_ITEM,    NIL })
+								aAdd(aLinha, {"CP_PRODUTO", SCP->CP_PRODUTO, NIL })
+								aAdd(aLinha, {"CP_QUANT",	 SCP->CP_QUANT,   NIL })
+								aAdd(aLinha, {"AUTDELETA",	 "S",             Nil })
+								aAdd(aItens, aClone(aLinha))
+								aLinha := {}
+
+								aAdd(aLinha, {"AFH_PROJET","", Nil})
+								aAdd(aLinha, {"AFH_TAREFA","", Nil})
+								aAdd(aLinha, {"AFH_QUANT",0,Nil})
+								aAdd(aLinha, {"AFH_ITEMSA","",Nil})
+								aAdd(aLinha, {"AFH_NUMSA",cNumSA,Nil})
+								aAdd(aLinha, {"AFH_REVISA","0001",Nil})
+								aAdd(aRatProj, aClone(aLinha))
+								aLinha := {}
+
+								// Array para armazenar dados do item para manipular o de/para.
+								// Estrutura:
+								// [n1Cnt][1]: Chave externa
+								// [n1Cnt][2]: Chave Interna
+								// [n1Cnt][3]: Field do item
+
+								cAux := IntSArExt(, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer)[2]
+								aAdd(aLinha, RTrim(CFGA070Ext(cMarca, cAlias, "CP_ITEM", cAux)))
+								aAdd(aLinha, cAux)
+								aAdd(aLinha, "CP_ITEM")
+								aAdd(aDePara, aLinha)
+								aLinha := {}
+
+								SCP->(dbSkip())
+							EndDo
+						EndIf
+					ElseIf Upper(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+						If !Empty(cValInt)
+							nOpcx := 4 // Update
+							cNumSA		:= PadR(Separa(cValInt, '|')[3], TamSX3("CP_NUM")[1])
+							cFilSA 	:= PadR(Separa(cValInt, '|')[2], TamSX3("CP_FILIAL")[1])
+
+							aAdd(aCab,{"CP_FILIAL"	, cFilSA, Nil})
+							aAdd(aCab,{"CP_NUM"		, cNumSA, Nil})
+						Else
+							nOpcx := 3 // Insert
+
+							cValInt := IntSArExt(/*cEmpresa*/, /*cFilial*/, "cNumSAWS", /*cItemSA*/, /*dDataEmissao*/, cSArVer)[2]
+
+							// Número da solicitação
+							If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Number:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Number:Text)
+								// Verifica se não possui numeração automática
+								If Empty(Posicione('SX3', 2, Padr('CP_NUM', 10), 'X3_RELACAO'))
+									cNumSA := oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Number:Text
+
+									// Número da Solicitação
+									aAdd(aCab,{"CP_FILIAL"	, xFilial("SCP")	, Nil})
+									aAdd(aCab,{"CP_NUM"		, cNumSA			, Nil})
+								EndIf
+							ElseIf Empty(Posicione('SX3', 2, Padr('CP_NUM', 10), 'X3_RELACAO'))
+								lRet		:= .F.
+								cXmlRet	:= STR0014 //"Informe a tag Number."
+								Return {lRet, cXmlRet}
+							EndIf
+						EndIf
+
+						// Usuário requisitante
+						If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterCode:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterCode:Text)
+							// Obtém o Nome do usuário requisitante
+							cAux := UsrRetName(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterCode:Text)
+							If !Empty(cAux)
+								aAdd(aCab, {"CP_SOLICIT", cAux, Nil})
+							Else
+								If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text)
+									aAdd(aCab, {"CP_SOLICIT", oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text, Nil})
+								Else
+									aAdd(aCab,{"CP_SOLICIT", "Administrador", Nil})
+								Endif
+							EndIf
+						ElseIf Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text)
+							aAdd(aCab, {"CP_SOLICIT", oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_UserRequesterName:Text, Nil})
+						Else
+							aAdd(aCab,{"CP_SOLICIT", "Administrador", Nil})
+						EndIf
+
+						// Data de emissão da solicitação
+						If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RegisterDateTime:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RegisterDateTime:Text)
+							dDtEmis := Stod(StrTran(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RegisterDateTime:Text, "-", ""))
+						Else
+							dDtEmis := dDataBase
+						EndIf
+						aAdd(aCab, {"CP_EMISSAO", dDtEmis, Nil})
+
+						If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfRequestItem:_RequestItem") != "A"
+							// Transforma em array
+							XmlNode2Arr(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfRequestItem:_RequestItem, "_RequestItem")
+						EndIf
+
+						aItSCP := oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfRequestItem:_RequestItem
+
+						For n1Cnt := 1 To Len(aItSCP)
+							// Obtém a posição atual do objeto
+							oXmlM105Aux := oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ListOfRequestItem:_RequestItem[n1Cnt]
+							aAdd( aLinha,{"CP_NUM" , cNumSA, Nil })
+							// Sequência do item
+							If Type("oXmlM105Aux:_Code:Text") != "U" .And. !Empty(oXmlM105Aux:_Code:Text)
+								cItemSCP := oXmlM105Aux:_Code:Text
+								cItemSCP := I105Item( aItSCP, cItemSCP, n1Cnt )
+								aAdd(aLinha, {"CP_ITEM", cItemSCP, Nil})
+							EndIf
+
+							// Array para armazenar dados do item para manipular o de/para.
+							// Estrutura:
+							// [n1Cnt][1]: Chave externa
+							// [n1Cnt][2]: Chave Interna
+							// [n1Cnt][3]: Field do item
+
+							aAdd(aDePara, Array(4))
+							aDePara[n1Cnt][1] := oXmlM105Aux:_InternalId:Text
+							If nOpcx == 3
+								aDePara[n1Cnt][2] := IntSArExt(/*cEmpresa*/, /*cFilial*/, "cNumSAWS", cItemSCP, dDtEmis, cSArVer)[2]
+							Else
+								aDePara[n1Cnt][2] := IntSArExt(/*cEmpresa*/, /*cFilial*/, cNumSA, cItemSCP, dDtEmis, cSArVer)[2]
+							Endif
+							aDePara[n1Cnt][3] := 'CP_ITEM'
+
+							// Obtém o código interno do produto
+							If Type("oXmlM105Aux:_ItemInternalId:Text") != "U" .And. !Empty(oXmlM105Aux:_ItemInternalId:Text)
+								aAux := IntProInt(oXmlM105Aux:_ItemInternalId:Text, cMarca, cPrdVer) //MATI010
+								If !aAux[1]
+									lRet		:= aAux[1]
+									cXmlRet	:= aAux[2]
+									Return {lRet, cXmlRet}
+								Else
+									cCodPro := PadR(aAux[2][3], TamSX3("CP_PRODUTO")[1])
+									aAdd(aLinha, {"CP_PRODUTO", cCodPro, Nil})
+								EndIf
+							ElseIf Type("oXmlM105Aux:_ItemCode:Text") != "U" .And. !Empty(oXmlM105Aux:_ItemCode:Text)
+								cCodPro := PadR(oXmlM105Aux:_ItemCode:Text, TamSX3("CP_PRODUTO")[1])
+								aAdd(aLinha, {"CP_PRODUTO", cCodPro, Nil})
+							EndIf
+
+							aAdd(aLinha, {"CP_DESCRI", Posicione('SB1', 1, FWxFilial( 'SB1') + cCodPro, 'B1_DESC' ), Nil } )
+
+							//-- Numero do boletim do PIMS
+							If Upper(Alltrim(cMarca)) == "PIMS"
+								If Type("oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") != "U" .And. !Empty(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text)
+									aAdd(aLinha ,{'CP_NRBPIMS' 		,oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text	,Nil} )
+								EndIf
+							EndIf
+
+							//-- Tipo do item Requisitado do estoque ou comprado
+							If Type("oXmlM105Aux:_ItemType:Text") != "U" .And. !Empty(oXmlM105Aux:_ItemType:Text)
+								If SCP->(FieldPos("CP_CONSEST")) > 0
+									If AllTrim(oXmlM105Aux:_ItemType:Text) == "000"
+										aAdd(aLinha, {"CP_CONSEST", "1", Nil})
+									Else
+										aAdd(aLinha, {"CP_CONSEST", "2", Nil})
+									EndIf
+								EndIf
+							EndIf
+
+							// Data de emissão da necessidade
+							If Type("oXmlM105Aux:_DeliveryDateTime:Text") != "U" .And. !Empty(oXmlM105Aux:_DeliveryDateTime:Text)
+								dDatPrf := Stod(StrTran(oXmlM105Aux:_DeliveryDateTime:Text, "-", ""))
+							Else
+								dDatPrf := dDataBase
+							EndIf
+
+							aAdd(aLinha, {"CP_DATPRF", dDatPrf, Nil})
+
+							// Quantidade
+							If Type("oXmlM105Aux:_Quantity:Text") != "U" .And. !Empty(oXmlM105Aux:_Quantity:Text)
+								aAdd(aLinha, {"CP_QUANT", Val(AllTrim(oXmlM105Aux:_Quantity:Text)), Nil})
+							EndIf
+
+							//Preço unitário
+							If Type("oXmlM105Aux:_UnitPrice:Text") != "U" .And. !Empty(oXmlM105Aux:_UnitPrice:Text)
+								aAdd(aLinha, {"CP_VUNIT", Val(AllTrim(oXmlM105Aux:_UnitPrice:Text)), Nil})
+							EndIf
+
+							// Obtém o código interno da unidade de medida
+							If Type("oXmlM105Aux:_UnitOfMeasureInternalId:Text") != "U" .And. !Empty(oXmlM105Aux:_UnitOfMeasureInternalId:Text)
+								aAux := IntUndInt(oXmlM105Aux:_UnitOfMeasureInternalId:Text, cMarca, cUndVer) //QIEI030
+								If !aAux[1]
+									lRet		:= aAux[1]
+									cXmlRet	:= aAux[2]
+									Return {lRet, cXmlRet}
+								Else
+									aAdd(aLinha,{"CP_UM", aAux[2][3], Nil})
+								EndIf
+							ElseIf Type("oXmlM105Aux:_UnitOfMeasureCode:Text") != "U" .And. !Empty(oXmlM105Aux:_UnitOfMeasureCode:Text)
+								aAdd(aLinha,{"CP_UM", oXmlM105Aux:_UnitOfMeasureCode:Text, Nil})
+							EndIf
+
+							// Obtém o código interno do local de estoque
+							If Type("oXmlM105Aux:_WarehouseInternalId:Text") != "U" .And. !Empty(oXmlM105Aux:_WarehouseInternalId:Text)
+								aAux := IntLocInt(oXmlM105Aux:_WarehouseInternalId:Text, cMarca, cLocVer) //AGRI045
+								If !aAux[1]
+									lRet		:= aAux[1]
+									cXmlRet	:= aAux[2]
+									Return {lRet, cXmlRet}
+								Else
+									aAdd(aLinha,{"CP_LOCAL", aAux[2][3], Nil})
+								EndIf
+							ElseIf Type("oXmlM105Aux:_WarehouseCode:Text") != "U" .And. !Empty(oXmlM105Aux:_WarehouseCode:Text)
+								aAdd(aLinha,{"CP_LOCAL", oXmlM105Aux:_WarehouseCode:Text, Nil})
+							EndIf
+
+							// Observação
+							If Type("oXmlM105Aux:_Observation:Text") != "U" .And. !Empty(oXmlM105Aux:_Observation:Text)
+								aAdd(aLinha, {"CP_OBS", oXmlM105Aux:_Observation:Text, Nil})
+							EndIf
+
+							// Obtém o código interno do centro de custo
+							If Type("oXmlM105Aux:_CostCenterInternalId:Text") != "U" .And. !Empty(oXmlM105Aux:_CostCenterInternalId:Text)
+								aAux := IntCusInt(oXmlM105Aux:_CostCenterInternalId:Text, cMarca, cCusVer) //CTBI030
+								If !aAux[1]
+									lRet		:= aAux[1]
+									cXmlRet	:= aAux[2]
+									Return {lRet, cXmlRet}
+								Else
+									aAdd(aLinha,{"CP_CC", aAux[2][3], Nil})
+								EndIf
+							ElseIf Type("oXmlM105Aux:_CostCenterCode:Text") != "U" .And. !Empty(oXmlM105Aux:_CostCenterCode:Text)
+								aAdd(aLinha,{"CP_CC", oXmlM105Aux:_CostCenterCode:Text, Nil})
+							EndIf
+
+							// Obtém a conta contábil
+							If Type("oXmlM105Aux:_AccountantAcountInternalId:Text") != "U" .And. !Empty(oXmlM105Aux:_AccountantAcountInternalId:Text)
+								aAux := CFGA070INT(cMarca, "CT1", "CT1_CONTA", oXmlM105Aux:_AccountantAcountInternalId:Text) //CTBI020
+								If !Empty(aAux)
+									lRet		:= .F.
+									cXmlRet	:= STR0015 //"Conta contábil não encontrada no de/para."
+									Return {lRet, cXmlRet}
+								Else
+									aAdd(aLinha,{"CP_CONTA", RTrim(Separa(aAux)[3]), Nil})
+								EndIf
+							ElseIf Type("oXmlM105Aux:_AccountantAcountCode:Text") != "U" .And. !Empty(oXmlM105Aux:_AccountantAcountCode:Text)
+								aAdd(aLinha,{"CP_CONTA", oXmlM105Aux:_AccountantAcountCode:Text, Nil})
+							EndIf
+
+							// Obtém o código da ordem de produção
+							If Type("oXmlM105Aux:_MainOrderCode:Text") != "U" .And. !Empty(oXmlM105Aux:_MainOrderCode:Text)
+								aAdd(aLinha,{"CP_OP", oXmlM105Aux:_MainOrderCode:Text, Nil})
+							EndIf
+
+							aAdd(aItens, aClone(aLinha))
+							aLinha := {}
+
+							If Type("oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem") != "U" .And. !Empty(oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem)
+								// Se não for array, faz a transformação
+								If Type("oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem") != "A"
+									XmlNode2Arr(oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem, "_ApportionRequestItem")
+								EndIf
+
+								For n2Cnt := 1 To Len(oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem)
+									// Atualiza o objeto com a posição atual
+									oXmlAuxR := oXmlM105Aux:_ListOfApportionRequestItem:_ApportionRequestItem[n2Cnt]
+
+									// Se possui Centro de Custo Informado
+									If Type("oXmlAuxR:_CostCenterInternalId:Text") != "U" .And. !Empty(oXmlAuxR:_CostCenterInternalId:Text)
+										// Possui percentual informado
+										If Type("oXmlAuxR:_Percentual:Text") != "U" .And. !Empty(oXmlAuxR:_Percentual:Text)
+											// Obtém a chave interna do Centro de Custo
+											aAux := IntCusInt(oXmlAuxR:_CostCenterInternalId:Text, cMarca, cCusVer) //CTBI030
+											If !aAux[1]
+												lRet		:= .F.
+												cXmlRet	:= aAux[2] + STR0016 + AllTrim(oXmlM105Aux:_Code:Text) + "." //" Item "
+												Return {lRet, cXmlRet}
+											EndIf
+
+											aVldCC := IntVldCC(aAux[2][3], Date(), "MATI105")
+
+											// Valida o Centro de custo
+											If !aVldCC[1]
+												lRet		:= .F.
+												cXmlRet	:= aVldCC[2] + STR0016 + AllTrim(oXmlM105Aux:_Code:Text) + "." //" Item "
+												Return {lRet, cXmlRet}
+											EndIf
+
+											// Verifica se já foi gravado centro de custo igual ao deste item
+											nAux := aScan(aCCusto, {|x| RTrim(x[3]) == RTrim(aAux[2][3])})
+
+											If nAux > 0
+												aCCusto[nAux][2] += Val(oXmlAuxR:_Percentual:Text)
+											Else
+												aAdd(aCCusto, {cItemSCP, Val(oXmlAuxR:_Percentual:Text), aAux[2][3], ""})
+											EndIf
+										Else
+											lRet		:= .F.
+											cXmlRet	:= STR0017 + AllTrim(oXmlM105Aux:_Code:Text) + "." //"Percentual de rateio inválido para o item "
+											Return {lRet, cXmlRet}
+										EndIf
+									EndIf
+
+									// Obtém a conta contábil
+									If Type("oXmlAuxR:_AccountantAcountInternalId:Text") != "U" .And. !Empty(oXmlAuxR:_AccountantAcountInternalId:Text)
+										aAux := CFGA070INT(cMarca, "CT1", "CT1_CONTA", oXmlAuxR:_AccountantAcountInternalId:Text) //CTBI020
+										If !Empty(aAux)
+											lRet		:= .F.
+											cXmlRet	:= STR0015 //"Conta contábil não encontrada no de/para."
+											Return {lRet, cXmlRet}
+										Else
+											aCCusto[Len(aCCusto)][4] := oXmlAuxR:_AccountantAcountInternalId:Text
+											aAdd(aLinha,{"CP_CONTA", RTrim(Separa(aAux)[3]), Nil})
+										EndIf
+									EndIf
+
+									If Type("oXmlAuxR:_ProjectInternalId:Text") != "U" .And. !Empty(oXmlAuxR:_ProjectInternalId:Text)
+										// O projeto possui um código válido?
+										aAux := IntPrjInt(oXmlAuxR:_ProjectInternalId:Text, cMarca, cPrjVer) //PMSI200 Retorna: Empresa|Filial|Projeto
+										If !aAux[1]
+											lRet		:= .F.
+											cXmlRet	:= aAux[2]
+											Return {lRet, cXmlRet}
+										Else
+											cProjeto := aAux[2][3]
+										EndIf
+
+										// Possui tarefa informada
+										If Type("oXmlAuxR:_TaskInternalId:Text") == "U" .Or. Empty(oXmlAuxR:_TaskInternalId:Text)
+											lRet		:= .F.
+											cXmlRet	:= STR0018 + AllTrim(oXmlM105Aux:_Code:Text) + "." //"Tarefa inválida para o item "
+											Return {lRet, cXmlRet}
+										Else
+											// A tarefa possui um código válido?
+											aAux := IntTrfInt(oXmlAuxR:_TaskInternalId:Text, cMarca, cTrfVer) //PMSI203 Retorna: Empresa|Filial|Projeto|Revisao|Tarefa
+											If !aAux[1]
+												lRet		:= .F.
+												cXmlRet	:= aAux[2] + STR0016 + AllTrim(oXmlM105Aux:_Code:Text) + "." //" Item "
+												Return {lRet, cXmlRet}
+											EndIf
+										EndIf
+
+										// Possui quantidade informada
+										If Type("oXmlAuxR:_Quantity:Text") != "U" .And. !Empty(oXmlAuxR:_Quantity:Text)
+											// Verifica se já existe o projeto e tarefa para o item
+											nAux := aScan(aProject, {|x| Rtrim(x[1]) == Rtrim(aAux[2][3]) .And. Rtrim(x[3]) == Rtrim(aAux[2][5])})
+
+											// Caso já exista o projeto/tarefa aglutinar a quantidade
+											If nAux > 0
+												aProject[nAux][4] += Val(oXmlAuxR:_Quantity:Text)
+											Else
+												// Projeto|Revisão|Tarefa|Quantidade|Solicitação|Item Solicitação|Produto
+												aAdd(aProject, {cProjeto, aAux[2][4], aAux[2][5], Val(oXmlAuxR:_Quantity:Text), "cNumSAWS", cItemSCP, PadR(cCodPro, TamSX3("CP_PRODUTO")[1])})
+											EndIf
+										Else
+											lRet		:= .F.
+											cXmlRet	:= STR0019 + AllTrim(oXmlM105Aux:_Code:Text) + "." //"Quantidade do rateio inválido para o item "
+											Return {lRet, cXmlRet}
+										EndIf
+									EndIf
+								Next n2Cnt
+
+								//Caso tenha rateio de centro de custo excluir o centro de custo do item para evitar erro
+								If Len(aCCusto) > 0
+									nAux := aScan(aItens[n1Cnt], {|x| x[1] == "CP_CC"})
+									If nAux > 0
+										aDel(aItens[n1Cnt], nAux)
+										aSize(aItens[n1Cnt], Len(aItens[n1Cnt]) - 1)
+									EndIf
+								EndIf
+
+								If Len(aCCusto) > 0
+									// Monta o array com os itens do rateio de centro de custo agrupados por centro de custo
+									aAdd(aRatCC, Array(2))
+									aRatCC[n1Cnt][1] := cItemSCP // Nesta estrutura, a primeira posição do array de rateios deve ser o item
+									aRatCC[n1Cnt][2] := {}
+
+									// Loop para informar os dados de rateio por centro de custo
+									For nAux := 1 To Len(aCCusto)
+										aAdd(aLinha,	{"GS_ITEM",	StrZero(nAux, 2),	Nil})
+										aAdd(aLinha,	{"GS_PERC",	aCCusto[nAux][2],	Nil})
+										aAdd(aLinha,	{"GS_CC",	aCCusto[nAux][3],	Nil})
+										aAdd(aRatCC[n1Cnt][2], aClone(aLinha))
+										aLinha := {}
+									Next nAux
+								Endif
+
+								If Len(aCCusto) > 0
+									// Possui rateio de centro de custo?
+									aAdd(aLinha,{"CP_RATEIO", "1" ,Nil})
+								EndIf
+
+								aCCusto := {}
+
+								If Len(aProject) > 0
+									// Monta o array com os itens do rateio de projeto agrupados por projeto/tarefa
+									For nAux := 1 To Len(aProject)
+										aAdd(aLinha,	{"AFH_PROJET",	aProject[nAux][1],	Nil})
+										aAdd(aLinha,	{"AFH_REVISA",	aProject[nAux][2],	Nil})
+										aAdd(aLinha,	{"AFH_TAREFA",	aProject[nAux][3],	Nil})
+										aAdd(aLinha,	{"AFH_QUANT",	aProject[nAux][4],	Nil})
+										aAdd(aLinha,	{"AFH_NUMSA",	aProject[nAux][5],	Nil})
+										aAdd(aLinha,	{"AFH_ITEMSA",	aProject[nAux][6],	Nil})
+										aAdd(aLinha,	{"AFH_COD",		aProject[nAux][7],	Nil})
+										aAdd(aRatProj, aClone(aLinha))
+										aLinha := {}
+									Next nAux
+								Endif
+
+								aProject := {}
+							EndIF
+						Next n1Cnt
+					EndIf
+
+					If nOpcx == 5
+						If lExclui
+							MSExecAuto({|x,y,z| MATA105(x,y,z)},aCab,aItens,nOpcx)
+						EndIf
+					Else
+						If Len(aRatCC) > 0
+							MSExecAuto({|x,y,w,z| MATA105(x,y,w,z)}, aCab, aItens, nOpcx, aRatCC)
+						Else
+							MSExecAuto({|x,y,w,z| MATA105(x,y,w,z)}, aCab, aItens, nOpcx, /*aRatCC*/)
+						Endif
+					EndIf
+
+					If lMsErroAuto
+						aErroAuto := GetAutoGRLog()
+
+						cLogErro := ""
+						For n1Cnt := 1 To Len(aErroAuto)
+							cLogErro += _NoTags(aErroAuto[n1Cnt])
+						Next
+
+						lRet		:= .F.
+						cXMLRet := EncodeUTF8(cLogErro)
+						msUnlockAll()
+					Else
+						If nOpcx != 5
+							// Atualiza o número da SA gerado no de/para
+							cValInt := StrTran(cValInt, "cNumSAWS", RTrim(cNumSAWS))
+
+							For n1Cnt := 1 To Len(aDePara)
+								aDePara[n1Cnt][2] := StrTran(aDePara[n1Cnt][2], "cNumSAWS", RTrim(cNumSAWS))
+							Next n1Cnt
+
+							// Atualiza o número da SA no rateio de projeto
+							For n1Cnt := 1 To Len(aRatProj)
+								If (n2Cnt := aScan(aRatProj[n1Cnt], {|x| x[1] == "AFH_NUMSA"})) > 0
+									aRatProj[n1Cnt, n2Cnt, 2] := cNumSAWS
+								EndIf
+							Next n1Cnt
+						EndIf
+
+						// Se não for exclusão
+						If nOpcx != 5
+							// Grava o registro na tabela XXF (de/para)
+							If !Empty(cValExt) .And. !Empty(cValInt)
+								CFGA070Mnt(cMarca, cAlias, cCampo, cValExt, cValInt, .F., 1)
+							Endif
+						Else
+							// Exclui o registro na tabela XXF (de/para)
+							If !Empty(cValExt) .And. !Empty(cValInt)
+								CFGA070Mnt(cMarca, cAlias, cCampo, cValExt, cValInt, .T., 1)
+							Endif
+						EndIf
+
+						If Len(aRatProj) > 0
+							// Grava Projeto/Tarefa utilizando função do WS
+							pmsWsSA(cValToChar(nOpcx), aRatProj)
+						EndIf
+
+						For n1Cnt := 1 TO Len(aDePara)
+							If nOpcx != 5
+								// Grava o item na tabela XXF (de/para)
+								If !Empty(aDePara[n1Cnt][1]) .And. !Empty(aDePara[n1Cnt][2])
+									CFGA070Mnt(cMarca, cAlias, aDePara[n1Cnt][3], aDePara[n1Cnt][1], aDePara[n1Cnt][2], .F., 1)
+								Endif
+							Else
+								// Exclui o item na tabela XXF (de/para)
+								If !Empty(aDePara[n1Cnt][1]) .And. !Empty(aDePara[n1Cnt][2])
+									CFGA070Mnt(cMarca, cAlias, aDePara[n1Cnt][3], aDePara[n1Cnt][1], aDePara[n1Cnt][2], .T., 1)
+								Endif
+							EndIf
+						Next n1Cnt
+
+						// Monta o XML de retorno
+						cXmlRet := "<ListOfInternalId>"
+						cXmlRet +=	"<InternalId>"
+						cXmlRet +=		"<Name>Request</Name>"
+						cXmlRet +=		"<Origin>" + cValExt + "</Origin>"
+						cXmlRet +=		"<Destination>" + cValInt + "</Destination>"
+						cXmlRet +=	"</InternalId>"
+						For n1Cnt := 1 To Len(aDePara)
+							cXmlRet += "<InternalId>"
+							cXmlRet +=	"<Name>RequestItem</Name>"
+							cXmlRet +=	"<Origin>" + aDePara[n1Cnt][1] + "</Origin>"
+							cXmlRet +=	"<Destination>" + aDePara[n1Cnt][2] + "</Destination>"
+							cXmlRet += "</InternalId>"
+						Next n1Cnt
+						cXmlRet += "</ListOfInternalId>"
+
+						msUnlockAll()
+					EndIf
+				// Se é Solicitação de Compra
+				ElseIf AllTrim(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Type:Text) == "000"
+					aAdd(aRet, FWIntegDef("MATA110", cTypeMessage, nTypeTrans, cXml,"MATA110"))
+
+					If Valtype(aRet) == "A"
+						If !Empty(aRet)
+							lRet		:= aRet[1][1]
+							cXmlRet	+= aRet[1][2]
+						EndIf
+
+						Return {lRet, cXmlRet}
+					Endif
+				// Se é Solicitação de Cotação
+				ElseIf AllTrim(oXmlM105:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Type:Text) == "002"
+				  // TODO Implementar chamada para Solicitação de Cotação
+				Else
+					lRet		:= .F.
+					cXmlRet	:= STR0020 //"Tipo inválido!"
+					Return {lRet, cXmlRet}
+				EndIf
+			Else
+				lRet		:= .F.
+				cXmlRet	:= STR0021 //"Tipo não enviado."
+				Return {lRet, cXmlRet}
+			EndIf
+		Else
+			lRet		:= .F.
+			cXMLRet	:= STR0001	//"Falha ao manipular o XML"
+			cXMLRet += IIf ( !Empty(cError), cError, cWarning )
+
+			cXMLRet := cXMLRet
+		EndIf
+	EndIf
+//Tratamento do envio de mensagens
+ElseIf nTypeTrans == TRANS_SEND
+
+	cNumSA	:= SCP->CP_NUM
+
+	//Monta XML de envio de mensagem unica
+	cXMLRet :=	'<BusinessEvent>'
+	cXMLRet +=		'<Entity>Request</Entity>'
+	If Inclui .Or. Altera
+		cXMLRet +=		'<Event>' + cEvent + '</Event>'
+	Else
+		cXMLRet +=		'<Event>delete</Event>'
+		CFGA070Mnt(,"SCP","CP_NUM",,IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, /*cItemSA*/, /*dDataEmissao*/, cSArVer)[2],.T.)
+	Endif
+	cXMLRet +=		'<Identification>'
+	cXMLRet +=			'<key name="InternalId">' + IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, /*cItemSA*/, /*dDataEmissao*/, cSArVer)[2] + '</key>'
+	cXMLRet +=		'</Identification>'
+	cXMLRet +=	'</BusinessEvent>'
+	cXMLRet +=	'<BusinessContent>'
+	cXMLRet +=		'<CompanyId>' + cEmpAnt + '</CompanyId>'
+	cXMLRet +=		'<BranchId>' + xFilial("SCP") + '</BranchId>'
+	cXMLRet +=		'<CompanyInternalId>' + cEmpAnt + '|' + xFilial('SCP') + '</CompanyInternalId>'
+	cXMLRet +=		'<InternalId>' + IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, /*cItemSA*/, /*dDataEmissao*/, cSArVer)[2] + '</InternalId>'
+	cXMLRet +=		'<Number>' + RTrim(cNumSA) + '</Number>'
+	cXMLRet +=		'<Type>' + "001" + '</Type>'
+	cXMLRet +=		'<UserRequesterCode>' + RTrim(SCP->(CP_SOLICIT)) + '</UserRequesterCode>'
+	cXMLRet +=		'<UserRequesterName>' + RTrim(SCP->(CP_SOLICIT)) + '</UserRequesterName>'
+	cXMLRet +=		'<RegisterDateTime>' + Transform(DToS(SCP->CP_EMISSAO),"@R 9999-99-99") + '</RegisterDateTime>'
+	cXMLRet +=		'<ListOfRequestItem>'
+
+	SCP->(DbSetOrder(1))
+	If SCP->(DbSeek(xFilial("SCP")+cNumSA))
+		While SCP->( !Eof() .And. SCP->CP_FILIAL + SCP->CP_NUM == xFilial("SCP")+cNumSA )
+			If ( Len( aRecSCP ) == 0 .Or. Len( aRecSCP ) > 0 .And. Ascan( aRecSCP, SCP->( Recno() ) ) > 0 )
+				cXMLRet +=	'<RequestItem>'
+				cXMLRet +=		'<Code>' + SCP->CP_ITEM + '</Code>'
+				cXMLRet +=		'<InternalId>' + IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer)[2] + '</InternalId>'
+				cXMLRet +=		'<ItemCode>' + RTrim(SCP->CP_PRODUTO) + '</ItemCode>'
+				cXMLRet +=		'<ItemInternalId>' + IntProExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_PRODUTO, cPrdVer)[2] + '</ItemInternalId>' //MATI010
+				cXMLRet +=		'<Quantity>' + RTrim(cValToChar(SCP->CP_QUANT)) + '</Quantity>'
+				cXMLRet +=		'<QuantityReached/>'
+				cXMLRet +=		'<UnitPrice>' + RTrim(cValToChar(SCP->CP_VUNIT)) + '</UnitPrice>'
+				cXMLRet +=		'<TotalPrice>' + RTrim(cValToChar(SCP->CP_QUANT * SCP->CP_VUNIT)) + '</TotalPrice>'
+				cXMLRet +=		'<UnitOfMeasureCode>' + RTrim(SCP->CP_UM) + '</UnitOfMeasureCode>'
+				cXMLRet +=		'<UnitOfMeasureInternalId>' + IntUndExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_UM, cUndVer)[2] + '</UnitOfMeasureInternalId>' //QIEI030
+				cXMLRet +=		'<WarehouseCode>' + SCP->CP_LOCAL + '</WarehouseCode>'
+				cXMLRet +=		'<WarehouseInternalId>' + IntLocExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_LOCAL, cLocVer)[2] + '</WarehouseInternalId>' //AGRI045
+				cXMLRet +=		'<DeliveryDateTime>' + Transform(DToS(SCP->CP_DATPRF),"@R 9999-99-99") + '</DeliveryDateTime>'
+				If SCP->CP_RATEIO == "1"
+					cXMLRet +=	'<CostCenterCode/>'
+					cXMLRet +=	'<CostCenterInternalId/>'
+					cXMLRet +=	'<AccountantAcountCode/>'
+				Else
+					If Empty(SCP->CP_CC)
+						cXMLRet += '<CostCenterCode/>'
+						cXMLRet += '<CostCenterInternalId/>'
+					Else
+						cXMLRet += '<CostCenterCode>' + RTrim(SCP->CP_CC) + '</CostCenterCode>'
+						cXMLRet += '<CostCenterInternalId>' + IntCusExt(/*cEmpresa*/, /*cFilial*/, SCP->CP_CC, cCusVer)[2] + '</CostCenterInternalId>' //CTBI030
+					EndIf
+					If Empty(SCP->CP_CONTA)
+						cXMLRet += '<AccountantAcountCode/>'
+					Else
+						cXMLRet += '<AccountantAcountCode>' + RTrim(SCP->CP_CONTA) + '</AccountantAcountCode>'
+					EndIf
+				EndIf
+				cXMLRet +=		'<MainOrderCode>' + RTrim(SCP->CP_OP) + '</MainOrderCode>'
+				cXMLRet +=		'<Observation>' + RTrim(SCP->CP_OBS) + '</Observation>'
+				cXMLRet +=		'<Status>' + RTrim(SCP->CP_STATUS) + '</Status>'
+
+				If IsIntegTop() //Possui integração com o RM Solum
+					aRateio := RatSA(SCP->CP_NUM, SCP->CP_ITEM)
+
+					If Empty(aRateio)
+						cXMLRet += '<ListOfApportionRequestItem/>'
+					Else
+						cXmlRet += '<ListOfApportionRequestItem>'
+
+						For n1Cnt := 1 To Len(aRateio)
+							cXMLRet +=	'<ApportionRequestItem>'
+							cXMLRet +=		'<InternalId>' + IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer)[2] + '|' + PadL(n1Cnt, 2, "0") + '</InternalId>'
+							cXMLRet +=		'<DepartamentCode/>'
+							cXMLRet +=		'<DepartamentInternalId/>'
+							If Empty(aRateio[n1Cnt][1])
+								cXMLRet +=	'<CostCenterInternalId/>'
+							Else
+								cXMLRet +=	'<CostCenterInternalId>' + IntCusExt(/*cEmpresa*/, /*cFilial*/, aRateio[n1Cnt][1], cCusVer)[2] + '</CostCenterInternalId>' //CTBI030
+							EndIf
+							cXMLRet +=		'<AccountantAcountInternalId/>'
+							If Empty(aRateio[n1Cnt][6])
+								cXMLRet +=	'<ProjectInternalId/>'
+							Else
+								cXMLRet +=	'<ProjectInternalId>' + IntPrjExt(/*cEmpresa*/, /*cFilial*/, aRateio[n1Cnt][6], cPrjVer)[2] + '</ProjectInternalId>' //PMSI200
+							EndIf
+							cXMLRet +=		'<SubProjectInternalId/>'
+							If Empty(aRateio[n1Cnt][6]) .Or. Empty(aRateio[n1Cnt][7])
+								cXMLRet +=	'<TaskInternalId/>'
+							Else
+								cXMLRet +=	'<TaskInternalId>' + IntTrfExt(/*cEmpresa*/, /*cFilial*/, aRateio[n1Cnt][6], '0001', aRateio[n1Cnt][7], cTrfVer)[2] + '</TaskInternalId>' //PMSI203
+							EndIf
+							If Empty(aRateio[n1Cnt][4])
+								cXMLRet +=	'<Value/>'
+							Else
+								cXMLRet +=	'<Value>' + cValToChar(aRateio[n1Cnt][4] * SCP->CP_QUANT / 100) + '</Value>'
+							EndIf
+							cXMLRet +=		'<Percentual>' + RTrim(cValToChar(aRateio[n1Cnt][5])) + '</Percentual>'
+							cXMLRet +=		'<Quantity>' + RTrim(cValToChar(aRateio[n1Cnt][8])) + '</Quantity>'
+							cXMLRet +=	'</ApportionRequestItem>'
+						Next n1Cnt
+
+						cXMLRet += '</ListOfApportionRequestItem>'
+					EndIf
+				ElseIf SCP->CP_RATEIO == "1"
+					If AliasInDic("SGS")
+						//Rateio por Centro de Custo
+						SGS->(DbSetOrder(1))
+
+						If SGS->(DbSeek(xFilial("SGS") + SCP->CP_NUM + SCP->CP_ITEM))
+							cXMLRet +=	"<ListOfApportionRequestItem>"
+
+							While !SGS->(EOF()) .And. SGS->GS_FILIAL + SGS->GS_SOLICIT + SGS->GS_ITEMSOL == SCP->CP_FILIAL + SCP->CP_NUM + SCP->CP_ITEM
+								cXMLRet +=	'<ApportionRequestItem>'
+								cXMLRet +=		'<InternalId>' + IntSArExt(/*cEmpresa*/, SCP->CP_FILIAL, SCP->CP_NUM, SCP->CP_ITEM, SCP->CP_EMISSAO, cSArVer)[2] + '|' + RTrim(SGS->GS_ITEM) + '</InternalId>'
+
+								If !Empty(AllTrim(SGS->GS_CC))
+									cXMLRet +=	'<CostCenterInternalId>' + IntCusExt(/*cEmpresa*/, /*cFilial*/, SGS->GS_CC, cCusVer)[2] + '</CostCenterInternalId>' //CTBI030
+								EndIf
+
+								cXMLRet +=		'<AccountantAcountInternalId>' + SGS->GS_CONTA + '</AccountantAcountInternalId>'
+								cXMLRet +=		'<Percentual>' + cValToChar(SGS->GS_PERC) + '</Percentual>'
+								cXMLRet +=	'</ApportionRequestItem>'
+
+								SGS->(DbSkip())
+							EndDo
+
+							cXMLRet +=	'</ListOfApportionRequestItem>'
+						EndIf
+					EndIf
+				EndIf
+
+				cXMLRet +=	'</RequestItem>'
+			EndIf
+
+			SCP->(DbSkip())
+		EndDo
+	EndIf
+
+	cXMLRet +=		'</ListOfRequestItem>'
+	cXMLRet +=	'</BusinessContent>'
+EndIf
+
+RestArea(aAreaSCP)
+RestArea(aArea)
+
+Return { lRet, cXMLRet }
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RatSA
+Recebe o número e o item da solicitação ao armazem e monta o rateio
+de acordo com a estrutura do RM Solum (TOTVS Obras e Projetos).
+
+@param   cEndereco Endereço do webservice
+@author  Leandro Luiz da Cruz
+@version P11
+@since   27/06/2013
+
+@return aResult .
+/*/
+//-------------------------------------------------------------------
+Function RatSA(cNumSA, cItemSA)
+   Local nI        := 0
+   Local aCntrCst  := {}
+   Local aPrjtTrf  := {}
+   Local aResult   := {}
+
+   SGS->(dbSetOrder(1))
+   AFH->(dbSetOrder(2))
+
+   //Armazena os centros de custos vinculados ao item
+   If SGS->(dbSeek(xFilial("SGS") + cNumSA + cItemSA))
+      While SGS->(!EOF()) .And. SGS->GS_FILIAL + SGS->GS_SOLICIT + SGS->GS_ITEMSOL == xFilial("SCP") + cNumSA + cItemSA
+         nI := aScan(aCntrCst, {|x| x[1] == SGS->GS_CC})
+
+         If nI > 0
+            aCntrCst[nI][5] += SGS->GS_PERC
+         Else
+            aAdd(aCntrCst, {SGS->GS_CC, SGS->GS_CONTA, SGS->GS_ITEMCTA, SGS->GS_CLVL, SGS->GS_PERC})
+         EndIf
+
+         SGS->(dbSkip())
+      EndDo
+   EndIf
+
+   //Se possui centro de custo no item enviar o centro de custo do item
+   If Len(aCntrCst) == 0 .And. !Empty(SCP->CP_CC)
+      aAdd(aCntrCst, {SCP->CP_CC, SCP->CP_CONTA, SCP->CP_ITEMCTA, SCP->CP_CLVL, 100})
+   EndIf
+
+   //Armazena os projetos/tarefas vinculados ao item
+   If AFH->(dbSeek(xFilial("AFH") + cNumSA + cItemSA))
+      While AFH->(!EOF()) .And. AFH->AFH_FILIAL + AFH->AFH_NUMSA + AFH->AFH_ITEMSA == xFilial("SCP") + cNumSA + cItemSA
+         nI := aScan(aPrjtTrf, {|x| x[1] == AFH->AFH_PROJET .And. X[3] == AFH->AFH_TAREFA})
+
+         If nI > 0
+            aPrjtTrf[nI][4] += AFH->AFH_QUANT
+         Else
+            aAdd(aPrjtTrf, {AFH->AFH_PROJET, AFH->AFH_REVISA, AFH->AFH_TAREFA, AFH->AFH_QUANT})
+         EndIf
+
+         AFH->(dbSkip())
+      EndDo
+   EndIf
+
+   aResult := IntRatPrjCC(aCntrCst, aPrjtTrf)
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntSArInt
+Recebe um InternalID e retorna o código da Solicitação de Armazém.
+
+@param   cInternalID InternalID recebido na mensagem.
+@param   cRefer      Produto que enviou a mensagem
+@param   cVersao     Versão da mensagem única (Default 1.002)
+
+@author  Mateus Gustavo de Freitas e Silva
+@version P11
+@since   17/10/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+         lógica indicando se o registro foi encontrado no de/para.
+         No segundo parâmetro uma variável array com a empresa,
+         filial e número da Solicitação de Armazém.
+
+@sample  IntSArInt('1|100', 'RM', '1.002') irá retornar
+{.T., {'01', '01', '000100'}}
+/*/
+//-------------------------------------------------------------------
+Function IntSArInt(cInternalID, cRefer, cVersao)
+   Local   aResult  := {}
+   Local   aTemp    := {}
+   Local   cTemp    := ""
+   Local   cAlias   := 'SCP'
+   Local   cField   := 'CP_NUM'
+   Local cVerWhois  := "1.000|1.001|1.002|1.003|1.004|1.005|1.008|1.009"
+   Default cVersao  := '1.002'
+
+   cTemp := CFGA070Int(cRefer, cAlias, cField, cInternalID)
+
+   If Empty(cTemp)
+      aAdd(aResult, .F.)
+      aAdd(aResult, STR0022  + RTrim(cInternalID) + STR0023) // //"Solicitação de Armazém " " não encontrada no de/para."
+   Else
+      If cVersao $ cVerWhois
+         aAdd(aResult, .T.)
+         aTemp := Separa(cTemp, '|')
+         aAdd(aResult, aTemp)
+      Else
+         aAdd(aResult, .F.)
+         aAdd(aResult, STR0024 + Chr(10) + STR0025 + cVerWhois) //"Versão da solicitação de armazém não suportada." "As versões suportadas são: "
+      EndIf
+   EndIf
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntSArExt
+Monta o InternalID da Solicitação de Armazém com o código passado
+no parâmetro.
+
+@param   cEmpresa     Código da empresa (Default cEmpAnt)
+@param   cFil         Código da Filial (Default xFilial(SCP))
+@param   cNumSA       Número da Solicitação de Armazém
+@param   cItemSA      Item da Solicitação de Armazém
+@param   dDataEmissao Data da Solicitação de Armazém
+@param   cVersao      Versão da mensagem única (Default 1.002)
+
+@author  Mateus Gustavo de Freitas e Silva
+@version P11
+@since   17/10/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+         lógica indicando se o registro foi encontrado.
+         No segundo parâmetro uma variável string com o InternalID
+         montado.
+
+@sample  IntSArExt(, , '000001') irá retornar {.T., '01|01|000001'}
+/*/
+//-------------------------------------------------------------------
+Function IntSArExt(cEmpresa, cFil, cNumSA, cItemSA, dDataEmissao, cVersao, lJson)
+   Local aResult  		:= {}
+   Local cDataFormat	:= ""
+   Local cVerWhois  	:= "1.000|1.001|1.002|1.003|1.004|1.005|1.008|1.009"
+   Default cEmpresa 	:= cEmpAnt
+   Default cFil     	:= xFilial('SCP')
+   Default cVersao  	:= '1.002'
+   Default lJson   		:= .F.
+
+   If cVersao $ cVerWhois
+      aAdd(aResult, .T.)
+      If Empty(cItemSA)
+         aAdd(aResult, cEmpresa + '|' + RTrim(cFil) + '|' + RTrim(cNumSA))
+      Else
+      	 cDataFormat := DtoS(dDataEmissao)
+
+		 If !lJson  
+      	 	cDataFormat := SubStr(cDataFormat,7,2) + "/" + SubStr(cDataFormat,5,2) + "/" + SubStr(cDataFormat,1,4)
+		 Endif
+
+         aAdd(aResult, cEmpresa + '|' + RTrim(cFil) + '|' + RTrim(cNumSA) + '|' + RTrim(cItemSA) + '|' + RTrim(cDataFormat))
+      EndIf
+   Else
+      aAdd(aResult, .F.)
+      aAdd(aResult, STR0024 + Chr(10) + STR0025 + cVerWhois) //"Versão da solicitação de armazém não suportada." "As versões suportadas são: "
+   EndIf
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} I105Item
+Retorna o Código do para Ser Informado no atributo CP_ITEM, Ajustando
+o Conteúdo Quando a Solicitação tiver acima de 99 Itens.
+
+@param   aItSCP     	Vetor de Objetos com os Itens
+@param   cItemAtu     	Código do Item a Ser Retornado
+@param   nPosAtu       	Posição Atual do Vetor de Objetos de Itens Sendo Processado
+
+@author  Paulo V. Beraldo
+@version P12
+@since   Out/2018
+@return  cRet 			String com o valor do Item da Solicitacao a Ser Processado.
+
+@sample  I105Item( aItSCP, '01', 1 ) irá retornar '01' | I105Item( aItSCP, '105', 105 ) irá retornar '9F'
+/*/
+//-------------------------------------------------------------------
+Static Function I105Item( aItSCP, cItemAtu, nPosAtu  )
+Local cRet		:= ''
+Local nInd		:= 0
+Local nPosVet	:= 0
+Local nTamCod	:= 0
+Local cCaract	:= 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+Local lAlfaNum 	:= .F.
+
+Default aItSCP	:= {}
+Default nPosAtu	:= 1
+Default cItemAtu:= ''
+
+nTamCod := Len( AllTrim( cItemAtu ) )
+For nInd := 1 To nTamCod
+	cAux := SubStr( cItemAtu, nInd, 1 )
+	If ( AllTrim( cAux ) $ cCaract ) .Or. ( AllTrim( cAux ) $ Lower( cCaract ) )
+		lAlfaNum := .T.
+		Exit
+	EndIf
+Next nInd
+
+If nPosAtu == 1
+	If lAlfaNum
+		cRet :=  PadL( cItemAtu, TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+	Else
+		cRet :=  PadL( I105Int2Hx( Val( cItemAtu ) ), TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+	EndIf
+Else
+	nPosVet := IIf( nPosAtu == 0 .Or. nPosAtu == 1, 1, nPosAtu - 1 )
+	cRet 	:= PadL( Soma1( aItSCP[ nPosVet ]:_Code:Text, TamSx3( 'CP_ITEM' )[ 1 ] ), TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+EndIf
+aItSCP[ nPosAtu ]:_Code:Text := cRet
+
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} I105Int2Hx
+Funcao Responsavel por Converter o Codigo do Item Numerico em Alfa-Numerico
+@param   xCodItem Codigo do Item Recebido via Integracao
+
+@author  Paulo V. Beraldo
+@version P12
+@since   Jun/2020
+@return  cRet String Codigo do Item Convertido
+
+/*/
+//-------------------------------------------------------------------
+Static Function I105Int2Hx( nItem )
+Local nInd  := 0
+Local cRet  := ''
+Local cAux  := StrZero( 0, TamSx3( 'CP_ITEM' )[ 1 ] )
+
+Default nItem := 0
+
+While .T.
+	If nItem <= 0
+		cRet := cAux
+		Exit
+	Else
+		nInd ++
+		cAux := PadL( Soma1( cAux ), TamSx3( 'CP_ITEM' )[ 1 ], '0' )
+		If nInd == nItem
+			cRet := cAux
+			Exit
+		EndIf
+	EndIf
+EndDo
+
+Return cRet

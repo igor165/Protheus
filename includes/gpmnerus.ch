@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "ярюбйю мдтк дкъ мепегхдемрнб"
+	#define STR0002 "опнбепйю мю ярюрся пегхдемрю"
+	#define STR0003 "йнкхвеярбн йюкемдюпмшу дмеи аег нрясярбхи"
+	#define STR0004 "аюгю дкъ пюяверю япедмецн гю леяъж"
+	#define STR0005 "йнкхвеярбн йюкемдюпмшу дмеи аег нрясрярбхи дкъ ак х ахп"
+	#define STR0006 "аюгю дкъ пюяверю тяя"
+	#define STR0007 "аюгю пюяверю япедмецн гю леяъж дкъ ак х ахп"
+	#define STR0008 "йнкхвеярбн дмеи пюяверю (йдп)"
+	#define STR0009 "йНКХВЕЯРБН ПЮАНВХУ ДМЕИ АЕГ НРЯСЯРБХИ (Б ВЮЯЮУ)"
+	#define STR0010 "аЮГЮ ПЮЯВЕРЮ ЯПЕДМЕЦН ГЮПЮАНРЙЮ"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "PIT RATE FOR NON-RESIDENTS"
+		#define STR0002 "VERIFICATION FOR RESIDENT STATUS"
+		#define STR0003 "NUMBER OF CALENDAR DAYS WITHOUT MISSING"
+		#define STR0004 "BASE FOR CALCULATING THE MONTHLY AVERAGE"
+		#define STR0005 "NUMBER OF CALENDAR DAYS WITHOUT ABSENT FOR BL AND BEER"
+		#define STR0006 "BASE FOR CALCULATING FSS"
+		#define STR0007 "BASE OF CALCULATION OF THE MONTHLY AVERAGE FOR BL AND BIR"
+		#define STR0008 "NUMBER OF CALCULATION DAYS (CRD)"
+		#define STR0009 "Number of working days without absence (in hours)"
+		#define STR0010 "Base for calculating average earnings"
+	#else
+		#define STR0001 "ярюбйю мдтк дкъ мепегхдемрнб"
+		#define STR0002 "опнбепйю мю ярюрся пегхдемрю"
+		#define STR0003 "йнкхвеярбн йюкемдюпмшу дмеи аег нрясярбхи"
+		#define STR0004 "аюгю дкъ пюяверю япедмецн гю леяъж"
+		#define STR0005 "йнкхвеярбн йюкемдюпмшу дмеи аег нрясрярбхи дкъ ак х ахп"
+		#define STR0006 "аюгю дкъ пюяверю тяя"
+		#define STR0007 "аюгю пюяверю япедмецн гю леяъж дкъ ак х ахп"
+		#define STR0008 "йнкхвеярбн дмеи пюяверю (йдп)"
+		#define STR0009 "йНКХВЕЯРБН ПЮАНВХУ ДМЕИ АЕГ НРЯСЯРБХИ (Б ВЮЯЮУ)"
+		#define STR0010 "аЮГЮ ПЮЯВЕРЮ ЯПЕДМЕЦН ГЮПЮАНРЙЮ"
+	#endif
+#endif

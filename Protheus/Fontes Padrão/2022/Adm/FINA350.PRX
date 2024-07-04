@@ -1,0 +1,1085 @@
+#INCLUDE "FINA350.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINA350()
+Lancamentos Correcao Monetaria
+
+@param lAutomato - Indica se está sendo feita a chamada via automação
+@param lAutoLiq  - Indica se está sendo feita a chamada via FINA460
+@param nTaxa460  - Taxa da moeda na chamada via FINA460
+@param cNroLiq   - Número da liquidação na chamada via FINA460
+@param nCodMoe   - Código da moeda na chamada via FINA460
+@param lMostraLan- Indica se a rotina deve mostrar a tela de lançamentos contábeis
+
+@author Pilar S. Albaladejo
+@version P12
+@since	25/03/1995
+/*/
+//-------------------------------------------------------------------
+
+Function FINA350(lAutomato as logical,lAutoLiq as logical,nTaxa460 as numeric,cNroLiq as character,nCodMoe as numeric,lMostraLan as logical,aAutoWhere as array)
+
+Local lPanelFin  as logical
+Local nOpca		 as numeric
+Local aSays 	 as array
+Local aButtons	 as array
+Local aButtonTxt as array
+Local lCont		 as logical
+
+lPanelFin := IsPanelFin()
+nOpca	  := 0
+aSays 	  := {}
+aButtons  := {}
+aButtonTxt:= {}
+lCont	  := .T.
+
+Private cCadastro := STR0001 //"Contabiliza Correção monetária"
+
+Default lAutomato := .F.
+Default lAutoLiq  := .F.
+Default nTaxa460  := 0
+Default cNroLiq   := ""
+Default nCodMoe   := 0
+
+Pergunte("AFI350",.F.)
+
+If !lAutomato
+	M->Mv_PAR08 := RecMoeda(dDataBase,mv_par02)
+	M->Mv_PAR09 := RecMoeda(dDataBase,mv_par02)
+EndIf
+
+ProcLogIni( aButtons )
+
+AADD(aSays, STR0005 ) //"O objetivo deste programa consiste em efetuar a  apura‡„o  da diferen‡a"
+AADD(aSays, STR0006 ) //"entre a data de emiss„o e data base dos t¡tulos em aberto em moeda for-"
+AADD(aSays, STR0007 ) //"te. A diferen‡a ser  lan‡ada na contabilidade (Varia‡„o Monet ria)."
+If !lAutomato
+	If lPanelFin
+		aButtonTxt := {}
+		If Len(aButtons) > 0
+			AADD(aButtonTxt,{STR0009,STR0009,aButtons[1][3]}) // Visualizar
+		Endif
+		AADD(aButtonTxt,{STR0010,STR0010, {||F350BTOP()}}) // Parametros
+		FaMyFormBatch(aSays,aButtonTxt,{||nOpca:=1},{||nOpca:=0})
+	Else
+		AADD(aButtons, { 5,.T.,{|| Pergunte("AFI350",.T. ) } } )
+		AADD(aButtons, { 1,.T.,{|o| nOpca:= 1,o:oWnd:End()}} )
+		AADD(aButtons, { 2,.T.,{|o| o:oWnd:End() }} )
+		FormBatch( cCadastro, aSays, aButtons,,,450 )
+	Endif
+Else
+	nOpcA := 1
+EndIf
+
+Private nMoeda
+Private lSkip
+ 
+//------------------------------------------------------------------
+// Variaveis utilizadas para parametros
+// MV_PAR01 - Carteira -> Receber/Pagar/Ambas
+// MV_PAR02 - Moeda?
+// MV_PAR03 - Mostra lancamento contabil?
+// MV_PAR04 - Aglutina?
+// MV_PAR05 - Contabliza por Clinte/Fornecedor ou Titulo
+// MV_PAR06 - Contabiliza Variacao de Taxa Contratada ?
+// MV_PAR07 - Considera titulos com emissao futura ?
+// MV_PAR08 - Informe a taxa de venda da moeda
+// MV_PAR09 - Informe a taxa de venda da compra
+// MV_PAR10 - Considera títulos de adiantamento(RA/PA).
+//------------------------------------------------------------------
+
+If ExistBlock("F350CONF")
+	lCont:= ExecBlock("F350CONF",.F.,.F.)
+Endif
+
+If lAutoLiq
+	FA350Liq(lAutomato,lAutoLiq,nTaxa460,cNroLiq,nCodMoe,lMostraLan)
+ElseIf nOpcA == 1 .And. lCont
+	nMoeda := mv_par02
+	Processa({|lEnd| FA350Calc(lAutomato,aAutoWhere)})  // Chamada da funcao de contabiliza‡Æo
+Endif
+
+If lPanelFin //Chamado pelo Painel Financeiro
+   dbSelectArea(FinWindow:cAliasFile)
+   ReCreateBrow(FinWindow:cAliasFile,FinWindow)
+Endif
+
+Return
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Fa350Calc()
+Calculo da variacao dos titulos
+
+@param lAutomato - Indica se está sendo feita a chamada via automação
+
+@author Pilar S. Albaladejo
+@version P12
+@since	25/03/1995
+/*/
+//-------------------------------------------------------------------
+Function FA350Calc(lAutomato As logical, aAutoWhere as array)
+
+Local oModelE2		as object
+Local oModelE1		as object
+Local oSubFKA		as object
+Local oSubFK6		as object
+Local cChaveTit		as character
+Local cChaveFK7		as character
+Local cCamposE5		as character
+Local cLog 			as character
+Local nHdlPrv		as numeric
+Local cArquivo		as character
+Local cPadrao		as character
+Local nTotal		as numeric
+Local lHeadProva	as logical
+Local lPadrao		as logical
+Local nValor1		as numeric
+Local nValorM     	as numeric
+Local lF350Cm		as logical
+Local lF350Cm2		as logical
+Local lF350SE1		as logical
+Local lF350SE2		as logical
+Local lF350GE1		as logical
+Local lF350GE2		as logical
+Local nTxVenda		as numeric
+Local nTxCompra		as numeric
+Local cAliasSE1		as character
+Local cAliasSE2		as character
+Local cOrderBy		as character
+Local aFlagCTB		as array
+Local lUsaFlag		as logical
+Local lCNTA100		as logical
+Local lOk 			as logical
+Local cWhere		as character
+Local cMoedaVM		as character
+Local lFimArq		as logical
+Local lCmpFK6		as logical
+Local cIdFK6		as character
+
+oModelE2		:= NIL
+oModelE1		:= NIL
+oSubFKA			:= NIL
+oSubFK6			:= NIL
+cChaveTit		:= ""
+cChaveFK7		:= ""
+cCamposE5		:= ""
+cLog			:= ""
+nHdlPrv			:= 0
+cArquivo		:= ""
+cPadrao			:= ""
+nTotal			:= 0
+lHeadProva		:= .F.
+lPadrao			:= .F.
+nValor1			:= 0
+nValorM     	:= 0
+lF350Cm			:= ExistBlock("F350CM")
+lF350Cm2		:= ExistBlock("F350CM2")
+lF350SE1		:= ExistBlock("F350SE1")
+lF350SE2		:= ExistBlock("F350SE2")
+lF350GE1		:= ExistBlock("F350GE1")
+lF350GE2		:= ExistBlock("F350GE2")
+nTxVenda		:= 0
+nTxCompra		:= 0
+cAliasSE1		:= ""
+cAliasSE2		:= ""
+cOrderBy		:= ""
+aFlagCTB		:= {}
+lUsaFlag		:= SuperGetMV( "MV_CTBFLAG" , .T. /*lHelp*/, .F. /*cPadrao*/)
+lCNTA100		:= SuperGetMV("MV_CNFI350",.F.,.F.)
+lOk 			:= .T.
+cWhere			:= ""
+cMoedaVM		:= "01"
+lFimArq			:= .F.
+lCmpFK6			:= FK6->(FieldPos("FK6_MOEDA"))	 > 0 .and. FK6->(FieldPos("FK6_TXMOED")) > 0
+cIdFK6			:= ""
+
+Private aRotina := {{"", "", 0, 1}, ;
+                    {"", "", 0, 2}, ;
+                    {"", "", 0, 3}, ;
+                    {"", "", 0, 4} }
+Private cLote
+
+Default lAutomato := .F.
+Default aAutoWhere := {'',''} //Posição [1] receber e [2] pagar
+
+Pergunte("AFI350",.F. )
+
+nTxVenda 	:= Iif (MV_PAR08 > 0,MV_PAR08,RecMoeda(dDataBase,MV_PAR02))
+nTxCompra 	:= Iif (MV_PAR09 > 0,MV_PAR09,RecMoeda(dDataBase,MV_PAR02))
+
+VALOR := 0
+LoteCont("FIN")
+ProcLogAtu("INICIO")
+
+//Inicia calculo do SE1
+If mv_par01 == 1 .Or. mv_par01 == 3
+	ProcRegua(RecCount())
+	cAliasSE1 := GetNextAlias()
+	
+	If MV_PAR06 == 2
+		cWhere := "E1_TXMOEDA = 0 AND "
+	EndIf
+	
+	If MV_PAR07 == 2
+		cWhere += "E1_EMISSAO <= '" + DTOS(dDataBase)+ "' AND "
+	EndIf
+	
+	cWhere += "E1_MOEDA = " + cValTochar(mv_par02) + " AND "
+		
+	If MV_PAR10 == 1
+		cWhere += "(E1_TIPO NOT IN " + FORMATIN(MVPROVIS+"|"+MVABATIM,"|")
+	Else
+		cWhere += "(E1_TIPO NOT IN " + FORMATIN(MVPROVIS+"|"+MVABATIM+"|"+MVRECANT,"|")
+	Endif
+		
+	//Parametro para realizaar contab. var. cambial dos titulos provisorios do SIGAGCT
+	If lCNTA100
+		cWhere += " OR E1_ORIGEM = 'CNTA100'"
+	EndIf
+	
+	cWhere += ") "
+
+	If lAutomato
+		cWhere += aAutoWhere[1]
+	EndIf
+
+	cWhere := "%" + cWhere + "%"
+	
+	If cPaisLoc != "COL"
+		If mv_par05 == 1
+			cOrderBy := "E1_FILIAL, E1_CLIENTE, E1_LOJA "
+		Else
+			cOrderBy := "E1_FILIAL, E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, E1_CLIENTE, E1_LOJA "
+		EndIf
+		cOrderBy := "%"+cOrderBy+"%"
+	EndIf
+	
+	If cPaisLoc == "COL"
+		BeginSql alias cAliasSE1
+			SELECT E1_FILIAL, E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, E1_CLIENTE, E1_LOJA, E1_MOEDA, E1_SALDO, E1_TXMOEDA, E1_EMISSAO, E1_DTVARIA, E1_VALOR, E1_VLCRUZ, E1_EMISSAO, E1_NATUREZ, E1_TRMPAC, SE1.R_E_C_N_O_ RECNOE1
+			FROM %table:SE1% SE1
+			JOIN %table:SA1% SA1 ON
+			A1_COD = E1_CLIENTE  AND A1_LOJA = E1_LOJA AND SA1.%NotDel%
+			WHERE E1_FILIAL = %xFilial:SE1% AND
+			E1_SALDO > 0 AND
+			%Exp:cWhere% AND
+			SE1.%NotDel%
+			ORDER BY %Order:SE1%
+		EndSql
+	Else
+		BeginSql alias cAliasSE1
+			SELECT E1_FILIAL, E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, E1_CLIENTE, E1_LOJA, E1_MOEDA, E1_SALDO, E1_TXMOEDA, E1_EMISSAO, E1_DTVARIA, E1_VALOR, E1_VLCRUZ, E1_EMISSAO, E1_NATUREZ, SE1.R_E_C_N_O_ RECNOE1
+			FROM %table:SE1% SE1
+			JOIN %table:SA1% SA1 ON
+			A1_COD = E1_CLIENTE AND A1_LOJA = E1_LOJA AND SA1.%NotDel%
+			WHERE E1_FILIAL = %xFilial:SE1% AND
+			E1_SALDO > 0 AND
+			%Exp:cWhere% AND
+			SE1.%NotDel%
+			ORDER BY %Exp:cOrderBy%
+		EndSql
+	EndIf
+	lFimArq := .F.
+	
+	While (cAliasSE1)->(!Eof()) .and. (cAliasSE1)->E1_FILIAL == xFilial("SE1")
+		IncProc()
+		cCliente := (cAliasSE1)->E1_CLIENTE
+		cLoja :=(cAliasSE1)->E1_LOJA
+		SE1->(MsGOTO((cAliasSE1)->RECNOE1))
+			
+		//Despreza os titulos que nao satisfacam as condicoes do programa 1 = Emitido na moeda diferente, 2 = Ja baixado
+		If (SE1->E1_MOEDA != nMoeda .Or. SE1->E1_SALDO == 0) .Or. (MV_PAR06 == 2 .And. SE1->E1_TXMOEDA != 0)
+			(cAliasSE1)->(dbSkip())
+			IF (cAliasSE1)->(Eof()) 
+				lFimArq := .T.
+			Else
+				Loop
+			EndIf	
+		EndIf
+		
+		IF SE1->E1_TIPO $ MVPROVIS .or. SE1->E1_TIPO $ MVABATIM
+			If AllTrim(SE1->E1_ORIGEM) # "CNTA100" .Or. !lCNTA100
+				(cAliasSE1)->(dbSkip())
+				IF (cAliasSE1)->(Eof()) 
+					lFimArq := .T.
+				Else
+					Loop
+				EndIf	
+			EndIf
+		Endif
+		
+		// Se nao considera titulos com emissao futura, ignora o titulo se ele estiver com emissao futura
+		If (MV_PAR07 == 2 .And. SE1->E1_EMISSAO > dDataBase) .Or. (cPaisLoc == "COL" .And. SE1->E1_TRMPAC == "1") //Si tiene TRM pactada no hace el calculo de la variacion.  
+			(cAliasSE1)->(dbSkip())
+			IF (cAliasSE1)->(Eof()) 
+				lFimArq := .T.
+			Else
+				Loop
+			EndIf
+		EndIf
+		
+		If lF350SE1
+			If !(ExecBlock("F350SE1",.F.,.F.))
+				(cAliasSE1)->(dbSkip())
+				IF (cAliasSE1)->(Eof()) 
+					lFimArq := .T.
+				Else
+					Loop
+				EndIf
+			EndIf
+		EndIf
+
+		//Caso seja a primeira apuracao de variacao monetaria
+		If Empty(SE1->E1_TXMOEDA) .and. Empty(SE1->E1_DTVARIA) .and. STR(SE1->E1_SALDO,17,2) == STR(SE1->E1_VALOR,17,2)
+			nValor1 := SE1->E1_VLCRUZ
+		Else
+			If(!Empty(SE1->E1_TXMDCOR))
+				nValor1 := xMoeda(SE1->E1_SALDO,SE1->E1_MOEDA,1,Iif(Empty(SE1->E1_DTVARIA),SE1->E1_EMISSAO,SE1->E1_DTVARIA),,SE1->E1_TXMDCOR)
+			Else
+				nValor1 := xMoeda(SE1->E1_SALDO,SE1->E1_MOEDA,1,Iif(Empty(SE1->E1_DTVARIA),SE1->E1_EMISSAO,SE1->E1_DTVARIA),,Iif(Empty(SE1->E1_DTVARIA),SE1->E1_TXMOEDA,0))
+			EndIf
+		EndIf
+	  	
+	  	nValorM  :=  xMoeda(SE1->E1_SALDO,SE1->E1_MOEDA,1,dDataBase,,nTxVenda)
+		
+		If lF350CM
+			VALOR += Execblock("F350CM",.F.,.F.,{nValorM,nValor1,nTxCompra})
+		Else
+			VALOR += (nValorM - nValor1)
+		Endif
+
+		BEGIN TRANSACTION
+
+			If VALOR != 0 .and. !lFimArq
+				SE1->(RecLock("SE1",.F.))
+				SE1->E1_DTVARIA := dDataBase
+				SE1->E1_TXMDCOR := nTxVenda
+				SE1->(MsUnlock())
+				
+				If lF350GE1
+					ExecBlock ("F350GE1",.F.,.F.,VALOR)
+				Endif
+			Endif
+			
+			//Contabiliza para o cliente verificado
+			If VALOR != 0 .and. !lFimArq
+				SED->(dbSeek(xFilial("SED")+SE1->E1_NATUREZ))
+				SA1->(MsSeek(xFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA)))
+
+				cPadrao := "598"
+				lPadrao := VerPadrao(cPadrao)
+				cFlag	:= If(!lUsaFlag .and. lPadrao, "S", "" ) 		
+
+				oModelE1 := FWLoadModel('FINM350')
+				oModelE1:SetOperation(MODEL_OPERATION_INSERT)
+				oModelE1:Activate() 
+				oModelE1:SetValue( "MASTER", "E5_GRV"  , .T. ) //Habilita gravação de SE5
+				oModelE1:SetValue( "MASTER", "NOVOPROC", .T. ) //Novo processo
+				oModelE1:SetValue( "MASTER", "CARTEIRA", "R" ) //Carteira
+				oSubFK6 := oModelE1:GetModel('FK6DETAIL')
+				oSubFKA := oModelE1:GetModel('FKADETAIL') 
+				
+				//Dados da tabela auxiliar com o código do título a receber
+				cChaveTit := SE1->E1_FILIAL+"|"+SE1->E1_PREFIXO+"|"+SE1->E1_NUM+"|"+SE1->E1_PARCELA+"|"+SE1->E1_TIPO+"|"+SE1->E1_CLIENTE+"|"+SE1->E1_LOJA
+				cMoedaVM  := StrZero(If(cPaiSLoc != "BRA", SE1->E1_MOEDA, 1), 2)
+				cChaveFK7 := FINGRVFK7("SE1", cChaveTit)
+				cIdFK6	  := FINFKSID('FK6','FK6_IDFK6')
+				
+				cCamposE5 := "{"
+				cCamposE5 += " {'E5_FILORIG' , SE1->E1_FILORIG }"
+				cCamposE5 += ",{'E5_PREFIXO' , SE1->E1_PREFIXO}"
+				cCamposE5 += ",{'E5_NUMERO'  , SE1->E1_NUM}"
+				cCamposE5 += ",{'E5_PARCELA' , SE1->E1_PARCELA}"
+				cCamposE5 += ",{'E5_TIPO'    , SE1->E1_TIPO}"
+				cCamposE5 += ",{'E5_CLIENTE' , SE1->E1_CLIENTE}"
+				cCamposE5 += ",{'E5_CLIFOR'  , SE1->E1_CLIENTE}"
+				cCamposE5 += ",{'E5_LOJA'    , SE1->E1_LOJA} "
+				
+				If !lCmpFK6
+					cCamposE5 += ",{'E5_MOEDA'   , '" + cMoedaVM + "' } "
+					cCamposE5 += ",{'E5_LA'      , '" + cFlag    + "' } "
+					cCamposE5 += ",{'E5_TXMOEDA' , " + cValTochar(If(SE1->E1_MOEDA > 1, nTxVenda, 0)) + " } "
+					cCamposE5 += ",{'E5_VLMOED2' , " + cValTochar(Round(xMoeda(VALOR,1,SE1->E1_MOEDA,dDataBase,3,,nTxVenda),2)) + " } "
+				Endif
+
+				cCamposE5 += ",{'E5_NATUREZ' , SE1->E1_NATUREZ} }"
+
+				oModelE1:SetValue( "MASTER"	, "E5_CAMPOS", cCamposE5 )
+				oSubFKA:SetValue( 'FKA_IDORIG', cIdFK6 )			
+				oSubFKA:SetValue( 'FKA_TABORI', "FK6" )
+				
+				//Dados da variação monetária
+				// Grava valores acessórios.
+				oSubFK6:SetValue( "FK6_IDFK6"  , cIdFK6)
+				oSubFK6:SetValue( "FK6_VALMOV" , VALOR )
+				oSubFK6:SetValue( "FK6_VALCAL" , VALOR )
+				oSubFK6:SetValue( "FK6_TPDESC" , If(SE1->E1_TPDESC == "I","2","1"))
+				oSubFK6:SetValue( "FK6_TPDOC"  , "VM" )
+				oSubFK6:SetValue( "FK6_RECPAG" , "R" )
+				oSubFK6:SetValue( "FK6_TABORI" , "SE1" )
+				oSubFK6:SetValue( "FK6_HISTOR" , "CORREC MONET." )
+				oSubFK6:SetValue( "FK6_IDORIG" , cChaveFK7)
+				oSubFK6:SetValue( "FK6_GRVSE5" , .T.)
+
+				//Campos específicos da Variação Monetária apurada
+				If lCmpFK6
+					oSubFK6:SetValue( "FK6_DATA"   , dDataBase )
+					oSubFK6:SetValue( "FK6_MOEDA"  , cMoedaVM )
+					oSubFK6:SetValue( "FK6_VLMOE2" , Round(xMoeda(VALOR,1,SE1->E1_MOEDA,dDataBase,3,,nTxVenda),2)) 
+					oSubFK6:SetValue( "FK6_TXMOED" , If(SE1->E1_MOEDA > 1, nTxVenda, 0))
+					oSubFK6:SetValue( "FK6_LA"     , cFlag  )
+					oSubFK6:SetValue( "FK6_ORIGEM" , FunName() )
+				Endif
+
+				If oModelE1:VldData()
+					oModelE1:CommitData()
+					oModelE1:DeActivate()	
+				Else
+					cLog := cValToChar(oModelE1:GetErrorMessage()[4]) + ' - '
+					cLog += cValToChar(oModelE1:GetErrorMessage()[5]) + ' - '
+					cLog += cValToChar(oModelE1:GetErrorMessage()[6])        	
+					Help( ,,"FN350VL2",,cLog, 1, 0 )
+				Endif		
+				
+				oModelE1:DeActivate()
+				oModelE1:Destroy()
+				oModelE1 := NIL
+				oSubFK6  := NIL
+				oSubFKA  := NIL									
+	
+				If lPadrao
+					If !lHeadProva
+						nHdlPrv := HeadProva( cLote, "FINA350" /*cPrograma*/, Substr( cUsuario, 7, 6 ), @cArquivo )
+						lHeadProva := .T.
+					EndIf
+
+					If lUsaFlag
+						aAdd(aFlagCTB,{"E5_LA","S","SE5",SE5->(Recno()),0,0,0})
+					EndIf
+				
+					//Prepara Lancamento Contabil
+					nTotal += DetProva(nHdlPrv, cPadrao, "FINA350" /*cPrograma*/, cLote, /*nLinha*/, /*lExecuta*/, /*cCriterio*/, /*lRateio*/,;
+									/*cChaveBusca*/, /*aCT5*/, /*lPosiciona*/, @aFlagCTB, /*aTabRecOri*/, /*aDadosProva*/)
+				EndIf
+			
+			EndIf
+		
+		END TRANSACTION
+
+		If nTotal > 0 .And. lHeadProva
+			lDigita := IIF(mv_par03 == 1 .And. !lAutomato,.T.,.F.)
+			lAglutina 	:= Iif(mv_par04 == 1, .T., .F.)
+			
+			If mv_par05 == 1//Contabiliza por Cliente
+				(cAliasSE1)->(dbSkip())
+				lOk := (cAliasSE1)->(E1_FILIAL+E1_CLIENTE+E1_LOJA) != (xFilial("SE1")+cCliente+cLoja)
+			Else
+				if !lFimArq 	
+					(cAliasSE1)->(dbSkip())
+				EndIf
+
+				If (cAliasSE1)->(Eof())
+					lOk	:= .T.
+				Else
+					lOk	:= .F.
+				EndIf
+			EndIf
+			
+			If lOk
+				cA100Incl(cArquivo, nHdlPrv, 3 /*nOpcx*/, cLote, lDigita, lAglutina, /*cOnLine*/, /*dData*/, /*dReproc*/, @aFlagCTB, /*aDadosProva*/, /*aDiario*/)
+				aFlagCTB := {}
+			EndIf
+			
+		Else
+			(cAliasSE1)->(dbSkip())
+		EndIf
+
+		VALOR := 0
+	Enddo
+
+	lFimArq := .F.
+	(cAliasSE1)->(dbCloseArea())
+	cWhere := ""
+	dbSelectArea("SE1")
+	dbSetOrder(1)
+	VALOR    := 0
+	lOk := .T.
+Endif
+
+//Inicia calculo do SE2
+If mv_par01 == 2 .or. mv_par01 == 3
+	ProcRegua(RecCount())
+	cAliasSE2 := GetNextAlias()
+
+	If MV_PAR06 == 2
+		cWhere := "E2_TXMOEDA = 0 AND "
+	Endif
+	If MV_PAR07 == 2
+		cWhere += "E2_EMISSAO <= '"+DTOS(dDataBase)+"' AND "
+	EndIf
+	
+	cWhere += "E2_MOEDA = "+Alltrim(Str(mv_par02))+" AND "
+	
+	If MV_PAR10 == 1
+		cWhere += "(E2_TIPO NOT IN " + FORMATIN(MVPROVIS+"|"+MVABATIM,"|")
+	Else
+		cWhere += "(E2_TIPO NOT IN " + FORMATIN(MVPROVIS+"|"+MVABATIM+"|"+MVPAGANT,"|")
+	Endif
+	//-- Parametro para realizaar contab. var. cambial dos titulos provisorios do SIGAGCT
+	If lCNTA100
+		cWhere += " OR E2_ORIGEM = 'CNTA100'"
+	EndIf
+	
+	cWhere += ") "
+
+	If lAutomato
+		cWhere += aAutoWhere[2]  
+	EndIf
+
+	cWhere := "%"+cWhere+"%"
+	
+	//-- Organiza processamento conforme a contabilizacao (por fornecedor+loja ou titulo)
+	If cPaisLoc != "COL"
+		If mv_par05 == 1
+			cOrderBy := "E2_FORNECE, E2_LOJA ASC"
+		Else
+			cOrderBy := "E2_FILIAL, E2_PREFIXO, E2_NUM, E2_PARCELA, E2_TIPO, E2_FORNECE, E2_LOJA ASC"
+		EndIf
+		cOrderBy := "%"+cOrderBy+"%"
+	EndIf
+	
+	If cPaisLoc == "COL"
+		BeginSql alias cAliasSE2
+			SELECT E2_FILIAL, E2_PREFIXO, E2_NUM, E2_PARCELA, E2_TIPO, E2_FORNECE, E2_LOJA, E2_MOEDA, E2_SALDO, E2_TXMOEDA, E2_EMISSAO, E2_DTVARIA, E2_VALOR, E2_VLCRUZ, E2_NATUREZ, E2_TRMPAC, SE2.R_E_C_N_O_ RECNOE2
+			FROM %table:SE2% SE2
+			JOIN %table:SA2% SA2 ON
+			A2_COD = E2_FORNECE AND A2_LOJA = E2_LOJA AND SA2.%NotDel%
+			WHERE E2_FILIAL = %xFilial:SE2% AND
+			E2_SALDO > 0 AND
+			%Exp:cWhere% AND
+			SE2.%NotDel%
+			ORDER BY %Order:SE2%
+		EndSql
+	Else
+		BeginSql alias cAliasSE2
+			SELECT E2_FILIAL, E2_PREFIXO, E2_NUM, E2_PARCELA, E2_TIPO, E2_FORNECE, E2_LOJA, E2_MOEDA, E2_SALDO, E2_TXMOEDA, E2_EMISSAO, E2_DTVARIA, E2_VALOR, E2_VLCRUZ, E2_NATUREZ, SE2.R_E_C_N_O_ RECNOE2
+			FROM %table:SE2% SE2
+			JOIN %table:SA2% SA2 ON
+			A2_COD = E2_FORNECE AND A2_LOJA = E2_LOJA AND SA2.%NotDel%
+			WHERE E2_FILIAL = %xFilial:SE2% AND
+			E2_SALDO > 0 AND
+			%Exp:cWhere% AND
+			SE2.%NotDel%
+			ORDER BY %Exp:cOrderBy%
+		EndSql
+	EndIF
+
+	lFimArq := .F.
+	While (cAliasSE2)->(!Eof()) .and. (cAliasSE2)->E2_FILIAL == xFilial("SE2")
+		IncProc()
+		cFornece := (cAliasSE2)->E2_FORNECE
+		cLoja    := (cAliasSE2)->E2_LOJA
+		SE2->(MsGOTO((cAliasSE2)->RECNOE2))
+		
+		//Despreza os titulos que nao satisfacam as condicoes do programa 1 = Emitido na moeda solicitada, 2 = Ja baixado
+		IF (SE2->E2_MOEDA != nMoeda .or. SE2->E2_SALDO = 0) .Or. (MV_PAR06 == 2 .And. SE2->E2_TXMOEDA != 0) 
+			(cAliasSE2)->(dbSkip( ))
+			IF (cAliasSE2)->(Eof()) 
+				lFimArq := .T.
+			Else
+				Loop
+			EndIf
+		Endif
+		
+		IF SE2->E2_TIPO $ MVPROVIS .or. SE2->E2_TIPO $ MVABATIM
+			If AllTrim(SE2->E2_ORIGEM) # "CNTA100" .Or. !lCNTA100
+				(cAliasSE2)->(dbSkip( ))
+				IF (cAliasSE2)->(Eof()) 
+					lFimArq := .T.
+				Else
+					Loop
+				EndIf
+			EndIf
+		Endif
+		
+		If cPaisLoc == "COL" .And. SE2->E2_TRMPAC == "1" //Si tiene TRM pactada no hace el calculo de la variacion.
+			(cAliasSE2)->(dbSkip())
+			IF (cAliasSE2)->(Eof()) 
+				lFimArq := .T.
+			Else
+				Loop
+			EndIf
+		EndIf
+		
+		If lF350SE2
+			If !(ExecBlock("F350SE2",.F.,.F.))
+				(cAliasSE2)->(dbSkip())
+				IF (cAliasSE2)->(Eof()) 
+					lFimArq := .T.
+				Else
+					Loop
+				EndIf
+			EndIf
+		Endif
+				
+		//Caso seja a primeira apuracao de variacao monetaria
+		If Empty(SE2->E2_TXMOEDA) .and. Empty(SE2->E2_DTVARIA) .and. STR(SE2->E2_SALDO,17,2) == STR(SE2->E2_VALOR,17,2)
+			nValor1 := SE2->E2_VLCRUZ
+		Else
+			If( !Empty(SE2->E2_TXMDCOR))
+				nValor1 := xMoeda(SE2->E2_SALDO,SE2->E2_MOEDA,1,Iif(Empty(SE2->E2_DTVARIA),SE2->E2_EMISSAO,SE2->E2_DTVARIA),TamSX3("E2_TXMDCOR")[2],SE2->E2_TXMDCOR)
+			Else
+				nValor1 := xMoeda(SE2->E2_SALDO,SE2->E2_MOEDA,1,Iif(Empty(SE2->E2_DTVARIA),SE2->E2_EMISSAO,SE2->E2_DTVARIA),TamSX3("E2_TXMDCOR")[2],Iif(Empty(SE2->E2_DTVARIA),SE2->E2_TXMOEDA,0))
+			EndIf
+		Endif
+		
+		nValorM := xMoeda(SE2->E2_SALDO,SE2->E2_MOEDA,1,dDataBase,TamSX3("E2_TXMDCOR")[2],nTxCompra)
+		
+		If lF350CM2
+			VALOR += Execblock("F350CM2",.F.,.F.)
+		Else
+			VALOR += (nValorM - nValor1)
+		Endif
+
+		BEGIN TRANSACTION
+
+			If VALOR != 0 .and. !lFimArq
+				SE2->(RecLock("SE2",.F.))
+				SE2->E2_DTVARIA := dDataBase
+				SE2->E2_TXMDCOR := nTxCompra
+				SE2->(MsUnlock())
+				
+				If lF350GE2
+					ExecBlock ("F350GE2",.F.,.F.,VALOR)
+				Endif
+			Endif
+			
+			//Contabiliza para o fornecedor verificado
+			If VALOR != 0 .and. !lFimArq
+				SED->(dbSeek(xFilial("SED")+SE2->E2_NATUREZ))
+				SA2->(dbSeek(xFilial("SA2")+SE2->(E2_FORNECE+E2_LOJA)))
+
+				cPadrao := "599"
+				lPadrao := VerPadrao(cPadrao)
+				cFlag	:= If(!lUsaFlag .and. lPadrao, "S", "" )	
+
+				oModelE2 := FWLoadModel('FINM350')
+				oModelE2:SetOperation(MODEL_OPERATION_INSERT)
+				oModelE2:Activate() 
+				oModelE2:SetValue( "MASTER", "E5_GRV"  , .T. ) //Habilita gravação de SE5
+				oModelE2:SetValue( "MASTER", "NOVOPROC", .T. ) //Novo processo
+				oModelE2:SetValue( "MASTER", "CARTEIRA", "P" ) //Carteira
+				oSubFK6 := oModelE2:GetModel('FK6DETAIL')
+				oSubFKA := oModelE2:GetModel('FKADETAIL') 
+				
+				//Dados da tabela auxiliar com o código do título a PAGAR
+				cChaveTit := SE2->E2_FILIAL+"|"+SE2->E2_PREFIXO+"|"+SE2->E2_NUM+"|"+SE2->E2_PARCELA+"|"+SE2->E2_TIPO+"|"+SE2->E2_FORNECE+"|"+SE2->E2_LOJA
+				cMoedaVM  := StrZero(If(cPaiSLoc != "BRA", SE2->E2_MOEDA, 1), 2)
+				cChaveFK7 := FINGRVFK7("SE2", cChaveTit)
+				cIdFK6	  := FINFKSID('FK6','FK6_IDFK6')
+
+				//Campos complementares da SE5.
+				cCamposE5 := "{"
+				cCamposE5 += " {'E5_FILORIG' , SE2->E2_FILORIG}"
+				cCamposE5 += ",{'E5_PREFIXO' , SE2->E2_PREFIXO}"
+				cCamposE5 += ",{'E5_NUMERO'  , SE2->E2_NUM}"
+				cCamposE5 += ",{'E5_PARCELA' , SE2->E2_PARCELA}"
+				cCamposE5 += ",{'E5_TIPO'    , SE2->E2_TIPO}"
+				cCamposE5 += ",{'E5_FORNECE' , SE2->E2_FORNECE}"
+				cCamposE5 += ",{'E5_CLIFOR'  , SE2->E2_FORNECE}"
+				cCamposE5 += ",{'E5_LOJA'    , SE2->E2_LOJA}"
+
+				If !lCmpFK6
+					cCamposE5 += ",{'E5_MOEDA' , '" + cMoedaVM + "' } "
+					cCamposE5 += ",{'E5_LA'    , '" + cFlag    + "' } "
+					cCamposE5 += ",{'E5_TXMOEDA' , " + cValTochar(If(SE2->E2_MOEDA > 1, nTxVenda, 0)) + " } "
+					cCamposE5 += ",{'E5_VLMOED2' , " + cValTochar(Round(xMoeda(VALOR,1,SE2->E2_MOEDA,dDataBase,3,,nTxVenda),2)) + " } "
+				Endif
+
+				cCamposE5 += ",{'E5_NATUREZ' , SE2->E2_NATUREZ} }"
+
+				oModelE2:SetValue( "MASTER"	  , "E5_CAMPOS", cCamposE5 )	
+				oSubFKA:SetValue( 'FKA_IDORIG', cIdFK6 )
+				oSubFKA:SetValue( 'FKA_TABORI', "FK6" )
+
+				//Dados da variação monetária
+				// Grava valores acessórios.
+				oSubFK6:SetValue( "FK6_IDFK6"  , cIdFK6 )
+				oSubFK6:SetValue( "FK6_VALMOV" , VALOR )
+				oSubFK6:SetValue( "FK6_VALCAL" , VALOR )
+				oSubFK6:SetValue( "FK6_TPDOC"  , "VM" )
+				oSubFK6:SetValue( "FK6_RECPAG" , "P" )
+				oSubFK6:SetValue( "FK6_TABORI" , "SE2" )
+				oSubFK6:SetValue( "FK6_HISTOR" , "CORREC MONET." )
+				oSubFK6:SetValue( "FK6_IDORIG" , cChaveFK7 )
+				oSubFK6:SetValue( "FK6_GRVSE5" , .T. )
+
+				If cPaisLoc == 'BRA'
+					oSubFK6:SetValue( "FK6_TPDESC" , If(SE2->E2_TPDESC == "I","2","1"))
+				else
+					oSubFK6:SetValue( "FK6_TPDESC" , "1")
+				Endif
+
+				//Campos específicos da Variação Monetária apurada
+				If lCmpFK6
+					oSubFK6:SetValue( "FK6_DATA"   , dDataBase )
+					oSubFK6:SetValue( "FK6_MOEDA"  , cMoedaVM )
+					oSubFK6:SetValue( "FK6_VLMOE2" , Round(xMoeda(VALOR,1,SE2->E2_MOEDA,dDataBase,3,,nTxVenda),2)) 
+					oSubFK6:SetValue( "FK6_TXMOED" , If(SE2->E2_MOEDA > 1, nTxVenda, 0))
+					oSubFK6:SetValue( "FK6_LA"     , cFlag )
+					oSubFK6:SetValue( "FK6_ORIGEM" , FunName() )
+				Endif
+				
+				If oModelE2:VldData()
+					oModelE2:CommitData()
+					oModelE2:DeActivate()	
+				Else
+					cLog := cValToChar(oModelE2:GetErrorMessage()[4]) + ' - '
+					cLog += cValToChar(oModelE2:GetErrorMessage()[5]) + ' - '
+					cLog += cValToChar(oModelE2:GetErrorMessage()[6])        	
+					Help( ,,"FN350VL1",,cLog, 1, 0 )
+				Endif		
+				
+				oModelE2:DeActivate()
+				oModelE2:Destroy()
+				oModelE2 := NIL
+				oSubFK2  := NIL
+				oSubFKA  := NIL
+				
+				If lPadrao
+					If !lHeadProva
+						SA2->(DbSetOrder(1))
+						SA2->(dbSeek( xFilial("SA2") + cFornece+cLoja))
+						
+						nHdlPrv := HeadProva( cLote, "FINA350" /*cPrograma*/, Substr( cUsuario, 7, 6 ), @cArquivo )
+						lHeadProva := .T.
+					EndIf
+
+					If lUsaFlag
+						aAdd(aFlagCTB,{"E5_LA","S","SE5",SE5->(Recno()),0,0,0})
+					EndIf
+					
+					//Prepara Lancamento Contabil
+					nTotal += DetProva(nHdlPrv, cPadrao, "FINA350" /*cPrograma*/, cLote, /*nLinha*/, /*lExecuta*/, /*cCriterio*/, /*lRateio*/, /*cChaveBusca*/,;
+											/*aCT5*/, /*lPosiciona*/, @aFlagCTB, /*aTabRecOri*/, /*aDadosProva*/)
+				EndIf
+			EndIf
+		
+		END TRANSACTION
+
+		If nTotal > 0 .And. lHeadProva
+			lDigita := IIF(mv_par03 == 1 .And. !lAutomato,.T.,.F.)
+			lAglutina 	:= Iif(mv_par04 == 1, .T., .F.)
+			
+			If mv_par05 == 1//Contabiliza por Fornecedor
+				(cAliasSE2)->(dbSkip())
+				lOk := (cAliasSE2)->(E2_FORNECE+E2_LOJA) != (cFornece+cLoja)
+			Else
+				if !lFimArq
+					(cAliasSE2)->(dbSkip())
+				Endif
+				If (cAliasSE2)->(Eof())
+					lOk	:= .T.
+				Else
+					lOk	:= .F.
+				EndIf
+			EndIf
+			
+			If lOk
+				cA100Incl(cArquivo, nHdlPrv, 3 /*nOpcx*/, cLote, lDigita, lAglutina, /*cOnLine*/, /*dData*/, /*dReproc*/, @aFlagCTB, /*aDadosProva*/, /*aDiario*/)
+				aFlagCTB := {}
+			EndIf
+			
+		Else
+			(cAliasSE2)->(dbSkip())
+		EndIf
+		
+		VALOR := 0
+	Enddo
+
+	lFimArq := .F.
+	(cAliasSE2)->(dbCloseArea())
+	dbSelectArea("SE2")
+	dbSetOrder(1)
+EndIf
+
+If nHdlPrv != NIL
+	FClose(nHdlPrv)
+Endif
+
+// Atualiza o log de processamento
+ProcLogAtu("FIM")
+
+Return NIL
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F350VlPerg()
+Ajusta Pergunta Moedas
+
+@author Paulo Augusto 
+@version P12
+@since	16/05/2005
+/*/
+//-------------------------------------------------------------------
+Function F350VlPerg()
+
+Local lRet:= .F.
+
+If mv_par02 > 1 .and. mv_par02 <= MoedFin()
+	lRet:= .T.
+EndIf
+If lRet
+	M->MV_PAR08 := RecMoeda(dDataBase,M->mv_par02)
+	M->MV_PAR09 := RecMoeda(dDataBase,M->mv_par02)
+EndIf
+
+Return (lRet)
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F350BTOP()
+Carga da pergunta através do botão Parâmetros
+
+@author Mauricio Pequim Jr
+@version P12
+@since	16/10/2020
+/*/
+//-------------------------------------------------------------------
+Function F350BTOP()
+	Pergunte("AFI350",.T. )
+	LimpaMoeda()
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA350Liq()
+Valida a seleção dos campos 'Moeda' e 'Outras Moedas'. Só é permitida 
+a utilização da opção '3-Variação monetária' qdo a 'Moeda' for diferente de 01.
+@author Luis Felipe Geraldo
+@version P12.1.17
+@since	02/04/2019
+@param lMostraLan, Lógico, Indica se deve mostrar ou não a tela de lançamento contábil
+/*/
+//-------------------------------------------------------------------
+Function FA350Liq(lAutomato,lAutoLiq,nTaxa460,cNroLiq,nCodMoe,lMostraLan)
+
+	Local oModelE1		as object
+	Local oSubFKA		as object
+	Local oSubFK6		as object
+	Local cChaveTit		as character
+	Local cChaveFK7		as character
+	Local cCamposE5		as character
+	Local cLog 	    	as character
+	Local nHdlPrv		as numeric
+	Local cArquivo		as character
+	Local cPadrao		as character
+	Local nTotal    	as numeric
+	Local lHeadProva 	as logical
+	Local lPadrao		as logical
+	Local nValor1   	as numeric
+	Local nValorM   	as numeric
+	Local nTxVenda		as numeric
+	Local nTxCompra		as numeric
+	Local lF350Cm		as logical
+	Local lF350GE1		as logical
+	Local aFlagCTB  	as array
+	Local lUsaFlag		as logical
+	Local cHistFK6  	as character
+	Local nTxSE5    	as numeric
+	Local cMoedaVM  	as character
+	Local lCmpFK6		as logical
+	Local cIdFK6		as character
+	Local cSeqBx		as character
+
+	Private cLote
+	Private aRotina := {{"", "", 0, 1}, ;
+						{"", "", 0, 2}, ;
+						{"", "", 0, 3}, ;
+						{"", "", 0, 4} }
+
+	Default lMostraLan := .F.
+
+	oModelE1	:= NIL 
+	oSubFKA		:= NIL
+	oSubFK6		:= NIL
+	cChaveTit	:= ""
+	cChaveFK7	:= ""
+	cCamposE5	:= ""
+	cLog 	    := ""
+	nHdlPrv		:= 0
+	cArquivo	:= ""
+	cPadrao		:= ""
+	nTotal    	:= 0
+	lHeadProva	:= .F.
+	lPadrao		:= .F.
+	nValor1   	:= 0
+	nValorM   	:= 0
+	nTxVenda	:= 0
+	nTxCompra	:= 0
+	lF350Cm		:= ExistBlock("F350CM")
+	lF350GE1	:= ExistBlock("F350GE1")
+	aFlagCTB  	:= {}
+	lUsaFlag	:= SuperGetMV( "MV_CTBFLAG" , .T. /*lHelp*/, .F. /*cPadrao*/)
+	cHistFK6  	:= "VM.LIQ.FINA460"
+	nTxSE5    	:= 0
+	cMoedaVM  	:= '01'
+	lCmpFK6		:= FK6->(FieldPos("FK6_MOEDA"))	 > 0 .and. FK6->(FieldPos("FK6_TXMOED")) > 0
+	cIdFK6		:= ""
+	cSeqBx		:= ""
+
+	LoteCont("FIN")
+	ProcLogAtu("INICIO")
+
+	//Inicia calculo da VM
+	MV_PAR01  := 1
+	MV_PAR02  := nCodMoe
+	MV_PAR05  := 2
+	MV_PAR08  := nTaxa460
+	nTxVenda  := Iif (MV_PAR08 > 0,MV_PAR08,RecMoeda(dDataBase,MV_PAR02))
+	nTxCompra := Iif (MV_PAR09 > 0,MV_PAR09,RecMoeda(dDataBase,MV_PAR02))
+	VALOR     := 0
+	nTxSE5    := SE5->E5_TXMOEDA
+	cCliente  := SE1->E1_CLIENTE
+	cLoja     := SE1->E1_LOJA
+	nValor1   := xMoeda(SE5->E5_VALOR,SE1->E1_MOEDA,1,SE1->E1_EMISSAO,,if(!Empty(SE1->E1_TXMOEDA),SE1->E1_TXMOEDA,RecMoeda(SE1->E1_EMISSAO,MV_PAR02)))
+	cSeqBx	  := SE5->E5_SEQ
+	nValorM   := xMoeda(SE5->E5_VALOR,SE1->E1_MOEDA,1,dDataBase,,nTxVenda)
+
+	If lF350CM
+		VALOR += Execblock("F350CM",.F.,.F.,{nValorM,nValor1,nTxCompra})
+	Else
+		VALOR += (nValorM - nValor1)
+	Endif
+			
+	If VALOR != 0
+
+		If lF350GE1
+			ExecBlock ("F350GE1",.F.,.F.,VALOR)
+		Endif
+			
+		SED->(dbSeek(xFilial("SED")+SE1->E1_NATUREZ))
+		SA1->(MsSeek(xFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA)))
+
+		SED->(dbSeek(xFilial("SED")+SE1->E1_NATUREZ))
+		SA1->(MsSeek(xFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA)))
+
+		oModelE1 := FWLoadModel('FINM350')
+		oModelE1:SetOperation(MODEL_OPERATION_INSERT)
+		oModelE1:Activate() 
+		oModelE1:SetValue( "MASTER", "E5_GRV"  , .T. ) //Habilita gravação de SE5
+		oModelE1:SetValue( "MASTER", "NOVOPROC", .T. ) //Novo processo
+		oModelE1:SetValue( "MASTER", "CARTEIRA", "R" ) //Carteira 
+		oSubFK6 := oModelE1:GetModel('FK6DETAIL')
+		oSubFKA := oModelE1:GetModel('FKADETAIL') 
+		
+		//Dados da tabela auxiliar com o código do título a receber
+		cChaveTit := SE1->E1_FILIAL+"|"+SE1->E1_PREFIXO+"|"+SE1->E1_NUM+"|"+SE1->E1_PARCELA+"|"+SE1->E1_TIPO+"|"+SE1->E1_CLIENTE+"|"+SE1->E1_LOJA
+		cMoedaVM  := StrZero(If(cPaiSLoc != "BRA", SE1->E1_MOEDA, 1), 2)
+		cChaveFK7 := FINGRVFK7("SE1", cChaveTit)
+		cIdFK6	  := FINFKSID('FK6','FK6_IDFK6')
+		
+		cCamposE5 := "{"
+		cCamposE5 += " {'E5_FILORIG' , SE1->E1_FILORIG }"
+		cCamposE5 += ",{'E5_PREFIXO' , SE1->E1_PREFIXO}"
+		cCamposE5 += ",{'E5_NUMERO'  , SE1->E1_NUM}"
+		cCamposE5 += ",{'E5_PARCELA' , SE1->E1_PARCELA}"
+		cCamposE5 += ",{'E5_TIPO'    , SE1->E1_TIPO}"
+		cCamposE5 += ",{'E5_CLIENTE' , SE1->E1_CLIENTE}"
+		cCamposE5 += ",{'E5_CLIFOR'  , SE1->E1_CLIENTE}"
+		cCamposE5 += ",{'E5_LOJA'    , SE1->E1_LOJA} "
+		cCamposE5 += ",{'E5_SEQ'     , '"+cSeqBx+"'} "
+		cCamposE5 += ",{'E5_DOCUMEN' , '"+cNroLiq+"'} "
+		cCamposE5 += ",{'E5_ORIGEM'  , 'FINA460'} "
+		cCamposE5 += ",{'E5_MOTBX'   , 'LIQ'} "
+		cCamposE5 += ",{'E5_NATUREZ' , SE1->E1_NATUREZ} }"
+
+		oModelE1:SetValue( "MASTER"	  , "E5_CAMPOS", cCamposE5 )
+		oSubFKA:SetValue( 'FKA_IDORIG', cIdFK6 )
+		oSubFKA:SetValue( 'FKA_TABORI', "FK6" )
+
+	/*
+		oSubFK1:SetValue("FK1_DOC"   , cNroLiq)
+
+	*/
+
+		//Dados da variação monetária
+		// Grava valores acessórios.
+		oSubFK6:SetValue( "FK6_IDFK6"  , cIdFK6)
+		oSubFK6:SetValue( "FK6_VALMOV" , VALOR )
+		oSubFK6:SetValue( "FK6_VALCAL" , VALOR )
+		oSubFK6:SetValue( "FK6_TPDESC" , If(SE1->E1_TPDESC == "I","2","1"))
+		oSubFK6:SetValue( "FK6_TPDOC"  , "VM" )
+		oSubFK6:SetValue( "FK6_RECPAG" , "R" )
+		oSubFK6:SetValue( "FK6_TABORI" , "SE1" )
+		oSubFK6:SetValue( "FK6_HISTOR" , cHistFK6 )
+		oSubFK6:SetValue( "FK6_IDORIG" , cChaveFK7)
+		oSubFK6:SetValue( "FK6_GRVSE5" , .T.)
+
+		//Campos específicos da Variação Monetária apurada
+		If lCmpFK6
+			oSubFK6:SetValue( "FK6_DATA"   , dDataBase )
+			oSubFK6:SetValue( "FK6_MOEDA"  , cMoedaVM )
+			oSubFK6:SetValue( "FK6_VLMOE2" , Round((VALOR/nTxSE5),2)) 
+			oSubFK6:SetValue( "FK6_TXMOED" , nTxVenda )
+			oSubFK6:SetValue( "FK6_LA"     , If(!lUsaFlag, "S", "" ))
+			oSubFK6:SetValue( "FK6_ORIGEM" , FunName() )
+		Endif
+
+		If oModelE1:VldData()
+			oModelE1:CommitData()
+			oModelE1:DeActivate()	
+		Else
+			cLog := cValToChar(oModelE1:GetErrorMessage()[4]) + ' - '
+			cLog += cValToChar(oModelE1:GetErrorMessage()[5]) + ' - '
+			cLog += cValToChar(oModelE1:GetErrorMessage()[6])        	
+			Help( ,,"FN350VL2",,cLog, 1, 0 )
+		Endif		
+		
+		oModelE1:DeActivate()
+		oModelE1:Destroy()
+		oModelE1 := NIL
+		oSubFK6  := NIL
+		oSubFKA  := NIL									
+
+		cPadrao  := "598"
+		lPadrao  := VerPadrao(cPadrao)
+
+		If lPadrao
+			If !lHeadProva
+				nHdlPrv := HeadProva( cLote, "FINA350" /*cPrograma*/, Substr( cUsuario, 7, 6 ), @cArquivo )
+				lHeadProva := .T.
+			EndIf
+
+			If lUsaFlag
+				aAdd(aFlagCTB,{"E5_LA","S","SE5",SE5->(Recno()),0,0,0})
+			EndIf
+					
+			//Prepara Lancamento Contabil
+			nTotal += DetProva(nHdlPrv, cPadrao, "FINA350" /*cPrograma*/, cLote, /*nLinha*/, /*lExecuta*/, /*cCriterio*/, /*lRateio*/,;
+							/*cChaveBusca*/, /*aCT5*/, /*lPosiciona*/, @aFlagCTB, /*aTabRecOri*/, /*aDadosProva*/)
+		EndIf
+
+		If nTotal > 0 .And. lHeadProva
+			lDigita   := (mv_par03 == 1 .And. !lAutomato) .or. (!isBlind() .and. lMostraLan)
+			lAglutina := (mv_par04 == 1)
+			cA100Incl(cArquivo, nHdlPrv, 3 /*nOpcx*/, cLote, lDigita, lAglutina, /*cOnLine*/, /*dData*/, /*dReproc*/, @aFlagCTB, /*aDadosProva*/, /*aDiario*/)
+			aFlagCTB := {}
+		EndIf
+
+		dbSelectArea("SE1")
+		dbSetOrder(1)
+		VALOR := 0
+
+	EndIf
+
+	If nHdlPrv != NIL
+		FClose(nHdlPrv)
+	Endif
+
+	//Atualiza o log de processamento
+	ProcLogAtu("FIM")
+
+Return

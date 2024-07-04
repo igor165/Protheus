@@ -1,0 +1,624 @@
+<%If __ECMEVENT == 1%>
+function beforeTaskSave(colleagueId,nextSequenceId,userList){
+var FWUPDSTATES 	= hAPI.getAdvancedProperty('FWUPDSTATES');
+/*
+ * Variável com o conteúdo das etapas que todas interações aconteceram descidas
+ * de dados para o Protheus.
+ */
+var FWUPDSOLIC 	= hAPI.getAdvancedProperty('FWUPDSOLIC'); 
+var sendInfo	= true;
+var dscAtiv	= false;
+
+loginfo('Info - FWUPDSTATES:' + FWUPDSTATES);
+loginfo('Info - FWUPDSOLIC:' + FWUPDSOLIC);
+loginfo('Info 0 - Atualiza Protheus')
+
+if (FWUPDSTATES.length() > 0){
+	if (FWUPDSTATES.indexOf("|"+String(nextSequenceId)+"|") == -1 ){
+		sendInfo = false;
+		loginfo('Info 0 - Não Atualiza Protheus')
+	}
+}
+/*
+ * Se a etapa que está sendo executada, será verificada se está na variável das 
+ * etapas que sempre acontece descidas de dados para o Protheus.
+ */
+if (FWUPDSOLIC.length() > 0){
+	if (FWUPDSOLIC.indexOf("|"+String(nextSequenceId)+"|") != 1 ){
+		dscAtiv = true;
+	}		
+}
+
+if (getValue("WKCompletTask") && sendInfo ) {
+	loginfo('Info 1 - Entrada no evento')
+	var err = {message:''};
+	var companyId = hAPI.getCardValue("companyId");
+	var serviceMVC = getServiceMVC(err, companyId);
+
+	if (!serviceMVC){
+		throw err.message;
+		return;
+	}
+
+	var currState = getTask();
+	loginfo('Info - Atividade corrente:' + currState);
+	
+	if (currState > 0){
+		var c1 = DatasetFactory.createConstraint("processStatePK.processId", getValue("WKDef"), getValue("WKDef"), ConstraintType.MUST);
+		var c2 = DatasetFactory.createConstraint("processStatePK.sequence", currState, currState, ConstraintType.MUST);
+		var c3 = DatasetFactory.createConstraint("processStatePK.companyId", getValue("WKCompany"), getValue("WKCompany"), ConstraintType.MUST);
+		var c4 = DatasetFactory.createConstraint("processStatePK.version", getValue("WKVersDef"), getValue("WKVersDef"), ConstraintType.MUST);
+		var constraints = new Array(c1, c2, c3, c4);
+		var dataset = DatasetFactory.getDataset("processState", null, constraints, null);
+		
+		// verifica se não é atividade conjunta
+		if (dataset.rowsCount > 0){
+		 	if (dataset.getValue(0, "joint") == 1){
+				loginfo('Info - Atividade conjunta');
+				if (dscAtiv) {
+					sendTask(currState,serviceMVC);
+				}
+			} else{
+				sendTask(currState,serviceMVC);
+			}
+		}
+	}
+}
+}
+
+<%ElseIf __ECMEVENT == 2%>
+function calculateAgreement(currentState, agreementData) {
+var currState = getTask();
+var currPercentage = agreementData.get("currentPercentage");
+
+loginfo("Info 1 - Consenso Atual: " + agreementData.get("currentPercentage"));
+
+if (currPercentage < 100) {
+	var c1 = DatasetFactory.createConstraint("sequence", currState, currState, ConstraintType.MUST);
+	var c2 = DatasetFactory.createConstraint("version", 1, getValue("WKVersDef"), ConstraintType.SHOULD);
+	var constraints = new Array(c1, c2);
+	var rowsCount = 0;
+	var dataset;
+
+	try {
+		dataset = DatasetFactory.getDataset(getValue("WKDef") + "_STATE", null, constraints, null);
+		rowsCount = dataset.rowsCount;
+	}
+	catch (e){
+	}
+
+	loginfo("Consenso dataset.rowsCount");
+	loginfo(rowsCount);
+
+	if (rowsCount > 0 && dataset.getValue(dataset.rowsCount - 1, "agreementPercentage") == 0) {
+		currPercentage = 100;
+		agreementData.put("currentPercentage", 100);
+		agreementData.put("currentDestState", getValue("WKNextState"));
+		
+		loginfo("Info 2 - Consenso Alterado:" + currPercentage);
+	}
+}
+
+if (currPercentage == 100){
+	var err = {message:''};
+	var companyId = hAPI.getCardValue("companyId");
+	var serviceMVC = getServiceMVC(err, companyId);
+
+	if (!serviceMVC){
+		throw err.message;
+		return;
+	}
+	sendTask(currState,serviceMVC);
+}
+loginfo('Info 3 - Consenso Fim');
+}
+<%EndIf%>
+
+function getTask(){
+var currState = 1;
+
+if (getValue("WKNumState") > 1){
+	var c1 = DatasetFactory.createConstraint("processTaskPK.processInstanceId", getValue("WKNumProces"), getValue("WKNumProces"), ConstraintType.MUST);
+	var c2 = DatasetFactory.createConstraint("processTaskPK.movementSequence", getValue("WKNumState") - 1, getValue("WKNumState") - 1, ConstraintType.MUST);
+	var c3 = DatasetFactory.createConstraint("processTaskPK.companyId", getValue("WKCompany"), getValue("WKCompany"), ConstraintType.MUST);
+	var constraints = new Array(c1, c2, c3);
+	var dataset = DatasetFactory.getDataset("processTask", null, constraints, null);
+	
+	if (dataset.rowsCount > 0){
+		currState = dataset.getValue(0,"choosedSequence");
+	} else{
+		currState = 0;
+	}
+}
+return currState;
+}
+
+function sendTask(numState,serviceMVC){
+var ret,xml,FWMODEL,FWRETURN;
+var err = {message:''};
+var xmlStr;
+var cardData = hAPI.getCardData(getValue('WKNumProces'));
+var branchId = hAPI.getCardValue("branchId");
+
+loginfo('CardData: - '+cardData)
+
+if (hAPI.getCardValue('ecmvalidate') == '1'){
+	FWMODEL  = hAPI.getAdvancedProperty('FWMODEL');
+	FWRETURN = hAPI.getAdvancedProperty('FWRETURN');
+	loginfo('Info 2 - Chamada do servico')
+	loginfo('FWMODEL: ' + FWMODEL)
+	loginfo('FWRETURN: ' + FWRETURN)
+	try{
+		setServiceHeader(serviceMVC, branchId);
+		ret = serviceMVC.getxmldataex([],FWMODEL,true,true);
+
+		// remove tag de enconding do XML e decodifica o UTF8 do XML para realizar o parser
+		xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+		xml = new XML(xml);
+		loginfo('TEXTO XML: ' + xml)
+
+		loginfo('Info X - XML: ')
+		loginfo(xml.toXMLString())
+				
+		loginfo('Info 3 - Retorno do xml')
+	} catch(e){
+		throw 'Ocorreu um erro na comunicação com o serviço do TOTVS Microsiga Protheus, verifique os dados do formulário ('+e.message+')';
+		return;
+	}
+
+	loginfo('Info 4 - Verificações do formulário')
+	ret = updateXMLFields(xml,err,false,cardData); // atualiza XML do MODEL com valores do formulário
+	
+	if (err.message !== ''){
+		throw err.message
+	}
+	else if (ret){
+		throw 'Preencha os dados do formulário'
+	}
+	else{
+		loginfo('Info 5 - Inicio do processo de atualizacao')
+<% If __ECMINC %>
+		if (numState=='1'){
+			eval("xml.@Operation = 3"); // define como operação de inclusão no XML
+		}
+		else {
+			eval("xml.@Operation = 4");
+		}
+<% Else %>
+		eval("xml.@Operation = 4");
+<% EndIf %>
+		cst1 = DatasetFactory.createConstraint("colleaguePK.colleagueId", getValue('WKUser'), getValue('WKUser'), ConstraintType.MUST);
+     
+    	constraints = new Array(cst1);
+     
+    	ds = DatasetFactory.getDataset("colleague", null, constraints, null);
+	
+		eval("xml.@WKDef = getValue('WKDef')");
+		eval("xml.@WKVersDef = getValue('WKVersDef')");
+		eval("xml.@WKNumProces = getValue('WKNumProces')");
+		eval("xml.@WKNumState = numState");
+		eval("xml.@WKCurrentState = getValue('WKCurrentState')");
+		eval("xml.@WKCompany = getValue('WKCompany')");
+		eval("xml.@WKUser = getValue('WKUser')");
+		eval("xml.@WKUserEmail = ds.getValue(0,'mail')");
+		eval("xml.@WKCompletTask = getValue('WKCompletTask')");
+		eval("xml.@WKNextState = getValue('WKNextState')");
+		eval("xml.@WKCardId = getValue('WKCardId')");
+		eval("xml.@WKFormId = getValue('WKFormId')");
+		
+		try{
+			loginfo('Info 6 - Chamada do WS de atualizacao')
+			// retorna tag de encoding e codifica string com UTF-8
+			xmlStr = '<?xml version="1.0" encoding="UTF-8"?>'+xml.toXMLString();
+			loginfo('Info 7 - XML enviado: - '+xmlStr)
+			
+			setServiceHeader(serviceMVC, branchId);
+			ret = serviceMVC.putxmldataex([],FWMODEL,new java.lang.String(xmlStr).getBytes("UTF-8"),true,true)
+			
+			loginfo('Info 8 - Retorno do WS de atualizacao e chamada da volta do formulario')
+			
+			if (FWRETURN=='1'){
+				//Volta do Formulário
+				xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+				loginfo('***********XML DE RETORNO*********** - '+xml)
+				xml = new XML(xml);
+			
+				ret = updateXMLFields(xml,err,true,cardData); // atualiza XML do MODEL com valores do formulário
+				
+				loginfo('Info 9 - Atualizado campos do formulario')
+			}
+			
+		} catch(e){
+			throw 'Ocorreu um erro na comunicação com o serviço do TOTVS Microsiga Protheus, verifique os dados do formulário ('+e.message+')';
+		}
+	}
+}
+}
+
+function updateXMLFields(node,err,upd,cardData){
+var list = node.children();
+var isEmpty = true;
+var isFieldsEmpty = true;
+var optional = eval("node.@optional == '1'");
+var name,value,msg = '';
+var obrigat = {message:''};
+
+loginfo('Info A - updateXMLFields');
+for (var i=0;i<list.length();i++){
+	switch (Trim(eval("list[i].@modeltype.toString()"))){
+		case 'FIELDS':
+			if (!updateXMLFields(list[i],err,upd,cardData))
+				isEmpty = false;
+			break;
+		case 'GRID':
+			if (!updateXMLGrid(list[i],err,upd,cardData))
+				isEmpty = false;
+			break;
+		default:
+			name = list[i].name().localName; // nome do campo
+
+			if (cardData.containsKey(name)){
+				loginfo('Antes do upd '+String(upd));
+				if (upd){
+					loginfo('Info A - Entrou no set value');
+					loginfo('Info B - Name: '+name);
+					loginfo('Info C - Value: '+list[i].value);
+					hAPI.setCardValue(name, convertFluigValue(list[i], list[i].value));
+				} else {
+					value = cardData.get(name);
+
+					// valida se campo é obrigatorio
+					if(checkObrigat(list[i],list[i],value,obrigat)){
+						if (optional || obrigat.message.length == 0){
+							loginfo('Info Obrigatorio - '+list[i]);
+							msg = obrigat.message;
+							continue;				
+						}
+						else{
+							loginfo('Info checkObrigat - '+list[i]);
+							err.message = obrigat.message;
+							break;
+						}
+					}
+
+					isFieldsEmpty = false;
+					list[i].value = convertValue(name,list[i],value,err); // converte valor para padrao ADVPL
+				}
+			}
+			break;
+	}
+	
+	if (err.message !== '')
+		break;
+}
+
+if (optional && !isFieldsEmpty && msg !== '')
+	loginfo('Info isFieldEmpty');
+	err.message = msg;
+return isEmpty && isFieldsEmpty;
+}
+
+function updateXMLGrid(node,err,upd,cardData){
+	var i, j, struct, item, it, list;
+	var length = 0;
+	var name, value, msg;
+	var obrigat = {message:''};
+	var optional = eval("node.@optional == '1'");
+	var isEmpty = true;
+	var isGridEmpty = true;
+	var findField = true;
+
+	if (eval("node.@caninsertline == '0'")){
+		loginfo('Inserção de linha desabilitado para o GRID')
+		return false;
+	}
+	
+	list = node.struct.children();
+	
+	// grid sem campo
+	if (list.length() == 0){
+		return false;
+	}
+
+	// lista com nomes dos campos
+	struct = new Array();
+	for (i = 0; i < list.length(); i++){
+		struct.push(list[i].name().localName);
+		// conta as linhas do grid do formulario
+		if (findField && cardData.containsKey(struct[i] + '___1')){
+			length = 1;
+			j = 2;
+			while (cardData.containsKey(struct[i] + '___' + j)){
+				length = j;
+				j++;
+			}
+			findField = false;
+		}
+	}
+
+	if (upd){
+		var tableName = node.name().localName;
+		/*list = node.items.children();*/
+		for (i = 0; i < list.length(); i++){
+			switch (Trim(eval("list[i].@modeltype.toString()"))){
+			case 'FIELDS':
+				if (!updateXMLFields(list[i],err,upd,cardData))
+					isEmpty = false;
+				break;
+			case 'GRID':
+				if (!updateXMLGrid(list[i],err,upd,cardData))
+					isEmpty = false;
+				break;
+			default:
+				item = list[i];
+				if (i >= length){
+			        var childData = new java.util.HashMap();
+			        for (j = 0; j < struct.length; j++){
+			        	childData.put(struct[j], convertFluigValue(node.struct.child(struct[j]), item.child(struct[j])));
+			        }
+			        hAPI.addCardChild(tableName, childData);
+				}
+				else {
+					for (j = 0; j < struct.length; j++){
+						name = struct[j] + '___' + (i + 1);
+						if (cardData.containsKey(name)){
+							hAPI.setCardValue(name, convertFluigValue(node.struct.child(struct[j]), item.child(struct[j])));
+						}
+					}
+				}
+			}
+			break;
+		}
+		return false;
+	}
+	else {
+		item = node.items.item.copy();
+		delete node.items.item;
+		
+		for (i = 1; i <= length; i++){
+			it = item.copy();
+			list = it.children();
+			
+			for (j = 0; j < struct.length; j++){
+				name = struct[j] + '___' + i;
+				if (cardData.containsKey(name)){
+					value = cardData.get(name);
+					var structNode = node.struct.child(struct[j])
+
+					// valida se campo é obrigatorio
+					obrigat.message = '';
+					if(checkObrigat(structNode,structNode,value,obrigat)){
+						if (optional || obrigat.message.length == 0){
+							msg = obrigat.message;
+							continue;				
+						}
+						else{
+							err.message = obrigat.message;
+							break;
+						}
+					}
+					
+					isGridEmpty = false;
+					it.replace(struct[j],convertValue(struct[j],structNode,value,err)); // converte valor para padrao ADVPL
+					if (err.message.length > 0)
+						break;
+				}
+			}
+			
+			if (err.message.length > 0)
+				break;
+			
+			eval("it.@id = i");
+			node.items.appendChild(it);
+		}
+
+		if (optional && !isGridEmpty && msg !== ''){
+			err.message = msg;
+		}		
+		else {
+			list = node.children();
+			for (i=0;i<list.length();i++){
+				switch (Trim(eval("list[i].@modeltype.toString()"))){
+				case 'FIELDS':
+					if (!updateXMLFields(list[i],err,upd,cardData))
+						isEmpty = false;
+					break;
+				case 'GRID':
+					if (!updateXMLGrid(list[i],err,upd,cardData))
+						isEmpty = false;
+					break;
+				}
+				if (err.message.length > 0)
+					break;
+			}
+		}
+		return isEmpty && isGridEmpty;
+	}
+}
+
+function checkObrigat(child,struct,value,err){
+err.message = '';
+if (!value || value.trim().isEmpty() || (eval("child.@datatype.toString()") == 'D' && value.replace('/','').trim().isEmpty())){
+	if(eval("struct.@obrigat == '1'"))
+		err.message = 'O campo '+eval("struct.@info")+' ('+child.name().localName+') não foi preenchido';
+	return true;
+}
+return false;
+}
+
+function convertValue(name,struct,value,err){
+var str,reg,hasErr;
+
+value = value.trim();
+
+switch (eval("struct.@datatype.toString()")){
+case 'C':
+	break;
+case 'D':
+	hasErr = true;
+	if (value.match(/(\d{2})\/(\d{2})\/(\d{4})/)){ // dd/mm/yyyy
+		str = value.substr(6, 4) + value.substr(3, 2) + value.substr(0 ,2);
+		if (str.match(/((((19|20)(([02468][048])|([13579][26]))0229))|((19|20)[0-9][0-9])((((0[1-9])|(1[0-2]))((0[1-9])|(1\d)|(2[0-8])))|((((0[13578])|(1[02]))31)|(((0[1,3-9])|(1[0-2]))(29|30)))))/g)){
+			value = new java.lang.String(str);
+			hasErr = false;
+		}
+	}
+	else if (value.match(/(\d{4})-(\d{2})-(\d{2})/)){ // yyyy-mm-dd
+		str = value.replace('-', '');
+		if (str.match(/((((19|20)(([02468][048])|([13579][26]))0229))|((19|20)[0-9][0-9])((((0[1-9])|(1[0-2]))((0[1-9])|(1\d)|(2[0-8])))|((((0[13578])|(1[02]))31)|(((0[1,3-9])|(1[0-2]))(29|30)))))/g)){
+			value = new java.lang.String(str);
+			hasErr = false;
+		}
+	}
+	
+	if (hasErr)
+		err.message = 'O campo '+eval("struct.@info")+' ('+name+') contém uma data inválida';
+	break;
+case 'N':
+	len = eval("struct.@len.toString().split(',')");
+	if (len[1] == '0'){
+		reg = new RegExp('^[0-9]{1,'+len[0]+'}$');
+		str = value.replace(',','');
+		if(!reg.test(str)){
+			str = value.replace('.','');
+			if(!reg.test(str)){
+				err.message = 'O campo '+eval("struct.@info")+' ('+name+') contém um número (valor ou tamanho) inválido'
+				break;
+			}
+		}
+		value = new java.lang.String(str);
+	}
+	else{
+		reg = new RegExp('^0$|^0\.[0-9]{1,'+len[1]+'}$|^[0-9]{0,'+len[0]+'}(\.[0-9]{1,'+len[1]+'})?$');
+		str = value.replace('.','').replace(',','.');
+		if(!reg.test(str)){
+			str = value.replace(',','');
+			if(!reg.test(str)){
+				err.message = 'O campo '+eval("struct.@info")+' ('+name+') contém um número (valor ou tamanho) inválido'
+				break;
+			}
+		}
+		value = new java.lang.String(str);
+	}
+	break;
+}
+return value;
+}
+
+function convertFluigValue(struct,xmlValue){
+var format, start, len;
+var value = '';
+var setDate = 'dd/mm/yyyy';
+
+switch (eval("struct.@datatype.toString()")){
+case 'D':
+	format = setDate.split('/');
+
+	for (var i = 0; i < format.length; i++){
+		
+		if (format[i] == 'dd'){
+			start = 6;
+			len = 2
+		}
+		else if (format[i] == 'mm'){
+			start = 4;
+			len = 2
+		}
+		else if (format[i] == 'yyyy'){
+			start = 0;
+			len = 4;
+		}
+		else if (format[i] == 'yy'){
+			start = 2;
+			len = 2;
+		}
+		else{
+			start = -1;
+		}
+
+		if (start >= 0){
+			if (i == 0) {
+				if(xmlValue != null && xmlValue.toString().trim() != "")
+					value = xmlValue.substr(start, len);
+			}else {
+				if(xmlValue != null && xmlValue.toString().trim() != "")
+					value += '/' + xmlValue.substr(start, len);
+			}
+		}
+	}
+	break;
+default:
+	value = xmlValue.toString().trim();
+	break;
+}
+return value;
+}
+
+function Trim(str){return str.replace(/^\s+|\s+$/g,"");}
+
+function getServiceMVC(err, companyId){
+var fwService, serviceHelper,serviceLocator,service;
+var specialKey = hAPI.getAdvancedProperty('SPECIALKEY');
+var dataService = 'TOTVS_FWMVCFLUIG';
+
+if (companyId && !companyId.isEmpty())
+	dataService += '_' + companyId;
+
+if (specialKey && !specialKey.isEmpty())
+	dataService += '_' + specialKey;
+
+loginfo('Web Service - ' + dataService);
+
+try{
+	fwService = ServiceManager.getService(dataService);
+} catch(e){
+	err.message = 'O serviço do TOTVS Microsiga Protheus não foi registrado no Fluig. Execute novamente o Wizard do Workflow do TOTVS Microsiga Protheus. [ ' + e.message + ' ]'
+	return null;
+}
+
+try{
+	serviceHelper = fwService.getBean();
+	serviceLocator = serviceHelper.instantiate('br.com.totvs.webservices.fwwsmodel_apw.FWWSMODEL');
+	service = serviceLocator.getFWWSMODELSOAP();
+
+	var outInterceptor = new org.apache.cxf.interceptor.LoggingOutInterceptor();
+	var inInterceptor = new org.apache.cxf.interceptor.LoggingInInterceptor();
+	var client = org.apache.cxf.frontend.ClientProxy.getClient(service);
+	client.getOutInterceptors().add(outInterceptor);
+	client.getInInterceptors().add(inInterceptor);
+	var http = client.getConduit();
+	var httpClientPolicy = new org.apache.cxf.transports.http.configuration.HTTPClientPolicy();
+	httpClientPolicy.setAllowChunking(false);
+	
+	httpClientPolicy.setConnectionTimeout(0);
+   	httpClientPolicy.setReceiveTimeout(0);
+	
+	http.setClient(httpClientPolicy);
+}
+catch(e){
+	err.message = 'Ocorreu erro no serviço do TOTVS Microsiga Protheus ('+e.message+'). Verifique a configuração no ECM ou execute novamente a manutenção de processos do TOTVS Microsiga Protheus.'
+	return null;
+}
+return service;
+}
+
+function setServiceHeader(service, branchId){
+
+if (branchId && !branchId.trim().isEmpty()){
+	var client = org.apache.cxf.frontend.ClientProxy.getClient(service);
+	var context = client.getRequestContext();
+	var headers = new java.util.HashMap();
+	headers.put("tenantid", java.util.Arrays.asList(branchId));
+	headers.put("fluig", java.util.Arrays.asList("true"));
+	context.clear();
+	context.put(org.apache.cxf.message.Message.PROTOCOL_HEADERS, headers);
+}
+}
+
+function loginfo(msg){
+	log.info('\n[ PROTHEUS.INFO ] \n[ WKDef : ' + getValue('WKDef') + 
+			'   WKVersDef : ' + getValue('WKVersDef') + 
+			'   WKNumProces : ' + getValue('WKNumProces') + 
+			'   WKNumState : ' + getValue('WKNumState') + 
+			' ] \n[ ' + msg + ' ]\n');
+}

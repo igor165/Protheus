@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Поля x Запросы"
+	#define STR0002 "Ссылка на запрос:"
+	#define STR0003 "Нет зарегистрированного просмотра с этим кодом"
+	#define STR0004 "Вы хотите хранить эту информацию?"
+	#define STR0005 "Подзапрос со ссылкой на поле: "
+	#define STR0006 "Подзапрос"
+	#define STR0007 "Название подзапроса"
+	#define STR0008 "Действия"
+	#define STR0009 "Заголовок поля"
+	#define STR0010 "Формат отображения"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Fields x Queries"
+		#define STR0002 "Query Link: "
+		#define STR0003 "There is no registered View with this code"
+		#define STR0004 "Do you want store this informations?"
+		#define STR0005 "SubQuery referring to the Field: "
+		#define STR0006 "SubQuery"
+		#define STR0007 "SubQuery Title"
+		#define STR0008 "Actions"
+		#define STR0009 "Field Title"
+		#define STR0010 "Field Picture"
+	#else
+		#define STR0001 "Поля x Запросы"
+		#define STR0002 "Ссылка на запрос:"
+		#define STR0003 "Нет зарегистрированного просмотра с этим кодом"
+		#define STR0004 "Вы хотите хранить эту информацию?"
+		#define STR0005 "Подзапрос со ссылкой на поле: "
+		#define STR0006 "Подзапрос"
+		#define STR0007 "Название подзапроса"
+		#define STR0008 "Действия"
+		#define STR0009 "Заголовок поля"
+		#define STR0010 "Формат отображения"
+	#endif
+#endif

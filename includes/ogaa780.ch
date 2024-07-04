@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Usuarios Portal Agro Comercial"
+	#define STR0002 "Buscar"
+	#define STR0003 "Visualizar"
+	#define STR0004 "Incluir"
+	#define STR0005 "Modificar"
+	#define STR0006 "Borrar"
+	#define STR0007 "Imprimir"
+	#define STR0008 "AYUDA"
+	#define STR0009 "Debe informarse el contacto"
+	#define STR0010 "Para acceder a esta funcionalidad es necesario actualizar el diccionario de datos."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Business Agro Portal Users"
+		#define STR0002 "Search"
+		#define STR0003 "View"
+		#define STR0004 "Add"
+		#define STR0005 "Edit"
+		#define STR0006 "Delete"
+		#define STR0007 "Print"
+		#define STR0008 "HELP"
+		#define STR0009 "Enter contact"
+		#define STR0010 "Update the data dictionary to access this functionality."
+	#else
+		#define STR0001 "Usuários Portal Agro Comercial"
+		#define STR0002 "Pesquisar"
+		#define STR0003 "Visualizar"
+		#define STR0004 "Incluir"
+		#define STR0005 "Alterar"
+		#define STR0006 "Excluir"
+		#define STR0007 "Imprimir"
+		#define STR0008 "AJUDA"
+		#define STR0009 "Contato deve ser informado"
+		#define STR0010 "Para acessar esta funcionalidade é necessário atualizar o dicionário de dados."
+	#endif
+#endif

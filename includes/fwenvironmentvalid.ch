@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "La clave EnableNumber debe estar configurada en el LicenseServer.INI como 1. Si tiene dudas en la configuración busque por EnableNumber en el tdn.totvs.com.br."
+	#define STR0002 "El servidor de licencias no está respondiendo, entre en contacto con el administrador del sistema."
+	#define STR0003 "Nuevas instalaciones deben configurarse para iniciar con los diccionarios en la base de datos. Verifique la clave StartDicInDb=1 en la configuración del entorno."
+	#define STR0004 "La clave TopMemoMega no se encontró en el AppServer.INI"
+	#define STR0005 "La clave TopMemoMega no está configurada en el AppServer.INI como mínimo con 1"
+	#define STR0006 "Para uso del release 12.1.27 o superior es necesario utilizar el Appserver.exe versión 7.00.191205P (64 bits) o superior."
+	#define STR0007 "Para uso del release 12.1.27 o superior es necesario utilizar el License Server versión 3.0.0 o superior"
+	#define STR0008 "Para usar el release 12.1.27-octubre o superior, es necesario utilizar el License Server versión 3.2.0 o superior"
+	#define STR0009 "La entrada solamente se permitirá en los módulos Configurador y TAF."
+	#define STR0010 "Actualización de License necesaria"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "The key EnableNumber must be configured in the LicenseServer.INI as 1. If you have questions in the configuration, search for EnableNumber on tdn.totvs.com.br."
+		#define STR0002 "The server of licenses is not responding, contact the system admin."
+		#define STR0003 "New installations must be set to start with the dictionary in the database. Check key StartSysInDb=1 in the environment setting."
+		#define STR0004 "The key TopMemoMega cannot be found in AppServer.INI"
+		#define STR0005 "The key TopMemoMega is not configured in AppServer.INI with the minimum 1"
+		#define STR0006 "To use release 12.1.27 or higher, you must use Appserver.exe version 7.00.191205P (64 bits) or higher."
+		#define STR0007 "To use release 12.1.27 or higher, you must use License Server version 3.0.0 or higher"
+		#define STR0008 "To use release 12.1.27-october or higher, you must use License Server version 3.2.0 or higher"
+		#define STR0009 "The entry is only allowed in the Configurator and TAF modules."
+		#define STR0010 "Updating of necessary license"
+	#else
+		#define STR0001 "A chave EnableNumber deve estar configurada no LicenseServer.INI como 1. Caso tenha dúvidas na configuração procure por EnableNumber no tdn.totvs.com.br."
+		#define STR0002 "O servidor de licenças não está respondendo, entre em contato com o administrador do sistema."
+		#define STR0003 "Novas instalações devem ser configuradas para iniciar com os dicionário no banco de dados. Verifique a chave StartSysInDb=1 na configuração do ambiente."
+		#define STR0004 "A chave TopMemoMega não foi localizada no AppServer.INI"
+		#define STR0005 "A chave TopMemoMega não esta configurada no AppServer.INI com no mínimo 1"
+		#define STR0006 "Para uso da release 12.1.27 ou superior é necessário a utilização do Appserver.exe versão 7.00.191205P (64 bits) ou superior."
+		#define STR0007 "Para uso da release 12.1.27 ou superior é necessário a utilização do License Server versão 3.0.0 ou superior"
+		#define STR0008 "Para uso da release 12.1.27-outubro ou superior é necessário a utilização do License Server versão 3.2.0 ou superior"
+		#define STR0009 "A entrada somente será permitida nos módulos Configurador e TAF."
+		#define STR0010 "Atualização de License necessária"
+	#endif
+#endif

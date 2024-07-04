@@ -1,0 +1,594 @@
+#include "MSCBEPL.CH"
+#INCLUDE 'TBICONN.CH'
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE 'MSOBJECT.CH'
+
+
+
+Function MSCBEPL()
+Return
+CLASS MSCBEPL
+   data cPadrao
+   data nLenEti
+   data cResult
+   data nMemory
+   data IsPrinted
+   data lDrvWin
+   data lString
+   data lServer
+   data cServer
+	data lIP
+	data oIP
+   data cPortImp
+   data lOutroServer
+   data oServer
+   data cEnv
+   data nPorta
+   data lSpool
+   data PathIni
+   data Modelo
+   data cFila
+   data cFileSpool
+   data nSeqSpool
+   data lCHKStatus
+   data nPontoMM
+   data nHandle
+   data LenChkStatus
+   data ChkStatus
+   data C128GS
+   data C128A
+   data C128B
+   data C128C
+   data C128S
+   data aImagem
+   data nCopias
+   data nCopias2
+   data aSerial
+   data lSalvaForm
+   data aDataField
+   data lForm
+   data nTCheck
+   Method New(ModelPrt,cPorta,nDensidade,nTamanho,lSrv,nPorta,cServer,cEnv,nMemoria,cFila,lDrvWin,cPathIni)
+   Method Setup()
+   Method Close()
+   Method CBBegin(nxQtde,nVeloc,nTamanho,lSalva)
+   Method CBEnd()
+   Method Envia()
+   Method VerStatus()
+   Method Say(nXmm,nYmm,cTexto,cRotacao,cFonte,cTam,lReverso,lSerial,cIncr,lZerosL,lNoAlltrim)
+   Method Var(cVar,cDados)
+   Method Memo(nXmm,nYmm,nLMemomm,nQLinhas,cTexto,cRotacao,cFonte,cTam,lReverso,cAlign)
+   Method Bar(nXmm,nYmm,cConteudo,cRotacao,cTypePrt,nAltura,lDigVer,lLinha,lLinBaixo,cSubSetIni,nLargura,nRelacao,lCompacta,lSerial,cIncr,lZerosL)
+   Method Box(nX1mm,nY1mm,nX2mm,nY2mm,nExpessura,cCor)
+   Method LineH(nX1mm,nY1mm,nX2mm,nExpessura,cCor)
+   Method LineV(nX1mm,nY1mm,nY2mm,nExpessura,cCor)
+   Method Grafic(nXmm,nYmm,cArquivo,lReverso)
+   Method LoadGrf(cImagem)
+   Method CopiesSer(nQtde)
+
+ENDCLASS
+
+Method New(ModelPrt,cPorta,nDensidade,nTamanho,lSrv,nPorta,cServer,cEnv,nMemoria,cFila,lDrvWin,cPathIni) CLASS MSCBEPL
+DEFAULT cPorta := "COM2:9600,e,7,2"
+DEFAULT cEnv   :=''
+DEFAULT cFila  :=''
+DEFAULT lDrvWin:= .F.
+DEFAULT cPathIni:= "\IMPTER"
+DEFAULT nMemoria:=0
+DEFAULT lSrv    :=.f.
+DEFAULT cServer:=''
+DEFAULT nPorta :=0
+::cResult :=''
+::cPadrao := "EPL"
+::Modelo  := AllTrim(Upper(ModelPrt))
+::cFila   := AllTrim(cFila)
+::lDrvWin := lDrvWin
+::PathIni := If(Empty(cPathIni),"\IMPTER",cPathIni)
+::nMemory := nMemoria
+::cPortImp:= Upper(cPorta)
+::lString := (::cPortImp == 'STR')
+::lServer := lSrv
+::cServer := cServer
+::nPorta  := nPorta
+::cEnv    := cEnv
+::lOutroServer := (! Empty(cServer) .and. ! Empty(nPorta) .and. ! Empty(cEnv) .and. lSrv )
+::lIP           := "IP" $ cPorta .and. ! Empty(cServer)
+::LenChkStatus :=If('LPT' $ ::cPortImp,0,2)
+::ChkStatus    :=If('LPT' $ ::cPortImp,'','^ee')
+::lCHKStatus  	:= .t.
+::C128GS   		:=chr(29)
+::C128A   		:=''
+::C128B   		:=''
+::C128C   		:=''
+::C128S   		:=''
+::aImagem 		:={}
+::nCopias      :=1
+::nCopias2     :=1
+::aSerial		:={}
+::lSalvaForm   :=NIL
+::aDataField   :={}
+::lForm        := .t. // propriedade criada para sanar o bug da bios antiga de impressoras eltron
+IF nDensidade == NIL
+	MSCbModelo('EPL',::Modelo,@::nPontoMM)
+Else
+   ::nPontoMM:= nDensidade
+Endif
+If nTamanho#NIL
+   ::nLenEti := nTamanho*::nPontoMM
+Else
+   ::nLenEti :=NIL
+EndIf
+
+If ::lServer
+   ::cPortImp  :='SERVER'+::cPortImp
+EndIf
+If ::lOutroServer
+   ::lServer   := .f.
+EndIf
+::lSpool:=.f.
+If ! Empty(::cFila)
+	::lSpool			:= .t.
+	::lServer		:= .f.
+	::lOutroServer	:= .f.
+	::cPortImp		:="SPOOL"
+	::lDrvWin		:= .f.
+	::lIP				:= .f.
+EndIf
+If ::lIP
+	::lSpool			:= .f.
+	::lServer		:= .f.
+	::lOutroServer	:= .f.
+	::cPortImp		:="IP"
+	::lDrvWin		:= .f.
+EndIf
+If Select("SX6") > 0
+   ::nTCheck := Int((SuperGetMV("MV_ACDTCHK",.F.,3) * 60) / 2)
+Else
+   ::nTcheck := 90
+EndIf
+Return ''
+
+
+Method Setup() Class MSCBEPL
+Local cProgOpen
+
+//DEFINICAO DE VARIAVEIS NECESSARIAS PARA O SETPRINT
+Private aRegistros	:= {}
+Private aReturn	:=  { STR0002, 1,STR0001, 2, 3, 1, "",1 } //"Administracao"//"Zebrado"
+Private rptfolha := ""
+// FIM DA DEFINICAO
+
+If ::lDrvWin
+	::lOutroServer := .f.
+	::lCHKStatus   := .f.
+	If ::lServer
+   	::cPortImp  :=Subs(::cPortImp,7)
+	EndIf
+	SetPrint("","MSCBIMP.PRN",nil ,STR0003,"MSCBIMP.PRN",'','',.F.,"",.F.,"P",nil,.f.,nil,'EPSON.DRV',.T.,::lServer,::cPortImp)//'Impressao de Etiqueta'
+   SetDefault(aReturn,"")
+Else
+	cProgOpen := ProcName(5)+'-->'+ProcName(4)+'-->'+ProcName(3)+'-->'+ProcName(2)+'-->'+ProcName(1)
+	If ::lOutroServer
+	   ::oServer := RpcConnect( ::cServer, ::nPorta, ::cEnv, "", "",,,.t. )
+	   CALLPROC IN ::oServer FUNCTION "MSCBFSem" PARAMETERS Left(::cPortImp,4),cProgOpen
+	EndIf
+	If ::lServer
+	   MSCBFSem(Left(::cPortImp,4),cProgOpen)
+	EndIF
+	If ::lSpool
+		MsCbGrvSpool(1,,Self)
+	EndIf
+	If ::lIP
+		::oIP := tSocketClient():New()
+		If ::nPorta == 0
+			::nPorta := 9100
+		EndIf
+		If ::oIP:Connect(::nPorta,::cServer, 1000 )  <> 0
+			conout(STR0004)//'erro'
+		EndIf
+	EndIf
+EndIf
+::IsPrinted:=.t.
+Return ''
+
+Return ''
+
+Method CBBegin(nxQtde,nVeloc,nTamanho,lSalva)	CLASS MSCBEPL  // falta implementar o form
+Local cResult := ::cResult
+If Len(::cResult) > ::nMemory
+   ::cResult := ""
+EndIF
+::lSalvaForm:=lSalva
+If lSalva==NIL .or. lSalva
+	cResult += "~@"+Chr(13)+Chr(10)                       //Reseta impressora
+	cResult += "N"+Chr(13)+Chr(10)                        // Inicio da etiqueta
+	If ::lForm // propriedade criada para sanar o bug da bios antiga de impressoras eltron
+		cResult += 'FK"FORM1"'+CHR(13)+CHR(10)
+   	cResult += 'FS"FORM1"'+CHR(13)+CHR(10)
+   EndIf
+	cResult += "DECLARACAO_DE_VARIAVEIS"+Chr(13)+Chr(10)    // Controle de Serializacao
+	cResult += "D12"+Chr(13)+Chr(10)  						  //Temporatura de impressao (temporario valdir)
+	cResult += "ZB"+Chr(13)+Chr(10)   						  //Direcao de Impressao
+	cResult += "R0,0"+Chr(13)+Chr(10) 						  //Zera Coordenadas
+
+	If nVeloc # NIL       //velocidade
+		cResult += "S"+AllTrim(Str(nVeloc,3))+Chr(13)+Chr(10) //Velocidade de impressao
+	EndIf
+	If nxQtde # NIL  //seta a quantidade de copias       ok
+	   ::nCopias := nxQtde
+	EndIf
+	If nTamanho#NIL
+      ::nLenEti:= nTamanho*::nPontoMM
+   EndIf
+   If ::nLenEti#NIL    // seta o tamanho da etiqueta
+		cResult += "Q24,0"+Chr(13)+Chr(10) //Comprimento da etiqueta
+		cResult += "A01,"+AllTrim(str(::nLenEti,5))+',0,1,1,1,N," "'+Chr(13)+Chr(10) //P compatibilizar
+	endif
+   ::aDataField:={}
+   ::aSerial:={}
+ElseIf !lSalva
+   //Nao serah necessario implementar nada nesta situacao
+EndIf
+::cResult := cResult
+Return
+
+Method CopiesSer(nQtde)CLASS MSCBEPL
+::nCopias2     :=nQtde
+Return ''
+
+Method CBEnd() CLASS MSCBEPL
+Local cConteudo:=''
+Local cEsp := ''
+Local nX,nY
+
+If (::lSalvaForm==NIL .or. ::lSalvaForm )
+   cEsp:=''
+	If ! Empty(::aDataField) .or. ! Empty(::aSerial)
+		nX:=AT("DECLARACAO_DE_VARIAVEIS",::cResult)
+		::aDataField := aSort(::aDataField,,,{|x,y| x[1]<y[1]})
+		For nY:= 1 to len(::aDataField)
+		    cEsp +="V"+StrZero(Val(subs(::aDataField[nY,1],2))-1,2)+',99,N,"PROMPT:"'+Chr(13)+Chr(10)
+		Next
+		::aSerial := aSort(::aSerial,,,{|x,y| x[1]<y[1]})
+		For nY:= 1 to len(::aSerial)
+			 cEsp +=::aSerial[nY,1]+","+::aSerial[nY,2]+',N,'+::aSerial[nY,4]+',"'+::aSerial[nY,1]+'"'+Chr(13)+Chr(10)
+		Next
+	EndIf
+	::cResult:=StrTran(::cResult,"DECLARACAO_DE_VARIAVEIS",cEsp)
+	If ! Empty(::aSerial)
+		::cResult += 'PA'+AllTrim(str(::nCopias,3))+','+AllTrim(str(::nCopias2,3))+Chr(13)+Chr(10)
+	EndIf
+	::cResult += 'FE'+Chr(13)+Chr(10)
+	If ::lSalvaForm==NIL
+	   If ::lForm // propriedade criada para sanar o bug da bios antiga de impressoras eltron
+			::cResult += 'FR"FORM1"'+Chr(13)+Chr(10)
+		EndIf
+		If ! Empty(::aSerial)
+			::cResult += '?'+chr(13)+chr(10)
+		   ::aSerial := aSort(::aSerial,,,{|x,y| x[1]<y[1]})
+		   For nX:= 1 to len(::aSerial)
+				::cResult+=::aSerial[nX,3]+Chr(13)+Chr(10)
+		   Next
+		Else
+  			::cResult += 'P'+AllTrim(str(::nCopias,3))+Chr(13)+Chr(10)
+		EndIf
+	EndIf
+Else
+	::cResult += 'FR"FORM1"'+Chr(13)+Chr(10)
+	::cResult += '?'+chr(13)+chr(10)
+	::aDataField := aSort(::aDataField,,,{|x,y| x[1]<y[1]})
+   For nX:= 1 to len(::aDataField)
+      ::cResult += ::aDataField[nX,2]+Chr(13)+Chr(10)
+   Next
+   ::aSerial := aSort(::aSerial,,,{|x,y| x[1]<y[1]})
+   For nX:= 1 to len(::aSerial)
+		::cResult+=::aSerial[nX,3]+Chr(13)+Chr(10)
+   Next
+	::cResult += 'P'+AllTrim(str(::nCopias,3))+Chr(13)+Chr(10)
+EndIf
+
+If Len(::cResult) > ::nMemory .and. (::lSalvaForm==NIL .or. ! ::lSalvaForm)
+   cConteudo := ::cResult
+   Self:Envia()
+EndIF
+Return cConteudo
+
+
+
+
+
+Method Close() CLASS MSCBEPL
+Local cConteudo := ::cResult
+If Len(::cResult) > 0
+   Self:Envia()
+EndIF
+If ::lDrvWin
+   Set device to Screen
+	MS_FLUSH()
+Else
+	If ::lServer
+	   MSCBASem(Left(::cPortImp,4))
+	EndIF
+	If ::lOutroServer
+	   CALLPROC IN ::oServer FUNCTION "MSCBASem" PARAMETERS Left(::cPortImp,4)
+	   CLOSE RPCCONN ::oServer
+	EndIf
+	If ::lSpool
+		MSCBGrvSpool(3,,Self)
+	EndIf
+	If ::lIP
+		::oIP:CloseConnection()
+	EndIf
+EndIf
+::IsPrinted:=.f.
+Return cConteudo
+
+Method Envia() CLASS MSCBEPL
+Local lIPSend  := !::lCHKStatus
+Local cIPRet   := ""
+Local nIPRet   := 0
+Local nTry     := 0
+::nHandle:= 0
+If ::lOutroServer
+	 ::nHandle := -1
+	 While  ::nHandle < 0
+       CALLPROC IN ::oServer FUNCTION "CBOpenPort" PARAMETERS ::cPortImp RESULT ::nHandle
+       If ::nHandle < 0
+          sleep(500)
+	       conout(STR0008)//"falha na abertura da porta"
+       EndIf
+    End
+    nResult := -1
+	 While  nResult < 0
+       CALLPROC IN ::oServer FUNCTION "CBWritePort" PARAMETERS ::nHandle,::cResult,::lCHKStatus,Self RESULT nResult
+       If nResult < 0
+          sleep(500)
+       EndIf
+    End
+    CALLPROC IN ::oServer FUNCTION "CBClosePort" PARAMETERS ::nHandle
+ElseIf ::lSpool
+    MSCBGrvSpool(2,,Self)
+ElseIf ::lDrvWin
+   If FindFunction("RAWPRINTOUT")
+      RawPrintOut(::cResult)
+   ELSE
+      PrintOut(0,0,::cResult)
+   EndIf
+ElseIf ::lIP
+   If ::lCHKStatus
+       While !lIPSend
+         If ::oIP:Send(::ChkStatus) == Len(::ChkStatus) .And. (nIPRet := ::oIP:Receive(@cIPRet,500)) >= 8 .And. ::VerStatus(cIPRet) == 'OK'
+            lIPSend := .T. //-- Impressora comunicou e pronta para impressao
+            Exit
+         ElseIf ::nTCheck > 0 .And. nTry > ::nTCheck
+            If IsBlind()
+               conout("Impressora de etiquetas indisponivel.")//"falha na abertura da porta"
+            ElseIf IsTelNet()
+               VTAlert("Impressora de etiquetas indisponivel. Realize a reimpressao","Atencao ",.t.,3000)
+            Else
+               Aviso("Atenção","Impressora de etiquetas indisponível. Realize a reimpressão quando disponível.",{"OK"})
+            EndIf
+            Exit
+         EndIf
+         sleep(2000)
+         nTry++
+      End
+   EndIf
+   If lIPSend
+	   ::oIP:Send(::cResult)
+   End
+ElseIf ! ::lString
+   If ! ::lServer .and. IsTelNet()
+      If "LPT" $ ::cPortImp
+   		VTImpDef("P")
+      Else
+	      VTImpDef("S")
+      EndIf
+
+      VTImp(::cResult)
+   Else
+      ::nHandle := -1
+	   While  ::nHandle < 0
+  	      ::nHandle:=CBOpenPort(::cPortImp)
+    	    If ::nHandle < 0
+        	    sleep(500)
+  		       conout(STR0009)//"falha na abertura da porta"
+  	       EndIf
+       End
+       nResult := -1
+ 	    While  nResult < 0
+          nResult:= CBWritePort(::nHandle,::cResult,::lCHKStatus,Self)
+          If nResult < 0
+             sleep(500)
+          EndIf
+       End
+       While ! CBClosePort(::nHandle)
+          sleep(500)
+       EndDo
+   EndIf
+EndIf
+::cResult:=''
+Return ''
+
+Method VerStatus(cTexto) CLASS MSCBEPL  //ok
+If Left(cTexto,2) == '00'
+  Return 'OK'
+EndIf
+conout(STR0010)//"Aguardando... Buffer cheio ou Falta Papel ou Falta Ribbon ou Impressora em Pausa"
+Return 'RETRY'
+
+
+Method Say(nXmm,nYmm,cTexto,cRotacao,cFonte,cTam,lReverso,lSerial,cIncr,lZerosL,lNoAlltrim) Class MSCBEPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT lNoAlltrim := .F.
+DEFAULT cFonte     := "1"
+DEFAULT lReverso   := .f.
+DEFAULT lSerial    := .f.
+DEFAULT cIncr      := "+01"
+DEFAULT lZerosL    := .f.
+DEFAULT cRotacao   := "N"
+DEFAULT cTam       :='1,1'
+
+cRotacao		:= MsTabRotacao(cRotacao,Self)
+cTexto 		:= If(lNoAlltrim,cTexto,AllTrim(cTexto))
+cTam     	:= Str(Val(Left(cTam,at(",",cTam)-1)),1)+','+Str(Val(Subs(cTam,at(",",cTam)+1)),1)
+
+::cResult+='A'+StrZero(nXPixel,4)+','+StrZero(nYPixel,4) // Horizontal Horizontal
+::cResult+=','+cRotacao 				// Rotacao
+::cResult+=','+cFonte 				// Tipo de Fote
+::cResult+=','+cTam 			// Multiplicador horizontal e Vertial
+::cResult+=','+If(lReverso,'R','N')								 				// Reverso
+If ! (lSerial)
+   If Left(Alltrim(cTexto),1)=="@" .and. ::lSalvaForm
+      aadd(::aDataField,{Alltrim(cTexto),""})
+      cTexto:="V"+StrZero(Val(subs(cTexto,2))-1,2)
+   Else
+      cTexto:='"'+cTexto+'"'
+   EndIf
+	::cResult+=','+cTexto+Chr(13)+Chr(10)   		      // Texto
+Else
+	::cResult+=',C'+Str(Len(::aSerial),1)+Chr(13)+Chr(10)  // Texto
+   cIncr := If(Left(cIncr,1) $ '+-',cIncr,"+"+cIncr)
+	Aadd(::aSerial,{'C'+Str(Len(::aSerial),1),Alltrim(Str(Len(cTexto),3)),cTexto,cIncr})
+EndIf
+Return ''
+
+
+Method Var(cVar,cDados) Class MSCBEPL //ok
+Local nPos:= Ascan(::aDataField,{|x| Alltrim(x[1]) == AllTrim(cVar)})
+If nPos > 0
+   ::aDataField[nPos,2]:= cDados
+EndIf
+Return ''
+
+Method Memo(nXmm,nYmm,nLMemomm,nQLinhas,cTexto,cRotacao,cFonte,cTam,lReverso,cAlign) Class MSCBEPL  //ok
+Final(STR0011,STR0012)//'Funcao MSCBSAYMEMO nao disponivel para esta impressora'//'Incompatibilidade'
+RETURN  ''
+
+
+Method Bar(nXmm,nYmm,cConteudo,cRotacao,cTypePrt,nAltura,lDigVer,lLinha,lLinBaixo,cSubSetIni,nLargura,nRelacao,lCompacta,lSerial,cIncr,lZerosL) Class MSCBEPL
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT cRotacao  := "N"
+DEFAULT nAltura   := 10
+DEFAULT lDigVer   := .t.
+DEFAULT lLinha    := .t.
+DEFAULT lLinBaixo := .f.
+DEFAULT cSubSetIni:= ""
+DEFAULT nLargura  := 3
+DEFAULT nRelacao  := 2
+DEFAULT lCompacta := .f.
+DEFAULT lSerial   := .f.
+DEFAULT cIncr     := "+01"
+DEFAULT lZerosL   := .f.
+DEFAULT cTypePrt  := "MB07"
+cRotacao	:= MsTabRotacao(cRotacao,Self)
+nAltura 	:= nAltura*::nPontoMM
+
+If ValType(cConteudo)=="A"
+   cConteudo := MSTrataEan(cConteudo)
+   // lCompacta
+   // este parametro foi criado de forma inrregular, portanto sera' necessario desabilita-lo
+   // quando esta true ele muda automaticamente para o tipo Start C
+   lCompacta:= .f.
+EndIf
+cTypePrt := MSTabCodBar(cTypePrt,Self)
+If cTypePrt =="1" .and. ! Empty(cSubSetIni)
+   cTypePrt += ""
+EndIf
+If ! lSerial
+   If Left(Alltrim(cConteudo),1)=="@" .and. ::lSalvaForm
+      aadd(::aDataField,{Alltrim(cConteudo),""})
+      cConteudo:="V"+StrZero(Val(subs(cConteudo,2))-1,2)
+   Else
+      cConteudo:='"'+cConteudo+'"'
+   EndIf
+   ::cResult +='B'+Alltrim(Str(nXPixel,4))+','+Alltrim(Str(nYPixel,4))+','+cRotacao+','+cTypePrt+','+Alltrim(Str(nLargura,2))+','+Alltrim(Str(nRelacao,2))+','+Alltrim(Str(nAltura,3))+','+If(lLinha,'B','N')+','+cConteudo+Chr(13)+Chr(10)
+Else
+	::cResult +='B'+Alltrim(Str(nXPixel,4))+','+Alltrim(Str(nYPixel,4))+','+cRotacao+','+cTypePrt+','+Alltrim(Str(nLargura,2))+','+Alltrim(Str(nRelacao,2))+','+Alltrim(Str(nAltura,3))+','+If(lLinha,'B','N')+','+'C'+Str(Len(::aSerial),1)+Chr(13)+Chr(10)
+	cIncr := If(Left(cIncr,1) $ '+-',cIncr,"+"+cIncr)
+	Aadd(::aSerial,{'C'+Str(Len(::aSerial),1),Alltrim(Str(Len(cConteudo),3)),cConteudo,cIncr})
+EndIf
+Return ''
+
+
+Method Box(nX1mm,nY1mm,nX2mm,nY2mm,nExpessura,cCor) Class MSCBEPL //ok
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nX2Pixel := ::nPontoMM * if(nX2mm==NIL,20,nX2mm)
+Local nY2Pixel := ::nPontoMM * if(nY2mm==NIL,20,nY2mm)
+DEFAULT nExpessura :=3
+DEFAULT cCor := 'B'  // Ateh  o momento esta variavel nao esta sendo utilizada
+
+nX1Pixel:=Alltrim(Str(nX1Pixel,4))
+nY1Pixel:=Alltrim(Str(nY1Pixel,4))
+nExpessura:=Alltrim(Str(nExpessura,4))
+nX2Pixel:=Alltrim(Str(nX2Pixel,4))
+nY2Pixel:=Alltrim(Str(nY2Pixel,4))
+::cResult +='X'+nX1Pixel+","+nY1Pixel+","+nExpessura+","+nX2Pixel+","+nY2Pixel+Chr(13)+Chr(10)
+Return ''
+
+METHOD LineH(nX1mm,nY1mm,nX2mm,nExpessura,cCor) Class MSCBEPL     //ok
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nX2Pixel := ::nPontoMM * if(nX2mm==NIL,20,nX2mm)
+nX2Pixel 	:= nX2Pixel - nX1pixel
+DEFAULT nExpessura :=3
+DEFAULT cCor := 'B'
+::cResult +=  "LO"+AllTrim(str(nX1Pixel,4))+","+AllTrim(Str(nY1Pixel,5)) // posiciona na etiqueta
+::cResult +=  ","+AllTrim(str(nX2Pixel,5))+","+AllTrim(Str(nExpessura,5))//
+::cResult +=  Chr(13)+Chr(10)
+Return ''
+
+Method LineV(nX1mm,nY1mm,nY2mm,nExpessura,cCor) Class MSCBEPL //ok
+Local nX1Pixel := ::nPontoMM * if(nX1mm==NIL,1,nX1mm)
+Local nY1Pixel := ::nPontoMM * if(nY1mm==NIL,1,nY1mm)
+Local nY2Pixel := ::nPontoMM * if(nY2mm==NIL,20,nY2mm)
+nY2Pixel := nY2Pixel - nY1pixel
+DEFAULT nExpessura :=3
+DEFAULT cCor	:= 'B'
+::cResult +=  "LO"+AllTrim(str(nX1Pixel,5))+","+AllTrim(Str(nY1Pixel,5)) // posiciona na etiqueta
+::cResult +=  "," +AllTrim(str(nExpessura,5))+","+AllTrim(Str(nY2Pixel,5))//
+::cResult +=  Chr(13)+Chr(10)
+Return ''
+
+
+
+Method Grafic(nXmm,nYmm,cArquivo,lReverso) Class MSCBEPL  //ok
+Local nXPixel    := ::nPontoMM *if(nXmm==NIL,0,nXmm)
+Local nYPixel    := ::nPontoMM *if(nYmm==NIL,0,nYmm)
+DEFAULT lReverso :=.f.
+cArquivo   := Upper(cArquivo)
+nXPixel    := Alltrim(str(nXPixel,4))
+nYPixel    := Alltrim(str(nYPixel,4))
+::cResult+='GG'+nXPixel+','+nYPixel+',"'+cArquivo+'"'+Chr(13)+Chr(10)
+RETURN ''
+
+Method LoadGrf(cImagem) Class MSCBEPL   //ok
+Local nX,cTipo,cNome
+Local cConteudo
+If ! File(cImagem)
+   Return ''
+Endif
+cImagem := AllTrim(Upper(cImagem))
+If aScan(::aImagem,cImagem+::cPortImp+::cServer) > 0
+   Return ''
+EndIf
+aadd(::aImagem,cImagem+::cPortImp+::cServer)
+If (nX    := Rat(".",cImagem)) > 0
+   cTipo  := Subs(cImagem,nX+1)
+   cNome  := Left(cImagem,nX-1)
+Endif
+If (nX    := Rat("\",cNome)) > 0
+    cNome  := Subs(cNome,nX+1)
+Endif
+If FindFunction("RAWPRINTOUT")
+	::cResult+='GK"'+cNome+'"'+CHR(13)+CHR(10)
+	::cResult+='GK"'+cNome+'"'+CHR(13)+CHR(10)
+EndIF
+::cResult+='GM"'+cNome+'"'+Alltrim(Str(Len(MemoRead(cImagem)),4))+Chr(13)+Chr(10)
+::cResult += MemoRead(cImagem)
+cConteudo:= ::cResult
+Self:Envia()
+Return cConteudo

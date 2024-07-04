@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Control de saldo de retención de PIS"
+	#define STR0002 "Suma de valores de resarcimiento y de compensación, no pueden ser mayores que el valor disponible de retención."
+	#define STR0003 "Visualizar"
+	#define STR0004 "Incluir"
+	#define STR0005 "Modificar"
+	#define STR0006 "Borrar"
+	#define STR0007 "Si su saldo estuviera desbloqueado, no podrá completar los campos de Resarcimiento y Compensación, con la suma mayores o iguales al valor disponible."
+	#define STR0008 "Modalidad, Período, Tipo de registro, consolidado y mes/año registrados."
+	#define STR0009 "Reserva de retención bloqueada."
+	#define STR0010 "Reserva de retención disponible."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "PIS withholding balance control"
+		#define STR0002 "Sum of refund and compensation amounts, which must not exceed the available withholding amount."
+		#define STR0003 "View"
+		#define STR0004 "Add"
+		#define STR0005 "Edit"
+		#define STR0006 "Delete"
+		#define STR0007 "If your balance is blocked, you cannot fill out fields Refund and Compensation with sum values greater than or equal to the available value."
+		#define STR0008 "Nature, Period, Record Type, consolidated and month/year already registered."
+		#define STR0009 "Withholding Reserve blocked."
+		#define STR0010 "Withholding Reserve available."
+	#else
+		#define STR0001 "Controle de Saldo de retenção de PIS"
+		#define STR0002 "Somatoria dos valores de ressarcimento e de compensação, não podem ser maiores que o valor disponivel de retenção."
+		#define STR0003 "Visualizar"
+		#define STR0004 "Incluir"
+		#define STR0005 "Alterar"
+		#define STR0006 "Excluir"
+		#define STR0007 "Se o seu saldo estiver desbloqueado, voce nao podera preencher os campos de Ressarcimento e Compensação, com somatoria maiores ou iguais ao valor disponivel."
+		#define STR0008 "Natureza, Periodo, Tipo do Registro, consolidado e mes/ano ja cadastrados."
+		#define STR0009 "Reserva de Retenção bloqueada."
+		#define STR0010 "Reserva de Retenção disponível."
+	#endif
+#endif

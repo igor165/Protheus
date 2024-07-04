@@ -1,0 +1,1645 @@
+#INCLUDE "PROTHEUS.CH" 
+#INCLUDE "APWIZARD.CH"
+#INCLUDE "FILEIO.CH
+#INCLUDE "argremelet.ch"
+#DEFINE TAMMAXXML 400000 //- Tamanho maximo do XML em  bytes
+
+//-----------------------------------------------------------------------
+/*/{Protheus.doc} ArgRemElet
+Programa de transmissão do Remito Eletrônico da Argentina
+
+@author Rafael Iaquinto
+@since 20/12/2012
+@version 1.0
+
+@param				
+		
+@return	nil
+/*/
+//-----------------------------------------------------------------------
+
+Function ArgRemElet()
+
+Local aArea     := GetArea()
+Local lRetorno  := .T.
+Local nVezes    := 0
+
+PRIVATE lBtnFiltro:= .F.
+PRIVATE cAliasMnt := ""
+
+While lRetorno
+	lBtnFiltro:= .F.
+    lRetorno := ArgRem2(nVezes==0)
+    nVezes++
+    If !lBtnFiltro
+    	Exit
+    EndIf
+EndDo
+RestArea(aArea)
+Return Nil
+
+Static Function ArgRem2(lInit,cAlias)
+
+Local cMsgCmp	:= ""
+
+Local aPerg     := {}
+Local aCores    := {}
+Local aIndArqE  := {}
+
+Local lPerg 	:= .F.   
+Local lRetorno  := .T.
+
+PRIVATE cCondic := ""
+PRIVATE cCadastro := STR0001 //"Monitoramento da NFe-Exportacao"
+PRIVATE cIdEnt
+
+PRIVATE aRotina   := {}
+PRIVATE bFiltraBrw
+
+aadd(aPerg,{2,STR0008,PadR("",Len(STR0005)),{STR0003,STR0004,STR0005,STR0006},120,".T.",.T.,".T."}) //"Filtra"###"1-Autorizadas"###"2-Sem filtro"###"3-Não Autorizadas"###"4-Transmitidas"###"5-Não Transmitidas"
+aadd(aPerg,{1,STR0007,PadR("",Len(SF2->F2_SERIE)),"",".T.","01",".T.",30,.F.})	//"Serie do e-Remito"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Verifica se o serviço foi configurado - Somente o Adm pode configurar   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+lPerg := ParamBox(aPerg,"ARGN - Remito",,,,,,,,"ARGREMELET",.T.,.T.)	
+If lInit
+	If ( !IsReady() )
+		If PswAdmin( /*cUser*/, /*cPsw*/,RetCodUsr()) == 0		
+			ArgnRemCfg()			
+		Else
+			HelProg(,"FISTRFNFe")
+		EndIf
+	EndIf
+
+EndIf
+cAliasMnt := "SF2"
+
+If (!lInit .Or. IsReady())	
+		
+	//ParamBox(aPerg,"ARGN - NFe",,,,,,,,"ARGNNFE",.T.,.T.)	 
+	aRotina   := MenuDef()
+	
+	If cIdEnt == Nil .Or. Empty(cIdEnt)
+		cIdEnt := GetIdEnt()				
+	EndIf 
+	
+	cCadastro := cCadastro + " ID_ENT " + cIdEnt
+
+	aCores    :={{"F2_FLREMEL==' '",'DISABLE' },;									//Remito não transmitida
+					  {"F2_FLREMEL=='S'",'BR_AZUL'},;								//Remito Transmitido
+					  {"F2_FLREMEL=='E'",'ENABLE'},;								//Remito Autorizado						  
+					  {"F2_FLREMEL=='M'",'BR_PRETO'}}								//Remito Rejeitado
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Realiza a Filtragem                                                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+						
+	cCondic := "F2_FILIAL =='"+xFilial("SF2")+"' "
+																
+	cCondic += ".AND. Alltrim(F2_TIPODOC) >= '50' "
+	cCondic += ".AND. F2_EST == 'BA' "     
+		                                                        		
+	If !Empty(MV_PAR02)
+		cCondic += ".AND.F2_SERIE=='"+MV_PAR02+"' "
+	EndIf
+	If SubStr(MV_PAR01,1,1) == "1" //"1- Autorizada
+		cCondic += ".AND. F2_FLREMEL $ 'E' "
+	ElseIf SubStr(MV_PAR01,1,1) == "2" //"2-Rejeitadas"
+		cCondic += ".AND. F2_FLREMEL $ 'M' "
+	ElseIf SubStr(MV_PAR01,1,1) == "3" //"3 -não Transmitida"
+		cCondic += ".AND. F2_FLREMEL $ ' ' "
+	EndIf
+
+	If ExistBlock("FISFILREM")
+		cCondic := ExecBlock("FISFILREM",.F.,.F.)
+	EndIf					
+	bFiltraBrw := {|| FilBrowse("SF2",@aIndArqE,@cCondic) }
+	Eval(bFiltraBrw)
+	mBrowse( 6, 1,22,75,"SF2",,,,,,aCores,/*cTopFun*/,/*cBotFun*/,/*nFreeze*/,/*bParBloco*/,/*lNoTopFilter*/,.F.,.F.,)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Restaura a integridade da rotina                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectArea("SF2")
+	RetIndex("SF2")
+	dbClearFilter()
+	aEval(aIndArqE,{|x| Ferase(x[1]+OrdBagExt())})
+Else
+	HelProg(,"FISTRFNFe")
+	lRetorno := .F.
+EndIf
+Return(lRetorno)
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ARGNRemLeg³Autor  ³ Eduardo Riera         ³ Data ³02.08.2007 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³Demonstra a legenda das cores da mbrowse                     ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Esta rotina monta uma dialog com a descricao das cores da    ³±±
+±±³          ³Mbrowse.                                                     ³±±
+±±³          ³                                                             ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Materiais                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ARGNRemLeg()
+Local aLegenda := {}
+				
+
+			aCores    := {{"F1_FLFTEX==' '",'DISABLE' },;		//Remito Não Transmitido
+						  {"F1_FLFTEX=='S'",'BR_AZUL'},;		//Remito Transmitido
+						  {"F1_FLFTEX=='E'",'ENABLE'},;			//Remito Autorizado  						  
+						  {"F1_FLFTEX=='M'",'BR_PRETO'}}		//Remito Nao autorizada
+
+
+
+Aadd(aLegenda, {"BR_AZUL"    ,STR0009})  //"Remito Transmitido"
+Aadd(aLegenda, {"DISABLE"   ,STR0010})  //"Remito Não Transmitido"
+Aadd(aLegenda, {"ENABLE"   ,STR0011})  //"Remito Autorizado"
+Aadd(aLegenda, {"BR_PRETO"  ,STR0012})  //"Remito Rejeitado"
+BrwLegenda(STR0001,STR0013,aLegenda)  //"Monitoramento do Remito Eletronico"###"Legenda"
+
+Return(.T.)
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³Eduardo Riera          ³ Data ³18.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³	  1 - Pesquisa e Posiciona em um Banco de Dados           ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef()
+Private aRotina := {}
+
+aRotina := {    {STR0083,"PesqBrw"       ,0,1,0,.F.},;  //"Pesquisa"
+								{STR0015,"ARGNRemPar"    ,0,2,0 ,NIL},;  //"Parâmetros"###"Parâmetros"
+								{STR0014,"ArgnRemCfg"    ,0,2,0 ,NIL},; //Wiz.Config. 								
+								{STR0016,"ARGNRemRemessa",0,2,0 ,NIL},;  //"Transmissão"
+								{STR0017,"ARGNRem1Mnt" ,0,2,0 ,NIL},;  //"Monitor"
+								{STR0018 ,"ARGNVisualDoc" ,0,2,0 ,NIL},;  //"Visualiza Doc."								
+								{STR0013,"ARGNRemLeg"    ,0,2,0 ,NIL}}  //"Legenda"
+								
+		
+If ExistBlock("FISTRFREM")
+	ExecBlock("FISTRFREM",.F.,.F.)
+EndIf
+
+Return(aRotina)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ARGNRemPar³ Autor ³Rafael Iaquinto       ³ Data ³18.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Parametriza o  Totvs Services para a nota fiscal eletronica ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Function ARGNRemPar()
+
+Local oWs
+Local aPerg  := {}
+
+Local aCombo1:= {}
+Local aCombo2:= {}
+
+Local cCombo1:= ""
+Local cCombo2:= ""
+Local cURL        := FindURL()
+Local cParNfePar := SM0->M0_CODIGO+SM0->M0_CODFIL+"Par_Remito_Elec"
+
+
+aadd(aCombo1,STR0036) 
+aadd(aCombo1,STR0037)
+
+aadd(aCombo2,"1.00")
+ 
+If IsReady()
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Obtem o codigo da entidade                                              ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	If cIdEnt == Nil .Or. Empty(cIdEnt)
+		cIdEnt := GetIdEnt()		
+	EndIf 
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Obtem o ambiente                                                        ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	oWS :=  WSNFECFGLOC():New()
+	oWS:cUSERTOKEN := "TOTVS"
+	oWS:cID_ENT    := cIdEnt
+	oWS:nAmbiente  := 0
+	oWS:cVersao    := "0.00"
+	oWS:cModelo   := "5" //Modelo do Remito ElecTronico
+	oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"              	
+	oWS:CFGAMBLOC()
+	oWS:CFGVERLOC()
+	
+	cCombo1 := oWS:CCFGAMBLOCRESULT
+	cCombo2 := oWS:CCFGVERLOCRESULT
+
+	aadd(aPerg,{2,"Ambiente",PadR(cCombo1,15),aCombo1,120,".T.",.T.,".T."})	
+	aadd(aPerg,{2,"Versao",cCombo2,aCombo2,120,".T.",.T.,".T."})
+	
+	
+	aParam := {SubStr(cCombo1,1,1),cCombo2}
+	
+	If ParamBox(aPerg,"ARG - REMe",aParam,,,,,,,cParNfePar,.T.,.F.)   
+	   
+		oWS:cUSERTOKEN := "TOTVS"
+		oWS:cID_ENT    := cIdEnt
+		oWS:nAmbiente  := Val( aParam[1] )
+		oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"
+		
+		oWS:cVersao  	 := aParam[2]
+		   
+		oWS:CFGAMBLOC()
+		oWS:CFGVERLOC()
+		
+		
+	EndIf
+Else
+
+	Aviso("NFFE","Siga atentamente os passos para a configuração da nota fiscal eletrônica.",{STR0069},3)
+
+EndIf
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ARGNNFeRem³ Autor ³Eduardo Riera          ³ Data ³21.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Rotina de remessa da Nota fiscal eletronica para o Totvs    ³±±
+±±³          ³Service ARGN                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ARGNRemRemessa()
+
+ARGNRemRe2()
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ARGNRemRe2³ Autor ³Eduardo Riera          ³ Data ³21.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Rotina de remessa da Nota fiscal eletronica para o Totvs    ³±±
+±±³          ³Service ARGN - utilizada em personalizacoes                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpC1: Serie da NF                                          ³±±
+±±³          ³ExpC2: Nota inicial                                         ³±±
+±±³          ³ExpC3: Nota final                                           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ARGNRemRe2(cSerie,cNotaIni,cNotaFim,cPlanta,cPorta,lRetorno)
+
+Local aArea       := GetArea()
+Local aPerg       := {}
+Local aParam      := {Space(Len(SF2->F2_SERIE)),Space(Len(SF2->F2_DOC)),Space(Len(SF2->F2_DOC)),Space(3),Space(3)}
+Local aTexto      := {}
+Local aXML        := {}
+Local cRetorno    := ""
+Local cModalidade := ""
+Local cAmbiente   := ""
+Local cVersao     := ""
+Local cVersaoCTe  := ""
+Local cVersaoDpec := ""
+Local cSugestao   := ""
+Local cURL        := FindURL()
+Local nX          := 0
+Local lOk         := .T.
+Local oWs
+Local oWizard
+Local cParNfeRem := SM0->M0_CODIGO+SM0->M0_CODFIL+"Trans_Remito_Elec"
+
+Default lRetorno  := .F.
+
+If cSerie == Nil
+	MV_PAR01 := aParam[01] := PadR(ParamLoad(cParNfeRem,aPerg,1,aParam[01]),Len(SF2->F2_SERIE))
+	MV_PAR02 := aParam[02] := PadR(ParamLoad(cParNfeRem,aPerg,2,aParam[02]),Len(SF2->F2_DOC))
+	MV_PAR03 := aParam[03] := PadR(ParamLoad(cParNfeRem,aPerg,3,aParam[03]),Len(SF2->F2_DOC))
+	MV_PAR04 := aParam[04] := PadR(ParamLoad(cParNfeRem,aPerg,4,aParam[04]),3)
+	MV_PAR05 := aParam[05] := PadR(ParamLoad(cParNfeRem,aPerg,5,aParam[05]),3)
+Else
+	MV_PAR01 := aParam[01] := cSerie
+	MV_PAR02 := aParam[02] := cNotaIni
+	MV_PAR03 := aParam[03] := cNotaFim
+	MV_PAR03 := aParam[04] := cPlanta
+	MV_PAR03 := aParam[05] := cPorta
+EndIf
+
+aadd(aPerg,{1,STR0020,aParam[01],"",".T.","",".T.",30,.F.}) //Série do Remito
+aadd(aPerg,{1,STR0021,aParam[02],"",".T.","",".T.",50,.T.}) //Remito inicial
+aadd(aPerg,{1,STR0022,aParam[03],"",".T.","",".T.",50,.T.}) //Remito final
+aadd(aPerg,{1,STR0050,aParam[04],"",".T.","",".T.",50,.T.}) //Planta
+aadd(aPerg,{1,STR0051,aParam[05],"",".T.","",".T.",50,.T.}) //Porta
+
+If IsReady()
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Obtem o codigo da entidade                                              ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	
+	If cIdEnt == Nil .Or. Empty(cIdEnt)
+		cIdEnt := GetIdEnt()		
+	EndIf
+	
+	If !Empty(cIdEnt)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Obtem o ambiente de execucao do Totvs Services ARGN                     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		oWS := WSNFECFGLOC():New()
+		oWS:cUSERTOKEN := "TOTVS"
+		oWS:cID_ENT    := cIdEnt
+		oWS:nAmbiente  := 0
+		oWS:cModelo    := "5"	
+		oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"
+		lOk := oWS:CFGAMBLOC()
+			cAmbiente := oWS:CCFGAMBLOCRESULT
+
+		If lOk
+			oWS:cVersao    := "0.00"
+			oWS:cModelo    := "5"
+			oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"
+			lOk := oWS:CFGVERLOC()
+			cVersao        := oWS:CCFGVERLOCRESULT
+		EndIf	
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Montagem da Interface                                                  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	    Default cAmbiente :=""
+		If ( lOk == .T. .or. lOk == Nil ) 
+			aadd(aTexto,{})
+			aTexto[1] :=STR0023+CRLF+CRLF			
+			aTexto[1] +=STR0025+cAmbiente+CRLF
+			aTexto[1] +=STR0026+cVersao+CRLF						
+						
+			aadd(aTexto,{})
+		
+			DEFINE WIZARD oWizard ;
+				TITLE STR0027;
+				HEADER STR0028;
+				MESSAGE STR0029;
+				TEXT aTexto[1] ;
+				NEXT {|| .T.} ;
+				FINISH {||.T.}
+		
+			CREATE PANEL oWizard  ;
+				HEADER STR0027 ;
+				MESSAGE ""	;
+				BACK {|| .T.} ;
+				NEXT {|| ParamSave(cParNfeRem,aPerg,"1"),Processa({|lEnd| cRetorno := ARGNRemTrf(aArea[1],aParam[1],aParam[2],aParam[3],aParam[4],aParam[5],cIdEnt,cAmbiente,@lEnd)}),aTexto[02]:= cRetorno,.T.} ;
+				PANEL
+		    ParamBox(aPerg,"REMe - REM-e",@aParam,,,,,,oWizard:oMPanel[2],cParNfeRem,.T.,.T.)
+		
+			CREATE PANEL oWizard  ;
+				HEADER STR0027;
+				MESSAGE "";
+				BACK {|| .T.} ;
+				FINISH {|| .T.} ;
+				PANEL
+			@ 010,010 GET aTexto[2] MEMO SIZE 270, 115 READONLY PIXEL OF oWizard:oMPanel[3]
+			ACTIVATE WIZARD oWizard CENTERED		
+		EndIf
+		lRetorno := lOk
+	Else
+		lRetorno := .F.
+	EndIf
+Else
+	Aviso("REMe",STR0019,{" nota(s) em "},3) 	
+EndIf
+
+RestArea(aArea)
+Return
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ARGNRemTrf
+Rotina de remessa do Remito eletronico para o Totvs Service ARGENTINA
+
+@param cAlias		Alias da tabela da Mbrowse		
+@param cSerie		Serie
+@param cNotaIni		Remito Inicial
+@param cNotaFim		Remito Final
+@param cPlanta		Planta para transmissão
+@param cPorta		Porta para Transmissão
+@param cIDEnt		ID da entidade no TSS
+@param cAmbiente	Ambiente de para transmissão(Produção ou Homologação)
+@param lEnd			Controle de execução
+
+
+@return 
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------             	
+Function ARGNRemTrf(cAlias,cSerie,cNotaIni,cNotaFim,cPlanta,cPorta,cIDEnt,cAmbiente,lEnd)
+		  		  
+Local aArea     := GetArea()
+Local aNotas    := {}
+Local aRetNotas := {}
+Local aRemAcpt  := {}
+
+
+Local cRetorno  := ""
+Local cAliasSF2 := "SF2"
+Local cWhere    := ""
+Local cErro     := ""
+Local cXml      := ""
+local cQuery	  := ""
+Local cHoraIni  := Time()
+Local cURL      := FindURL()
+Local ctipo		:=""
+
+Local lQuery    := .F.
+Local lRetorno  := .T.
+Local lRemito	:= .T.
+
+Local nX        := 0
+Local nI        := 0
+Local nNFes     := 0
+Local nXMlSize  := 0
+Local nXmlSize2 := 0
+Local nPesoBA	:= 0 
+
+Local dDataIni  := Date()
+
+Local oWs
+
+
+
+dbSelectArea(cAlias)
+dbClearFilter()
+RetIndex(cAlias)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Analisa parametros                                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cAmbiente   := SubStr(cAmbiente,1,1)
+CfgParamCot(,,cPlanta,cPorta)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Filtra as notas fiscais do dia                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+//Somente Saidas
+cTipo:= "1"
+
+If cTipo=="1"    
+
+	ProcRegua(Val(cNotaFim)-Val(cNotaIni)+1)
+	
+	//---------------Tratamento para Transmisso de notas de Entrada sem SF3 --------------------//
+	   	dbSelectArea("SF2")
+		dbSetOrder(1)
+		#IFDEF TOP
+			cQuery := "SELECT	F2_FILIAL,F2_EMISSAO,F2_FORMUL,F2_DOC,F2_SERIE,F2_CLIENTE,F2_LOJA,F2_ESPECIE,F2_CAEE,F2_FLFTEX,F2_ESPECIE,F2_TIPO, "
+			cQuery += " F2_FLREMEL,F2_VALBRUT,F2_PLIQUI,F2_PBRUTO,F2_PROVENT,F2_MOEDA FROM "
+			cQuery += RetSqlName('SF2') + " SF2 "
+			cQuery += " WHERE  SF2.F2_FILIAL = '" + xFilial('SF2') + "' AND "
+			cQuery += " SF2.F2_SERIE = '" + cSerie + "'  AND " 
+			cQuery += " SF2.F2_DOC >= '" + cNotaIni + "' AND "
+			cQuery += " SF2.F2_DOC <= '" + cNotaFim + "' AND "
+			cQuery += " ( (SF2.F2_FORMUL='S' AND SF2.F2_FLREMEL NOT IN ('E') ))"// And SF1.F1_STATUS='C'))" 
+			cQuery += " AND SF2.D_E_L_E_T_ = ' ' "
+			lQuery    := .T.
+			
+			If ExistBlock("FILTRREM")
+				cQuery := ExecBlock("FILTRREM", .F., .F.,{cQuery,cSerie,cNotaIni,cNotaFim,cPlanta,cPorta})	
+			EndIf
+			
+			cQuery := ChangeQuery(cQuery)
+			iif(Select(cAlias)>0,(cAlias)->(dbCloseArea()),Nil)
+			dbUseArea( .T., "TOPCONN", TCGENQRY(,,cQuery),cAlias, .F., .T.)
+	
+		#ELSE
+			MsSeek(xFilial("SF2")+cNotaIni+cSerie,.T.)
+		#ENDIF
+		
+		cWhere := "(F2_FORMUL == 'S' ) .And. !(Alltrim(F2_FLREMEL) $ 'E')"
+	
+
+	While !Eof() .And. xFilial("SF2") == (cAlias)->F2_FILIAL .And.;
+		(cAlias)->F2_SERIE == cSerie .And.;
+		(cAlias)->F2_DOC >= cNotaIni .And.;
+		(cAlias)->F2_DOC <= cNotaFim
+	
+		dbSelectArea(cAlias)
+		If ((cAlias)->F2_FORMUL=="S") .And. aScan(aNotas,{|x| x[3]+x[4]+x[7]==(cAlias)->F2_SERIE+(cAlias)->F2_DOC+(cAlias)->F2_ESPECIE})==0 
+			
+			SA1->(dbSetOrder(1))
+			SA1->(dbSeek(xFilial("SA1")+(cAlias)->F2_CLIENTE+(cAlias)->F2_LOJA))
+
+			lRemito := .F.
+			nPesoBA := 0
+			nPeso:=4500
+			nMonto:= 30000
+
+
+
+			//	If AllTrim(Upper(SM0->M0_ESTENT)) == "BA" .And. AllTrim(Upper((cAliasSF2)->F2_PROVENT)) == "BA"	//AllTrim(Upper(SA1->A1_MUN)) $ "BUENOS AIRES"
+		
+
+
+
+
+
+			If (cAlias)->F2_PLIQUI == 0 .And. (cAlias)->F2_PBRUTO == 0
+				nPesoBA := PesoSD2((cAlias)->F2_SERIE,(cAlias)->F2_DOC,(cAlias)->F2_CLIENTE,(cAlias)->F2_LOJA)
+			EndIf
+
+			aArea:=GetArea()
+
+			CCO->(DbSetOrder(1))
+			If  CCO->(DbSeek(xFilial("CCO")+(cAlias)->F2_PROVENT))
+				nPeso  :=CCO->CCO_PESCOT
+				nMonto :=CCO->CCO_MONCOT     
+			EndIf
+ 				
+
+			RestArea(aArea)
+			
+            nValor:=xMoeda((cAlias)->F2_VALBRUT,(cAlias)->F2_MOEDA,1)
+            
+			If nValor > nMonto .Or. (cAlias)->F2_PLIQUI > nPeso .Or. (cAlias)->F2_PBRUTO > nPeso .Or. nPesoBA > nPeso
+				lRemito := .T.
+			EndIf
+		
+
+
+
+
+
+			//	EndIf
+
+			If lRemito
+				IncProc("(1/2) "+STR0024+(cAlias)->F2_DOC)  //"Preparando nota: "
+		
+				If  &cWhere
+					aadd(aNotas,{})	
+					nX := Len(aNotas)
+		   			aadd(aNotas[nX],"0")
+					aadd(aNotas[nX],(cAlias)->F2_EMISSAO)
+					aadd(aNotas[nX],(cAlias)->F2_SERIE)
+					aadd(aNotas[nX],(cAlias)->F2_DOC)
+					aadd(aNotas[nX],(cAlias)->F2_CLIENTE)
+					aadd(aNotas[nX],(cAlias)->F2_LOJA)    
+					aadd(aNotas[nX],(cAlias)->F2_ESPECIE)
+					aadd(aNotas[nX],(cAlias)->F2_TIPO)
+				EndIf
+			EndIf
+		EndIf		
+		dbSelectArea(cAlias)
+		dbSkip()	
+	EndDo
+	If lQuery
+		dbSelectArea(cAlias)
+		dbCloseArea()
+		dbSelectArea("SF2")
+	EndIf
+EndIf		
+
+oWS := WSNFESLOC():New()	  
+oWs:cUserToken := "TOTVS"
+oWs:cID_ENT    := cIdEnt
+oWS:_URL       := AllTrim(cURL)+"/NFESLOC.apw"
+oWS:cModelo    := "5"
+oWs:OWSLOCNFE:OWSNOTASLOC :=  NFESLOC_ARRAYOFLOCNFES():New()
+
+For nX := 1 To Len(aNotas)
+		
+	IncProc("(2/2) "+STR0054+aNotas[nX][4])  //"Transmitindo XML da nota: "
+	     	
+	cXml :=""
+    
+	cXml :=ExecBlock("ArgRemCotXml",.F.,.F.,{cTipo,aNotas[nX][3],aNotas[nX][4],aNotas[nX][5],aNotas[nX][6]})
+	
+	nXmlSize2 := Len(cXml)
+	
+	If !Empty(cXml) .And. nXmlSize2 <= TAMMAXXML
+		If nXmlSize + Len(cXml) <= TAMMAXXML				
+			nXmlSize += Len(cXml)
+			nNFes++
+			aadd(oWs:OWSLOCNFE:OWSNOTASLOC:OWSLOCNFES,NFESLOC_LOCNFES():New())									
+			aadd(aRetNotas,aNotas[nX])
+			
+			oWs:OWSLOCNFE:OWSNOTASLOC:OWSLOCNFES[nX]:cID := aNotas[nX][3]+aNotas[nX][4]
+			oWs:OWSLOCNFE:OWSNOTASLOC:OWSLOCNFES[nX]:cXML:=cXml
+		Else
+			lRetorno := XMLRemessa(@oWs,@cErro,@aRetNotas,@nXmlSize,@aRemAcpt,cIdEnt,cURL)
+			If !lRetorno 
+				Exit 
+			EndIf
+			nX -- //- Diminui o contador para que seja pego a nota corrente 
+			Loop 
+		EndIF 
+	ElseIf !Empty(aXML[2]) .And. nXmlSize2 > TAMMAXXML
+		Aviso("REMe",STR0055+CRLF+CRLF+STR0056+aNotas[nX][4]+" / "+aNotas[nX][3],{STR0069},3)
+		nXmlSize2 := 0
+	EndIf
+	
+	If (( nX == Len(aNotas) .Or. nXmlSize>=TAMMAXXML) .And. nNFes > 0)
+		
+		lRetorno := XMLRemessa(@oWs,@cErro,@aRetNotas,@nXmlSize,@aRemAcpt,cIdEnt,cURL)
+		
+	EndIf
+Next nX	
+
+
+If lRetorno	
+	cRetorno := STR0031+CRLF //"Você concluíu com sucesso a transmissão do Protheus para o Totvs Services ARGN."
+	cRetorno += STR0032 +CRLF+CRLF //"Verifique se as notas foram autorizadas , utilizando a rotina 'Monitor'. Antes de imprimir 
+	cRetorno += STR0033+AllTrim(Str(nNFes,18))+STR0035+IntToHora(SubtHoras(dDataIni,cHoraIni,Date(),Time()))+CRLF+CRLF //"Foram transmitidas "###" remito(s) em "
+	if Len(aRemAcpt) > 0
+		cRetorno += STR0062+CRLF+CRLF //"Remitos Aceitos: "
+		for nI:= 1 to len(aRemAcpt)
+			cRetorno += aRemAcpt[nI]+CRLF+CRLF
+		next nI 
+	endif
+	if !Empty(cErro)
+		cErro := STR0058+CRLF+CRLF+cErro //"As notas abaixo foram recusadas, verifique os motivos: "	
+	endif			
+	cRetorno += cErro	
+Else
+	cRetorno := STR0030+CRLF+CRLF  //"Houve erro durante a transmissão para o Totvs Services ARGN."
+	cRetorno += cErro
+EndIf
+
+Eval(bFiltraBrw)
+RestArea(aArea)
+
+oWs := Nil
+DelClassIntf()
+
+Return(cRetorno)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ArgnRemCfg³ Autor ³Eduardo Riera          ³ Data ³18.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Configura o Totvs Services para a nota fiscal eletronica    ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ArgnRemCfg()
+
+Local oWizard
+Local cURL      := FindURL()
+Local cUserHttp := (PadR(GetNewPar("MV_COTUSER",Space(250)),250))
+Local cPassHttp := (PadR(GetNewPar("MV_COTPASS",Space(250)),250))
+
+Local aTexto    := {}
+Local aPerg     := {}
+Local aPerg2    := {}
+Local aParam    := {}
+Local aParam2   := {}
+Local cTpNfe    := ""
+
+
+If PswAdmin( /*cUser*/, /*cPsw*/,RetCodUsr()) == 0
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Montagem da Interface                                                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	aadd(aTexto,{})
+	aTexto[1] := STR0038+CRLF //"Esta rotina tem como objetivo ajuda-lo na configuração da integração com o Protheus com o serviço Totvs Services ARGN. "
+	aTexto[1] += STR0039 //"O primeiro passo é configurar a conexão do Protheus com o serviço."
+	
+	aadd(aTexto,{})
+	aTexto[2] :=  STR0040 //"Você concluíu com sucesso a configuração da integração do Protheus para o Totvs Services."
+	
+	DEFINE WIZARD oWizard ;
+		TITLE STR0041; //"Assistente de configuração da Nota Fiscal Eletrônica"
+		HEADER STR0042; //"Atenção"
+		MESSAGE STR0043;  //"Siga atentamente os passos para a configuração da nota fiscal eletrônica."
+		TEXT aTexto[1] ;
+		NEXT {|| .T.} ;
+		FINISH {||.T.}
+	
+	CREATE PANEL oWizard  ;
+		HEADER STR0041; //"Assistente de configuração da Nota Fiscal Eletrônica"
+		MESSAGE ""	;
+		BACK {|| .F.} ;
+		NEXT {|| IsReady(cURL,.T.)} ;
+		PANEL
+		
+	@ 010,010 SAY STR0044 SIZE 270,010 PIXEL OF oWizard:oMPanel[2]  //"Informe a URL do servidor Totvs Services"
+	@ 025,010 GET cURL SIZE 270,010 PIXEL OF oWizard:oMPanel[2]
+	
+	
+	CREATE PANEL oWizard  ;
+		HEADER STR0041; //"Assistente de configuração da Nota Fiscal Eletrônica"
+		MESSAGE ""	;
+		BACK {|| oWizard:SetPanel(2),.T.} ;
+		NEXT {|| CfgParamCot(cUserHttp,cPassHttp)} ; 
+		PANEL
+		
+	@ 010,010 SAY STR0052 SIZE 270,010 PIXEL OF oWizard:oMPanel[3]
+	@ 020,010 GET cUserHttp SIZE 080,010 PIXEL OF oWizard:oMPanel[3]
+                                                                    
+	@ 040,010 SAY STR0053 SIZE 270,010 PIXEL OF oWizard:oMPanel[3]
+	@ 050,010 GET cPassHttp SIZE 080,010 PIXEL OF oWizard:oMPanel[3] PASSWORD
+		
+	CREATE PANEL oWizard  ;
+		HEADER STR0041; //"Assistente de configuração da Nota Fiscal Eletrônica"
+		MESSAGE "";
+		BACK {|| oWizard:SetPanel(2),.T.} ;
+		FINISH {|| lOk := .T.} ;
+		PANEL
+	@ 010,010 GET aTexto[2] MEMO SIZE 270, 115 READONLY PIXEL OF oWizard:oMPanel[4]
+
+	ACTIVATE WIZARD oWizard CENTERED
+Else
+	Help( "", 1, "SEMPERM" )
+EndIf
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³IsReady   ³ Autor ³Eduardo Riera          ³ Data ³18.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Verifica se a conexao com a Totvs ARGN Services pode ser    ³±±
+±±³          ³estabelecida                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ExpC1: URL do Totvs Services ARGN                        OPC³±±
+±±³          ³ExpN2: nTipo - 1 = Conexao ; 2 = Certificado             OPC³±±
+±±³          ³ExpL3: Exibe help                                        OPC³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function IsReady(cURL,lHelp)
+
+Local oWS
+Local lRetorno := .t.
+
+DEFAULT lHelp := .F.
+
+
+If !Empty(cURL)
+	PutMV("MV_ARGREUR",cURL)
+EndIf   			    
+  
+DEFAULT cURL      := PadR(GetNewPar("MV_ARGREUR","http://"),250)
+SuperGetMv() //Limpa o cache de parametros - nao retirar
+
+//Verifica se o servidor do TSS está no AR
+If cIdEnt == Nil .Or. Empty(cIdEnt)
+	cIdEnt := GetIdEnt()		
+EndIf 
+
+oWs:= WSNFECFGLOC()():New()
+oWs:cUserToken := "TOTVS"
+oWS:cID_ENT       := cIdEnt 
+oWS:_URL := AllTrim(cURL)+"/NFECFGLOC.apw"
+If oWs:LOCCONNECT()
+	lRetorno := .T.
+Else
+	If lHelp
+		Aviso("REMe",IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3)),{STR0069},3)
+	EndIf
+	lRetorno := .F.
+EndIf
+
+Return(lRetorno)
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³GetIdEnt  ³ Autor ³Eduardo Riera          ³ Data ³18.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Obtem o codigo da entidade apos enviar o post para o Totvs  ³±±
+±±³          ³Service                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³ExpC1: Codigo da entidade no Totvs Services                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetIdEnt()
+
+Local aArea  := GetArea()
+Local cIdEnt := ""
+Local cURL        := FindURL()
+Local oWs
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄJÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Obtem o codigo da entidade                                              ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+oWs:=WSNFECFGLOC():New() 
+oWS:cUSERTOKEN := "TOTVS"
+oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"	
+oWs:oWSEMPRESA:cCUIT       := IIF(SM0->M0_TPINSC==2 .Or. Empty(SM0->M0_TPINSC),SM0->M0_CGC,"")	
+oWS:oWSEMPRESA:cCODFIL 	   := SM0->M0_CODFIL
+oWS:oWSEMPRESA:cINSCRPROVI := SM0->M0_INSC		
+oWS:oWSEMPRESA:cNOME       := SM0->M0_NOMECOM
+oWS:oWSEMPRESA:cFANTASIA   := SM0->M0_NOME
+oWS:oWSEMPRESA:cENDERECO   := FisGetEnd(SM0->M0_ENDENT)[1]
+oWS:oWSEMPRESA:cNUM        := FisGetEnd(SM0->M0_ENDENT)[3]
+oWS:oWSEMPRESA:cCOMPL      := FisGetEnd(SM0->M0_ENDENT)[4]
+oWs:oWSEMPRESA:cCODPROVINC := SM0->M0_ESTENT  // pegar codigo
+oWS:oWSEMPRESA:cCP         := SM0->M0_CEPENT
+oWS:oWSEMPRESA:cCOD_PAIS   := "063"               
+oWS:oWSEMPRESA:cBAIRRO     := SM0->M0_BAIRENT
+oWS:oWSEMPRESA:CNUM        := SM0->M0_CIDENT        
+oWs:oWSEMPRESA:cREGMUN     := ""  // rEGIME mUN
+oWs:oWSEMPRESA:cDDN        := Str(FisGetTel(SM0->M0_TEL)[2],3)
+oWS:oWSEMPRESA:cFONE       := AllTrim(Str(FisGetTel(SM0->M0_TEL)[3],15))
+oWS:oWSEMPRESA:cFAX        := AllTrim(Str(FisGetTel(SM0->M0_FAX)[3],15))
+oWS:oWSEMPRESA:cEMAIL      := UsrRetMail(RetCodUsr())                                      
+//oWS:oWSEMPRESA:cDESCPROVINC 	:= "BA"//SA1->A1_
+oWS:_URL := AllTrim(cURL)+"/NFECFGLOC.apw"
+
+If  oWS:ADMEMPLOC()
+	cIdEnt  := oWS:CADMEMPLOCRESULT
+Else
+	Aviso("NFEE",IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3)),{STR0069},3)
+EndIf
+
+RestArea(aArea)
+Return(cIdEnt)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ARGNNFe1Mn³ Autor ³Eduardo Riera          ³ Data ³21.06.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Rotina de monitoramento da NFe - por faixa                  ³±±
+±±³          ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ 27/03/09 ³ Adalberto     ³A rotina ARGNRem6Mnt antiga ARGNRem1Mnt,sera³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´chamada tanto pelo fonte ARGNNFE quando pelo³±±
+±±³                          ³TMSA200. Quando a rotina eh chamada pelo    ³±±
+±±³                          ³ARGNNFE, a funcao recebe internamente os    ³±±
+±±³                          ³parametros:cAlias, nReg, nOpc, aStruct e re-³±±
+±±³                          ³cebe de forma explicita os parametros:      ³±±
+±±³                          ³cSerie,cNotaIni,cNotaFim,da pelo TMSA200.	-³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ARGNRem1Mnt()
+	ARGNRem6Mnt()   // desenvolver
+Return
+
+Function ARGNRem6Mnt(cSerie,cNotaIni,cNotaFim)
+
+Local aPerg    := {}
+Local aParam   := {Space(Len(SF2->F2_SERIE)),Space(Len(SF2->F2_DOC)),Space(Len(SF2->F2_DOC))}
+Local aSize    := {}
+Local aObjects := {}
+Local aListBox := {}
+Local aInfo    := {}
+Local aPosObj  := {}
+Local oWS
+Local oDlg                           
+Local oListBox
+Local oBtn1
+Local oBtn2
+Local oBtn3
+Local oBtn4
+Local oBtn5
+Local cParNfeRem := SM0->M0_CODIGO+SM0->M0_CODFIL+"Monit_Remito_Elec"
+Local lOK        := .F.
+
+Default cSerie   := ''
+Default cNotaIni := ''
+Default cNotaFim := ''
+
+aadd(aPerg,{1,STR0020,aParam[01],"",".T.","01",".T.",30,.F.}) //"Série do Remito"
+aadd(aPerg,{1,STR0021,aParam[02],"",".T.","",".T.",50,.T.})   //"Remito inicial"
+aadd(aPerg,{1,STR0022,aParam[03],"",".T.","",".T.",50,.T.})   //"Remito final"
+
+aParam[01] := ParamLoad(cParNfeRem,aPerg,1,aParam[01])
+aParam[02] := ParamLoad(cParNfeRem,aPerg,2,aParam[02])
+aParam[03] := ParamLoad(cParNfeRem,aPerg,3,aParam[03])
+
+If IsReady() 
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Obtem o codigo da entidade                                              ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+	If cIdEnt == Nil .Or. Empty(cIdEnt)
+		cIdEnt := GetIdEnt()		
+	EndIf 
+	
+	If !Empty(cIdEnt)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Instancia a classe                                                      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty(cIdEnt)
+			
+			lOK        := ParamBox(aPerg,"ARG - REMe",@aParam,,,,,,,cParNfeRem,.T.,.T.)
+						
+			If (lOK)
+				aListBox := WsNFeMnt(cIdEnt,1,aParam)
+				
+				If !Empty(aListBox)
+					aSize := MsAdvSize()
+					aObjects := {}
+					AAdd( aObjects, { 100, 100, .t., .t. } )
+					AAdd( aObjects, { 100, 015, .t., .f. } )
+				
+					aInfo := { aSize[ 1 ], aSize[ 2 ], aSize[ 3 ], aSize[ 4 ], 3, 3 }
+					aPosObj := MsObjSize( aInfo, aObjects )
+											
+					DEFINE MSDIALOG oDlg TITLE "ARG - REMe" From aSize[7],0 to aSize[6],aSize[5] OF oMainWnd PIXEL
+					
+					@ aPosObj[1,1],aPosObj[1,2] LISTBOX oListBox Fields HEADER "", "NF",STR0063,STR0064,STR0065,STR0075,STR0066,STR0067; //"Ambiente"###"Chave"###"Autorização"###"Comprovante"###"Recomendação"###"Nome Arq."
+						SIZE aPosObj[1,4]-aPosObj[1,2],aPosObj[1,3]-aPosObj[1,1] PIXEL
+					oListBox:SetArray( aListBox )
+					oListBox:bLine := { || { aListBox[ oListBox:nAT,1 ],aListBox[ oListBox:nAT,2 ],aListBox[ oListBox:nAT,3 ],aListBox[ oListBox:nAT,4 ],aListBox[ oListBox:nAT,5 ],aListBox[ oListBox:nAT,11 ],aListBox[ oListBox:nAT,6 ],aListBox[ oListBox:nAT,7 ]} }
+					
+					@ aPosObj[2,1],aPosObj[2,4]-040 BUTTON oBtn1 PROMPT STR0069   	 	ACTION oDlg:End() OF oDlg PIXEL SIZE 035,011 //"OK"
+					@ aPosObj[2,1],aPosObj[2,4]-080 BUTTON oBtn2 PROMPT STR0076 		ACTION (aListBox := WsNFeMnt(cIdEnt,1,aParam),oListBox:nAt := 1,IIF(Empty(aListBox),oDlg:End(),oListBox:Refresh())) OF oDlg PIXEL SIZE 035,011 //"Refresh"
+					@ aPosObj[2,1],aPosObj[2,4]-120 BUTTON oBtn3 PROMPT STR0077 		ACTION (RemViewXml(aListBox[ oListBox:nAT,2 ], aListBox[ oListBox:nAT,8 ],aListBox[ oListBox:nAT,9 ])) OF oDlg PIXEL SIZE 035,011 //"Ver Xml"
+					@ aPosObj[2,1],aPosObj[2,4]-160 BUTTON oBtn4 PROMPT STR0078			ACTION (RemViewTxt(cIdEnt,aListBox[ oListBox:nAT,7 ])) OF oDlg PIXEL SIZE 035,011 //"Ver Arq.TXT"
+					@ aPosObj[2,1],aPosObj[2,4]-200 BUTTON oBtn5 PROMPT STR0079			ACTION (VisMsgErr(aListBox[ oListBox:nAT,10 ])) OF oDlg PIXEL SIZE 035,011 //"Mensagem"
+				
+					ACTIVATE MSDIALOG oDlg			
+	   	 
+				EndIf
+				
+			EndIf
+		EndIf
+	Else
+		Aviso("NFEE",STR0019,{STR0069},3)	 //"Ok"
+	EndIf
+Else
+	Aviso("NFEE",STR0019,{STR0069},3) //"Ok"
+EndIf
+
+DelClassIntf()
+Return
+
+Static Function WsNFeMnt(cIdEnt,nModelo,aParam)
+
+Local aListBox := {}
+Local aMsg     := {}
+Local nX       := 0
+Local nY       := 0
+Local cURL        := FindURL()
+Local lOk      := .T.
+Local oOk      := LoadBitMap(GetResources(), "ENABLE")
+Local oNo      := LoadBitMap(GetResources(), "DISABLE") 
+Local oWS
+Local oRetorno
+
+Local cErro	:=""
+Local cAviso	:=""
+
+Private oXMLERROS
+Private oXMLERRO
+Private oRetRem
+
+oWS:= WSNFESLOC():New()                   
+oWS:cUSERTOKEN    := "TOTVS"
+oWS:cID_ENT       := cIdEnt 
+oWS:_URL          := AllTrim(cURL)+"/NFESLOC.apw"
+oWS:cMODELO       := "5"
+oWS:cIdInicial    := aParam[01]+aParam[02]
+oWS:cIdFinal      := aParam[01]+aParam[03]
+lOk := oWS:MONITORREMITO()
+
+If (lOk)
+	
+	oRetorno := oWs:oWSMONITORREMITORESULT
+	
+	SF2->(dbSetorder(1))
+	For nX := 1 To Len(oRetorno:OWSRETIDARRAY:OWSMONITORRET)
+		
+		aMsg      := {}
+  		oXMLERROS := Nil 
+  		oXmlErro  := NIl
+  		
+  		oRetRem := oRetorno:OWSRETIDARRAY:OWSMONITORRET[Nx]
+  		
+  		if !Empty(oRetRem:CXMLRETERRO) //Caso exista msg de erro leva as informações para a mensagem  			
+  			
+  			oXMLERROS := XmlParser(EncodeUTF8(oRetRem:CXMLRETERRO),"_",@cErro,@cAviso) 
+  			
+  			if type("oXMLERROS:_REMITOERROS:_ERRO") == "A"
+  				oXmlErro := oXMLERROS:_REMITOERROS:_ERRO
+  			else
+   				oXmlErro := {oXMLERROS:_REMITOERROS:_ERRO}
+  			endif   			
+  			
+  			for ny := 1 to  len(oXmlErro)
+	  			
+	  			aadd(aMsg,{oRetRem:CID,;
+	  				oXmlErro[ny]:_DESC_ERRO_RET:TEXT,;
+	  				oXmlErro[nY]:_COD_ERRO_RET:TEXT})
+	  			
+		 	next ny	
+  		endif
+  		  			
+		//"", "NF",STR0063,STR0064,STR0065,STR0066,STR0067,STR0075; //"Ambiente"###"Chave"###"Autorização"###"Recomendação"###"Nome Arq."###"Comprovante"
+					
+		aadd(aListBox,{ IIf(oRetRem:cSTATUS <> '3',oNo,oOk),;
+   				  		oRetRem:CID,;
+   				  		IIf(oRetRem:nAMBIENTE==1,STR0048,STR0068),;//"Produção"###"Homologação"
+   				  		oRetRem:CCHV_REMITO,;
+   				  		oRetRem:CAUT,;
+   				  		PadR(oRetRem:CRECOMENDACAO,100),;
+   				  		PadR(oRetRem:CARQNAME,50),;
+   				  		oRetRem:CXMLRETAUTH,; 
+   				  		oRetRem:CXMLRETERRO,;
+	  					aMsg,;
+	  					oRetRem:cCOMP,;
+	  					oRetRem:cSTATUS})
+	  					
+	  					//STATUS POSSIVEIS RETORNADO PELO TSS
+	  					//1 - "001 - Remito recebido, aguarde montagem do arquivo de lote e transmissão"
+						//2 - "002 - Remito inserido no arquivo de lote, aguarde transmissão"
+						//3 - "003 - Remito transmitido e autorizado"
+						//4 - "004 - Remito transmitido e rejeitado, consulte xml de erro"
+
+			 		
+		RemAtuBsCot(cIdEnt,aListBox[nX])		
+    Next nX
+Else
+	Aviso("REMe",IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3)),{STR0069},3) //"Ok"
+EndIf      
+Return(aListBox)
+
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ARGNRSeLeg³Autor  ³ Cleber Stenio         ³ Data ³16.09.2009 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³Demonstra a legenda das cores da mbrowse                     ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Nenhum                                                       ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Esta rotina monta uma dialog com a descricao das cores da    ³±±
+±±³          ³Mbrowse.                                                     ³±±
+±±³          ³                                                             ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Materiais                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function ARGNRSeLeg()
+Local aLegenda := {}
+aCores    :=	{{"F1_FLFTEX == ' '",'DISABLE'},;	
+				 {"F1_FLFTEX == 'S'",'ENABLE'},;
+				 {"F1_FLFTEX == 'E'",'BR_AZUL'},;
+				 {"F1_FLFTEX == 'M'",'BR_PRETO'}}	
+
+Aadd(aLegenda, {"ENABLE"    ,STR0009}) 
+Aadd(aLegenda, {"DISABLE"   ,STR0010}) 
+Aadd(aLegenda, {"BR_AZUL"   ,STR0011}) 
+Aadd(aLegenda, {"BR_PRETO"  ,STR0012})	
+BrwLegenda(cCadastro,STR0013,aLegenda) 
+Return(.T.)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FindURL
+Função que retorna a URL configurada no ERP pelo usuário, e gravada
+no SX6
+
+@param 
+
+
+@return cRetURL		Retorna a URL do TSS configurada no SX6 do Prothes
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------                                           			
+Static Function FindURL()
+
+Local cRetURL := ""
+
+cRetURL := (PadR(GetNewPar("MV_ARGREUR","http://"),250))		
+
+Return cRetURL
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} CfgParamCot
+Funcao responsável por configurar os parânmetros do COT no TSS,
+e criar os parâmetros necessários no SX6.
+
+@param	cUser		Usuário para comuicação com o HTTP do COT 		  
+@param	cPass		Senha do usuário para comunicação HTTP do COT
+@param	cPlanta		Número da planta para geração do arquivo do COT
+@param	cPorta		Número da porta para geração do arquivo do COT
+
+@return lRetorno	Retorna .T. quando a comunicação com TSS for feita com sucesso
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------       
+Static Function CfgParamCot(cUser,cPass,cPlanta,cPorta)
+
+local lRetorno := .T.
+
+local ows := Nil
+local cURL			:= FindURL()
+
+If cIdEnt == Nil .Or. Empty(cIdEnt)
+	cIdEnt := GetIdEnt()				
+EndIf 
+
+//Cria parâmetros caso não existam:
+
+If !Empty(cUser)
+	PutMV("MV_COTUSER",cUser)
+EndIf
+
+If !Empty(cPass)
+	PutMV("MV_COTPASS",cPass)
+EndIf
+
+If !Empty(cPlanta)
+	PutMV("MV_COTPLAN",cPlanta)
+EndIf
+
+If !Empty(cPorta)
+	PutMV("MV_COTPORT",cPorta)
+EndIf
+
+default cUser		:= GetNewPar("MV_COTUSER","")
+default cPass		:= GetNewPar("MV_COTPASS","")
+default cPlanta	:= GetNewPar("MV_COTPLAN","")
+default cPorta	:= GetNewPar("MV_COTPORT","")
+
+oWS :=  WSNFECFGLOC():New()
+oWS:cUSERTOKEN := "TOTVS"
+oWS:cID_ENT    := cIdEnt
+oWS:cPUERTA  	 := cPorta
+oWS:cPlanta    := cPlanta
+oWS:cUSER		 := cUser
+oWS:cPass      := cPass
+oWS:cModelo    := "5" //Modelo do Remito ElecTronico
+oWS:_URL       := AllTrim(cURL)+"/NFECFGLOC.apw"
+
+if !oWs:CFGPARAMLOC()
+	
+	Aviso("REMe",IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3)),{STR0069},3)//"Ok"
+		
+	lRetorno := .F.
+
+endif	
+	
+return(lRetorno)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} XMLRemessa
+Funcao responsavel pela envio do XML ao TSS
+
+@param oWs			Objeto do WebService
+@param cErro		Variavel de referencia para retornar o erro
+@param aRetNotas	Array dos documentos a serem atualizados
+@param nXmlSize	Len do XML já montado	
+@param aRemAcpt	Referência para informar as notas aceitas
+@param cIdEnt		Codigo da Entidade no TSS
+@param cURL		URL do TSS.
+
+
+@return lRetorno	Retorna .T. quando a comunicação com TSS for feita com sucesso
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function XMLRemessa(oWs,cErro,aRetNotas,nXmlSize,aRemAcpt,cIdEnt,cURL)
+Local nY
+Local nZ	
+
+Local lRetorno := .T.
+Local lGrvSucess := .T.
+
+Local cIDRemito := ""
+Local cErroPrs  := ""
+Local cAvisoPrs := ""
+
+private oXMlRet
+
+If nXmlSize>0 .And. oWs:REMESSAREMITO()
+	
+	For nY := 1 To Len(oWs:oWSREMESSAREMITORESULT:oWSXMLID:cBASE64BINARY)
+		
+		oXMlRet := XmlParser(oWs:oWSREMESSAREMITORESULT:oWSXMLID:cBASE64BINARY[nY],"_",@cErroPrs,@cAvisoPrs)
+		
+		cIDRemito := oXMlRet:_RESPREMESSAREMITO:_CID:TEXT
+	
+		nZ := aScan(aRetNotas,{|x| x[3]+x[4] == cIDRemito})		
+				
+		if oXMlRet:_RESPREMESSAREMITO:_GRV_STATUS:TEXT == "1"
+			lGrvSucess := .T.
+			aadd(aRemAcpt,cIDRemito)			
+		else
+			lGrvSucess := .F.
+			cErro += Replicate("=",60)
+			cErro += STR0060+ aRetNotas[nY][4] + "/" + aRetNotas[nZ][3]+CRLF+CRLF //"Remito/Serie - "
+			cErro += STR0061+oXMlRet:_RESPREMESSAREMITO:_GRV_MSG:TEXT+CRLF+CRLF //"Mensagem de erro: "
+			cErro += Replicate("=",60)
+		endif			
+		
+		SF2->( dbSetOrder(1) )		
+ 		If SF2->( dbSeek(xFilial("SF2")+aRetNotas[nY][4]+aRetNotas[nY][3]+aRetNotas[nY][5]+aRetNotas[nY][6] ) ) .And. SF2->F2_FLREMEL $ "M, "
+			SF2->(RecLock("SF2"))
+			SF2->F2_FLREMEL := IIF(lGrvSucess,"S","M")
+			SF2->(MsUnlock())								
+		EndIf
+	Next nY
+	
+	If ExistBlock("FISENVREM")
+		ExecBlock("FISENVREM",.F.,.F.,{oWs:oWSREMESSAREMITORESULT:oWSXMLID:cBASE64BINARY})
+	EndIf
+	
+	oWS := WSNFESLOC():New()	  
+	oWs:cUserToken := "TOTVS"
+	oWs:cID_ENT    := cIdEnt
+	oWS:_URL       := AllTrim(cURL)+"/NFESLOC.apw"
+	oWs:OWSLOCNFE:OWSNOTASLOC :=  NFESLOC_ARRAYOFLOCNFES():New()
+	nTotNF := 0
+	nXmlSize := 0
+	aRetNotas := {}
+Else
+	cErro := IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3))
+	if !Empty(cErro) .And. ("100" $ cErro .And. "SCHEMA" $ UPPER(cErro) )
+		cErro := STR0059+CRLF+CRLF+cErro //"Nenhum documento transmitido, rejeição de Schema do Totvs Service SPED, verifique as mensagens abaixo para solução: "
+	endif
+	DEFAULT cErro := STR0057 //"Erro indeterminado"
+	lRetorno := .F.
+EndIf
+
+oXMlRet := Nil
+
+Return lRetorno
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RemRecXml
+Exibe em um DIalog o XML de ERRO e Autorização
+
+@param cIdRemito	Id do Remito
+@param cXmlAuth		Variavel com o XML de Autorização
+@param cXMLErro		Variável com o XML de Erro
+
+@return
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function RemViewXml(cIdRemito,cXMLAuth,cXMLErro)
+
+Local	oDlg
+Local 	oSayAuth		
+Local 	oSayErro		
+Local 	oGetAuth		
+Local 	oGetErro		
+Local	oFont		:=	TFont ():New ("Arial",, 15,, .F.) 
+Local	oFontB		:=	TFont ():New ("Arial",, 15,, .T.)
+
+DEFINE MSDIALOG oDlg FROM 000,000 TO 325, 416 TITLE STR0072+": "+cIdRemito PIXEL
+//
+@005, 005 SAY oSayAuth VAR STR0070 SIZE 205, 010 FONT oFontB OF oDlg PIXEL COLOR CLR_RED
+@015, 005 GET oGetAuth VAR cXMLAuth OF oDlg MEMO SIZE 199, 055 FONT oFont PIXEL READONLY //NOBORDER
+//
+@075, 005 SAY oSayErro VAR STR0071 SIZE 205, 010 FONT oFontB OF oDlg PIXEL COLOR CLR_RED
+@085, 005 GET oGetErro VAR cXMLErro OF oDlg MEMO SIZE 199, 055 FONT oFont PIXEL READONLY //NOBORDER
+//
+DEFINE SBUTTON oBtOk FROM 145, 180 TYPE 1 ACTION (lRet := .T., oDlg:End ()) ENABLE OF oDlg
+//
+ACTIVATE MSDIALOG oDlg CENTERED
+
+return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RemViewTxt
+Função que exibe o TXT na tela para o usuário vizualizar
+
+@param cIdRemito	ID da Entidade
+@param cNameArq		Nome do arquivo desejado
+
+@return
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function RemViewTxt (cIdEnt,cNameArq)
+
+local cArtTxt := "" 
+
+if !empty( cNameArq )
+	if RemGetTxt(cIdEnt,cNameArq,@cArtTxt)
+		if !empty( cArtTxt )
+			Aviso(STR0074,cArtTxt,{STR0069},3)//"REMe - Arquivo de Lote TXT - COT"##"Ok"			
+		else
+			Aviso("REMe",IIf(Empty(GetWscError(3)),GetWscError(1),GetWscError(3)),{STR0069},3)//"Ok"
+		endif	
+	endif
+else
+	Aviso("REMe",STR0073,{STR0069},3)//"Ok"	
+endif
+
+return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RemGetTxt
+Função que busca o TXT de envio do COT no TSS
+
+@param cIdEnt		Id da entidade no TSS
+@param cNameArq		Nome do Arquivo desejado
+@param cArqTxt		Refrência que irá receber o arquivo.
+@param dEnvLote		Refrência data do envio do lote
+@param dGerLote		Refrência data de geração do lote.
+@param cTLote		Refrência hora de envio do lote.
+@param cTGerLote	Refrência hora de geração do lote.
+@param cXmlAut		Refrência Xml de autorização modelo TSS
+@param cXmlRet		Refrência XML de retorno da propria ARBA.
+
+
+@return lOk			.T. se o metodo for chamado com sucesso, e 
+					retornar o arquivo.
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function RemGetTxt(cIdEnt,cNameArq,cArqTxt,dEnvLote,dGerLote,cTLote,cTGerLote,cXmlAut,cXmlErr,cXmlRet)
+
+local cUrl 		:= FindURL()
+
+local lOk 		:= .T.
+
+local oWs                                 
+
+default	cArqTxt		:= ""
+default	cTLote		:= ""
+default	cTGerLote	:= ""
+default	cXmlAut		:= ""
+default	cXmlErr		:= ""
+default	cXmlRet		:= ""
+
+default	dEnvLote	:= CTOD("  /  /  ")
+default	dGerLote	:= CTOD("  /  /  ") 
+
+oWS := WSNFESLOC():New()	  
+oWs:cUserToken := "TOTVS"
+oWs:cID_ENT    := cIdEnt
+oWS:_URL       := AllTrim(cURL)+"/NFESLOC.apw"
+oWS:cModelo    := "5"                                     
+
+
+if !empty(cNameArq)
+	oWS:cNAMEARQ    := Alltrim(cNameArq)
+	lOk := oWs:RETARQLOTEREMITO()
+	
+	if lOk
+		cArqTxt 	:= oWS:OWSRETARQLOTEREMITORESULT:CTXTLOTE 
+		dEnvLote	:= oWS:OWSRETARQLOTEREMITORESULT:dDATEENVLOTE
+		dGerLote	:= oWS:OWSRETARQLOTEREMITORESULT:dDATEGERLOTE
+		cTLote		:= oWS:OWSRETARQLOTEREMITORESULT:cTIMEENVLOTE
+		cTGerLote	:= oWS:OWSRETARQLOTEREMITORESULT:cTIMEGERLOTE
+		cXmlAut		:= oWS:OWSRETARQLOTEREMITORESULT:cXMLAUT
+		cXmlErr		:= oWS:OWSRETARQLOTEREMITORESULT:cXMLERR
+		cXmlRet		:= oWS:OWSRETARQLOTEREMITORESULT:cXMLRET
+	endif
+endif
+  
+oWS	:=Nil
+
+Return(lOk)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RemAtuBsCot
+Função que atualiza a base de dados do ERP com o retorno do monitor
+do TSS.
+
+@param cIdEnt		ID da enteidade do TSS
+@param aDadosMnt	Dados do Monitor
+
+@return 
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function RemAtuBsCot(cIdEnt,aDadosMnt)
+
+local cSeek		:= ""
+local cFlag		:= ""
+
+local aAliasAtu	:= GetArea()
+
+local dEnvLote
+
+cSeek:= aDadosMnt[2]
+cSeek:=SubStr(cSeek,TamSX3("F2_SERIE")[1]+1,TamSX3("F2_DOC")[1])+SubStr(cSeek,1,TamSX3("F2_SERIE")[1])
+
+//STATUS POSSIVEIS RETORNADO PELO TSS
+//1 - "001 - Remito recebido, aguarde montagem do arquivo de lote e transmissão"
+//2 - "002 - Remito inserido no arquivo de lote, aguarde transmissão"
+//3 - "003 - Remito transmitido e autorizado"
+//4 - "004 - Remito transmitido e rejeitado, consulte xml de erro"
+
+
+SF2->(dbSetOrder(1))
+
+If SF2->( dbSeek(xFilial("SF2")+cSeek) ) .And. aDadosMnt[12] $ "3,4"
+	if aDadosMnt[12] $ "3
+		cFlag	:= "E"
+	else
+		cFlag	:= "M"	
+	endif	
+	
+	if SF2->F2_FLREMEL <> cFlag .And. empty(SF2->F2_COMCOT)
+		RecLock("SF2")	 	
+	 	if cFlag == "E"
+		 	SF2->F2_COMCOT 		:= aDadosMnt[11]
+			SF2->F2_AUTHCOT    	:= aDadosMnt[05]
+			if RemGetTxt(cIdEnt,aDadosMnt[07],,@dEnvLote) .And. !empty(dEnvLote)
+				SF2->F2_ENVCOT	:= dEnvLote
+			endif 
+		endif	
+		SF2->F2_FLREMEL	 	:= cFlag		
+		MsUnlock()
+	endif	
+endif
+
+RestArea(aAliasAtu)
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} RemVldUpd
+Função que valida se o updfloc foi rodado corretamente e todos os
+campos necessários foram criados.
+
+@param aMsg			Array com as mensagens de erro.
+
+@return 
+
+@author  Rafael Iaquinto 
+@since   15/01/2013
+@version 11.5
+/*/
+//-------------------------------------------------------------------
+Static Function VisMsgErr( aMsg ) 
+
+Local aSize    := MsAdvSize()
+Local aObjects := {}
+Local aInfo    := {}
+Local aPosObj  := {}
+Local oDlg
+Local oListBox
+Local oBtn1
+                                                 		
+If !Empty(aMsg)
+	AAdd( aObjects, { 100, 100, .t., .t. } )
+	AAdd( aObjects, { 100, 015, .t., .f. } )
+	aInfo := { aSize[ 1 ], aSize[ 2 ], aSize[ 3 ], aSize[ 4 ], 3, 3 }
+	aPosObj := MsObjSize( aInfo, aObjects )
+	
+	DEFINE MSDIALOG oDlg TITLE "REMe" From aSize[7],0 to aSize[6],aSize[5] OF oMainWnd PIXEL
+	@ aPosObj[1,1],aPosObj[1,2] LISTBOX oListBox Fields HEADER STR0080,STR0081,STR0082; //"NF"###"Codigo do Erro"###"Descrição do Erro"
+						SIZE aPosObj[1,4]-aPosObj[1,2],aPosObj[1,3]-aPosObj[1,1] PIXEL
+	oListBox:SetArray( aMsg )
+	oListBox:bLine := { || { aMsg[ oListBox:nAT,1 ],aMsg[ oListBox:nAT,3 ],aMsg[ oListBox:nAT,2 ]} }
+	@ aPosObj[2,1],aPosObj[2,4]-030 BUTTON oBtn1 PROMPT STR0069         ACTION oDlg:End() OF oDlg PIXEL SIZE 028,011//Ok""
+	ACTIVATE MSDIALOG oDlg
+EndIf
+Return(.T.)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PesoSD2
+Função que retorna a soma dos pesos totais da tabela SD2 da nota.
+/*/
+//-------------------------------------------------------------------
+Static Function PesoSD2(cSerie,cNota,cCliente,cLoja)
+
+Local nPeso	:= 0
+Local aArea	:= GetArea()
+
+SD2->(dbSetOrder(3))
+SD2->(dbSeek(xFilial("SD2")+cNota+cSerie+cCliente+cLoja))
+While !SD2->(Eof()) .And. SD2->(D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA) == xFilial("SD2")+cNota+cSerie+cCliente+cLoja
+	nPeso += SD2->D2_PESO
+	SD2->(dbSkip())
+EndDo
+
+RestArea(aArea)
+
+Return nPeso

@@ -1,0 +1,285 @@
+#INCLUDE "APDR030.CH"
+#INCLUDE "Protheus.ch"
+#DEFINE CHRCOMP If(aReturn[4]==1,15,18)
+
+/*/{Protheus.doc} APDR030
+Ranking Performance por Avaliado
+@author  Eduardo Ju
+@since   21/07/2006
+@history 14/11/2007, Eduardo Ju, Atualizacao da PrintReport()
+@history 04/07/2014, Cecilia C., TPZWHD - Incluido o fonte da 11 para a 12 e efetuada a limpeza.
+@history 03/04/2017, Oswaldo L., DRHPONTP-13 - Projeto cTree
+@history 24/05/2017, Oswaldo L., DRHPONTP-219 - criar novo filtro em tela
+@history 01/02/2019, Cícero A. , DRHGCH-7274 - Compatibilização da alteração anterior para a versão 12
+/*/
+Function APDR030()
+	
+	Local oReport
+	Local aArea := GetArea()
+	
+	Private oTmpTRB
+	
+	// Carrega as perguntas selecionadas
+	pergunte("APD30R", .F.)
+	
+	oReport := ReportDef()
+	oReport:PrintDialog()
+	RestArea( aArea )
+	
+Return
+
+/*/{Protheus.doc} ReportDef
+Definicao do Componente de Impressão do Relatorio
+@author  Eduardo Ju
+@since   19/04/2006
+@see http://tdn.totvs.com/x/vonlG	Documentação TReport
+@see http://tdn.totvs.com/x/OeMdGQ	Documentação TRCell
+/*/
+Static Function ReportDef()
+	
+	Local oReport
+	Local oSection1
+	Local oSection2
+	Local cAliasCC	:= "CTT"
+	Local cCpoCC	:= "CTT_DESC01"
+	
+	// Criacao do componente de impressao
+	oReport := TReport():New("APDR030", STR0001, "APD30R", {|oReport| PrintReport(oReport, cAliasCC, cCpoCC)}, STR0001 + " " + STR0012 )	//"Ranking Performance por Avaliado"#"Será impresso de acordo com os parametros solicitados pelo usuario"
+	
+	Pergunte("APD30R", .F.)
+	oReport:SetTotalInLine(.F.) //Totaliza em linha
+	
+	// Criacao da Primeira Seção: Avaliacao
+	oSection1 := TRSection():New(oReport, STR0004, {"RDD", "RDB", "RD6", "RD5"}, /*aOrdem*/, /*Campos do SX3*/, /*Campos do SIX*/)	//"Avaliacao"
+	oSection1:SetTotalInLine(.F.)
+	TRCell():New(oSection1, "RDD_CODAVA", "RDD", STR0004)	//Codigo da Avaliacao
+	TRCell():New(oSection1, "RD6_DESC", "RD6",,, 40)		//Descricao da Avaliacao
+	TRCell():New(oSection1, "RDD_CODTIP", "RDD", "Tipo")	//Codigo do Tipo da Avaliacao
+	TRCell():New(oSection1, "RD5_DESC", "RD5",,, 40)		//Descricao do Tipo da Avaliacao
+	TRCell():New(oSection1, "RDB_CODMOD", "RDB", STR0014)	//Codigo do Modelo de Avaliacao
+	TRCell():New(oSection1, "RD3_DESC", "RD3",,, 40)		//Descricao do Modelo de Avaliacao
+	
+	// Criacao da Segunda Seção: Avaliado
+	oSection2 := TRSection():New(oSection1, STR0008, {"RDD", "RDB", "RD0", "SRA", "SQ3"}, /*aOrdem*/, /*Campos do SX3*/, /*Campos do SIX*/)	//"Avaliado"
+	oSection2:SetTotalInLine(.F.)
+	TRCell():New(oSection2, "RDD_CODADO", "RDD")	//Codigo do Avaliado
+	TRCell():New(oSection2, "RD0_NOME", "RD0",)		//Nome do Avaliado
+	TRCell():New(oSection2, "RA_CARGO", "SRA",,,,, {|| EntGetInfo("SRA", "RA_CARGO", RD0->RD0_CODIGO) })	//Cargo do Avaliado
+	TRCell():New(oSection2, "Q3_DESCSUM", "SQ3",,,,, {|| FDesc("SQ3", EntGetInfo("SRA", "RA_CARGO", RD0->RD0_CODIGO), "Q3_DESCSUM")})	//Descricao do Cargo do Avaliado
+	TRCell():New(oSection2, "RA_CC", "SRA",,,,, {|| EntGetInfo("SRA", "RA_CC", RD0->RD0_CODIGO) })	//Centro de Custo do Avaliado
+	TRCell():New(oSection2, "CTT_DESC01", "CTT",,,,, {|| FDesc(cAliasCC, EntGetInfo("SRA", "RA_CC", RD0->RD0_CODIGO), cCpoCC)})	//Descricao do Centro de Custo
+	TRCell():New(oSection2, "RDB_RESOBT", "RDB",,,,, {|| TRB->TR_RESULT})  //Resultado da Questao
+	
+Return oReport
+
+/*/{Protheus.doc} PrintReport
+Impressão do Relatorio (Resultado Global)
+@author  Eduardo Ju
+@since   19/07/2006
+@param   oReport, Objeto, instância da classe TReport
+@param   cAliasCC, Caractere, Alias da tabela de centro de custo
+@param   cCpoCC, Caractere, Campo que contém a descrição do centro de custo
+/*/
+Static Function PrintReport(oReport, cAliasCC, cCpoCC)
+	
+	Local oSection1 	:= oReport:Section(1)
+	Local oSection2 	:= oReport:Section(1):Section(1)
+	Local cFiltro 		:= ""
+	Local aArqTmp  		:= {}
+	Local cChave   		:= ""
+	Local cArqIndx1		:= ""
+	Local cFilTrb		:= ""
+	Local cAvaTrb 		:= ""
+	Local cFil 			:= ""
+	Local cCodAva		:= ""
+	Local cCodTip 		:= ""
+	Local cCodMod 		:= ""
+	Local cCodAdo		:= ""
+	Local nResObt  		:= 0
+	Local aLstIndices 	:= {}
+	Local lSoConsenso 	:= .F.
+	
+	/* Variaveis utilizadas para parametros
+	MV_PAR01  - Filial
+	MV_PAR02  - Avaliacao
+	MV_PAR03  - Avaliado
+	MV_PAR04  - Competencia
+	MV_PAR05  - Item de Competencia
+	MV_PAR06  - Apenas consenso
+	*/
+	// Transforma parametros Range em expressao (intervalo)
+	MakeAdvplExpr("APD30R")
+	
+	If !Empty(MV_PAR01)	//RDD_FILIAL
+		cFiltro += Iif(!Empty(cFiltro), " .AND. ", "")
+		cFiltro += MV_PAR01
+	EndIf
+	
+	If !Empty(MV_PAR02)	//RDD_CODAVA
+		cFiltro	 += Iif(!Empty(cFiltro), " .AND. ", "")
+		cFiltro  += MV_PAR02
+	EndIf
+	
+	If !Empty(MV_PAR03)	//RDD_CODADO
+		cFiltro	+= Iif(!Empty(cFiltro), " .AND. ", "")
+		cFiltro += MV_PAR03
+	EndIf
+	
+	If !Empty(MV_PAR04)	//RDD_CODCOM
+		cFiltro	  += Iif(!Empty(cFiltro), " .AND. ", "")
+		cFiltro += MV_PAR04
+	EndIf
+	
+	If !Empty(MV_PAR05)	//RDD_ITECOM
+		cFiltro	+= Iif(!Empty(cFiltro), " .AND. ", "")
+		cFiltro += MV_PAR05
+	EndIf
+	
+	If MV_PAR06 == 1
+		lSoConsenso := .T.
+	EndIf
+	
+	oSection1:SetFilter(cFiltro)
+	
+	If Select("TRB") > 0
+		dbSelectArea("TRB")
+		dbCloseArea()
+	Endif
+	
+	If oTmpTRB <> Nil
+		oTmpTRB:Delete()
+		Freeobj(oTmpTRB)
+	EndIf
+	
+	// Criação do Arquivo Temporário
+	aadd(aArqTmp, {"TR_FILIAL", "C", 02, 0}) //Filial
+	aadd(aArqTmp, {"TR_CODAVA", "C", 06, 0}) //Codigo da Avaliacao
+	aadd(aArqTmp, {"TR_CODADO", "C", 06, 0}) //Codigo do Avaliado
+	aadd(aArqTmp, {"TR_CCUSTO", "C", 09, 0}) //Codigo do Centro de Custo do Avaliado
+	aadd(aArqTmp, {"TR_CCARGO", "C", 05, 0}) //Codigo do Cargo do Avaliado
+	aadd(aArqTmp, {"TR_CODTIP", "C", 06, 0}) //Codigo do Tipo da Avaliacao
+	aadd(aArqTmp, {"TR_RESULT", "N", 11, 2}) //Resultado Obtido do Item de Competencia (RDD)
+	aadd(aArqTmp, {"TR_CODMOD", "C", 06, 0}) //Codigo do Modelo de Avaliacao
+	
+	AAdd( aLstIndices, {"TR_FILIAL", "TR_RESULT"})
+	
+	oTmpTRB := RhCriaTrab('TRB', aArqTmp, aLstIndices)
+	
+	// Arquivo Principal: Resultado das Avaliacoes
+	dbSelectArea("RDD")
+	oReport:SetMeter(RecCount())
+	
+	RDD->(dbSetOrder(1))
+	
+	While !(RDD->(Eof()))
+		
+		IncProc(OemToAnsi(STR0004) + ": " + RDD->RDD_CODAVA)	//"Avaliacao"
+		
+		// Tipo de Avaliação
+		If lSoConsenso // Imprime apenas consenso
+			If RDD->RDD_TIPOAV != "3"
+				RDD->( dbSkip() )
+				Loop
+			EndIf
+		EndIf
+		
+		RDB->(dbSetOrder(1))
+		RDB->(MsSeek(xFilial("RDB") + RDD->RDD_CODAVA + RDD->RDD_CODADO))
+		
+		cFil 	:= RDD->RDD_FILIAL
+		cCodAva	:= RDD->RDD_CODAVA
+		cCodTip := RDD->RDD_CODTIP
+		cCodMod := RDB->RDB_CODMOD
+		cCodAdo	:= RDB->RDB_CODADO
+		
+		nResObt:= 0
+		
+		While !(RDD->(Eof())) .And. RDD->RDD_CODAVA + RDD->RDD_CODADO  == cCodAva + cCodAdo
+			
+			// Resultado Obtido de Cada Item de Competencia eh igual a Somatoria de Cada Resultado Obtido por Questao
+			If lSoConsenso
+				If RDD->RDD_TIPOAV == "3"
+					nResObt += RDD->RDD_RESOBT
+				EndIf
+			Else
+				nResObt += RDD->RDD_RESOBT
+			EndIf
+			
+			RDD->( DbSkip() )
+			
+		EndDo
+		
+		// Considera-se somente informacoes referentes as Avaliacoes
+		If RecLock("TRB",.T.)
+			TRB->TR_FILIAL := cFil
+			TRB->TR_CODAVA := cCodava
+			TRB->TR_CODTIP := cCodTip
+			TRB->TR_CODMOD := cCodMod
+			TRB->TR_CODADO := cCodAdo
+			TRB->TR_RESULT := nResObt
+			
+			// Informacoes do Funcionario
+			RD0->( DbSetOrder(1) )
+			If RD0->(dbSeek(xFilial("RD0") + cCodAdo))
+				TRB->TR_CCUSTO := EntGetInfo("SRA", "RA_CC", RD0->RD0_CODIGO)
+				TRB->TR_CCARGO := EntGetInfo("SRA", "RA_CARGO", RD0->RD0_CODIGO)
+			EndIf
+			
+			TRB->( MsUnlock() )
+		EndIf
+	EndDo
+	
+	dbSelectArea("TRB")
+	dbGotop()
+	
+	TRPosition():New(oSection1, "RDD", 1, {|| xFilial("RDD") + TRB->TR_CODAVA + TRB->TR_CODADO})
+	TRPosition():New(oSection1, "RD6", 1, {|| xFilial("RD6") + TRB->TR_CODAVA + TRB->TR_CODTIP})
+	TRPosition():New(oSection1, "RDB", 1, {|| xFilial("RDB") + TRB->TR_CODAVA + TRB->TR_CODADO})
+	TRPosition():New(oSection1, "RD5", 1, {|| xFilial("RD5") + TRB->TR_CODTIP})
+	TRPosition():New(oSection1, "RD3", 1, {|| xFilial("RD3") + TRB->TR_CODMOD})
+	
+	TRPosition():New(oSection2, "RDD", 1, {|| xFilial("RDD") + TRB->TR_CODAVA + TRB->TR_CODADO})
+	TRPosition():New(oSection2, "RD0", 1, {|| xFilial("RD0") + TRB->TR_CODADO})
+	TRPosition():New(oSection2, "SQ3", 1, {|| xFilial("SQ3") + TRB->TR_CCARGO})
+	TRPosition():New(oSection2, cAliasCC, 1, {|| xFilial(cAliasCC) + TRB->TR_CCUSTO})
+	
+	While TRB->( !Eof() )
+		
+		oReport:IncMeter()
+		
+		If oReport:Cancel()
+			Exit
+		EndIf
+		
+		cFilTrb	:= TRB->TR_FILIAL
+		cAvaTrb := TRB->TR_CODAVA
+		
+		// Impressão da Primeira Seção: Curso
+		oSection1:Init()
+		oSection1:PrintLine()
+		
+		oSection2:Init()
+		
+		Do While ! Eof() .And. TRB->TR_FILIAL + TRB->TR_CODAVA == cFilTrb + cAvaTrb
+			// Impressão da Segunda Seção: Funcionarios
+			oSection2:PrintLine()
+			dbSelectArea("TRB")
+			dbSkip()
+		EndDo
+		
+		oSection2:Finish()
+		oSection1:Finish()
+		
+	EndDo
+	
+	If Select("TRB") > 0
+		dbSelectArea("TRB")
+		dbCloseArea()
+	Endif
+	
+	If oTmpTRB <> Nil
+		oTmpTRB:Delete()
+		Freeobj(oTmpTRB)
+	EndIf
+	
+Return Nil

@@ -1,0 +1,2793 @@
+#INCLUDE "FINA700.ch"
+#include "protheus.ch"
+
+// identificadores de layout
+#define LAYOUT_AR "layout_ar"
+
+// identificadores de coluna
+#define COL_RIGHT  "column_right"
+#define COL_CENTER "column_center"
+#define COL_LEFT   "column_left"
+
+/// identificadores de painel
+#define PANEL_SEARCH    "panel_search"
+#define PANEL_BROWSE    "panel_browse"
+#define PANEL_VISUAL    "panel_visual"
+#define PANEL_FAVORITES "panel_favorites"
+#define PANEL_CHART     "panel_chart"
+#define PANEL_REPORTS   "panel_report"
+#define PANEL_OPERATIONS "panel_operations"
+
+// exclusivos para SE5
+#define PANEL_BANK       "panel_bank"
+#define PANEL_ACC        "panel_acc"
+
+// identificadores de janela
+#define WND_FAVORITES "wnd_favorites"
+#define WND_UNKNOWN   "wnd_unknown"
+#define WND_BROWSE    "wnd_browse"
+#define WND_SEARCH    "wnd_search"
+#define WND_REPORTS  "wnd_reports"
+#define WND_OPERATIONS "wnd_operations"
+#define WND_CHART  "wnd_chart"
+#define WND_VIS "wnd_visual"
+
+// exclusivos para SE5
+#define WND_BANK "wnd_bank"
+#define WND_ACC "wnd_acc"
+
+// botões
+#define IMG_CREATE "BMPINCLUIR"
+#define IMG_READ   ""
+#define IMG_UPDATE "NOTE"
+#define IMG_DELETE "EXCLUIR"
+
+#define IMG_OK     "OK"
+#define IMG_CANCEL "CANCEL"
+
+#define IMG_SEARCH "PESQUISA"
+
+#define IMG_COPY "S4WB005N"
+#define IMG_CUT   "s4wb006n"
+#define IMG_PASTE "S4WB007N"
+#define IMG_REFRESH "RELOAD"
+
+Static lFWCodFil := .T.
+Static lF700QRY2 := ExistBlock("F700QRY2")
+Static lF700QRY1 := ExistBlock("F700QRY1")
+
+Class FinAcWindow
+
+	Data oArea As Object
+
+	// largura x altura
+	Data nWidth As Object
+	Data nHeight As Object
+
+	// objetos auxiliares de interface
+	Data oLayout As Object
+	Data oSidebar As Object
+
+	// painéis esquerdos
+	Data oPanelSearch As Object
+	Data oPanelChart As Object
+	Data oPanelAccounts As Object // exclusivo para SE5
+	Data oPanelBanks As Object // exclusivo para SE5
+
+	// painéis centrais
+	Data oPanelBrowse As Object
+	Data oPanelVis As Object
+
+	// painéis direitos	
+	Data oPanelOp As Object
+	Data oPanelRep As Object
+
+	// objetos necessários para a interface	
+	Data oGetData As Object
+	Data oTreeOp As Object
+	Data oBrowse As Object
+	Data oEnc01 As Object
+	Data aPergunte As Array
+	Data oChart As Array
+	Data oDlg As Object
+	Data oTreeAccounts As Object
+	
+	Data oSayBalAcc As Object
+	Data cSayBalAcc As String
+	Data oAccIn As Object
+	Data oAccOut As Object
+	Data oAccLim As Object
+	Data oAccBal As Object
+
+	Data cAccIn As String
+	Data cAccOut As String
+	Data cAccLim As String
+	Data cAccBal As String
+
+	Data oComboBal As Object
+	Data aComboBal As Array
+	Data cComboBal As String
+
+	// alias de trabalho	
+	Data cAliasFile As String
+
+	// construtor
+	Method New() Constructor
+
+	// construção de tela	
+	Method CreateLeftColumn()
+	Method CreateRightColumn()
+	Method CreateCenterColumn()
+
+	// filtro	
+	Method UiFilterFile()
+	Method FilterFile()
+  
+	// atualização
+	Method Refresh()	
+	Method RefreshSearch()
+	Method RefreshChart()
+	Method RefreshBalance()
+
+	// métodos accessors (get-set)
+	Method GetPergSize()
+	Method GetPerg()
+
+	Method SetBrowseTitle()
+	Method GetBrowseTitle()
+
+	Method SetDadosTitle()
+	Method GetDadosTitle()
+
+	Method SetChartTitle()
+	Method GetChartTitle()
+	
+	Method GetVisPanel()
+		
+	Method GetAlias()
+	Method SetAlias()
+
+	// outros
+	Method Init()
+	Method Show()
+	Method ShowViewPanel()
+	Method DimObj()
+	Method DeprecHandleOK()
+	
+EndClass
+
+/*{Protheus.doc} DeprecHandleOK()
+@description Lida com a descontinuidade das rotinas do Painel de Gestão antigo
+@author Guilherme de Sordi
+@since 18/02/2022
+*/
+Method DeprecHandleOK() Class FinAcWindow
+	local cDeprDate as Character
+	local lContinue	as Logical
+	cDeprDate := "20220820"
+	lContinue := .T.
+
+	if (GetRpoRelease() >= "12.1.033")		
+		if date() < sToD(cDeprDate)
+			If !IsBlind() .and. FindFunction("MsgExpRot")			
+				MsgExpRot("FINA700", STR0223,; //"Novo Gestor Financeiro (FINA710)"
+					STR0224,; //"https://tdn.totvs.com/pages/viewpage.action?pageId=611007335"
+					cDeprDate)
+			endIf
+		else
+			MsgStop(STR0225, "FINA700") //"Rotina descontinuada"
+			lContinue := .F.
+		endIf
+	EndIf
+return lContinue
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:New()
+
+Cria uma nova instância da classe FinAcWindow. 
+
+Restrição: New() apenas inicializa os atributos. Para a construção de
+interfaces é necessário a chamada do método Init().
+
+---------------------------------------------------------------------------- */
+Method New(cAliasFile) Class FinAcWindow
+	Self:oDlg := Nil
+	Self:oArea := Nil
+
+	Self:nWidth  := GetScreenRes()[1] - 40
+	Self:nHeight := GetScreenRes()[2] - 200
+	
+	Self:oLayout := Nil
+	Self:oSidebar := Nil
+		
+	Self:cAliasFile := cAliasFile
+	Self:aPergunte := {}
+
+	Self:oPanelSearch := Nil
+	Self:oPanelChart := Nil
+	Self:oPanelAccounts := Nil // exclusivo para SE5
+	Self:oPanelBanks := Nil // exclusivo para SE5
+
+	// painéis centrais
+	Self:oPanelBrowse := Nil
+	Self:oPanelVis := Nil
+
+	// painéis direitos	
+	Self:oPanelOp := Nil
+	Self:oPanelRep := Nil
+
+	// objetos necessários para a interface	
+	Self:oGetData := Nil
+	Self:oTreeOp := Nil
+	Self:oBrowse := Nil 
+	Self:oEnc01 := Nil
+	Self:aPergunte := Nil
+	Self:oChart := Nil
+
+	Self:oSayBalAcc := Nil
+	Self:cSayBalAcc	:= ""
+	Self:oComboBal := Nil
+	Self:aComboBal := {STR0001, STR0002, STR0003} //"Padrão"###"Conciliado"###"Não conciliado"
+	Self:cComboBal := ""
+	Self:oTreeAccounts := Nil
+	
+	Self:oAccIn := Nil
+	Self:oAccOut := Nil
+	Self:oAccLim := Nil
+	Self:oAccBal := Nil
+	
+	Self:cAccIn := ""
+	Self:cAccOut := ""
+	Self:cAccLim := ""
+	Self:cAccBal := ""
+Return Self
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:Show()
+
+Exibe a tela do gestor.
+
+---------------------------------------------------------------------------- */
+Method Show() Class FinAcWindow
+	Self:oDlg:Activate()
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:CreateLeftColumn()
+
+Cria os painéis do lado esquerdo, de acordo com o gestor utilizado:
+Contas a Receber, Contas a Pagar ou Tesouraria:
+
+---------------------------------------------------------------------------- */
+Method CreateLeftColumn() Class FinAcWindow
+	Local aSearch := {}
+	Local nLinIni := 3
+	Local nI := 0
+
+	Local cProtSearch := "Protheus Search"
+	Local oFinWindow := Self
+
+	Private cCadastro := STR0004 //"Financeiro"
+
+	Self:oArea:AddCollumn(COL_LEFT , 20, .T.)
+	Self:oArea:SetColSplit(COL_LEFT, CONTROL_ALIGN_RIGHT)
+	
+	// cria a janela de search
+	If Self:cAliasFile == "SE5"
+		Self:oArea:AddWindow(COL_LEFT, WND_SEARCH, STR0005, 40, .T., .F.) //"Pesquisa"
+	Else
+		Self:oArea:AddWindow(COL_LEFT, WND_SEARCH, STR0005, 50, .T., .F.) //"Pesquisa"
+	EndIf
+	
+	// cria o panel da pesquisa
+	Self:oPanelSearch := Self:oArea:GetWinPanel(COL_LEFT, WND_SEARCH)
+
+	Pergunte(Self:GetPerg(), .T., , , Self:oPanelSearch, , @Self:aPergunte, .T., .F.)	
+
+	FaMyBar(Self:oPanelSearch, , , , ;
+          {{STR0006, STR0006, {|| Self:FilterFile()}}}, .F., .F.)	 //"Pesquisar"###"Pesquisar"
+
+	If Self:cAliasFile == "SE5"
+		DEFINE FONT oFontLbl NAME "Arial" SIZE 6,10 BOLD 
+		// contas correntes
+		Self:oArea:AddWindow(COL_LEFT, WND_ACC, STR0007, 30, .T., .F.) //"Contas Correntes"
+		Self:oPanelAccounts := Self:oArea:GetWinPanel(COL_LEFT, WND_ACC)
+
+		Self:oTreeAccounts := CreateTree(Self:oPanelAccounts)
+		Self:oTreeAccounts:oFont := oFontLbl
+		
+		FinLdAccounts(Self:oTreeAccounts, Self)
+		
+		// saldos bancários
+		Self:oArea:AddWindow(COL_LEFT, WND_BANK, STR0008, 30, .T., .T.) //"Saldos bancários"
+		Self:oPanelBanks := Self:oArea:GetWinPanel(COL_LEFT, WND_BANK)
+
+
+		@ 3, 3 MsComboBox Self:oComboBal Var Self:cComboBal Items Self:aComboBal ;
+		                  Size 80, 10 PIXEL OF Self:oPanelBanks ;
+		                  ON CHANGE FinShowBal(oFinWindow:oTreeAccounts, oFinWindow, (Val(oFinWindow:oTreeAccounts:GetCargo()) == 0));
+
+		@ 15, 3 Say STR0009 Size 71, 8 PIXEL OF Self:oPanelBanks //"Saldo inicial:"
+		@ 15, 35 Say Self:oSayBalAcc Var Self:cSayBalAcc Size 200, 008 PIXEL OF Self:oPanelBanks
+		
+		@ 25, 3 Say STR0010 Size 71, 8 Pixel Of Self:oPanelBanks //"Entradas:"
+		@ 25, 35 Say Self:oAccIn Var Self:cAccIn Size 200, 8 Pixel Of Self:oPanelBanks
+
+		@ 35, 3 Say STR0011 Size 71, 8 Pixel Of Self:oPanelBanks //"Saidas (-):"
+		@ 35, 35 Say Self:oAccOut Var Self:cAccOut Size 200, 8 Pixel Of Self:oPanelBanks
+		
+		@ 45, 3 Say STR0012 Size 71, 8 Pixel Of Self:oPanelBanks //"Limite: "
+		@ 45, 35 Say Self:oAccLim Var Self:cAccLim Size 200, 8 Pixel Of Self:oPanelBanks
+		
+		@ 55, 3 Say STR0013 Size 71, 8 Pixel Of Self:oPanelBanks //"Saldo atual: "
+		@ 55, 35 Say Self:oAccBal Var Self:cAccBal Size 200, 8 Pixel Of Self:oPanelBanks
+
+	Else
+
+		// gráfico
+		Self:oArea:AddWindow(COL_LEFT, WND_CHART, STR0014, 50, .T., .F.) //"Gráfico"
+		Self:oPanelChart := Self:oArea:GetWinPanel(COL_LEFT, WND_CHART)
+
+		// cria o objeto de gráfico		
+		Self:RefreshChart()
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:CreateCenterColumn()
+
+Cria os painéis centrais, de acordo com o gestor utilizado: Contas a Receber,
+Contas a Pagar ou Tesouraria:
+
+---------------------------------------------------------------------------- */
+Method CreateCenterColumn() Class FinAcWindow
+	Local oColumn := Nil
+	Local cTitle := STR0015 //"Browse"
+
+	//Variaveis necessarias para criacao da ButtonBar
+	Local aButtonBar := {}
+	Local aButtonTxt := {}	
+
+	Private cCadastro := STR0004 //"Financeiro"
+	Private oArea := Self:oArea
+	
+	// cria a coluna do meio	
+	Self:oArea:AddCollumn(COL_CENTER, 60, .F.)
+
+	Self:FilterFile(,,.T.)
+
+	// browse
+	Do Case
+
+		Case Self:cAliasFile == "SE1"
+			cTitle := STR0016 //"Títulos a Receber"
+		Case Self:cAliasFile == "SE2"
+			cTitle := STR0017 //"Títulos a Pagar"
+		Case Self:cAliasFile == "SE5"
+			cTitle := STR0018		 //"Gestor Tesouraria"
+		Otherwise
+			cTitle := STR0015 //"Browse"
+			
+	EndCase
+		
+	Self:oArea:AddWindow(COL_CENTER, WND_BROWSE, cTitle, 50, .T., .F.)
+	Self:oPanelBrowse := Self:oArea:GetWinPanel(COL_CENTER, WND_BROWSE)
+
+	Aadd(aButtonTxt, {STR0006, STR0006, ; //"Pesquisar"###"Pesquisar"
+	                  {|| WndxPesqui(Self:oBrowse, Nil, "", .F.)}})
+
+	Self:oBrowse := MaWndBrowse(0, 0, 0, 0, STR0019, Self:cAliasFile, ; //"Teste Browse"
+                 ,,,,,.F.,,4,,,,.F.,,,,,,, ;
+                  FLegenda(Self:cAliasFile), Self:oPanelBrowse, ;
+                  aButtonTxt, aButtonBar, .F.)
+
+	// visualização
+	Self:oArea:Addwindow(COL_CENTER, WND_VIS, STR0020, 50, .T., .F.) //"Detalhe"
+	Self:oPanelVis := Self:oArea:GetWinPanel(COL_CENTER, WND_VIS)
+                      
+	Self:oBrowse:bChange := {|| FinVisual(Self:cAliasFile, Self, ;
+	                                      (Self:cAliasFile)->(Recno()), .F.)}   
+	                                      
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:CreateRightColumn()
+
+Cria os painéis do lado direito, de acordo com o gestor utilizado:
+Contas a Receber, Contas a Pagar ou Tesouraria:
+
+---------------------------------------------------------------------------- */
+Method CreateRightColumn() Class FinAcWindow
+	Local oColumn := Nil
+
+	Local oTree_5 := Nil
+	Local oTree_6 := Nil
+	Local oTree_7 := Nil
+	Local aRot := {}	  	
+	Local aUsrAccess := {}
+	Local aFuncs := {}
+	Local nX := 0
+   Local lFa700Rel := ExistBlock("Fa700Rel") 
+	Local lFa700Oper := ExistBlock("Fa700Oper")
+
+	Private cCadastro := STR0004 //"Financeiro"
+	
+	Self:oArea:AddCollumn(COL_RIGHT, 20, .F.)
+	Self:oArea:SetColSplit(COL_RIGHT, CONTROL_ALIGN_LEFT)
+
+	// operações
+	Self:oArea:AddWindow(COL_RIGHT, WND_OPERATIONS, STR0021, 50, .T., .F.) //"Operações"
+	Self:oPanelOp := Self:oArea:GetWinPanel(COL_RIGHT, WND_OPERATIONS)
+	Self:oPanelOp:bWhen := {|| .T. }	
+
+	// relatórios
+	Self:oArea:AddWindow(COL_RIGHT, WND_REPORTS, STR0022, 50, .T., .F.) //"Relatórios"
+	Self:oPanelRep := Self:oArea:GetWinPanel(COL_RIGHT, WND_REPORTS)
+
+	//Acessos
+	aUsrAccess := FuncAcess()	
+        
+  // Xtree Operações
+	oTree_6 := CreateTree(Self:oPanelOp)
+
+	If Self:cAliasFile == "SE1"
+
+		//Operacoes
+		aFuncs := {}
+		aNodoPai := {STR0023, "folder516", "FOLDER616","OP_000", Nil, Nil, Nil} //"Operaçoes"
+
+		aadd(aFuncs,{"FINA040" , STR0024				,'OP_001',,,"3/4/5/6/7","SE1",.F.}) //"Manutenção"		
+		aadd(aFuncs,{"FINA060" , STR0025			,'OP_002',,,"2/3/4"	,"SE1",.F.}) //"Transferências"
+		aadd(aFuncs,{"FINA087AT", STR0026	,'OP_010',.F.,.F.,,,,.F.})		 //"Recebtos Diversos"
+		aadd(aFuncs,{"FINA045T" , STR0027		,'OP_020',.F.,.F.,,,,.F.}) //"Renegociação Cr"
+		aadd(aFuncs,{"FINA070" , STR0028			,'OP_030',,,"3/4/5/6","SE1",.F.}) //"Baixas Receber"
+		aadd(aFuncs,{"FINA110" , STR0029	,'OP_040',,,"3"		,"SE1",.F.}) //"Baixas Rec Automat"
+		aadd(aFuncs,{"FINA280" , STR0030		,'OP_050',,,"3/4"		,"SE1",.F.}) //"Faturas Receber"
+		aadd(aFuncs,{"FINA330" , STR0031			,'OP_060',,,"3/4/5"	,"SE1",.F.}) //"Compensação Cr"
+		aadd(aFuncs,{"FINA450" , STR0032	,'OP_070',,,"3/4/5"	,"SE2",.F.}) //"Compens. Carteiras"
+		aadd(aFuncs,{"FINA088" , STR0033		,'OP_080',,,"3/4"		,"SEL",.F.}) //"Canc Rec Diversos"
+		aadd(aFuncs,{"FINA460" , STR0034				,'OP_090',,,"2/3/4"	,"SE1",.F.}) //"Liquidação"
+		aadd(aFuncs,{"FINA620" , STR0035			,'OP_100',,,"3"		,"SE1",.F.})			 //"Solic Transf"
+
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA087AT#FINA045T")
+
+	   //Consulta
+		aFuncs := {}				
+		aNodoPai := {STR0036, "folder516", "FOLDER616","CS_000", Nil, Nil, Nil} //"Consulta"
+		aadd(aFuncs,{"FINC010",STR0037,'CS_101',,,"2/3","SA1",.F.})		 //"Posição Clientes"
+		aadd(aFuncs,{"FINC040",STR0038,'CS_102',,,"2"  ,"SE1",.F.})		 //"Posição Titulo Rec"
+
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+	   //Consulta
+		aFuncs := {}				
+		aNodoPai := {STR0039, "folder516", "FOLDER616","CB_000", Nil, Nil, Nil} //"Comunicação Bancária"
+		aadd(aFuncs,{"FINA150T",STR0040		,'CB_100',.F.,.F.,,,.F.})				 //"Arquivo Cobranças"
+		aadd(aFuncs,{"FINA151",STR0041	   ,'CB_200',,,"3/4/5"	,"FI2",.F.})		 //"Instr. Cobranças"
+		aadd(aFuncs,{"FINA200",STR0042		,'CB_300',,,"3"	 	,"SE1",.F.})		 //"Retorno Cobranças"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA150T")
+
+	   //Contabil
+		aFuncs := {}				
+		aNodoPai := {STR0043, "folder516", "FOLDER616","CT_000", Nil, Nil, Nil} //"Contábil"
+		aadd(aFuncs,{"FINA370T","Off Line"				,'CT_100',.F.,.F.,,,.F.})				
+		aadd(aFuncs,{"CTBAFIN"	,"Off Top"				,'CT_200',.F.,.F.,,,.F.})				
+		aadd(aFuncs,{"FINA350"	,STR0044		,'CT_300',.F.,.F.,,,.F.})						 //"Var. Monetária"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA370T")
+
+	   //"Integrações"
+		aFuncs := {}				
+		aNodoPai := {STR0045, "folder516", "FOLDER616","IN_000", Nil, Nil, Nil} //"Integrações"
+		aadd(aFuncs,{"APEXCEL"	,STR0046		,'IN_100',.F.,.F.,,,.F.})				 //"Planilha Excel"
+		aadd(aFuncs,{"CALLDICT"	,STR0047,'IN_200',.F.,.F.,,,.F.})				 //"Dicionário Crystal"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+			
+
+	   //"Workflow"
+		aFuncs := {}				
+		aNodoPai := {STR0048, "folder516", "FOLDER616","WF_000", Nil, Nil, Nil}			 //"Workflow"
+		aadd(aFuncs,{"WFATASKRMT"	,"Messenger"		,'WF_100',.F.,.F.,,,.F.})			
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+	
+			
+	ElseIf Self:cAliasFile == "SE2"
+		//Operacoes
+		aFuncs := {}				
+		aNodoPai := {STR0023, "folder516", "FOLDER616","OP_000", Nil, Nil, Nil} //"Operaçoes"
+
+		aadd(aFuncs,{"FINA050",STR0024				,'OP_0100',,,"3/4/5/6/7","SE2",.F.}) //"Manutenção"		
+		aadd(aFuncs,{"FINA080",STR0049				,'OP_0200',,,"3/4/5/6"	,"SE2",.F.}) //"Baixas Man"
+		aadd(aFuncs,{"FINA090",STR0050				,'OP_0300',,,"3"			,"SE2",.F.}) //"Baixas Aut"
+		aadd(aFuncs,{"FINA241",STR0051	,'OP_0400',,,"2/3"		,"SE2",.F.})   //"Borderos Impostos"
+		aadd(aFuncs,{"FINA240",STR0052				,'OP_0500',,,"2/3"		,"SE2",.F.})  //"Borderos"
+		aadd(aFuncs,{"FINA290",STR0053			,'OP_0600',,,"3/4"		,"SE2",.F.})  //"Faturas Pagar"
+		aadd(aFuncs,{"FINA340",STR0054		,'OP_0700',,,"3/4/5"		,"SE2",.F.})  //"Compensação Cp"
+		aadd(aFuncs,{"FINA450",STR0032	,'OP_0800',,,"3/4/5"		,"SE2",.F.}) //"Compens. Carteiras"
+		aadd(aFuncs,{"FINA580",STR0055	,'OP_0900',,,"2/3/4"		,"SE2",.F.}) //"Liberação P/Baixa"
+		aadd(aFuncs,{"FINA565",STR0034				,'OP_1000',,,"2/3/4"		,"SE2",.F.}) //"Liquidação"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)  
+
+		If lFa700Oper
+			aUserOper := Execblock("Fa700Oper",.F.,.F.)
+			aNodoPai := aUserOper[1]
+			aFuncs :=  aUserOper[2]
+	
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+		Endif
+	     
+		//Consultas
+		aFuncs := {}
+		aNodoPai := {STR0056, "folder516", "FOLDER616"	,"CN_000", Nil, Nil, Nil} //"Consultas"
+		aadd(aFuncs,{"FINC030",STR0057			,'CN_100',,,"3/4" ,"SA2",.F.}) //"Posição Fornecedor"
+		aadd(aFuncs,{"FINC050",STR0058			,'CN_200',,,"2"	,"SE2",.F.})		 //"Posição Titulo Pag"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+		
+		//Comunicacao Bancaria
+		aFuncs := {}
+		aNodoPai := {STR0039, "folder516", "FOLDER616","CB_000", Nil, Nil, Nil} //"Comunicação Bancária"
+		aadd(aFuncs,{"FINA420",STR0059		,'CB_400',,,"2"  		,"SE2",.F.})		 //"Arquivo Pagamentos"
+		aadd(aFuncs,{"FINA430T",STR0060		,'CB_500',.F.,.F.,,,.F.})		 //"Retorno Pagamentos"
+		aadd(aFuncs,{"FINA300","Sispag"						,'CB_600',,,"3/4"		,"SE2",.F.})				
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA430T")
+
+	   //"Recálculos"
+		aFuncs := {}				
+		aNodoPai := {STR0061, "folder516", "FOLDER616","RC_000", Nil, Nil, Nil} //"Recálculos"
+		aadd(aFuncs,{"FINA376"	,STR0062		,'RC_100',,,"3,4"			,"SE2",.F.}) //"Aglut. Imposto"
+		aadd(aFuncs,{"FINA377T"	,STR0063		,'RC_200',.F.,.F.,,,.F.}) //"Apuração INSS"
+		aadd(aFuncs,{"FINA378"	,STR0064	,'RC_300',,,"3,4"		,"SE2",.F.}) //"Aglut. Pis/Cof/Csl"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA377T")
+
+	   //Contabil
+		aFuncs := {}				
+		aNodoPai := {STR0043, "folder516", "FOLDER616","CT_000", Nil, Nil, Nil} //"Contábil"
+		aadd(aFuncs,{"FINA370T","Off Line"				,'CT_100',.F.,.F.,,,.F.})				
+		aadd(aFuncs,{"CTBAFIN"	,"Off Top"				,'CT_200',.F.,.F.,,,.F.})				
+		aadd(aFuncs,{"FINA350"	,STR0044		,'CT_300',.F.,.F.,,,.F.})						 //"Var. Monetária"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA370T")
+
+		//Arquivos
+		aFuncs := {}				
+		aNodoPai := {STR0065, "folder516", "FOLDER616","AR_000", Nil, Nil, Nil} //"Arquivos"
+		aadd(aFuncs,{"FINA490"	,STR0066	,'AR_200',.F.,.F.,,,.F.})				 //"Motivos da baixa"
+		aadd(aFuncs,{"FINA401"	,STR0067	,'AR_300',.F.,.F.,,,.F.})				 //"Gera Dados P/Dirf"
+		aadd(aFuncs,{"FINA402"	,STR0068	,'AR_400',.F.,.F.,,,.F.})						 //"Gera Dados Sefip"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+	   //"Integrações"
+		aFuncs := {}				
+		aNodoPai := {STR0045, "folder516", "FOLDER616","IN_000", Nil, Nil, Nil} //"Integrações"
+		aadd(aFuncs,{"APEXCEL"	,STR0046		,'IN_100',.F.,.F.,,,.F.})				 //"Planilha Excel"
+		aadd(aFuncs,{"CALLDICT"	,STR0047,'IN_200',.F.,.F.,,,.F.})				 //"Dicionário Crystal"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+			
+	   //"Workflow"
+		aFuncs := {}				
+		aNodoPai := {STR0048, "folder516", "FOLDER616","WF_000", Nil, Nil, Nil}			 //"Workflow"
+		aadd(aFuncs,{"WFATASKRMT"	,STR0069		,'WF_100',.F.,.F.,,,.F.})			 //"Messenger"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+		
+   
+   ElseIf Self:cAliasFile == "SE5"
+   	oTree_6:AddTree(STR0070, "folder516", "FOLDER616","AT_000", Nil, Nil, Nil)		 //"Atualizações"
+			aFuncs := {}				
+			aNodoPai := {STR0071, "folder516", "FOLDER616","CR_000", Nil, Nil, Nil} //"Contas a Receber"
+			aadd(aFuncs,{"FINA087AT",STR0026	,'CR_010',.F.,.F.,,,.F.}) //"Recebtos Diversos"
+			aadd(aFuncs,{"FINA060"	,STR0025		,'CR_200',,,"2/3/4"	   		,"SE1",.F.}) //"Transferências"
+			aadd(aFuncs,{"FINA160"	,STR0072	,'CR_200',,,"3"					,"SE5",.F.}) //"Borderô Cheques"
+			aadd(aFuncs,{"FINA590"	,STR0073,'CR_200',,,"3/4/6"	   		,"SE1",.F.}) //"Manutenção Borderô"
+			aadd(aFuncs,{"FINA191"	,STR0074	,'CR_200',,,"3/4/5"				,"SEF",.F.}) //"Cheques Recebidos"
+			aadd(aFuncs,{"LOJA190"	,STR0075	,'CR_200',,,"3/4"					,"SEF",.F.}) //"Devolução Cheques"
+			aadd(aFuncs,{"FINA630"	,STR0076,'CR_200',,,"3/4/5/6"			,"SE6",.F.})		 //"Aprov/Rej. Transf."
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA087AT")
+		
+			aFuncs := {}				
+			aNodoPai := {STR0077, "folder516", "FOLDER616","CP_000", Nil, Nil, Nil}			 //"Contas a Pagar"
+			aadd(aFuncs,{"FINA241",STR0051	,'CP_100',,,"2/3"					,"SE2",.F.})   //"Borderos Impostos"
+			aadd(aFuncs,{"FINA240",STR0078	,'CP_200',,,"2/3"					,"SE2",.F.}) //"Borderô Pagamentos"
+			aadd(aFuncs,{"FINA590"	,STR0073,'CR_300',,,"3/4/6"				,"SE2",.F.})			 //"Manutenção Borderô"
+			aadd(aFuncs,{"FINA390",STR0079	,'CP_400',,,"2/3/4/5"				,"SE2",.F.}) //"Cheques S/Título"
+			aadd(aFuncs,{"FINA190",STR0080		,'CP_500',,,"3/4/5/6"			,"SEF",.F.})  //"Geração Cheques"
+			aadd(aFuncs,{"FINA580",STR0055	,'CP_600',,,"2/3/4"			 	,"SE2",.F.}) 				 //"Liberação P/baixa"
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+			aFuncs := {}								
+			aNodoPai := {STR0081, "folder516", "FOLDER616","MV_000", Nil, Nil, Nil} //"Movimento Bancário"
+			aadd(aFuncs,{"FINA030",STR0008	,'MV_100',,,"3"				 	,"SE8",.F.}) //"Saldos Bancários"
+			aadd(aFuncs,{"FINA100",STR0081	,'MV_200',,,"3/4/5/6/7/8/9","SE5",.F.}) //"Movimento Bancário"
+			aadd(aFuncs,{"FINA380",STR0082	,'MV_300',,,"2"				 	,"SE5",.F.}) //"Concil. Bancária"
+			aadd(aFuncs,{"FINA470",STR0083	,'MV_400',,,"3"				,"SE5",.F.}) 				 //"Concil. Automática"
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+				
+			aFuncs := {}				
+			aNodoPai := {STR0084, "folder516", "FOLDER616","CX_000", Nil, Nil, Nil} //"Caixinha"
+			aadd(aFuncs,{"FINA550",STR0024			 ,'CX_100',,,"3/4/5/6/7" 	,"SET",.F.}) //"Manutenção"
+			aadd(aFuncs,{"FINA560",STR0085			 ,'CX_200',,,"3/4/5"	   	,"SEU",.F.})				 //"Movimentos"
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+				
+			aFuncs := {}				
+			aNodoPai := {STR0086, "folder516", "FOLDER616","AE_000", Nil, Nil, Nil} //"Aplicações/Emprést"
+			aadd(aFuncs,{"FINA171",STR0087		 ,'AE_100',,,"3/4/5"		 		,"SEH",.F.}) //"Aplic/Emprést"
+			aadd(aFuncs,{"FINA181",STR0088	 ,'AE_200',,,"3/4"			 	,"SEH",.F.,.F.})	 //"Resg/Pag Emprést"
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+			
+			aFuncs := {}				
+			aNodoPai := {STR0089, "folder516", "FOLDER616","CM_000", Nil, Nil, Nil}		 //"Comissões"
+			aadd(aFuncs,{"MATA490",STR0090	 ,'CM_100',,,"3/4/5","SE3",.F.}) //"Manut. Comissões"
+			aadd(aFuncs,{"MATA530",STR0091	 ,'CM_200',.F.,.F.,,,.F.}) //"Atual. Pgto Comis"
+			If cPaisLoc <> "BRA"
+				aadd(aFuncs,{"FINA016T",STR0092 ,'CM_200',.F.,.F.,,,.F.}) //"Rec Comis Cobrador"
+			Endif
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA016T")
+							
+			aFuncs := {}				
+			aNodoPai := {STR0093, "folder516", "FOLDER616","CB_000", Nil, Nil, Nil} //"Comunic. Bancária"
+			aadd(aFuncs,{"FINA150T",STR0040		,'CB_100',.F.,.F.,,,.F.}) //"Arquivo Cobranças"
+			aadd(aFuncs,{"FINA151",STR0041		,'CB_200',,,"3/4/5"			,"FI2",.F.}) //"Instr. Cobranças"
+			aadd(aFuncs,{"FINA200",STR0042		,'CB_300',,,"3"	 		,"SE1",.F.})		 		 //"Retorno Cobranças"
+			aadd(aFuncs,{"FINA420",STR0059		,'CB_400',,,"2"	 		,"SE2",.F.})		 //"Arquivo Pagamentos"
+			aadd(aFuncs,{"FINA430T",STR0060		,'CB_500',.F.,.F.,,,.F.})		 //"Retorno Pagamentos"
+			aadd(aFuncs,{"FINA300","Sispag"						,'CB_600',,,"3/4"	 		,"SE2",.F.})												
+			FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess,"FINA430T")
+
+		oTree_6:EndTree()	          			
+				
+		aFuncs := {}				
+		aNodoPai := {STR0056, "folder516", "FOLDER616","CN_000", Nil, Nil, Nil} //"Consultas"
+		aadd(aFuncs,{"FINC010",STR0037		,'CNR_101',,,"3/4","SA1",.F.})		 //"Posição Clientes"
+		aadd(aFuncs,{"FINC030",STR0057	,'CNP_100',,,"3/4","SA2",.F.}) //"Posição Fornecedor"
+		aadd(aFuncs,{"FINC021",STR0094		,'CNM_100',.F.,.F.,,,.F.})  //"Fluxo de Caixa"
+		aadd(aFuncs,{"FINC720",STR0095	,'CNM_200',.F.,.F.,,,.F.}) //"Orcadox x Reais Mês"
+		aadd(aFuncs,{"FINC730",STR0096	,'CNM_300',.F.,.F.,,,.F.}) //"Orcados x Reais Ano"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+			
+		aFuncs := {}							
+		aNodoPai := {STR0061, "folder516", "FOLDER616","RC_000", Nil, Nil, Nil} //"Recálculos"
+		aadd(aFuncs,{"FINA210",STR0097 ,'RC_100',.F.,.F.,,,.F.}) 					 //"Rec Saldos Bancar"
+		aadd(aFuncs,{"FINA410",STR0099 ,'RC_300',.F.,.F.,,,.F.}) 					 //"Ref Dados Cli/For"
+		aadd(aFuncs,{"FINA440",STR0100  ,'RC_400',.F.,.F.,,,.F.}) 					 //"Recalc. Comissão"
+		aadd(aFuncs,{"FINA570",STR0101,'RC_500',.F.,.F.,,,.F.}) 									 //"Recálculo Caixinha"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+		//CONTABIL		
+		aFuncs := {}						
+		aNodoPai := {STR0043, "folder516", "FOLDER616","CT_000", Nil, Nil, Nil} //"Contábil"
+		aadd(aFuncs,{"FINA370"	,"Off Line"				,'CT_100',.F.,.F.,,,.F.})
+		aadd(aFuncs,{"CTBAFIN"	,"Off Top"				,'CT_200',.F.,.F.,,,.F.})
+		aadd(aFuncs,{"FINA350"	,STR0044		,'CT_300',.F.,.F.,,,.F.})				 //"Var. Monetária"
+		aadd(aFuncs,{"FINA182"	,STR0102	,'CT_400',.F.,.F.,,,.F.})				 //"Aprop.apl/Emp.Fin"
+		aadd(aFuncs,{"FINA183"	,STR0103,'CT_500',,,"3/4"	,"SEH",.F.}) //"Aprop.apl. p/Cotas"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+		
+		//ARQUIVOS		
+		aFuncs := {}						
+		aNodoPai := {STR0065, "folder516", "FOLDER616","AQ_000", Nil, Nil, Nil} //"Arquivos"
+		aadd(aFuncs,{"FINA490"	,STR0104		,'AQ_200',.F.,.F.,,,.F.}) //"Tab Mot Baixas"
+		aadd(aFuncs,{"FINA415"	,STR0105		,'AQ_300',.F.,.F.,,,.F.}) //"Elim. Resíduos"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+	   //"Integrações"
+		aFuncs := {}				
+		aNodoPai := {STR0045, "folder516", "FOLDER616","IN_000", Nil, Nil, Nil} //"Integrações"
+		aadd(aFuncs,{"APEXCEL"	,STR0046		,'IN_100',.F.,.F.,,,.F.})				 //"Planilha Excel"
+		aadd(aFuncs,{"CALLDICT"	,STR0047,'IN_200',.F.,.F.,,,.F.})				 //"Dicionário Crystal"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+			
+	   //"Workflow"
+		aFuncs := {}				
+		aNodoPai := {"Workflow", "folder516", "FOLDER616","WF_000", Nil, Nil, Nil}			
+		aadd(aFuncs,{"WFATASKRMT"	,STR0069		,'WF_100',.F.,.F.,,,.F.})			 //"Messenger"
+		FVerK7Acess(oTree_6,aNodoPai,aFuncs,aUsrAccess)
+
+	Endif
+
+	oTree_7 := CreateTree(Self:oPanelRep)
+
+	If Self:cAliasFile == "SE1"	
+		aFuncs := {}				
+		aNodoPai := {}
+		aadd(aFuncs,{'FINR130'	,STR0106  	,'ID_101',.F.,.F.,,,.T.}) //'Títulos a receber'
+		aadd(aFuncs,{'FINR137'	,STR0107	,'ID_102',.F.,.F.,,,.T.}) //'Tit.rec P/Vendedor'
+		aadd(aFuncs,{'FINR087'	,STR0108		,'ID_103',.F.,.F.,,,.T.}) //'Recebtos Diversos'
+		aadd(aFuncs,{'FINR898'	,STR0109	,'ID_104',.F.,.F.,,,.T.}) //'Rec.div. X Cliente'
+		aadd(aFuncs,{'FINR899'	,STR0110	,'ID_105',.F.,.F.,,,.T.}) //'Informe Rec Divers'
+		aadd(aFuncs,{'FINR270'	,STR0111	,'ID_106',.F.,.F.,,,.T.}) //'Histórico Clientes'
+		aadd(aFuncs,{'FINR280'	,STR0112	   ,'ID_107',.F.,.F.,,,.T.}) //'Juros Recebidos'
+		aadd(aFuncs,{'FINR290'	,STR0113		,'ID_108',.F.,.F.,,,.T.}) //'Juros dev.n.pagos'
+		aadd(aFuncs,{'FINR300'	,STR0114		,'ID_109',.F.,.F.,,,.T.}) //'Maiores Devedores'
+		aadd(aFuncs,{'FINR133'	,STR0115	   ,'ID_110',.F.,.F.,,,.T.}) //'Aging'
+		aadd(aFuncs,{'FINR320'	,STR0116 	,'ID_111',.F.,.F.,,,.T.}) //'Pos.geral Cobrança'
+		aadd(aFuncs,{'FINR340'	,STR0117		,'ID_112',.F.,.F.,,,.T.}) //'Posição Clientes'
+		aadd(aFuncs,{'FINR450'	,STR0118		,'ID_113',.F.,.F.,,,.T.}) //'Sugestão Bloqueio'
+		aadd(aFuncs,{'FINR600'	,STR0119	   ,'ID_114',.F.,.F.,,,.T.}) //'Boleto Genérico'
+		aadd(aFuncs,{'DUPLI'		,STR0120	   ,'ID_115',.F.,.F.,,,.T.}) //'Emissão Faturas'
+		aadd(aFuncs,{'FINR660'	,STR0121  	,'ID_116',.F.,.F.,,,.T.})  //'Tit. Enviados Bco'
+		aadd(aFuncs,{'FINR740'	,STR0122    	,'ID_117',.F.,.F.,,,.T.}) //'Boleto - Rdmake'
+		aadd(aFuncs,{'FINR500'	,STR0123         	,'ID_118',.F.,.F.,,,.T.}) //'Liquidação'
+		aadd(aFuncs,{'FINR020'	,STR0124   	,'ID_119',.F.,.F.,,,.T.}) //'Livro Duplicatas'
+		aadd(aFuncs,{'FINR801'	,STR0125    	,'ID_120',.F.,.F.,,,.T.}) //'Movto Mês a Mês'
+ 		aadd(aFuncs,{'LOJR190'	,STR0126 	,'ID_121',.F.,.F.,,,.T.}) //'Cheques Devolvidos'
+		aadd(aFuncs,{'FINR860'	,STR0127      	,'ID_122',.F.,.F.,,,.T.}) //'Retenção INSS'
+		aadd(aFuncs,{'FINR940'	,STR0128  	,'ID_123',.F.,.F.,,,.T.}) //'Tit Rec c/Ret Imp'
+		aadd(aFuncs,{'FINR170'	,STR0129   	,'ID_124',.F.,.F.,,,.T.}) //'Emissão Borderos'
+		aadd(aFuncs,{'FINR650'	,STR0130	   	,'ID_125',.F.,.F.,,,.T.})  //'Retorno Cnab'
+		aadd(aFuncs,{'FINR010'	,STR0131	   	,'ID_126',.F.,.F.,,,.T.}) //'Rel. Naturezas'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+
+	ElseIf Self:cAliasFile == "SE2"
+		aFuncs := {}				
+		aNodoPai := {STR0132,"folder516","FOLDER616",'RCP_100', Nil, Nil, Nil} //"C.Pagar"
+		aadd(aFuncs,{'FINR150'	,	STR0133		,'RCP_101',.F.,.F.,,,.T.}) //'Títulos a Pagar'
+		aadd(aFuncs,{	'FINR170'	,	STR0134	,'RCP_102',.F.,.F.,,,.T.}) //'Emissao Borderos'
+		aadd(aFuncs,{	'FINR350'	,	STR0135	,'RCP_103',.F.,.F.,,,.T.}) //'Pos.fornecedores'
+		aadd(aFuncs,{	'FINR400'	,	STR0136		,'RCP_104',.F.,.F.,,,.T.}) //'Relacao Cheques'
+		aadd(aFuncs,{	'FINR460'	,	STR0137	,'RCP_105',.F.,.F.,,,.T.}) //'Cheques Especiais'
+		aadd(aFuncs,{	'FINR134'	,	STR0115					,'RCP_106',.F.,.F.,,,.T.}) //'Aging'
+		aadd(aFuncs,{	'FINR490'	,	STR0138	,'RCP_107',.F.,.F.,,,.T.}) //'Copia de Cheques'
+		aadd(aFuncs,{	'FINR540'	,	STR0139	,'RCP_108',.F.,.F.,,,.T.}) //'Cheques Cancelados'
+		aadd(aFuncs,{	'FINR710'	,	STR0140	,'RCP_109',.F.,.F.,,,.T.}) //'Bordero Pagamento'
+		aadd(aFuncs,{	'FINR760'	,	STR0141	,'RCP_110',.F.,.F.,,,.T.}) //'Eficiência C.Pagar'
+		aadd(aFuncs,{	'FINR195'	,	STR0142	      ,'RCP_111',.F.,.F.,,,.T.}) //'Mapa Rateio'
+		aadd(aFuncs,{	'FINR330'	,	STR0143	,'RCP_112',.F.,.F.,,,.T.}) //'Pos Geral C.Pagar'
+		aadd(aFuncs,{	'FINR865'	,	STR0144	,'RCP_113',.F.,.F.,,,.T.}) //'Retenção Impostos'
+		aadd(aFuncs,{	'FINR855'	,	STR0145	,'RCP_114',.F.,.F.,,,.T.}) //'Tit Pagar C/Ret Im'
+		aadd(aFuncs,{	'FINR875'	,	STR0146	   ,'RCP_115',.F.,.F.,,,.T.}) //'Aglutinadores'
+		aadd(aFuncs,{	'FINR930'	,	STR0147	   ,'RCP_116',.F.,.F.,,,.T.}) //'Aglut. Imposto'
+		aadd(aFuncs,{	'FINR010' 	,	STR0131   	,'RCP_117',.F.,.F.,,,.T.}) //'Rel. Naturezas'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+		aFuncs := {}								
+		aNodoPai := {STR0089,"folder516","FOLDER616",'RCM_200', Nil, Nil, Nil} //"Comissões"
+		aadd(aFuncs,{	'FINR610'	,	STR0148	         ,'RCM_201',.F.,.F.,,,.T.}) //'Previsão'
+		aadd(aFuncs,{	'FINR540'	,	STR0149	         ,'RCM_202',.F.,.F.,,,.T.}) //'Relação'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+		aFuncs := {}				
+		aNodoPai := {STR0150,"folder516","FOLDER616",'RCB_300', Nil, Nil, Nil} //'Comunic Bancária'
+		aadd(aFuncs,{	'FINR650'	,	STR0130	   	,'RCB_301',.F.,.F.,,,.T.}) //'Retorno Cnab'
+		aadd(aFuncs,{	'FINR850'	,	STR0151	   ,'RCB_302',.F.,.F.,,,.T.}) //'Retorno Sispag'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+		aFuncs := {}
+		If lFa700Rel
+			aUserRel := Execblock("Fa700Rel",.F.,.F.)
+			aNodoPai := aUserRel[1]
+			aFuncs :=  aUserRel[2]
+	
+			FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+		Endif
+	
+	ElseIf Self:cAliasFile == "SE5"
+
+		aFuncs := {}						
+		aNodoPai := {STR0152,"folder516","FOLDER616",'RCR_100', Nil, Nil, Nil} //"C.Receber"
+		aadd(aFuncs,{	'FINR130'	,	STR0106	,'RCR_101',.F.,.F.,,,.T.}) //'Títulos a Receber'
+		aadd(aFuncs,{	'FINR137'	,	STR0153	,'RCR_102',.F.,.F.,,,.T.}) //'Tit.rec.p/Vendedor'
+		aadd(aFuncs,{	'FINR087'	,	STR0108	,'RCR_103',.F.,.F.,,,.T.}) //'Recebtos Diversos'
+		aadd(aFuncs,{	'FINR898'	,	STR0154	,'RCR_104',.F.,.F.,,,.T.}) //'Rec.div x Cliente'
+		aadd(aFuncs,{	'FINR899'	,	STR0155	,'RCR_105',.F.,.F.,,,.T.}) //'Informe Rec.divers'
+		aadd(aFuncs,{	'FINR270'	,	STR0111	,'RCR_106',.F.,.F.,,,.T.}) //'Histórico Clientes'
+		aadd(aFuncs,{	'FINR280'	,	STR0112		,'RCR_107',.F.,.F.,,,.T.}) //'Juros Recebidos'
+		aadd(aFuncs,{	'FINR290'	,	STR0113	,'RCR_108',.F.,.F.,,,.T.}) //'Juros dev.n.pagos'
+		aadd(aFuncs,{	'FINR300'	,	STR0114	,'RCR_109',.F.,.F.,,,.T.}) //'Maiores devedores'
+		aadd(aFuncs,{	'FINR133'	,	STR0115					,'RCR_110',.F.,.F.,,,.T.}) //'Aging'
+		aadd(aFuncs,{	'FINR320'	,	STR0116	,'RCR_111',.F.,.F.,,,.T.}) //'Pos.geral Cobrança'
+		aadd(aFuncs,{	'FINR340'	,	STR0117	,'RCR_112',.F.,.F.,,,.T.}) //'Posição Clientes'
+		aadd(aFuncs,{	'FINR450'	,	STR0118	,'RCR_113',.F.,.F.,,,.T.}) //'Sugestão Bloqueio'
+		aadd(aFuncs,{	'FINR600'	,	STR0119		,'RCR_114',.F.,.F.,,,.T.}) //'Boleto Genérico'
+		aadd(aFuncs,{	'DUPLI'		,	STR0156	,'RCR_115',.F.,.F.,,,.T.}) //'Emissão de Faturas'
+		aadd(aFuncs,{	'FINR660'	,	STR0157	,'RCR_116',.F.,.F.,,,.T.}) //'Tit Enviados Bco'
+		aadd(aFuncs,{	'FINR740'	,	STR0122		,'RCR_117',.F.,.F.,,,.T.}) //'Boleto - Rdmake'
+		aadd(aFuncs,{	'FINR750'	,	STR0158	,'RCR_118',.F.,.F.,,,.T.}) //'Eficienc.Cobrança'
+		aadd(aFuncs,{	'FINR500'	,	STR0123			,'RCR_119',.F.,.F.,,,.T.}) //'Liquidação'
+		aadd(aFuncs,{	'FINR020'	,	STR0124	,'RCR_120',.F.,.F.,,,.T.}) //'Livro Duplicatas'
+		aadd(aFuncs,{	'FINR801'	,	STR0159		,'RCR_121',.F.,.F.,,,.T.}) //'Movto.Mês a Mês'
+		aadd(aFuncs,{	'LOJR190'	,	STR0126	,'RCR_122',.F.,.F.,,,.T.}) //'Cheques devolvidos'
+		aadd(aFuncs,{	'FINR860'	,	STR0160	,'RCR_123',.F.,.F.,,,.T.}) //'Rel Retenção INSS'
+		aadd(aFuncs,{	'FINR940'	,	STR0161	,'RCR_124',.F.,.F.,,,.T.}) //'Tit Rec.c/Ret Imp'
+		aadd(aFuncs,{	'FINR170'	,	STR0162	,'RCR_125',.F.,.F.,,,.T.}) //'Emissão Borderôs'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+		aFuncs := {}									
+		aNodoPai := {STR0132,"folder516","FOLDER616",'RCP_100', Nil, Nil, Nil} //"C.Pagar"
+		aadd(aFuncs,{	'FINR150'	,	STR0133		,'RCP_101',.F.,.F.,,,.T.}) //'Títulos a Pagar'
+		aadd(aFuncs,{	'FINR170'	,	STR0162	,'RCP_102',.F.,.F.,,,.T.}) //'Emissão Borderôs'
+		aadd(aFuncs,{	'FINR350'	,	STR0163	,'RCP_103',.F.,.F.,,,.T.}) //'Pos. Fornecedores'
+		aadd(aFuncs,{	'FINR400'	,	STR0164		,'RCP_104',.F.,.F.,,,.T.}) //'Relação Cheques'
+		aadd(aFuncs,{	'FINR460'	,	STR0137	,'RCP_105',.F.,.F.,,,.T.}) //'Cheques Especiais'
+		aadd(aFuncs,{	'FINR480'	,	STR0165	,'RCP_106',.F.,.F.,,,.T.}) //'Impressão Cheques'
+		aadd(aFuncs,{	'FINR134'	,	STR0115					,'RCP_107',.F.,.F.,,,.T.}) //'Aging'
+		aadd(aFuncs,{	'FINR490'	,	STR0138	,'RCP_108',.F.,.F.,,,.T.}) //'Copia de Cheques'
+		aadd(aFuncs,{	'FINR540'	,	STR0139	,'RCP_109',.F.,.F.,,,.T.}) //'Cheques Cancelados'
+		aadd(aFuncs,{	'FINR710'	,	STR0166	,'RCP_110',.F.,.F.,,,.T.}) //'Borderô Pagamentos'
+		aadd(aFuncs,{	'FINR760'	,	STR0167,'RCP_111',.F.,.F.,,,.T.}) //'Eficiência C. pagar'
+		aadd(aFuncs,{	'FINRSRF'	,	STR0168		,'RCP_112',.F.,.F.,,,.T.}) //'Emissão de DARF'
+		aadd(aFuncs,{	'FINRGPS'	,	STR0169		,'RCP_113',.F.,.F.,,,.T.}) //'Emissão de GPS'
+		aadd(aFuncs,{	'FINR330'	,	STR0143	,'RCP_114',.F.,.F.,,,.T.}) //'Pos Geral C.pagar'
+		aadd(aFuncs,{	'FINR865'	,	STR0144	,'RCP_115',.F.,.F.,,,.T.}) //'Retenção Impostos'
+		aadd(aFuncs,{	'FINR855'	,	STR0145	,'RCP_116',.F.,.F.,,,.T.}) //'Tit Pagar C/Ret Im'
+		aadd(aFuncs,{	'FINR875'	,	STR0170	,'RCP_117',.F.,.F.,,,.T.}) //'Rel Aglutinadores'
+		aadd(aFuncs,{	'FINR930'	,	STR0171	,'RCP_118',.F.,.F.,,,.T.})			 //'Rel Aglut. Imposto'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)	
+
+		aFuncs := {}							
+		aNodoPai := {STR0089,"folder516","FOLDER616",'RCM_100', Nil, Nil, Nil} //"Comissões"
+		aadd(aFuncs,{	'FINR610'	,	STR0172	,'RCM_101',.F.,.F.,,,.T.}) //'Previsão Comissões'
+		aadd(aFuncs,{	'MATR540'	,	STR0173	,'RCM_102',.F.,.F.,,,.T.})  //'Relação Comissões'
+		aadd(aFuncs,{	'FINR897'	,	STR0174	,'RCM_103',.F.,.F.,,,.T.}) //'Rel.comis Cobrador'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)		
+
+		aFuncs := {}				
+		aNodoPai := {STR0081,"folder516","FOLDER616",'RMV_100', Nil, Nil, Nil} //"Movimento Bancário"
+		aadd(aFuncs,{	'FINR470'	,	STR0175	,'RMV_101',.F.,.F.,,,.T.}) //'Extrato Bancário'
+		aadd(aFuncs,{	'FINR530'	,	STR0176	,'RMV_102',.F.,.F.,,,.T.})  //'Mov Financ Diário'
+		aadd(aFuncs,{	'FINR620'	,	STR0177	,'RMV_103',.F.,.F.,,,.T.})  //'Moviment.bancaria'
+		aadd(aFuncs,{	'FINR120'	,	STR0178	,'RMV_104',.F.,.F.,,,.T.}) //'Movim Caixa Diário'
+		aadd(aFuncs,{	'FINR770'	,	STR0179	,'RMV_105',.F.,.F.,,,.T.}) //'Fluxo Caixa Realiz'
+		aadd(aFuncs,{	'FINR140'	,	STR0180	,'RMV_106',.F.,.F.,,,.T.}) //'Fluxo Caixa Analit'
+		aadd(aFuncs,{	'FINR190'	,	STR0181	,'RMV_107',.F.,.F.,,,.T.}) //'Relação de Baixas'
+		aadd(aFuncs,{	'FINR180'	,	STR0182		,'RMV_108',.F.,.F.,,,.T.}) //'Baixas por Lote'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+					
+		aFuncs := {}				
+		aNodoPai := {STR0183,"folder516","FOLDER616",'RRF_100', Nil, Nil, Nil} //"Resumo Financeiro"
+		aadd(aFuncs,{	'FINR840'	,	STR0184	,'RRF_101',.F.,.F.,,,.T.}) //'Resumo Financeiro'
+		aadd(aFuncs,{	'FINR510'	,	STR0185		,'RRF_102',.F.,.F.,,,.T.})  //'Diário Auxiliar'
+		aadd(aFuncs,{	'FINR550'	,	STR0186				,'RRF_103',.F.,.F.,,,.T.})  //'Razonete'
+		aadd(aFuncs,{	'FINR200'	,	STR0187	,'RRF_104',.F.,.F.,,,.T.}) //'Diar.sint.p/Natur'
+		aadd(aFuncs,{	'FINR590'	,	STR0188	,'RRF_105',.F.,.F.,,,.T.}) //'Mapa Multi Naturez'
+		aadd(aFuncs,{	'FINR731'	,	STR0189	,'RRF_106',.F.,.F.,,,.T.}) //'Orc x reais Ano Cc'
+		aadd(aFuncs,{	'FINR520'	,	STR0190	,'RRF_107',.F.,.F.,,,.T.}) //'Rel.comp.carteiras'
+		aadd(aFuncs,{	'FINR014'	,	STR0191	,'RRF_108',.F.,.F.,,,.T.}) //'Recibos Pendentes'
+		aadd(aFuncs,{	'FINR720'	,	STR0192,'RRF_109',.F.,.F.,,,.T.}) //'Orcados x reais Mês'
+		aadd(aFuncs,{	'FINR730'	,	STR0193,'RRF_110',.F.,.F.,,,.T.}) //'Orcados x reais Ano'
+		aadd(aFuncs,{	'FINR721'	,	STR0194	,'RRF_111',.F.,.F.,,,.T.}) //'Orc x reais Mês Cc'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+			
+		aFuncs := {}				
+		aNodoPai := {STR0084,"folder516","FOLDER616",'RCX_100', Nil, Nil, Nil}				 //"Caixinha"
+		aadd(aFuncs,{	'FINR560'	,	STR0195		,'RCX_101',.F.,.F.,,,.T.}) //'Movimentos'
+		aadd(aFuncs,{	'FINR570'	,	STR0196	,'RCX_102',.F.,.F.,,,.T.})  //'Status de Caixa'
+		aadd(aFuncs,{	'FINR580'	,	STR0197	,'RCX_103',.F.,.F.,,,.T.})  //'Baixa de Caixa'
+		aadd(aFuncs,{	'FINR565'	,	STR0198	,'RCX_104',.F.,.F.,,,.T.})			 //'Recibo de Caixa'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+		
+		aFuncs := {}				
+		aNodoPai := {STR0093,"folder516","FOLDER616",'RCB_100', Nil, Nil, Nil} //"Comunic. Bancária"
+		aadd(aFuncs,{	'FINR650'	,	STR0199	,'RCB_101',.F.,.F.,,,.T.}) //'Rel Retorno Cnab'
+		aadd(aFuncs,{	'FINR680'	,	STR0200	,'RCB_102',.F.,.F.,,,.T.})  //'Rel Extrato Cnab'
+		aadd(aFuncs,{	'FINR850'	,	STR0201	,'RCB_103',.F.,.F.,,,.T.}) 			 //'Rel Retorno Sispag'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+		
+		aFuncs := {}				
+		aNodoPai := {STR0202,"folder516","FOLDER616",'RAP_100', Nil, Nil, Nil} //"Aplicações/Emprest"
+		aadd(aFuncs,{	'FINR870'	,	STR0203	,'RAP_101',.F.,.F.,,,.T.}) //'Demonst Empréstimo'
+		aadd(aFuncs,{	'FINR820'	,	STR0204	,'RAP_102',.F.,.F.,,,.T.})  //'Demonst Aplicação'
+		aadd(aFuncs,{	'FINR830'	,	STR0205		,'RAP_103',.F.,.F.,,,.T.}) 			 //'Hist. Aplicação'
+		FVerK7Acess(oTree_7,aNodoPai,aFuncs,aUsrAccess)
+
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:SetBrowseTitle()
+
+Altera o título do painel de navegação para o texto especificado cWindowTitle.
+
+---------------------------------------------------------------------------- */
+Method SetBrowseTitle(cWindowTitle) Class FinAcWindow
+Return Self:oArea:SetWinTitle(COL_CENTER, WND_BROWSE, cWindowTitle)
+
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetBrowseTitle()
+
+Método não implementado ainda.
+
+---------------------------------------------------------------------------- */
+Method GetBrowseTitle() Class FinAcWindow
+Return ""
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:SetDadosTitle()
+
+Altera o título do painel de visualização para o texto especificado
+cWindowTitle.
+
+---------------------------------------------------------------------------- */
+Method SetDadosTitle(cWindowTitle) Class FinAcWindow
+Return Self:oArea:SetWinTitle(COL_CENTER, WND_VIS, cWindowTitle)
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetDadosTitle()
+
+Método não implementado ainda.
+
+---------------------------------------------------------------------------- */
+Method GetDadosTitle() Class FinAcWindow
+Return ""
+
+/* ----------------------------------------------------------------------------
+
+CreateTree()
+
+Cria um novo objeto XTree() no painel oParent.
+
+---------------------------------------------------------------------------- */
+Static Function CreateTree(oParent)
+	Local oTree := Nil
+	
+	oTree := Xtree():New(0, 0, 0, 0, oParent)
+	oTree:Align := CONTROL_ALIGN_ALLCLIENT
+Return oTree
+
+/* ----------------------------------------------------------------------------
+Funções auxiliares
+---------------------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------------------
+
+FTreeFin()
+
+---------------------------------------------------------------------------- */
+Function FTreeFin(oTree,cFunction,cTitNoPai,cCargo,lNodoIni,lIsOper,cChamadas,cAlias,lIsRelato,lInclui)
+
+	Local cFuncTree := ""
+	Local nX := 0
+	Local aRot := {}
+	Local cBmp := ""
+	Local nT := 0
+
+	DEFAULT lNodoIni:= .T. 
+	DEFAULT lIsOper:= .T.	
+	DEFAULT cChamadas:= " "
+	DEFAULT cAlias := ""	
+	DEFAULT lIsRelato:= .F.
+	DEFAULT lInclui	:= .T.
+
+	//Busco a aRotina de cada fonte
+	If !lIsOper
+		aRot := {}
+	ElseIf !Empty(cFunction)
+		aRot := &("STATICCALL(" + cFunction + ",MenuDef)")
+	Endif
+
+	//Crio o Nodo Inicial da Rotina
+	If lNodoIni
+		oTree:AddTree(cTitNoPai, "folder516", "FOLDER616", cCargo, ;
+		({|| FinWindow:ShowViewPanel(), ReCreateBrow(cAlias, FinWindow, cFunction), FinWindow:RefreshSearch(), IIf(cFunction == "FINA590",F590Bord(),) }), ;
+		({|| AllWaysTrue()}), ({||AllWaysTrue()}))
+	//	FinWindow:RefreshSearch(cAlias)
+	EndIf
+
+	cBmp := IIF(lIsRelato,"IMPRESSAO16","PMSTASK2")
+
+	//Faco a leitura do array de operacoes de cada fonte para montar a chamada de cada um
+	//numa subtree
+	If Len(aRot) > 0
+		For nX := 1 to Len(aRot)						
+			cTipoOper := Alltrim(Str(nX))			
+			If cTipoOper $ cChamadas
+				cFuncTree := "SaveInter(), " + cFunction+"T({"+cTipoOper+"})" + " ,RestInter()"
+				//Caso o processo possua inclusao dentre seu processos
+				If lInclui
+					cCargo := cTipoOper
+				Else
+					//Caso o processo não possua inclusao dentre seu processos (Resgate de aplicacao por exemplo)
+					//o Cargo sera a quarta posicao da aRotina
+					cCargo := STR(aRot[nX,4])
+				Endif
+				cOperName := IIF(lNodoIni,aRot[nX,1],cTitNoPai+"-"+aRot[nX,1]) 
+				oTree:AddTree(cOperName,cBmp,"PMSTASK116",cCargo,;
+				&("{|| FinWindow:ShowViewPanel(), "+ cFuncTree+" }"),/*{|| MsgStop('RightClick')}*/, &("{|| "+ cFuncTree+" }"))
+				oTree:EndTree()
+			Endif
+		Next
+	Else	//Relatorios e outras opcoes sem aRotina (Miscelaneas etc)
+		oTree:AddTree(cTitNoPai,cBmp,"FOLDER616",cCargo,;
+		&("{|| FinWindow:ShowViewPanel(), CallRelPnl('"+ cFunction+"')}"), /*{|| MsgStop('RightClick')}*/, ;
+		&("{|| FinWindow:ShowViewPanel(), CallRelPnl('"+ cFunction+"')}"))
+		oTree:EndTree()
+	Endif
+
+	If lNodoIni
+		oTree:EndTree()
+	Endif
+	
+Return oTree
+
+
+/* ----------------------------------------------------------------------------
+
+FinVisual()
+
+---------------------------------------------------------------------------- */
+Function FinVisual(cAliasFile, oCont, nRecno, lForceKill)
+	Local oEnc01 := NIL
+	Private oArea := oCont:oArea
+	Default lForceKill := .T.
+
+	If ValType(oCont:oEnc01) == "O"  .and. !lForceKill
+		RegToMemory(cAliasFile, .F., .T., , , FunName())
+		IF ValType(oCont:oEnc01:aentryctrls[1])== "O"
+			oCont:oEnc01:Refresh()
+		Endif
+	Else
+		aButtonTxt := {} 
+		oCont:oPanelVis:FreeChildren()
+		AxVisual(cAliasFile, 1,2,,,,,,,,.T.,oCont:oPanelVis, @oEnc01,,,FunName()) 
+		oCont:oEnc01 := oEnc01
+	EndIf
+Return 
+
+/* ----------------------------------------------------------------------------
+
+DlgInPanel()
+
+Encaixa Dialog no Panel.
+
+---------------------------------------------------------------------------- */
+Function DlgInPanel(oParent)
+	Local aDim := {}
+	Local nTop := 0
+	Local nLeft := 0
+
+	oParent:ReadClientCoors( ,.T.)
+	_GetXCoors(oParent, @nTop)
+	_GetYCoors(oParent, @nLeft)
+
+	aDim := {oParent:oWnd:nTop + nTop, ;
+				nLeft + oParent:oWnd:nLeft, ;
+				oParent:nBottom + oParent:oWnd:nTop + nTop -40 , ;
+				oParent:nRight + nLeft -11 }
+
+Return aDim
+
+
+/* ----------------------------------------------------------------------------
+
+DlgWidthPanelPanel()
+
+Devolve a largura do painel oParent, utilizando o método ReadClientCorrs() para
+ler as dimensões reais do painel.
+
+---------------------------------------------------------------------------- */
+Function DlgWidthPanel(oParent)
+	Local nLargura := 0	
+	oParent:ReadClientCoors()	
+	nLargura := oParent:nWidth
+Return nLargura
+
+
+/* ----------------------------------------------------------------------------
+
+DlgnHeightPanel()
+
+Devolve a altura do painel oParent, utilizando o método ReadClientCorrs() para
+ler as dimensões reais do painel.
+
+---------------------------------------------------------------------------- */
+Function DlgnHeightPanel(oParent)
+	Local nAltura := 0	
+	oParent:ReadClientCoors()	
+	nAltura := oParent:nHeight
+Return nAltura
+
+
+/* ----------------------------------------------------------------------------
+IsPanelFin()
+
+Verifica se a rotina foi chamada do Painel Financeiro.
+
+---------------------------------------------------------------------------- */
+Function IsPanelFin()
+Return (FunName() $ "FINA700#FINA702#FINA703#FINA704#FINA705")
+
+/* ----------------------------------------------------------------------------
+
+FaMyBar()
+
+Barra de botões padrão
+
+---------------------------------------------------------------------------- */
+Function FaMyBar(oDlg , bOk,bCancel, aButtons, aButText, lIsEnchoice, lSplitBar,lLegenda)
+
+Local nX := 0
+Local lButOk := .F.
+Local lButCancel := .F.
+
+DEFAULT aButtons	:= {}
+DEFAULT aButText	:= {}
+DEFAULT lIsEnchoice := .T.
+DEFAULT lSplitBar := .T.
+DEFAULT lLegenda  := .F.
+
+oButtonBar := FWFormBar():New(oDlg)
+	
+//Criacao dos botoes de Texto OK e Cancela quando nao for enchoicebar
+If !Empty(bOk)
+	oButtonBar:addOK(bOk, STR0220) //"Confirmar"
+Endif
+	
+If !Empty(bCancel)
+	oButtonBar:addClose(bCancel,STR0221) //"Fechar"
+Endif
+	
+//Criacao dos botoes de texto do usuario ou complementares
+If Len(aButText) > 0
+	For Nx := 1 to Len(aButText)
+		oButtonBar:AddUserBtn("",aButText[nX,2],aButText[nX,3],aButText[nX,2])
+	Next
+Endif
+	
+//Se a FAMYBAR esta sendo montada num browse e este tiver legenda alguns botoes padrao sao criados
+If lLegenda
+	oButtonBar:AddUserBtn("",STR0209,{|| FLegenda(FinWindow:cAliasFile, (FinWindow:cAliasFile)->(RECNO()))},STR0209)
+Endif
+		
+// criacao dos botoes de imagem do usuario ou complementares
+If Len(aButtons) > 0
+	For Nx := 1 To Len(aButtons)
+		oButtonBar:AddUserBtn( "", aButtons[nX,3],aButtons[nX,2],aButtons[nX,3])
+	Next
+EndIf
+	
+If lIsEnchoice
+	oButtonBar:addCalc()    
+	oButtonBar:addSpool()  
+//			oButtonBar:addImpCad()
+//			oButtonBar:AddWalkThrough()
+//			oButtonBar:AddAmbiente()
+//			oButtonBar:AddMashup()  
+//			oButtonBar:AddHelp()
+Endif
+	
+oButtonBar:Activate()
+
+Return Nil
+
+/* ----------------------------------------------------------------------------
+
+FLegenda()
+
+Legendas
+
+---------------------------------------------------------------------------- */
+Function FLegenda(cAlias, nReg)
+	Local uRetorno := .T.
+	Local cProc := Upper(AllTrim(cRotinaExec))
+
+	Private cCadastro := STR0004 //"Financeiro"
+	
+	Do Case
+
+		Case cProc $ "FINA040#FINA050#FINA070#FINA080#FINA090#FINA110#FINA450#FINA460#FINA565#FINC040#FINC050"   			
+			uRetorno := Fa040Legenda(cAlias, nReg)
+
+		Case cProc $ "FINA060"   
+			uRetorno := Fa060Legend(nReg)   
+
+		Case cProc $ "FINA100"   
+			uRetorno := F100Legenda(nReg)
+
+		Case cProc $ "FINA151"   
+			uRetorno := Fa151Leg(nReg)
+
+		Case cProc $ "FINA171#FINA181"   
+		uRetorno := Fa181Legenda(nReg)   
+
+		Case cProc $ "FINA190"   
+			uRetorno := Fa190Legenda(cAlias, nReg)
+
+		Case cProc $ "FINA191"   
+			uRetorno := Fa191Leg(nReg)
+
+		Case cProc $ "FINA330"   
+			uRetorno := Fa330Leg(nReg)   
+
+		Case cProc $ "FINA340"   
+			uRetorno := Fa340Leg(nReg)   
+
+		Case cProc $ "FINA390"   
+			uRetorno := F390Legenda(nReg)   
+
+		Case cProc $ "FINA550"   
+			uRetorno := FA550Legend(nReg)
+
+		Case cProc $ "FINA560"   
+			uRetorno := FA560Legend(nReg)
+
+		Case cProc $ "FINA580"   
+			uRetorno := FA580Leg(cAlias,nReg)
+
+		Case cProc $ "FINA620"   
+			uRetorno := Fa620Leg(nReg)
+
+		Case cProc $ "FINA630"   
+			uRetorno := Fa630Leg(nReg)
+
+		Case cProc $ "LOJA190"   	
+			uRetorno := Lj190Leg(nReg)
+			
+		Case cProc $ "MATA490"   				
+			uRetorno := A490Legend(nReg)
+			
+		Case cProc $ "FINA183"   				
+			uRetorno := FA183Legend(nReg)
+			
+		Case cProc $ "FINA590"   				
+			uRetorno := FA590Legen(cAlias,nReg)			
+
+		Case cProc $ "FINA030#FINA160#FINA470#FINA087A#FINA088#FINC010#FINC030"   			
+			uRetorno := FA700LegPad(nReg)			
+
+		Otherwise		
+			If cAlias == "SE1"					
+				uRetorno := Fa040Legenda(cAlias, nReg)
+
+			ElseIf cAlias == "SE2" 						
+				uRetorno := Fa040Legenda(cAlias, nReg)
+
+			ElseIf cAlias == "SE5"					
+				uRetorno := F100Legenda(nReg)
+
+			ElseIf cAlias == "SEF"
+				uRetorno := Fa190Legenda(cAlias, nReg)
+
+			ElseIf cAlias == "SEH"
+				uRetorno := Fa181Legenda(cAlias, nReg)
+
+			ElseIf cAlias $ "SEL#SA1#SA2#SE8#"					
+				uRetorno := {}
+			EndIf                                    	
+			
+	End Case
+	
+	If cAlias == "SE1"
+		cCadastro := STR0071			 //"Contas a Receber"
+	ElseIf cAlias == "SE2" 	
+		cCadastro := STR0077			 //"Contas a Pagar"
+	ElseIf cAlias == "SE5"
+		cCadastro := STR0210				 //"Movimentação Bancária"
+	ElseIf cAlias == "SEF"
+		cCadastro := STR0211 //"Cheques"
+	EndIf			
+
+Return uRetorno
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:DimObj()
+
+Devolve as dimensões do painel de visualização.
+
+---------------------------------------------------------------------------- */
+Method DimObj(cPanel) Class FinAcWindow
+	Local oParent := NIL
+
+	Self:oArea:GetWinPanel(COL_CENTER, WND_VIS)
+	oParent:FreeChildren()
+	aDim := DLGinPANEL(oParent)
+Return aDim
+
+/* ----------------------------------------------------------------------------
+
+ReCreateBrow()
+
+Recria o objeto browse utilizando o alias cAliasTree, no painel oFather,
+passando a função cFunction.
+
+---------------------------------------------------------------------------- */
+Function ReCreateBrow(cAliasTree, oFather, cFunction, lRefresh)
+
+FWMsgRun( ,{|| ReCriaBrow(cAliasTree, oFather, cFunction, lRefresh)},"Aguarde")	
+
+//Mantenho a consistencia do filtro quando reconstruir o objeto pai
+If !Empty(oFather:GetPerg())
+	Pergunte(oFather:GetPerg(), .T., , , oFather:oPanelSearch, , @oFather:aPergunte, .T., .F.)
+	oFather:FilterFile(,,.T.)            
+	oFather:oBrowse:Refresh()
+EndIf
+	
+Return
+
+Function ReCriaBrow(cAliasTree, oFather, cFunction, lRefresh)
+	Local aCores := {}
+	Local aButtonTxt := {}
+	Local cWndTitle := STR0015 //"Browse"
+	Local lSeeAll	:= .F. 
+	Local nInc		:= 0
+	Local aSM0		:= AdmAbreSM0()
+	Local nTamAlias := If(Substr(cAliasTree,1,1) == "S",2,3)
+
+	Default cFunction := ""
+	Default lRefresh := .F.
+	
+	cCadastro := If(Type("cCadastro") != "C", " ", cCadastro)
+
+	If !Empty(cFunction)	   
+		cRotinaExec := cFunction	
+	EndIf
+
+	If oFather:cAliasFile != cAliasTree	
+
+		oFather:cAliasFile := cAliasTree 
+
+		dbSelectArea(oFather:cAliasFile)
+
+		oPanelBrow := FinWindow:oArea:GetWinPanel(COL_CENTER, WND_BROWSE)
+		oPanelBrow:FreeChildren()
+
+		oPanelDados := FinWindow:oArea:GetWinPanel(COL_CENTER, WND_VIS)
+		oPanelDados:FreeChildren()
+
+		aDim := DLGinPANEL(oPanelDados)		
+		
+		FinWindow:SetBrowseTitle(FinReadValue("SX2", 1, cAliasTree, "X2_NOME", STR0015)) //"Browse"
+
+		AADD(aButtonTxt,{STR0006	, STR0006, {|| WndxPesqui(oFather:oBrowse, Nil, "", .F.)}})  //TstWndxPesqui(Self:oBrowse) //"Pesquisar"###"Pesquisar"
+		
+		oFather:oBrowse := MaWndBrowse(0, 0, 0, 0, " ", oFather:cAliasFile, ,,,,,.F.,,4,,,,.F.,,,,,,, ;
+	           FLegenda(oFather:cAliasFile), oPanelBrow,aButtonTxt,/*oFather:aButtonBar*/, .F.)
+
+		oFather:oBrowse:bChange := {|| FinVisual(oFather:cAliasFile,FinWindow,(oFather:cAliasFile)->(Recno()),.F.)}
+
+		FinVisual(oFather:cAliasFile,FinWindow,(oFather:cAliasFile)->(Recno()))
+
+   Else
+		dbSelectArea(oFather:cAliasFile)
+		aCores := FLegenda(oFather:cAliasFile)
+		oFather:oBrowse:aColumns[1]:bData := {|| oRes:=Nil, aEval(aCores,{|x| IF(&(x[1]),IF(oRes==Nil,oRes:=LoadBitmap(GetResources(),x[2]),""),"")} ), oRes }
+		oFather:oBrowse:Refresh()
+		FinVisual(oFather:cAliasFile,FinWindow,(oFather:cAliasFile)->(Recno()),.F.)  
+		FinWindow:RefreshSearch()
+	EndIf
+	
+	If lRefresh
+		FinWindow:RefreshChart()	
+	Else
+
+		PswOrder(1)
+		If PswSeek( __cUserID, .T. )
+			aUsrFil := PswRet()[2,6] // Retorna vetor com informações do usuário  
+			lSeeAll := (subs(PswRet()[2,5],115,1) == 'S') .and. !Empty(xFilial(oFather:cAliasFile))
+		EndIf
+	
+		If lSeeAll 
+			If Finwindow:oPanelOp:oWnd:oCtlFocus:Getcargo() == '3'  //Inclusão
+				//Guardo a filial atual pois, caso o usuario cancele a operacao de escolha de filial/empresa,
+				//Mantenho a filial atual (a rotina retorna "espacos vazios")
+				cFilAtu := cFilAnt
+				cFilant := FWPesqSM0("M0_CODFIL",cEmpAnt)
+				If Empty(cFilAnt)
+					cFilAnt := cFilAtu
+				Endif
+			Else
+				cCpoFil := PrefixoCpo(cAliasTree)+"_FILIAL"
+				cCodFil := &cCpoFil
+				If ( ! Empty(cCodFil) ) .And. ( FWCodFil(cEmpAnt,cCodFil) != cFilAnt )
+					cFilAnt := FWCodFil(cEmpAnt,cCodFil)
+					SM0->(DbSeek(cEmpAnt+cFilAnt))
+				EndIf
+			Endif
+		Endif
+	Endif
+
+Return	   
+
+/* ----------------------------------------------------------------------------
+
+FaMyFormBatch
+
+---------------------------------------------------------------------------- */
+Function FaMyFormBatch(aSays,aButtonTxt,bOk,bCancel)
+	Local nContFor := 1   
+	Local cSay := ""   
+	Local lOk := .F.
+	Local cAlias := Alias()
+	Local oDlg
+
+	dbSelectArea(cAlias)
+
+	oPanelDados := FinWindow:GetVisPanel()
+	oPanelDados:FreeChildren()
+	aDim := DLGinPANEL(oPanelDados)
+
+	DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM 0,0 To 0,0 PIXEL ;
+	  STYLE nOR( WS_VISIBLE, WS_POPUP )	
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Observacao Importante quanto as coordenadas calculadas abaixo: ³ 
+		//³ -------------------------------------------------------------- ³ 		
+		//³ a funcao DlgWidthPanel() retorna o dobro do valor da area do	 ³
+		//³ painel, sendo assim este deve ser dividido por 2 antes da sub- ³
+		//³ tracao e redivisao por 2 para a centralizacao. 					 ³		
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		
+		nEspLarg := (((DlgWidthPanel(oPanelDados)/2) - 250) /2) 
+		nEspLin  := 0						
+		oDlg:lMaximized := .F.
+		oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+		oPanel:Align := CONTROL_ALIGN_ALLCLIENT    	
+			
+		@ 000+nEspLin,000+nEspLarg TO 100+nEspLin,250+nEspLarg OF oPanel PIXEL
+			
+		For nContFor := 1 To Len(aSays)				
+			TSay():New( 020+nEspLin, 010+nEspLarg, &('{||"' + aSays[nContFor] + '"}'),oPanel,,,,,,.T.,,,,,,,,,,)
+			nEspLin += 10
+		Next	   			
+						
+		oDlg:Move(aDim[1],aDim[2],aDim[4]-aDim[2], aDim[3]-aDim[1])			
+	ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,{||Eval(bOk),lOk :=.T.,oDlg:End()},{||Eval(bCancel),oDlg:End()},,aButtonTxt)		
+
+	cAlias := FinWindow:cAliasFile     
+	dbSelectArea(cAlias)			
+	FinVisual(cAlias, FinWindow, (cAlias)->(Recno()), .T.)				
+Return lOk
+
+
+/* ----------------------------------------------------------------------------
+
+PergInPanel
+
+---------------------------------------------------------------------------- */
+Function PergInPanel(cPergunta,lAsk,cTitle,lOnlyView,oDlg,lUseProf,aPerg,lBreakLine)
+
+		Local lOk := .F.
+		Local cAlias := Alias()
+		Local oPanelCenter
+		Local cTitleWnd := STR0214 //"Parâmetros"
+
+		DEFAULT aPerg := {}
+
+		Private __oDlg //Necessario para a Pergunte()
+
+		Set Key VK_F12 TO
+		
+		oPanelDados := FinWindow:GetVisPanel()
+		oPanelDados:FreeChildren()
+		aDim := DLGinPANEL(oPanelDados)
+		FinWindow:SetDadosTitle(cTitleWnd)
+		
+		DEFINE MSDIALOG oDlg OF oPanelDados:oWnd FROM aDim[1],aDim[2] To aDim[3]-30,aDim[4]-10 PIXEL STYLE nOR( WS_VISIBLE, WS_POPUP )
+		oDlg:lMaximized := .F.
+
+		@ 000,000 MSPANEL oPanelCenter SIZE 000,000 OF oDlg
+		oPanelCenter:Align := CONTROL_ALIGN_ALLCLIENT
+		
+		Pergunte(cPergunta,lAsk,cTitle,lOnlyView,oPanelCenter,lUseProf,aPerg,lBreakLine)					
+
+		ACTIVATE MSDIALOG oDlg ON INIT FaMyBar(oDlg,{||(__SaveParam(cPergunta,aPerg),lOk :=.T.,oDlg:End())},{||oDlg:End()},,,.F.)
+
+		cAlias := FinWindow:cAliasFile     
+		dbSelectArea(cAlias)			
+		FinVisual(cAlias,FinWindow,(cAlias)->(Recno()),.T.)				
+		FinWindow:SetDadosTitle(STR0215)		 //"Dados"
+Return lOk
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:UiFilterFile()
+
+Exibe a tela de pergunta correspondente ao alias do gestor. Se a tela de
+perguntas é confirmada, o alias do gestor é filtrado conforme os parâmetros do
+das perguntas. Se é cancelada, nenhuma ação ocorrerá.
+
+---------------------------------------------------------------------------- */
+Method UiFilterFile() Class FinAcWindow
+	Local cPerg := ""
+
+	Do Case
+		Case Self:cAliasFile == "SE1"
+			cPerg := "FIP704"
+		Case Self:cAliasFile == "SE2"
+			cPerg := "FIP703"
+		Case Self:cAliasFile == "SA1"
+			cPerg := "FIP707"
+		Case Self:cAliasFile == "SA2"
+			cPerg := "FIP708"
+		Case Self:cAliasFile == "SEF"
+			cPerg := "FIP705"
+		Case Self:cAliasFile == "SEL"
+			cPerg := "FIP706"
+	EndCase
+
+	If Pergunte(cPerg, .T., , , , , , .T.)
+		Self:FilterFile(Self:cAliasFile, Self:cPerg)
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:FilterFile()
+
+Filtra o arquivo especificado pelo alias cAlias, utilizando as condições de
+filtro especificado pelo grupo de perguntas cPerg.
+
+Perguntas em branco serão desconsideradas. Caso todas as perguntas estejam em
+branco, a filtragem será desfeita.
+
+Restrição: o grupo de perguntas será processado para tratamento dos ranges,
+utilizando a função MakeAdvplExpr()
+
+---------------------------------------------------------------------------- */
+Method FilterFile(cAlias, cPerg, lWndRefresh) Class FinAcWindow
+
+Local aStackParams	:= {}
+Local i 			:= 0
+Local cPergunta 	:= ""
+Local cExp 			:= ""
+Local aBackup 		:= {}
+Local cCampo		:= ""
+Local aFilUser		:= MatFilCalc(.F.)    
+Local cFilialUser	:= ""      
+Local nX			:= 0  
+Local cFilExp		:= ""
+Local aAllFil		:= {}
+Local cAliasFil     := ""
+
+Default cAlias := Self:cAliasFile                                    	
+Default cPerg := Self:GetPerg()
+Default lWndRefresh := .F.
+  
+// faz um backup dos parâmetros
+For i := 1 To 99
+	cPergunta := "mv_par" + StrZero(i, 2)
+	
+	If Type(cPergunta) # "U"
+		Aadd(aBackup, {cPergunta, &(cPergunta)})			
+	EndIf
+Next
+
+__SaveParam(cPerg, @Self:aPergunte)	
+
+// reinicializa a pergunta
+ResetMVRange()
+
+//Busco o numero de perguntas do grupo de perguntas
+nLenPerg := FGetLenPgt(cPerg)
+
+//Montar a clausula de filtro, para substituir o MakAdvplExpr que utilizava algumas funcoes para compor as expressoes que as tornavam muito lentas em grandes bases
+For i := 1 to nLenPerg
+	cPergunta := "mv_par" + StrZero(i,2)
+	If Type(cPergunta) # "U" .AND. !Empty(&(cPergunta))               
+		//Se o campo de pesquisa (X1_CNT01) estiver preenchido, montar a expressao com o campo da tabela
+		cCampo := Posicione("SX1",1,PadR(cPerg,SX1->(dbStruct())[aScan(SX1->(dbStruct()),{|x| x[1] == "X1_GRUPO"})][3]) + StrZero(i,2),"X1_CNT01")
+		If !Empty(cCampo)
+			Do Case
+				Case Self:aPergunte[i][2] == "C"
+					&(cPergunta) := "(" + AllTrim(cCampo)
+					&(cPergunta) += " = '" + RTrim(Substr(aBackup[i][2],1,Self:aPergunte[i][3])) + "')"
+				Case Self:aPergunte[i][2] == "D"        
+					&(cPergunta) := "(DtoS(" + AllTrim(cCampo) + ")"
+					&(cPergunta) += " = '" + DtoS(CtoD(aBackup[i][2])) + "')"
+				Case Self:aPergunte[i][2] == "N"
+					&(cPergunta) := "(" + AllTrim(cCampo)
+					&(cPergunta) += " = " + cValtoChar(aBackup[i][2]) + ")"
+			EndCase
+		Endif
+	Endif
+Next i
+
+// empilha os parâmetros que existem
+// e não são vazios
+For i := 1 To nLenPerg
+	cPergunta := "mv_par" + StrZero(i, 2)
+	If Type(cPergunta) # "U" .And. !Empty(&(cPergunta))
+		Aadd(aStackParams, &(cPergunta))
+	EndIf
+Next
+
+If cAlias == "SE1"
+	cFilExp := "E1_FILIAL"
+ElseIf cAlias == "SE2"
+	cFilExp := "E2_FILIAL"		
+ElseIf cAlias == "SE5"
+	cFilExp := "E5_FILIAL" 
+ElseIf cAlias == "SA2"
+	cFilExp := "A2_FILIAL"
+ElseIf cAlias == "SA1"
+	cFilExp := "A1_FILIAL"
+EndIf	
+
+If FwModeAccess(cAlias) == 'C'
+	dbSelectArea(cAlias)
+	cFilExp := "'" + alltrim(&cFilExp) + "'"
+
+	cAliasFil := xFilial(cAlias)
+	If !Empty(cAliasFil) //Nao aplica o filtro quando alias totalmente compartilhado
+		cFilialUser := cFilExp +  " $ '" + cAliasFil + "'"
+		aAdd(aStackParams, cFilialUser)
+	Endif
+
+Else
+	If cFilExp $ "E1_FILIAL|E2_FILIAL|E5_FILIAL|A2_FILIAL|A1_FILIAL"
+		aAllFil := FWAllFilial()
+		If len(aAllFil) > len(aFilUser)			//Se tiver acesso a todas filiais não adiciona filtro
+
+			cFilialUser := cFilExp + " $ '"
+
+			For nX:= 1 to len(aFilUser)
+				If nx == 1
+					cFilialUser += aFilUser[nx][2]
+				Else
+					cFilialUser += "|" + aFilUser[nx][2]
+				Endif
+			Next			 
+
+			cFilialUser += "'"	
+
+			aAdd(aStackParams, cFilialUser)
+
+		EndIf
+	EndIf	
+Endif
+// restaura os parâmetros originais
+For i := 1 To Len(aBackup)
+	&(aBackup[i][1]) := aBackup[i][2]
+Next	
+
+// desempilha os parâmetros e cria
+// a expressão de filtro
+If Len(aStackParams) > 0
+	
+	cExp := aStackParams[1]
+
+	For i := 2 To Len(aStackParams)
+		cExp += " .And. " + aStackParams[i]    
+	Next
+	
+	If Len(cExp) > 1994 // tamanho limite para não apresentar erro de filtro, para ajuste é necessário traballhar com tabela temporáriae filtro em query
+		HELP(,,"FILTERGREATER700", ,STR0222,1,0) // "O filtro de filiais ultrapassou o seu limite, o painel não pode ser carregado."
+		ms_quit()
+	EndIf
+
+	// "@" + cSQLExp executa o filtro diretamente na query SQL
+	// não utilizar @, pois é incompatível com AS/400 e também
+	// ocasiona problemas no tcbrowse()	
+	//ConOut(cExp)  
+	(cAlias)->(dbSetFilter({|| &cExp }, cExp))
+	If !lWndRefresh
+		(cAlias)->(dbGoTop())
+	EndIf
+Else
+	(cAlias)->(dbClearFilter())
+Endif
+
+dbSelectArea(cAlias)
+
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetPerg()
+
+Devolve o grupo de perguntas correspondente ao alias do painel.
+
+---------------------------------------------------------------------------- */
+Method GetPerg() Class FinAcWindow
+	Local cPerg := ""
+
+	Do Case
+		Case Self:cAliasFile == "SE1"
+			cPerg := "FIP704"
+		Case Self:cAliasFile == "SE2"
+			cPerg := "FIP703"
+		Case Self:cAliasFile == "SA1"
+			cPerg := "FIP707"
+		Case Self:cAliasFile == "SA2"
+			cPerg := "FIP708"
+		Case Self:cAliasFile == "SEF"
+			cPerg := "FIP705"
+		Case Self:cAliasFile == "SEL"
+			cPerg := "FIP706"
+		Case Self:cAliasFile == "SE5"
+			cPerg := "FIP701"
+	EndCase
+Return cPerg
+
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:RefreshSearch()
+
+Atualiza o painel de pesquisa caso o alias cAlias seja diferente do alias do
+painel ou caso cAlias não seja passado.
+
+---------------------------------------------------------------------------- */
+Method RefreshSearch(cAlias) Class FinAcWindow
+	Default cAlias := ""
+	
+	If Self:cAliasFile != cAlias
+
+		Self:aPergunte := {}
+		Self:oPanelSearch:FreeChildren()
+    
+		ResetMVRange()
+
+		If !Empty(Self:GetPerg())				
+			Pergunte(Self:GetPerg(), .T., , , Self:oPanelSearch, , ;
+			         @Self:aPergunte, .T., .F.)
+
+			FaMyBar(Self:oPanelSearch, , , , ;
+			        {{STR0216, STR0006, {|| Self:FilterFile()}}}, .F.,.F.)	 //"Pesquisar"###"Pesquisar"
+		EndIf
+	Endif
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetPergSize()
+
+Devolve um array de duas dimensões no qual cada elemento do mesmo contém o
+nome e tamanho de cada pergunta pertencente ao grupo de perguntas
+associado ao alias do gestor.
+
+---------------------------------------------------------------------------- */
+Method GetPergSize() Class FinAcWindow
+	Local aSize := {}
+	
+	Do Case
+		Case Self:cAliasFile == "SE1"
+			aSize := FinReadSx1("FIP704")
+
+		Case Self:cAliasFile == "SE2"
+			aSize := FinReadSx1("FIP703")
+	
+		Case Self:cAliasFile == "SA1"
+			aSize := FinReadSx1("FIP707")
+
+		Case Self:cAliasFile == "SA2"
+			aSize := FinReadSx1("FIP708")
+
+		Case Self:cAliasFile == "SEF"
+			aSize := FinReadSx1("FIP705")
+
+		Case Self:cAliasFile == "SEL"
+			aSize := FinReadSx1("FIP706")
+
+		Case Self:cAliasFile == "SE5"
+			aSize := FinReadSx1("FIP701")
+
+		Otherwise
+			aSize := Nil
+	EndCase
+Return aSize
+
+/* ----------------------------------------------------------------------------
+
+FinReadSx1()
+
+Devolve um array de duas dimensões no qual cada elemento do mesmo contém o
+nome e tamanho de cada pergunta pertencente ao grupo de perguntas cPerg
+
+---------------------------------------------------------------------------- */
+Static Function FinReadSx1(cPerg)
+	Local aArea := GetArea()
+	Local aAreaSX1 := SX1->(GetArea())
+	
+	Local aSize := {}
+
+	SX1->(dbSelectArea("SX1"))
+	SX1->(dbSetOrder(1))
+	SX1->(MsSeek(cPerg))
+	
+	While !SX1->(Eof()) .And. SX1->X1_GRUPO == PadR(cPerg, Len(SX1->X1_GRUPO))
+	
+		Aadd(aSize, {Upper(SX1->X1_VAR01), SX1->X1_TAMANHO})		
+		
+		SX1->(dbSkip())
+	End	
+
+	SX1->(RestArea(aAreaSX1))
+	RestArea(aArea)
+Return aSize
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:RefreshChart()
+
+Atualiza o painel de gráficos, caso o mesmo exista.
+
+---------------------------------------------------------------------------- */
+Method RefreshChart() Class FinAcWindow
+
+	// no gestor de Tesouraria não é exibido o painel
+	// de gráficos, deste modo, o mesmo não é criado
+	If Self:oPanelChart # Nil
+
+		Self:oPanelChart:FreeChildren()
+	
+		Self:oChart := FWChartFactory():New()
+
+		// retorna a instância do gráfico desejado
+		//
+		// BARCHART(0) para barras
+		// LINECHART(1) para linhas
+		// PIECHART(2) para pizza.
+		Self:oChart := Self:oChart:GetInstance(0)
+		Self:oChart:Init(Self:oPanelChart, .T.)
+		//Self:oChart:SetTitle("Despesas financeiras", CONTROL_ALIGN_LEFT)
+		//Self:oChart:SetLegend(CONTROL_ALIGN_RIGHT)
+		Self:oChart:SetMask("R$ *@*")
+	
+		FinLdChartData(Self)
+	 
+	  Self:oChart:Build()
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:Refresh()
+
+Atualiza os painéis de pesquisa e de gráficos (caso o mesmo exista).
+
+---------------------------------------------------------------------------- */
+Method Refresh() Class FinAcWindow
+	Self:RefreshSearch()
+	Self:RefreshChart()
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetAlias()
+
+Devolve o alias sendo utilizado pelo gestor.
+
+---------------------------------------------------------------------------- */
+Method GetAlias() Class FinAcWindow
+Return Self:cAliasFile
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:SetAlias()
+
+Altera o alias sendo utilizado pelo gestor.
+
+---------------------------------------------------------------------------- */
+Method SetAlias(cAlias) Class FinAcWindow
+	Self:cAliasFile := cAlias
+Return Self:cAliasFile
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:SetChartTitle()
+
+Altera o título do painel de de gráficos para o texto especificado
+cWindowTitle.
+
+---------------------------------------------------------------------------- */
+Method SetChartTitle(cWindowTitle) Class FinAcWindow
+Return Self:oArea:SetWinTitle(COL_LEFT, WND_CHART, cWindowTitle)
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetChartTitle()
+
+Método não implementado ainda.
+
+---------------------------------------------------------------------------- */
+Method GetChartTitle() Class FinAcWindow
+Return ""
+
+
+/* ----------------------------------------------------------------------------
+
+FinLdChartData()
+
+Recupera os dados do painel de gráficos e desenha o mesmo, alterando o título
+do painel de gráficos do objeto FinWindow oParent.
+
+---------------------------------------------------------------------------- */
+Static Function FinLdChartData(oParent)
+	Local oChart := oParent:oChart
+	Local cAlias := oParent:cAliasFile
+	Local cTitle := ""	
+	Local aSerie := {}
+
+	Do Case
+		Case cAlias == "SE1"
+			cTitle := STR0016 //"Títulos a Receber"
+
+			SE1->(dbSetOrder(7))
+
+			aSerie := FinLdSE1(dDatabase)
+
+			oChart:AddSerie(Dtoc(dDatabase - 1), aSerie[1])
+			oChart:AddSerie(Dtoc(dDatabase)    , aSerie[2])
+			oChart:AddSerie(Dtoc(DataValida(dDatabase + 1, .T.)), aSerie[3])
+			
+		Case cAlias == "SE2" 
+			cTitle := STR0017 //"Títulos a Pagar"
+
+			SE2->(dbSetOrder(3))
+
+			aSerie := FinLdSE2(dDatabase)
+			
+		  oChart:AddSerie(Dtoc(dDatabase - 1), aSerie[1])
+		  oChart:AddSerie(Dtoc(dDatabase)    , aSerie[2])
+		  oChart:AddSerie(Dtoc(DataValida(dDatabase + 1, .T.)), aSerie[3]) 
+			
+		Otherwise
+			cTitle := STR0217 //"Desconhecido"
+	EndCase
+
+	oParent:SetChartTitle(cTitle)
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinLdAccounts()
+
+Cria o objeto de árvore oTree do painel de Contas Bancárias, utilizando
+informações necessárias do objeto FinWindow oFinWindow.
+
+Contas bancárias bloqueadas serão desconsideradas.
+
+---------------------------------------------------------------------------- */
+Static Function FinLdAccounts(oTree, oFinWindow)
+	Local aArea := GetArea()
+	Local aAreaSA6 := SA6->(GetArea())
+	
+	Private oContainer := oFinWindow
+
+	dbSelectArea("SA6")
+	SA6->(dbSetOrder(1))
+
+  If SA6->(MsSeek(xFilial("SA6")))
+  
+  	oTree:AddTree(STR0218, "IMPRESSAO16", "IMPRESSAO16", Str(0), ; //"Consolidado"
+		              {|| FinShowBal(oTree, oFinWindow, .T.)}, {||}, {||})
+		
+		While !SA6->(Eof()) .And. SA6->A6_FILIAL == xFilial("SA6")
+
+			If SA6->A6_BLOCKED == "2"
+				oTree:AddTree(AllTrim(SA6->A6_COD) + "-" + AllTrim(SA6->A6_AGENCIA) + ;
+				              "-" + AllTrim(SA6->A6_NUMCON), ;
+				              "IMPRESSAO16", "IMPRESSAO16", StrZero(SA6->(Recno()), 7), ;
+				              {|| FinShowBal(oTree, oFinWindow) }, ;
+				              {|| }, ;
+				              {|| })
+				oTree:EndTree()
+			EndIf
+				
+			SA6->(dbSkip())
+		End
+		
+		oTree:EndTree()
+  EndIf
+
+	RestArea(aAreaSA6)
+	RestArea(aArea)
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:Init()
+
+Inicializa o objeto FinWindow criando a interface gráfica para o gestor.
+
+---------------------------------------------------------------------------- */
+Method Init() Class FinAcWindow
+
+	Local aCoors := {}	
+
+	// a função CursorWait() altera o cursor apenas quando a rotina é chamada
+	// pela primeira vez. Nas chamadas seguintes da função, o cursor não é
+	// alterado. Chamando CursorArrow() força a CursorWait() mostrar o cursor
+	// de ampulheta sempre.
+	CursorArrow()
+	CursorWait()
+
+	aCoors := FWGetDialogSize(oMainWnd)
+	
+	DEFINE MSDIALOG Self:oDlg TITLE STR0004 ; //"Financeiro"
+		    FROM aCoors[1],aCoors[2] TO aCoors[3],aCoors[4] ;
+          OF oMainWnd COLOR "W+/W" STYLE nOR(WS_VISIBLE,WS_POPUP) PIXEL
+
+	Self:oDlg:lMaximized := .T.
+		
+	Self:oArea := FWLayer():New()
+	Self:oArea:Init(Self:oDlg, .T.)
+			
+	If Self:oArea == Nil
+		Return Nil
+	EndIf
+
+	// cria a coluna da esquerda
+	Self:CreateLeftColumn()
+		
+	// cria a coluna do meio
+	Self:CreateCenterColumn()
+		
+	// cria a coluna da direita
+	Self:CreateRightColumn()
+
+	CursorArrow()
+	
+	If Self:cAliasFile == "SE5"
+		FinShowBal(Self:oTreeAccounts, Self, .T.)
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:GetVisPanel()
+
+Devolve o painel no qual será mostra a visualização dos registros.
+
+---------------------------------------------------------------------------- */
+Method GetVisPanel() Class FinAcWindow
+Return Self:oArea:GetWinPanel(COL_CENTER, WND_VIS)
+
+/* ----------------------------------------------------------------------------
+
+FinLdBalance()
+
+Determina qual é o saldo bancário totalizado das contas especificadas pela
+faixa de aBankS até aBankF, até a data limite dDate. Saldos existentes para a
+conta porém com data superior a dDate serão desconsiderados.
+Saldo existentes de contas bancárias bloqueadas (A6_BLOCKED # "2") serão
+desconsiderados.
+
+O tipo de saldo considerado é configurado pelo parâmetro nType, considerando
+os seguintes argumentos:
+
+1 - padrão (SE8->E8_SALATUA)
+2 - saldo conciliado (SE8->E8_SALRECO)
+3 - saldo não conciliado (E8->E8_SALATUA - SE8->E8_SALRECO)
+
+aBankS e aBankF são arrays de uma dimensão cujos elementos são composto de:
+
+{código do banco, agência, número da conta}
+
+lLimit indica se o limite de crédito (A6_LIMCRED) já será somado ao saldo da
+conta.
+
+---------------------------------------------------------------------------- */
+Function FinLdBalance(aBankS, aBankF, dDate, nType, lLimit)
+
+Local aArea 		:= GetArea()
+Local aAreaSE8 		:= SE8->(GetArea())
+Local cBank 		:= ""
+Local cAgency 		:= ""
+Local cAccount 		:= ""
+Local nBalance 		:= 0
+Local nTotalBalance := 0
+Local lSoftSeek 	:= .T.
+Local lReadValue
+
+Default nType := 1
+Default aBankF := aBankS
+Default lLimit := .F.
+
+	// E8_FILIAL+E8_BANCO+E8_AGENCIA+E8_CONTA+DTOS(E8_DTSALAT)
+	
+	dbSelectArea("SE8")
+	SE8->(dbSetOrder(1))
+	SE8->(MsSeek(xFilial("SE8") + aBankS[1] + aBankS[2] + ;
+	             aBankS[3], lSoftSeek))
+
+	cBank := SE8->E8_BANCO
+	cAgency := SE8->E8_AGENCIA
+	cAccount := SE8->E8_CONTA
+	
+	While !SE8->(Eof()) .And. SE8->E8_FILIAL == xFilial("SE8") .And. ;
+	                          SE8->E8_BANCO <= aBankF[1] .And. ;
+	                          SE8->E8_AGENCIA <= aBankF[2] .And. ;
+	                          SE8->E8_CONTA <= aBankF[3]
+
+		If SE8->E8_DTSALAT > dDate
+			SE8->(dbSkip())
+			Loop
+		EndIf
+        
+	lReadValue := FinReadValue("SA6", 1, xFilial("SA6") + SE8->E8_BANCO + SE8->E8_AGENCIA + SE8->E8_CONTA, "A6_BLOCKED")
+	
+	If lReadValue == Nil .Or. lReadValue $ "1"   
+		SE8->(dbSkip())
+		Loop
+	EndIf
+		
+		cBank := SE8->E8_BANCO
+		cAgency := SE8->E8_AGENCIA
+		cAccount := SE8->E8_CONTA
+			                          
+		While !SE8->(Eof()) .And. SE8->E8_FILIAL == xFilial("SE8") .And. ;
+		                          SE8->E8_BANCO == cBank .And. ;
+		                          SE8->E8_AGENCIA == cAgency .And. ;
+		                          SE8->E8_CONTA == cAccount .And. ;
+		                          SE8->E8_DTSALAT <= dDate
+
+			Do Case
+				Case nType == 1 // padrão
+					nBalance := SE8->E8_SALATUA
+				
+				Case nType == 2 // saldo conciliado
+					nBalance := SE8->E8_SALRECO 
+				
+				Case nType == 3 // saldo não conciliado
+				  nBalance := SE8->E8_SALATUA - SE8->E8_SALRECO 
+			EndCase
+			
+			SE8->(dbSkip())
+		End		
+
+		If lLimit
+			nBalance += FinReadValue("SA6", 1, xFilial("SA6") + cBank + ;
+			                         cAgency + cAccount, "A6_LIMCRED")
+		EndIf
+		
+		nTotalBalance += nBalance
+	End
+
+	RestArea(aAreaSE8)
+	RestArea(aArea)
+Return nTotalBalance
+
+/* ----------------------------------------------------------------------------
+
+FinShowBal()
+
+Calcula os saldos, entradas, saídas e limite da conta posicionada na árvore
+oTree e mostra estes valores no painel de saldos utilizando o gestor
+oFinWindow.
+
+lAll indica que todas as contas bancárias serão calculadas. Esta opção é
+utilizada quando é necessário calcular o saldo consolidado (todas as contas).
+No painel, esta opção é o nó raiz da árvore, descrita como "Consolidado".
+
+---------------------------------------------------------------------------- */
+Function FinShowBal(oTree, oFinWindow, lAll)
+	Local oArea := GetArea()
+	Local oAreaSA6 := SA6->(GetArea())
+	Local dDate := dDatabase
+
+	Local aAuxSE5 := {}     	
+
+	Local nPrevBalance :=	0
+	Local nTotalIn := 0
+	Local nTotalOut := 0
+	Local nCredit := 0
+	Local nBalance := 0
+	
+	Local aAccInfoS := {}
+	Local aAccInfoF := {}
+	
+	Default lAll := .F.
+
+	If Len(oTree:aNodes) == 0 // oTree:IsEmpty()
+		RestArea(oAreaSA6)
+		RestArea(oArea)	
+		Return	
+	EndIf
+	
+	If SA6->(Eof())
+		RestArea(oAreaSA6)
+		RestArea(oArea)	
+		Return
+	EndIf
+
+	CursorArrow()	
+	CursorWait()
+
+	If lAll
+		Aadd(aAccInfoS, Space(Len(SA6->A6_COD)))
+		Aadd(aAccInfoS, Space(Len(SA6->A6_AGENCIA)))
+		Aadd(aAccInfoS, Space(Len(SA6->A6_NUMCON)))
+		
+		Aadd(aAccInfoF, Replicate("Z", Len(SA6->A6_COD)))
+		Aadd(aAccInfoF, Replicate("Z", Len(SA6->A6_AGENCIA)))
+		Aadd(aAccInfoF, Replicate("Z", Len(SA6->A6_NUMCON)))
+	Else		
+		SA6->(dbGoto(Val(oTree:GetCargo())))
+		
+		aAccInfoS := {SA6->A6_COD, SA6->A6_AGENCIA, SA6->A6_NUMCON}
+		aAccInfoF := aAccInfoS
+	EndIf		
+  
+	aAuxSE5 := FinLdIn(aAccInfoS, aAccInfoF, dDate,oFinWindow:oComboBal:nAt)
+
+	nPrevBalance := FinLdBalance(aAccInfoS, aAccInfoF, dDate - 1, ;
+	                             oFinWindow:oComboBal:nAt)
+	          //Ascan(oFinWindow:aComboBal, oFinWindow:cComboBal))
+
+	nTotalIn := aAuxSE5[1]
+	nTotalOut := aAuxSE5[2]
+	nCredit := SA6->A6_LIMCRED
+	nBalance := nPrevBalance + nTotalIn - nTotalOut + nCredit
+
+	oFinWindow:cSayBalAcc := Transform(nPrevBalance, X3Picture("E8_SALATUA"))
+	oFinWindow:cAccIn := Transform(nTotalIn, X3Picture("E5_VALOR"))
+	oFinWindow:cAccOut := Transform(nTotalOut, X3Picture("E5_VALOR"))
+	oFinWindow:cAccLim := Transform(nCredit, X3Picture("A6_LIMCRED"))
+	oFinWindow:cAccBal := Transform(nBalance, X3Picture("E8_SALATUA"))
+	                   
+	oFinWindow:RefreshBalance()
+	
+	CursorArrow()
+
+	RestArea(oAreaSA6)
+	RestArea(oArea)	
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinAcWindow:RefreshBalance()
+
+Atualiza o painel de saldos. Não efetua nenhum recálculo de valores.
+
+---------------------------------------------------------------------------- */
+Method RefreshBalance() Class FinAcWindow
+	Self:oSayBalAcc:Refresh()
+	Self:oAccIn:Refresh()
+	Self:oAccOut:Refresh()
+	Self:oAccLim:Refresh()
+	Self:oAccBal:Refresh()
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinLdIn()
+
+Calcula as entradas e saídas dos bancos especificados pelas faixa de aBankS
+até aBankF. São consideradas apenas as movimentações bancárias com a data de
+disponibilidade igual a dDate.
+
+Devolve um array de uma dimensão contendo dois elementos: o primeiro elemento
+é o total de entradas e o segundo é o total de saídas.
+
+aBankS e aBankF são arrays de uma dimensão cujos elementos são compostos de:
+
+{código do banco, agência, número da conta}
+
+---------------------------------------------------------------------------- */
+Function FinLdIn(aBankS, aBankF, dDate,nType)
+	Local aArea := GetArea()
+	Local aAreaSE5 := SE5->(GetArea())
+
+	Local nTotalIn := 0
+	Local nTotalOut := 0
+	Local lSoftSeek := .T.
+	
+	Local cStrDate := Dtos(dDate)
+	
+	Default aBankF := aBankS
+	Default nType := 1
+	
+	dbSelectArea("SE5")
+	SE5->(dbSetOrder(1))
+	SE5->(MsSeek(xFilial("SE5") + cStrDate + aBankS[1] + ;
+	             aBankS[2] + aBankS[3], lSoftSeek))
+	
+	While !SE5->(Eof()) .And. SE5->E5_FILIAL == xFilial("SE5") .And. ;
+	                          SE5->E5_DTDISPO == dDate .And. ;
+	                          SE5->E5_BANCO <= aBankF[1] .And. ;
+	                          SE5->E5_AGENCIA <= aBankF[2] .And. ;
+	                          SE5->E5_CONTA <= aBankF[3]
+
+		If Fr700Skip(aBankF[1],aBankF[2],aBankF[3],nType)
+			Do Case			
+				Case SE5->E5_RECPAG == "R"
+					nTotalIn += SE5->E5_VALOR
+				Case SE5->E5_RECPAG == "P"
+					nTotalOut += SE5->E5_VALOR
+			EndCase
+      Endif
+
+		SE5->(dbSkip())
+	Enddo
+
+	RestArea(aAreaSE5)
+	RestArea(aArea)
+Return {nTotalIn, nTotalOut}
+
+/* ----------------------------------------------------------------------------
+
+CallRelPnl()
+
+Executa o relatório cFunction através de macro execução. O parâmetro cFunction
+contém o nome da função do relatório a ser executado, por exemplo, "FINR100".
+
+Esta função salva o alias em uso antes da execução do relatório. Após a
+execução, o alias é restaurado. Este passo é necessário para não desposicionar
+o alias utilizado pelo browse, o que causa erro fatal.
+
+Restrição: não é possível passar parâmetros para a função de relatório.
+
+---------------------------------------------------------------------------- */
+Function CallRelPnl(cFunction)
+	Local aArea := GetArea()  // salva o alias em uso
+	Local xReturn := &(cFunction + "()")  // executa o relatório
+	
+	// é necessário restar o alias após a execução do relatório
+	RestArea(aArea)  
+
+	// atualiza o painel de pesquisa
+	FinWindow:RefreshSearch()
+Return xReturn
+
+/* ----------------------------------------------------------------------------
+
+FinReadValue()
+
+Realiza uma procura no arquivo de banco de dados utilizando o alias
+especificado por cAlias, índice de ordem nOrder. Os valores para pesquisa
+(parciais ou totais) estão armazenados em cKey.
+
+Devolve o valor especificado pelo campo cField se o registro for encontrado,
+caso contrário, devolve xDefValue se especificado ou, finalmente, devolve Nil.
+
+---------------------------------------------------------------------------- */
+Function FinReadValue(cAlias, nOrder, cKey, cField, xDefValue)
+	Local aArea      := GetArea()
+	Local aAreaAlias := (cAlias)->(GetArea())
+	Local uBuffer    := Nil  // valor a ser devolvido
+	
+	Default xDefValue := Nil
+	
+	uBuffer := xDefValue
+
+	dbSelectArea(cAlias)
+	(cAlias)->(dbSetOrder(nOrder))
+
+	If (cAlias)->(MsSeek(cKey, .F.))
+		uBuffer := (cAlias)->(FieldGet(FieldPos(cField)))	
+	EndIf
+
+	(cAlias)->(RestArea(aAreaAlias))
+	RestArea(aArea)
+Return uBuffer
+
+/* ----------------------------------------------------------------------------
+
+ShowViewPanel()
+
+---------------------------------------------------------------------------- */
+Method ShowViewPanel() Class FinAcWindow
+
+	// verifica se o painel de visualização
+	// está sendo mostrado
+
+	If !Self:oArea:WinOpen(COL_CENTER, WND_VIS)
+
+		// se não, mostra a janela
+		Self:oArea:WinChgState(COL_CENTER, WND_VIS)
+	EndIf
+Return
+
+/* ----------------------------------------------------------------------------
+
+FinLdSE1()
+
+---------------------------------------------------------------------------- */
+Function FinLdSE1(dDate)
+	Local aReturn := {0, 0, 0}
+ 	Local cQuery := ""
+ 	Local cQueryAlias := CriaTrab(Nil, .F.)
+
+ 	Local nValue := 0 
+
+	cQuery := "SELECT * FROM ("   
+
+	cQuery += "SELECT E1_FILIAL Branch, 1 AS Type, E1_TIPO Tipo, " 
+	cQuery += "E1_MOEDA Currency, "
+	cQuery += "SUM(E1_SALDO + E1_SDACRES - E1_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE1")
+	cQuery += " WHERE E1_FILIAL = '" + xFilial("SE1")
+	cQuery += "' AND E1_VENCREA < '" + Dtos(dDate) + "' AND E1_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E1_FILIAL,E1_TIPO, E1_MOEDA "
+	
+	cQuery += "UNION ALL "
+	
+	cQuery += "SELECT E1_FILIAL Branch, 2 AS Type,E1_TIPO Tipo, "
+	cQuery += "E1_MOEDA Currency, "
+	cQuery += "SUM(E1_SALDO + E1_SDACRES - E1_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE1")
+	cQuery += " WHERE E1_FILIAL = '" + xFilial("SE1")
+	cQuery += "' AND E1_VENCREA = '" + Dtos(dDate) + "' AND E1_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E1_FILIAL,E1_TIPO, E1_MOEDA "
+		
+	cQuery += "UNION ALL "
+
+	// procura os títulos a vencer no próximo dia útil
+	cQuery += "SELECT E1_FILIAL Branch, 3 AS Type, E1_TIPO Tipo, "
+	cQuery += "E1_MOEDA Currency, "
+	cQuery += "SUM(E1_SALDO + E1_SDACRES - E1_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE1")
+	cQuery += " WHERE  E1_FILIAL = '" + xFilial("SE1")
+	cQuery += "' AND E1_VENCREA = '" + Dtos(DataValida(dDate + 1, .T.))
+	cQuery += "' AND E1_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E1_FILIAL,E1_TIPO, E1_MOEDA "
+	
+	If lF700QRY1
+		cQuery := Execblock("F700QRY1",.f.,.f.,{ cQuery } ) // permite manipualção das query 
+	Endif	
+	
+	If TCGetDb() $ "ORACLE"	
+		cQuery += ") Result ORDER BY Branch, Type,Tipo, Currency"
+	Else
+		cQuery += ") AS Result ORDER BY Branch, Type,Tipo, Currency"
+	Endif	
+
+	If FinExecQuery(cQueryAlias, cQuery)
+
+		aReturn := {0, 0, 0}
+	
+		While !(cQueryAlias)->(Eof()) .And. (cQueryAlias)->Branch == xFilial("SE1")
+
+			nValue := xMoeda((cQueryAlias)->Balance, ;
+			                 (cQueryAlias)->Currency, 1, dDate, 3)
+
+	   		If (cQueryAlias)->Tipo $ "NCC" .or. Alltrim((cQueryAlias)->Tipo) $ "RA" .or. Alltrim((cQueryAlias)->Tipo) $ MVABATIM
+			   	aReturn[(cQueryAlias)->Type] -= Round(NoRound(nValue, 3), 2)
+			  Else
+	  			aReturn[(cQueryAlias)->Type] += Round(NoRound(nValue, 3), 2)
+              EndIf		
+		
+			(cQueryAlias)->(dbSkip())			
+		End
+  	
+		(cQueryAlias)->(dbCloseArea())
+	EndIf		
+Return aReturn
+
+/* ----------------------------------------------------------------------------
+
+FinLdSE2()
+
+---------------------------------------------------------------------------- */
+Function FinLdSE2(dDate)
+	Local aReturn := {0, 0, 0}
+	Local cQuery := ""
+	Local cQueryAlias := CriaTrab(Nil, .F.)
+
+	Local nValue := 0
+
+	cQuery := "SELECT * FROM ("   
+
+	cQuery += "SELECT E2_FILIAL Branch, 1 AS Type, E2_TIPO Tipo, "  
+	cQuery += "E2_MOEDA Currency, "
+	cQuery += "SUM(E2_SALDO + E2_SDACRES - E2_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE2")
+	cQuery += " WHERE E2_FILIAL = '" + xFilial("SE2")
+	cQuery += "' AND E2_VENCREA < '" + Dtos(dDate) + "' AND E2_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E2_FILIAL, E2_TIPO, E2_MOEDA "
+	
+	cQuery += "UNION ALL "
+	
+	cQuery += "SELECT E2_FILIAL Branch, 2 AS Type, E2_TIPO Tipo, "
+	cQuery += "E2_MOEDA Currency, "
+	cQuery += "SUM(E2_SALDO + E2_SDACRES - E2_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE2")
+	cQuery += " WHERE E2_FILIAL = '" + xFilial("SE2")
+	cQuery += "' AND E2_VENCREA = '" + Dtos(dDate) + "' AND E2_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E2_FILIAL,E2_TIPO, E2_MOEDA "
+		
+	cQuery += "UNION ALL "
+
+	// procura os títulos a vencer no próximo dia útil
+	cQuery += "SELECT E2_FILIAL Branch, 3 AS Type,  E2_TIPO Tipo,"
+	cQuery += "E2_MOEDA Currency, "
+	cQuery += "SUM(E2_SALDO + E2_SDACRES - E2_SDDECRE) Balance FROM "
+	cQuery += RetSqlName("SE2")
+	cQuery += " WHERE E2_FILIAL = '" + xFilial("SE2")
+	cQuery += "' AND E2_VENCREA = '" + Dtos(DataValida(dDate + 1, .T.))
+	cQuery += "' AND E2_SALDO > 0 AND D_E_L_E_T_ = ' ' "
+	cQuery += "GROUP BY E2_FILIAL, E2_TIPO, E2_MOEDA "
+	
+	If lF700QRY2
+		cQuery := Execblock("F700QRY2",.f.,.f.,{ cQuery } ) // permite manipualção das query 
+	Endif	
+	
+	If TCGetDb() $ "ORACLE"	
+		cQuery += ") Result ORDER BY Branch, Type, Tipo, Currency"
+	Else
+		cQuery += ") AS Result ORDER BY Branch, Type, Tipo, Currency"
+	Endif		
+	
+	If FinExecQuery(cQueryAlias, cQuery)
+
+		aReturn := {0, 0, 0}
+	
+		While !(cQueryAlias)->(Eof()) .And. (cQueryAlias)->Branch == xFilial("SE2")
+
+			nValue := xMoeda((cQueryAlias)->Balance, ;
+			                 (cQueryAlias)->Currency, 1, dDate, 3)
+
+			If (cQueryAlias)->Tipo $ MVPAGANT+"/"+MV_CPNEG
+			   	aReturn[(cQueryAlias)->Type] -= Round(NoRound(nValue, 3), 2)
+			Else
+	  			aReturn[(cQueryAlias)->Type] += Round(NoRound(nValue, 3), 2)
+            EndIf		
+		
+			(cQueryAlias)->(dbSkip())
+		End
+  	
+		(cQueryAlias)->(dbCloseArea())
+	EndIf		
+Return aReturn
+
+/* ----------------------------------------------------------------------------
+
+FinExecQuery()
+
+---------------------------------------------------------------------------- */
+Function FinExecQuery(cQueryAlias, cQuery)
+  Local lReturn := .F.
+  
+  cQuery := ChangeQuery(cQuery)
+  
+  //ConOut(cQuery)
+
+  dbUseArea(.T., "TOPCONN", TCGenQry(, , cQuery), cQueryAlias, .F., .T.)
+  
+	If Select(cQueryAlias) > 0
+		
+		lReturn := .T.
+
+		(cQueryAlias)->(dbGotop())	
+	EndIf
+Return lReturn
+
+/* ----------------------------------------------------------------------------
+
+FuncAcess()
+
+---------------------------------------------------------------------------- */
+Static Function FuncAcess()      
+
+	Local nX		:= 0
+	Local aLoad 	:= {}
+	Local aRet		:= {}
+	Local cIdUser	:= ""
+	Local ni		:= 0
+	Local aGrp		:= {}
+	Local cGrupo	:= ""
+	Local aMenus	:= {}
+	Local nPosMenu	:= 0
+	Local lRet		:= .F.	
+
+	PswOrder(2)	
+	PswSeek( cUserName, .T. )
+	cIdUser		:= RetCodUsr(cUserName) //Obtem o Id do usuário
+	aGrp		:= UsrRetGrp(cUserName) //Obtem os grupos do usuário
+	cGrupo		:= FWUsrGrpRule(cIdUser) // Obtem a regra de grupo
+	
+	If cGrupo == "2" .Or. Len(aGrp) < 1 // Se desconsidera grupo ou Não possuir grupo de usuário
+		aMenus	:=	FwUsrMenu(cIdUser)
+		nPosMenu := Ascan(aMenus,{|x| Substr(x,1,2) == "06" })
+		If nPosMenu > 0 .and. Substr(aMenus[nPosMenu],3,1) != "X"
+				lRet	:= .T.
+		EndIf
+	Else
+		For ni := 1 to Len(aGrp)
+			aMenus		:=  FwGrpMenu(aGrp[ni])
+			nPosMenu	:= Ascan(aMenus,{|x| Substr(x,1,2) == "06" })	
+			If nPosMenu > 0 .and. Substr(aMenus[nPosMenu],3,1) != "X"
+				lRet	:= .T.
+				Exit
+			EndIf
+		Next ni
+	EndIf
+
+	//Leio menu se possuir acesso
+	If lRet
+		aLoad := XNULOAD(Substr(aMenus[nPosMenu],4))
+	Endif    
+
+	For nX:= 1 To Len(aLoad)
+
+		GetMenu( aLoad[nX][3], @aRet )
+
+	Next nX
+
+Return aRet
+
+/* ----------------------------------------------------------------------------
+
+GetMenu()
+
+---------------------------------------------------------------------------- */
+
+Static Function GetMenu( aLoad, aRet )
+
+	Local nX
+
+	For nX:=1 To Len(aLoad)
+		If ValType(aLoad[nX][3]) == "A" .AND. aLoad[nX][2] == "E"
+			Getmenu( aLoad[nX][3], @aRet )
+		Else
+			If aLoad[nX][2] == "E"
+				aAdd( aRet, { aLoad[nX][3], aLoad[nX][5],aLoad[nX][7] } )
+			EndIf
+		EndIf
+	Next
+
+Return
+
+
+/*---------------------------------------------------------
+Funcao
+----------------------------------------------------------*/
+Function FVerK7Acess(oTree,aNodoPai,aFuncs,aUsrAccess,cExcecao)
+
+	Local aAcessos := {}
+	Local cFunction := ""
+	Local nX := 0
+	Local nT := 0
+
+	Default cExcecao := "  "
+
+	For nX := 1 to Len(aFuncs)
+		cFunction := aFuncs[nX,1]
+		If cFunction $ cExcecao
+			cFunction := Substr(cFunction,1,Len(cFunction)-1)
+		Endif
+						
+		If (nT := ascan(aUsrAccess,{|x| Alltrim(x[1]) == Alltrim(cFunction)})) > 0
+
+			//Preparar chamada de Rdmakes
+			If aUsrAccess[nT,3] == 3 //Rdmake
+				aFuncs[nX,1] := "U_"+ aFuncs[nX,1]
+			Endif
+			aadd(aAcessos,aFuncs[nX])
+		Endif
+	Next
+
+	If Len(aAcessos) > 0
+		If Len(aNodoPai) > 0
+			oTree:AddTree(aNodoPai[1],aNodoPai[2],aNodoPai[3],aNodoPai[4], Nil, Nil, Nil) 
+		Endif
+		For nX := 1 to Len(aAcessos)
+			If Len(aAcessos[nX]) > 8
+				FTreeFin(oTree,aAcessos[nX,1],aAcessos[nX,2],aAcessos[nX,3],aAcessos[nX,4],aAcessos[nX,5],aAcessos[nX,6],aAcessos[nX,7],aAcessos[nX,8],aAcessos[nX,9])		
+			Else
+				FTreeFin(oTree,aAcessos[nX,1],aAcessos[nX,2],aAcessos[nX,3],aAcessos[nX,4],aAcessos[nX,5],aAcessos[nX,6],aAcessos[nX,7],aAcessos[nX,8])		
+			Endif
+		Next
+		oTree:EndTree()
+	Endif
+Return
+
+
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³FA700LegPad³ Autor ³ Marcelo Celi Marques ³ Data ³ 19.06.08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Cria uma janela contendo a legenda padrão da mBrowse       ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function FA700LegPad(nReg)
+Local uRetorno := .T.
+Local aLegenda := {{"ENABLE"	, 	""	}}	
+
+If nReg = Nil	// Chamada direta da funcao onde nao passa, via menu Recno eh passado
+	uRetorno := {}
+	Aadd(uRetorno,{".T.",aLegenda[1][1]}) // Com Saldo	
+Else
+	BrwLegenda(cCadastro,"",aLegenda)
+Endif
+
+Return uRetorno
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³Fr700Skip ³ Autor ³ Mauricio Pequim Jr.	  ³ Data ³ 13.10.99 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³Pula registros de acordo com as condicoes (AS 400/CDX/ADS)  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ GESTOR TESOURARIA														  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Fr700Skip(cBanco,cAgencia,cConta,nType)
+Local lRet := .T.
+
+IF SE5->E5_TIPODOC $ "DC/JR/MT/CM/D2/J2/M2/C2/V2/CP/TL/BA"  //Valores de Baixas
+	lRet := .F.
+ElseIF SE5->E5_SITUACA = "C"    //Cancelado
+	lRet := .F.
+ElseIF SE5->E5_VALOR = 0
+	lRet := .F.
+ElseIf SubStr(SE5->E5_NUMCHEQ,1,1)=="*" 
+	lRet := .F.
+ElseIf (nType == 2 .and. Empty(SE5->E5_RECONC)) .or. (nType == 3 .and. !Empty(SE5->E5_RECONC))
+	lRet := .F.
+ElseIf E5_TIPODOC $ "TR/TE" .and. (Substr(SE5->E5_NUMCHEQ,1,1)=="*" .or. Substr(SE5->E5_DOCUMEN,1,1) == "*" )
+	lRet := .F.
+Endif
+
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³AdmAbreSM0³ Autor ³ Orizio                ³ Data ³ 22/01/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorna um array com as informacoes das filias das empresas ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function AdmAbreSM0()
+	Local aArea			:= SM0->( GetArea() )
+	Local aAux			:= {}
+	Local aRetSM0		:= {}
+	Local lFWLoadSM0	:= .T.
+	Local lFWCodFilSM0 	:= .T.
+
+	If lFWLoadSM0
+		aRetSM0	:= FWLoadSM0()
+	Else
+		DbSelectArea( "SM0" )
+		SM0->( DbGoTop() )
+		While SM0->( !Eof() )
+			aAux := { 	SM0->M0_CODIGO,;
+						IIf( lFWCodFilSM0, FWGETCODFILIAL, SM0->M0_CODFIL ),;
+						"",;
+						"",;
+						"",;
+						SM0->M0_NOME,;
+						SM0->M0_FILIAL }
+
+			aAdd( aRetSM0, aClone( aAux ) )
+			SM0->( DbSkip() )
+		End
+	EndIf
+
+	RestArea( aArea )
+Return aRetSM0
+
+/* ----------------------------------------------------------------------------
+FGetLenPgt
+
+Retorna o numero de perguntas do grupo de perguntas em uso
+
+---------------------------------------------------------------------------- */
+
+Function FGetLenPgt(cPerg)
+
+Local nLenPerg := 0
+Local aArea		:= GetArea()
+Local aAreaSX1	:= SX1->(GetArea())
+	
+If SX1->(MsSeek(cPerg))
+	dbSelectArea("SX1")
+	While !SX1->(Eof()) .and. Alltrim(cPerg) == Alltrim(X1_GRUPO)
+		nLenPerg++
+		dbSkip()
+	Enddo
+Endif
+
+RestArea(aAreaSX1)
+RestArea(aArea)
+
+Return(nLenPerg)		 
+
+

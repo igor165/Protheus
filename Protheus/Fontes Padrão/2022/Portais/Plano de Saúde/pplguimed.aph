@@ -1,0 +1,282 @@
+<%
+#DEFINE nTamTab "590"
+#DEFINE nTamFs  "555"
+#DEFINE nLarBrw "550"
+#DEFINE nAltBrw "150"
+#DEFINE cBrwDef	 "BrwGrid"
+
+LOCAL oHtml := WCHtml():New()
+
+HttpSession->USR_SKIN := "imagens-pls"
+%>
+
+
+<%=oHtml:getDType()%>
+
+<script language="Javascript">
+<!--
+//defini nome do browse
+cBrwGrid = <%="'"+cBrwDef+"'"%>
+
+//Monta combo								   							   
+function fParGM(nTp) {    
+	nTpG = nTp
+	var cCodEsp	= getField("Field_CODESP");
+	var cCodEst	= getField("Field_CODEST");
+	var cCodMun	= getField("Field_CODMUN");
+	
+	//Enviar
+	Ajax.open("W_PPLCGUIMED.APW?nTp=" + nTp + "&cCodEsp=" + cCodEsp + "&cCodEst=" + cCodEst + "&cCodMun=" + cCodMun, { 
+			callback: carregaCombo, 
+			error: exibeErro
+	});
+}                                                                          
+
+//Carrega Combo
+function carregaCombo(v) {
+    var aResult = v.split("|");
+	
+	//se tem resultado
+    if ( !isEmpty(aResult[0]) ) {
+
+		//Monta Combo
+		if (nTpG == 2) {
+			comboLoad("Field_CODEST",aResult);
+			comboLoad("Field_CODMUN",Array(''));
+			comboLoad("Field_BAIRRO",Array(''));
+		} else if (nTpG == 3) {
+			comboLoad("Field_CODMUN",aResult);
+			comboLoad("Field_BAIRRO",Array(''));
+		} else if (nTpG == 4)
+			comboLoad("Field_BAIRRO",aResult);
+	}	
+	//Quando combo tem apenas uma posição, não executa o evento onchange.
+	if (!isEmpty(aResult[0]) && aResult.length == 1 && ( (nTpG+1) < 5 )) {
+		fParGM(nTpG+1)	
+	}
+}
+
+//Consulta
+function fProcCon() {
+	var cCodPla	= getField("Field_CODPLA");
+	var cCodEsp	= getField("Field_CODESP");
+	var cCodEst	= getField("Field_CODEST");
+	var cCodMun	= getField("Field_CODMUN");
+	var cBairro	= getField("Field_BAIRRO");
+	cBairro = cBairro.includes("'") ? cBairro.replace("'", "''") : cBairro; //resolver na hora do select SQL
+	var cWhere	= "Field_CODPLA="+cCodPla+"|Field_CODESP="+cCodEsp+"|Field_CODEST="+cCodEst+"|Field_CODMUN="+cCodMun+"|Field_BAIRRO="+cBairro;
+
+	//verifica se foi chamado pela navegacao
+	var cBuscaTReg = getGridCall(cBrwGrid,'fProcCon');
+
+	//Verifica se foi informado											   
+    if (isEmpty(cCodEsp) || isEmpty(cCodEst) || isEmpty(cCodMun) || isEmpty(cCodPla)) {
+      alert("Preencha todos os campos obrigatórios!");
+      return;
+    }
+
+	//Monta campos conforme processamento da rdas							   
+	Ajax.open("W_PPLGETDGRI.APW?cFunName=PLBRWGM&nPagina=" + getField(cBrwGrid+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg , {
+				callback: carregaGridDat, 
+				error: exibeErro} );
+}
+
+//Monstra faturas
+function carregaGridDat(v) { 
+	var aResult = v.split("|");
+	
+	//Se existe registro define propriedades
+	var nQtdReg		= aResult[1];  
+	var nQtdPag		= aResult[2];
+	var nRegPagina 	= aResult[3];
+    var aHeader 	= eval(aResult[4]);
+	var aDadosSubs	= aHeader.length > 1 ? VerifPosic(aHeader, ["Descr.", "Nome", "Desc.", "Endereco", "Bairro","Municipio"]) : [];
+    aCols 			= eval(aResult[5]);
+	var cMsg		= aResult[6];
+	
+	//Monta Browse 	
+	var oGuiMed = new gridData(cBrwGrid,<%=nLarBrw%>,<%=nAltBrw%>)
+	
+	for (var nFor = 0; nFor < aCols.length; nFor++) {
+
+		aDadosSubs.forEach(function(item, i) {
+			aCols[nFor][aDadosSubs[i]].value = aCols[nFor][aDadosSubs[i]].value.replace(/%/g, "'");
+		});
+	}
+	
+	oGuiMed.load({	fFunName:'fProcCon',
+					nRegPagina:nRegPagina,
+					nQtdReg:nQtdReg,
+					nQtdPag:nQtdPag,
+					lOverflow:true,
+					lShowLineNumber:true,
+					aBtnFunc:"[{info:'Mapa',img:'052.gif',funcao:'fShowMap'}]",
+					aHeader: aHeader,
+					aCols: aCols });
+
+	if ( !isEmpty(cMsg) && isEmpty(aCols) ) {
+		modalBS("Atenção", "<p> " + cMsg + " </p>", "@Fechar~closeModalBS();","white~#ff0000", "large");
+	}
+
+}                          
+
+function VerifPosic(aCabecalho, aPesquisa) {
+	var aRetorno 	= [];
+	var nLaco		= 0;
+
+	for ( nLaco; nLaco < aPesquisa.length; nLaco++ ) {
+		aCabecalho.forEach(function(item, i) {
+			if (item.name.includes(aPesquisa[nLaco]) ) { 
+				aRetorno.push(i);
+			}
+			//break();	
+		});
+	}
+ return aRetorno;	
+}
+
+
+
+//Mostra mapas
+function fShowMap(x) {
+	var lRet = false;                    
+	cRda 	 = "";
+	cRecno 	 = x;
+	
+	//Procura na acols o recno	
+	for (var i=0; i in aCols; i++) {           
+		if ( getColsField(aCols[i],'RECNO').indexOf(x) != -1 )	 {
+	    	lRet = true;
+			cRda = getColsField(aCols[i],'BAU_NOME');
+		}	
+		if (lRet) break;
+	}                                                                    
+	
+	//Monta campos conforme processamento da rdas							   	
+	Ajax.open("W_PPLGETELL.APW?cRecno=" + x , {callback: carregaDadMap, error: exibeErro} );
+}
+
+//Carrega dados do mapa
+function carregaDadMap(v) {
+	var aResult = v.split("|");
+	
+	//Endereco de busca, latitude longitude e endereco show
+	cEnd 	 = aResult[0];
+	cShowEnd = aResult[1];
+	cLatLon  = aResult[2];
+	
+	//Mostra mapa
+	ChamaPoP('W_PPLMOSMAP.APW?cRda=' + cRda + "&cEndereco=" + cEnd + "&cShowEnd=" + cShowEnd + "&cLatLon=" + cLatLon + "&cRecno=" + cRecno ,'map','no',0,500,400);
+}
+//-->
+</script>
+
+<%
+
+//Formulario
+oForm := WCForm():New("Form1")
+oForm:setWidth(nTamTab)
+oForm:setTitle("Rede Credenciada")
+
+//Tabela principal
+oTabela := WCTable():New()
+
+// Plano
+oLiPl := WCLine():New()
+oFSPl := WCFieldSet():New("Selecione o Plano",nTamFs,"10","10")
+
+oCodPla := WCComponent():New("C","Field_CODPLA","Produto","300")
+//oCodPla:setJSChange("fParGM(2)") 
+oCodPla:setSession("HttpSession->aProdutos")
+oCodPla:setObrigat(.T.)
+oFSPl:setAddCFS(oCodPla)
+
+oLiPl:setAddComp(oFSPl)
+
+
+//Linha do plano e especialidade
+oLiPE := WCLine():New()
+
+//Propridade do grupo fieldset
+
+oFSPE := WCFieldSet():New("Selecione a Especialidade",nTamFs,"10","10")
+
+oCodEsp := WCComponent():New("C","Field_CODESP","Especialidade(s)","300")
+oCodEsp:setJSChange("fParGM(2)") 
+oCodEsp:setSession("HttpSession->aEspecialidade")
+oCodEsp:setObrigat(.T.)
+oCodEsp:setNaoVrRep(.T.)
+oFSPE:setAddCFS(oCodEsp)
+                                                               
+oLiPE:setAddComp(oFSPE)
+
+//Linha do Estado Cidade e Bairro
+oLiECB := WCLine():New()
+
+//Propridade do grupo fieldset
+oFSECB := WCFieldSet():New("Localidade",nTamFs,"10","10")
+
+oCodEst := WCComponent():New("C","Field_CODEST","Estado(s)","160")
+oCodEst:setJSChange("fParGM(3)")
+oCodEst:setObrigat(.T.)
+oCodEst:setNaoVrRep(.T.)
+oFSECB:setAddCFS(oCodEst)
+
+oCodMun := WCComponent():New("C","Field_CODMUN","Cidade(s)","180")
+oCodMun:setJSChange("fParGM(4)")
+oCodMun:setObrigat(.T.)
+oCodMun:setNaoVrRep(.T.)
+oFSECB:setAddCFS(oCodMun)
+
+oBairro := WCComponent():New("C","Field_BAIRRO","Bairro(s)","180")
+oBairro:setNaoVrRep(.T.)
+
+oFSECB:setAddCFS(oBairro)
+
+oLiECB:setAddComp(oFSECB)
+
+//Linha Botao
+oLiBtn := WCLine():New()
+
+oBCon := WCComponent():New("B","bCon","Consultar")
+oBCon:setJsFunc("fProcCon();")   
+oBCon:setAlign('right')
+
+oLiBtn:setAddComp(oBCon)
+
+//Linha do Browse
+oLiBrw := WCLine():New()
+
+//Propridade do grupo fieldset
+oFSBrw := WCFieldSet():New("Rede médica",nTamFs,"10","10")
+
+//Browse
+oBrwReg := WCComponent():New("BW",cBrwDef)
+oBrwReg:setBrWidth(nLarBrw)  
+oBrwReg:setBrHeight(nAltBrw)  
+oBrwReg:setJsFunc("fProcCon()")
+oFSBrw:setAddCFS(oBrwReg)
+
+oLiBrw:setAddComp(oFSBrw)
+
+//Fechamento da tabela
+oTabela:setAddLine(oLiPl)
+oTabela:setAddLine(oLiPE)
+oTabela:setAddLine(oLiECB)
+oTabela:setAddLine(oLiBtn)
+oTabela:setAddLine(oLiBrw)
+
+//Tabelas do form
+oForm:setAddTables(oTabela)
+
+//Form no HTML
+oHtml:setObj(oForm)
+%>
+
+<%=oHtml:loadWC()%> 
+
+<script language="JavaScript">
+<!--                 
+	BFFocus.init();
+//-->
+</script>

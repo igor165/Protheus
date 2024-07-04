@@ -1,0 +1,517 @@
+#INCLUDE "PROTHEUS.CH"  
+#INCLUDE "FWMVCDEF.CH" 
+#INCLUDE "FATA300.CH"   
+#INCLUDE "CRMDEF.CH"
+ 
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ft300ItObr
+
+Validacao para nao permitir o encerramento da Oportunidade de Venda sem	
+ter importado algum item obrigatorio presente na Vistoria Técnica.	
+
+@sample		Ft300ItObr(oMdlAD1)
+
+@param		ExpO1 - ModelField de Oportunidade de Venda. 
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		01/04/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300ItObr(oMdlAD1)
+
+Local aArea			:= GetArea()
+Local aAreaAD1		:= AD1->(GetArea())
+Local cPropos		:= oMdlAD1:GetValue("AD1_PROPOS")
+Local cOportu		:= oMdlAD1:GetValue("AD1_NROPOR")
+Local cStatus		:= oMdlAD1:GetValue("AD1_STATUS")
+Local cCodVis		:= ""
+Local cRevisao		:= ""
+Local nAAU			:= 0
+Local nADZ			:= 0
+Local nCount		:= 0
+Local lRetorno		:= .T.
+Local aInfAAT		:= {}
+Local aInfAAU		:= {}
+Local aInfADY		:= {}
+Local aInfADZ		:= {}
+
+If cStatus == "9"
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Vasculha a tabela de Cabecalho da Vistoria AAT ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea("AAT")
+	//AAT_FILIAL+AAT_OPORTU+AAT_PROPOS
+	AAT->(DbSetOrder(2))			
+	
+	If !Empty(cOportu)
+		If AAT->(DbSeek(xFilial("AAT")+cOportu) .AND. Empty(cPropos))
+			While AAT->(!Eof()) .AND. AAT->AAT_FILIAL == xFilial("AAT")
+				If AAT_OPORTU == cOportu
+					aAdd(aInfAAT,{	AAT->AAT_CODVIS	,;
+										AAT->AAT_PROPOS	} )
+				EndIf
+				AAT->(DbSkip())
+			End
+			If Len(aInfAAT) > 0
+				aSort(aInfAAT,,,{ |x, y| x[1] > y[1] })     // Resulta: { 5, 4, 3, 2, 1 }
+				cCodVis:= aInfAAT[1][1]
+			EndIf
+		Else
+			If AAT->(DbSeek(xFilial("AAT")+cOportu+cPropos))
+				aAdd(aInfAAT,{ AAT -> AAT_CODVIS	,;
+								cPropos } )
+				cCodVis:= aInfAAT[1][1]
+			EndIf
+		EndIf
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Vasculha a tabela de Cabecalho da Proposta ADY ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	DbSelectArea("ADY")
+	//ADY_FILIAL+ADY_OPORTU+ADY_REVISA+ADY_PROPOS
+	ADY->(DbSetOrder(2))				
+	
+	If Empty(cPropos)
+		If ADY->(DbSeek(xFilial("ADY")+cOportu))
+			While ADY->(!Eof()) .AND. ADY->ADY_FILIAL == xFilial("ADY")
+				If ADY_OPORTU == cOportu
+					aAdd(aInfADY,{ ADY->ADY_PROPOS ,;
+									 ADY->ADY_CODVIS } )
+				EndIf
+				ADY->(DbSkip())
+			End
+			If Len(aInfADY) > 0
+				aSort(aInfADY,,, { |x, y| x[1] > y[1] })     // Resulta: { 5, 4, 3, 2, 1 }
+				cPropos:= aInfADY[1][1]
+			EndIf
+		EndIf
+	Else
+		//ADY_FILIAL+ADY_PROPOS 
+		ADY->(DbSetOrder(1))
+		If ADY->(DbSeek(xFilial("ADY")+cPropos))
+			While ADY->(!Eof()) .AND. ADY->ADY_FILIAL == xFilial("ADY")
+				If ADY_OPORTU == cOportu
+					aAdd(aInfADY,{ ADY->ADY_PROPOS ,;
+									 ADY->ADY_CODVIS } )
+				EndIf
+				ADY->(DbSkip())
+			End
+		EndIf
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Vasculha a tabela de Itens da Vistoria AAU ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	DbSelectArea("AAU")
+	//AAU_FILIAL+AAU_CODVIS+AAU_ITEM
+	AAU->(DbSetOrder(1))			
+	
+	If !Empty(cCodVis)
+		If AAU->(DbSeek(xFilial("AAU")+cCodVis))
+			While AAU->(!Eof()) .AND. AAU->AAU_FILIAL == xFilial("AAU")
+				If AllTrim(AAU->AAU_OBRIG) == "1"
+					aAdd(aInfAAU,{ AAU->AAU_CODVIS	,;	//CODIGO DA VISTORIA
+									 AAU->AAU_PRODUT	,;	//CODIGO DO PRODUTO
+									 AAU->AAU_QTDVEN	,;	//QUANTIDADE DE VENDA
+									 AAU->AAU_ITEM		} )	//ITEM
+				EndIf
+				AAU->(DbSkip())
+			End
+		EndIf
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Vasculha a tabela de Itens da Proposta ADZ ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	DbSelectArea("ADZ")
+	//ADZ_FILIAL+ADZ_PROPOS+ADZ_ITEM
+	ADZ->(DbSetOrder(1)) 
+	
+	If !Empty(cPropos)
+		If ADZ->(DbSeek(xFilial("ADZ")+cPropos))
+			While ADZ->(!Eof()) .AND. ADZ->ADZ_FILIAL == xFilial("ADZ")
+				aAdd(aInfADZ,{ ADZ->ADZ_CODVIS	,;	//CODIGO DA VISTORIA
+								 ADZ->ADZ_PRODUT	,;	//CODIGO DO PRODUTO
+								 ADZ->ADZ_QTDVEN	,;	//QUANTIDADE DE VENDA
+								 ADZ->ADZ_ITEMVI	,;	//ITEM
+								 ADZ->ADZ_REVISA	} )	//REVISAO
+				ADZ->( DbSkip() )
+			End
+			If Len(aInfADZ) > 0
+				aSort(aInfADZ,,,{ |x, y| x[5] > y[5] })     // Resulta: { 5, 4, 3, 2, 1 }
+				cRevisao:= aInfADZ[1][5]
+			EndIf
+		EndIf
+	EndIf
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Verifica se todos os item do array da tabela AAU existem no array da tabela ADZ ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If	!Empty(aInfAAU) .AND. !Empty(aInfADZ)
+		For nAAU := 1 to Len(aInfAAU)
+			For nADZ := 1 to Len(aInfADZ)
+				If	aInfAAU[nAAU][1] == aInfADZ[nADZ][1] .AND. aInfAAU[nAAU][2] == aInfADZ[nADZ][2] .AND.;
+					aInfAAU[nAAU][3] == aInfADZ[nADZ][3] .AND. aInfAAU[nAAU][4] == aInfADZ[nADZ][4] .AND.;
+					cRevisao == aInfADZ[nADZ][5]
+					nCount++
+				EndIf
+			Next nADZ
+		Next nAAU
+		If !(nCount == Len(aInfAAU))
+			lRetorno := .F.
+			Help("",1,"FT300ALTTV",,STR0238+cCodVis+STR0239+cPropos+STR0240,1) //"Esta Oportunidade possui na Vistoria de codigo "+codigo+" itens obrigatorios que não foram importados para a Proposta de codigo "+codigo+". Por Favor, para finalizar a Opotunidade importe estes itens Obrigatorios."
+		EndIf
+	EndIf
+EndIf
+
+RestArea(aAreaAD1)
+RestArea(aArea)
+
+Return(lRetorno) 
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ft300VdVis
+
+Validacao da vistoria tecnica ao mudar status da oportunidade. 
+
+@sample		Ft300VdVis()
+
+@param		Nenhum
+
+@return		ExpL - Verdadeiro / Falso
+
+@author		Anderson Silva
+@since		24/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300VdVis()
+
+Local oModel	 	:= FwModelActive()
+Local oMdlAD1	 	:= oModel:GetModel("AD1MASTER")
+Local aAreaAAT		:= AAT->(GetArea())
+Local lMultVist		:= SuperGetMv("MV_MULVIST",,.F.)   				// Multipla Vistorias.
+Local lRetorno  	:= .T.  										// Retorno da validacao.
+Local lPyme			:= IIF(Type("__lPyme") <> "U",__lPyme,.F.)		// Serie 3 do Protheus
+
+If !lPyme
+	
+	If oMdlAD1:GetValue("AD1_STATUS") $ "2|3|9"
+		
+		If !lMultVist
+			
+			If oMdlAD1:GetValue("AD1_VISTEC") == "1"
+				
+				If oMdlAD1:GetValue("AD1_SITVIS") == "1"
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³	 Problema: Existe uma vistoria técnica em aberto para essa oportunidade de venda.	    						³
+					//³	 Solucao: Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma. ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					lRetorno := .F.
+					Help("",1,"A300OPOAB")
+				ElseIf oMdlAD1:GetValue("AD1_SITVIS") == "2"
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³	 Problema: Existe uma vistoria técnica agendada para essa oportunidade de venda.	  						 	³
+					//³	 Solucao: Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma. ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					lRetorno := .F.
+					Help("",1,"A300OPOAG")
+				EndIf
+				
+			EndIf
+			
+		Else
+			
+			
+			DbSelectArea("AAT")
+			//AAT_FILIAL+AAT_OPORTU+AAT_PROPOS  
+			AAT->(DbSetOrder(2))
+			
+			If AAT->(DbSeek(xFilial("AAT")+oMdlAD1:GetValue("AD1_NROPOR")))
+				
+				While ( AAT->(!Eof()) .AND. AAT->AAT_FILIAL == xFilial("AAT") ;
+					.AND. AAT->AAT_OPORTU == oMdlAD1:GetValue("AD1_NROPOR") )
+					If Empty(AAT->AAT_PROPOS) .AND. Empty(AAT->AAT_PREVIS)
+						If AAT->AAT_STATUS = "1"
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³	 Problema: Existe uma vistoria técnica em aberto para essa oportunidade de venda.	  						    	³
+							//³	 Solucao: Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma. ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							lRetorno := .F.
+							Help("",1,"A300OPOAB")
+							Exit
+						ElseIf AAT->AAT_STATUS = "2"
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³	 Problema: Existe uma vistoria técnica agendada para essa oportunidade de venda.	   	    							³
+							//³	 Solucao: Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma. ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							lRetorno := .F.
+							Help("",1,"A300OPOAG")
+							Exit
+						EndIf
+					EndIf
+					AAT->(DbSkip())
+				End
+			
+			EndIf
+		
+		EndIf
+	
+	EndIf
+
+EndIf
+
+RestArea(aAreaAAT)
+aAreaAAT	:= {}
+Return(lRetorno)        
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ft300VProp
+Verifica se existe pelo menos uma proposta com status A.
+@sample		Ft300VProp()
+@param		Nenhum
+@return		ExpL - Verdadeiro / Falso
+@author		Anderson Silva
+@since		24/03/2014 
+@version	12             
+/*/
+//------------------------------------------------------------------------------
+Function Ft300VProp()
+
+Local aArea	    	:= GetArea()
+Local aAreaAAT		:= AAT->(GetArea())
+Local oModel	 		:= FwModelActive()
+Local oMdlAD1	 		:= oModel:GetModel("AD1MASTER")
+Local cStatus			:= oMdlAD1:GetValue("AD1_STATUS")
+Local cNrOport		:= oMdlAD1:GetValue("AD1_NROPOR")
+Local lRetorno    	:= .T.
+Local nCntPro 		:= 0
+Local nCntVis			:= 0
+Local nX				:= 0
+Local cObrgVt			:= ""
+Local lMultVist 		:= .F.												// Multipla Vistorias
+Local lPyme			:= IIF(Type("__lPyme") <> "U",__lPyme,.F.)	// Serie 3 do Protheus
+Local cPertence		:= ""
+Local cFilADY			:= ""
+Local cFilAAT			:= ""
+Local cFilAC2			:= ""   
+// Se o Ponto de Entrada Ft300D1St existe no ambiente, carrega os status da customização. Caso contrário, pega do Dicionário de Dados.
+// As variáveis aCbAD1Sta e lFt300D1St são 'Private' do FATA300.
+Local aAD1Status		:= If(Type("lFt300D1St") == "L" .And. lFt300D1St, aCbAD1Sta, Posicione("SX3",2,"AD1_STATUS","StrToArray(X3Cbox(),';')"))
+
+If aScan(aAD1Status,{|x| Left(x,1) == cStatus}) > 0
+
+	cFilADY	:= xFilial("ADY")
+	cFilAAT	:= xFilial("AAT")
+	cFilAC2	:= xFilial("AC2")
+	lMultVist	:= SuperGetMv("MV_MULVIST",,.F.)
+	If cStatus == "9"
+		
+		DbSelectArea("ADY")
+		ADY->(DbSetOrder(2))	//ADY_FILIAL+ADY_PROPOS
+		If ADY->(DbSeek(xFilial("ADY")+cNrOport))
+
+			While ADY->(!Eof()) .AND. ADY->ADY_FILIAL == cFilADY .AND. ADY->ADY_OPORTU == cNrOport
+
+				If ADY->ADY_STATUS == "A"
+					If !lPyme
+						If !lMultVist
+
+							If ( ADY->ADY_VISTEC == "1"  .AND. !Empty(ADY->ADY_CODVIS) .AND. ADY->ADY_SITVIS $ "1|2" )
+								nCntVis += 1
+								lRetorno := .F.
+							Else
+								lRetorno := .T.
+								Exit
+							EndIf
+
+						Else
+
+							DbSelectArea("AAT")
+							AAT->(DbSetOrder(2))	//AAT_FILIAL+AAT_OPORTU+AAT_PROPOS
+							If AAT->(DbSeek(cFilAAT + ADY->ADY_OPORTU + ADY->ADY_PROPOS))
+								lRetorno := .T.
+								While AAT->(!Eof()) .AND. AAT->AAT_FILIAL == cFilAAT .AND. AAT->AAT_OPORTU == ADY->ADY_OPORTU .AND. AAT->AAT_PROPOS == ADY->ADY_PROPOS
+									If AAT->AAT_STATUS $ "1|2"
+										nCntVis += 1
+										lRetorno := .F.
+									EndIf
+									AAT->(DbSkip())
+								EndDo
+								If lRetorno
+									Exit
+								EndIf
+							Else
+								DbSelectArea("AC2")
+								AC2->(DbSetOrder(1))	//AC2_FILIAL+AC2_PROVEN+AC2_STAGE
+								If AC2->(DbSeek(cFilAC2 + oMdlAD1:GetValue("AD1_PROVEN") + oMdlAD1:GetValue("AD1_STAGE")))
+									cObrgVt	:= AC2->AC2_VTOBRG
+								EndIf
+								//Se vistoria for obrigatoria
+								If cObrgVt == "1"
+									//"Atenção"#"Não Existe uma vistoria técnica para proposta comercial gerada para essa oportunidade de venda."
+									//"Necessario que seja feita a vistoria!"#"OK"
+									Aviso(STR0136,STR0236+Chr(10)+STR0237,{STR0179},2)
+									lRetorno	:= .F.
+								Else
+									lRetorno	:= .T.
+									Exit
+								EndIf
+							EndIf
+
+						EndIf
+					EndIf
+
+				ElseIf ADY->ADY_STATUS == "F"
+
+					nCntPro += 1
+					lRetorno	:= .F.
+
+				EndIf
+				ADY->(DbSkip())
+			EndDo
+
+		EndIf
+
+		If ( !lRetorno .AND. nCntPro > 0 )
+			If nCntPro == 1
+				Aviso(STR0136,STR0178,{STR0179},2) //"Atenção!"#"A proposta gerada para essa oportunidade está bloqueada!"#{"Fechar"}
+			ElseIf nCntPro > 1
+				Aviso(STR0136,STR0206,{STR0179},2) //"As propostas geradas para essa oportunidade estão bloqueada!"#{"Fechar"}
+			EndIf
+		ElseIf ( !lRetorno .AND. nCntVis > 0 )
+			If nCntVis == 1
+				//"Atenção"#"Existe uma vistoria técnica em aberto / agendada para proposta comercial gerada para essa oportunidade de venda."
+				//"Verifique com vistoriador responsável por esta vistoria a conclusão ou cancelamento da mesma."#"OK"
+				Aviso(STR0225,STR0230+Chr(10)+STR0227,{STR0228},2)
+			ElseIf nCntVis > 1
+      	    	//"Atenção"#"Existem vistorias técnica em aberto / agendada para as propostas comerciais geradas para essa oportunidade de venda."  
+      	    	//"Verifique com os vistoriadores responsáveis por estas vistorias a conclusão ou cancelamento das mesmas."#"OK"
+				Aviso(STR0225,STR0231+Chr(10)+STR0232,{STR0228},2)
+			EndIf
+		EndIf
+
+	EndIf
+
+Else
+
+	lRetorno := .F.
+	Help(" ",1,"AD1_STATUS")
+
+EndIf
+
+RestArea(aAreaAAT)
+RestArea(aArea)
+aAreaAAT	:= {}
+aArea		:= {}
+aAD1Status	:= {}
+Return lRetorno
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Ft300CnfIt
+
+Confirma a selecao de uma proposta pelo usuario.
+
+@sample 	Ft300CnfIt(oListBox,aList,cCodProp)
+
+@param		ExpO1 - Objeto TWBrowse.
+			ExpA2 - Propostas Comerciais.
+			ExpC1 - Código da Proposta Comercial selecionada pelo usuario.(@Ref)
+			
+@return		Nenhum
+
+@author		Anderson Silva
+@since		08/04/2013
+@version	P12
+/*/
+//------------------------------------------------------------------------------
+Function Ft300CnfIt(oListBox,aList,cCodProp)
+
+Local aArea		:= GetArea()
+Local aAreaAAT 	:= AAT->(GetArea())
+Local lMultVist := SuperGetMv("MV_MULVIST",,.F.)   				// Multiplas Vistorias
+Local lPyme		:= IIF(Type("__lPyme") <> "U",__lPyme,.F.)		// Serie 3 do Protheus
+Local nPosProp	:= aScan(aList,{|x| x[1] == .T. })
+Local lRetorno 	:= .T.
+
+If nPosProp > 0
+	
+	cCodProp := aList[nPosProp,2]
+	
+	DbSelectArea("ADY")
+	//ADY_FILIAL+ADY_PROPOS 
+	ADY->(DbSetOrder(1))
+	 
+	If ADY->(DbSeek(xFilial("ADY")+cCodProp))
+		
+		If ( ADY->ADY_STATUS == "F" )
+			lRetorno := .F.
+			Aviso(STR0136,STR0180,{STR0179},1)//Atenção!//"Proposta bloqueada."{"Fechar"}
+		Else
+			
+			If !lPyme
+				
+				If !lMultVist
+					
+					If ( ADY->ADY_VISTEC == "1" .AND. !Empty(ADY->ADY_CODVIS) .AND. ADY->ADY_SITVIS == "1" )
+						//"Atencao"#"Existe uma vistoria técnica em aberto para essa proposta comercial e a mesma não poderá ser efetivada."
+						//"Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma."
+						lRetorno := .F.
+						Aviso(STR0225,STR0226+Chr(10)+STR0227,{STR0228},2)
+					ElseIf ( ADY->ADY_VISTEC == "1" .AND. !Empty(ADY->ADY_CODVIS) .AND. ADY->ADY_SITVIS == "2" )
+						//"Atencao"#"Existe uma vistoria técnica agendada para essa proposta comercial e a mesma não poderá ser efetivada."
+						//"Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma."
+						lRetorno := .F.
+						Aviso(STR0225,STR0229+STR0227,{STR0228},2)
+					EndIf
+					
+				Else
+					
+					DbSelectArea("AAT")
+					//AAT_FILIAL+AAT_OPORTU+AAT_PROPOS
+					AAT->(DbSetOrder(2))
+					
+					If AAT->(DbSeek(xFilial("AAT")+ADY->ADY_OPORTU+ADY->ADY_PROPOS))
+						While ( AAT->(!Eof()) .AND. AAT->AAT_FILIAL == xFilial("AAT") .AND.;
+							AAT->AAT_OPORTU == ADY->ADY_OPORTU .AND. AAT_PROPOS == ADY->ADY_PROPOS )
+							If AAT->AAT_STATUS == "1"
+								//"Atencao"#"Existe uma vistoria técnica em aberto para essa proposta comercial e a mesma não poderá ser efetivada."
+								//"Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma."
+								lRetorno := .F.
+								Aviso(STR0225,STR0226+Chr(10)+STR0227,{STR0228},2)
+							ElseIf AAT->AAT_STATUS == "2"
+								//"Atencao"#"Existe uma vistoria técnica agendada para essa proposta comercial e a mesma não poderá ser efetivada."
+								//"Verifique com vistoriador responsável por esta vistoria técnica a conclusão ou cancelamento da mesma."
+								lRetorno := .F.
+								Aviso(STR0225,STR0229+STR0227,{STR0228},2)
+							EndIf
+							AAT->(DbSkip())
+						End
+					EndIf
+					
+				EndIf
+				
+			EndIf
+			
+		EndIf
+		
+	Else
+		lRetorno := .F.
+		MsgStop(STR0339)	//"Problemas para localizar a Proposta Comercial."
+	EndIf
+	
+Else
+	lRetorno := .F.
+	Aviso( STR0021, STR0091, { STR0014 }, 2 ) //"Atencao !"###"Selecione uma proposta para encerrar a oportunidade de venda."###"Sim"###"Nao"
+EndIf
+
+Return( lRetorno )

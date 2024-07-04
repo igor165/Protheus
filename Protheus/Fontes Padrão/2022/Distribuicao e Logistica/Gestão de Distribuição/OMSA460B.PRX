@@ -1,0 +1,750 @@
+#INCLUDE "PROTHEUS.CH"
+#Include "FWMBROWSE.CH"
+#INCLUDE "OMSA460B.CH"
+
+Static oBrowse  := Nil
+Static _cQrySC9 := ""
+
+Static lEPM460QRT := ExistTemplate("M460QRY")
+Static lEPM460QRY := ExistBlock("M460QRY")
+Static l461QRYDAK := ExistBlock("M461QRYDAK")
+Static lEPOS460SN := ExistBlock("OS460SNF")
+Static lMarkAll := .F. // Indicador de marca/desmarca todos
+// Função apenas para aparecer no inspetor de objetos
+Function OMSA460B()
+Local aAreaAnt := GetArea()
+Local bKeyF5   := Nil
+
+	If !Pergunte("MT461B",.T.)
+		Return .F.
+	EndIf
+	
+	lMarkAll := (MV_PAR02==1)
+	oBrowse:= FWMarkBrowse():New()
+	oBrowse:SetDescription(STR0014) // Preparação dos Documentos de Saída
+	oBrowse:SetMenuDef("OMSA460B")
+	oBrowse:SetAlias("DAK")
+	oBrowse:SetFieldMark("DAK_OK")
+	oBrowse:SetAllMark({|| lMarkAll := !lMarkAll, AllMark()})
+	oBrowse:SetValid({|| ValidMark()})
+	oBrowse:SetFilterDefault("@"+MontaQuery())
+	oBrowse:SetWalkThru(.F.)
+	oBrowse:SetAmbiente(.F.)
+	oBrowse:SetFixedBrowse(.T.)
+	oBrowse:AddStatusColumns( {|| BrwStatus()}, {|| BrwLegend()} )
+	oBrowse:SetParam({|| SelFiltro()})
+	oBrowse:SetIniWindow({|| AllMark()})
+
+	bKeyF5 := SetKey (VK_F5 , {|| Processa({|lEnd| oBrowse:Refresh(.T.)},STR0014,STR0015,.T.)}) // Preparação dos Documentos de Saída ## Selecionando Cargas...
+
+	oBrowse:Activate()
+	// Libera a memória do Browse
+	oBrowse := Nil
+	SetKey (VK_F5 , bKeyF5)
+	RestArea(aAreaAnt)
+Return .T.
+
+//-----------------------------------------------------------------------------
+Static Function MenuDef()
+Private aRotina := {}
+
+	ADD OPTION aRotina TITLE STR0002 ACTION "OS460Nota"  OPERATION 1 ACCESS 0 // Prep. Doc.
+	ADD OPTION aRotina TITLE STR0004 ACTION "Ma460Ordem" OPERATION 1 ACCESS 0 // Ordem
+	// Ponto de entrada - Adiciona rotinas ao aRotina
+	If ExistBlock("OM460MNU")
+		ExecBlock("OM460MNU", .F., .F.)
+	EndIf
+Return (aRotina)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SelFiltro
+Seleciona um novo filtro ao Browse
+
+@author Jackson Patrick Werka
+@since  03/09/2018
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function SelFiltro()
+Local lRet := .T.
+	If (lRet := Pergunte('MT461B',.T.))
+		oBrowse:SetFilterDefault("@"+MontaQuery())
+		lMarkAll := (MV_PAR02==1)
+		AllMark()
+		oBrowse:Refresh()
+	EndIf
+Return lRet
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaQuery
+Efetua a montagem do filtro a ser aplicado ao Browse e atualiza 
+a variável de filtro que deverá ser aplicada query da SC9
+
+@author Jackson Patrick Werka
+@since  03/09/2018
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function MontaQuery()
+Local cQryDAK  := ""
+Local cQrySC9  := ""
+Local lIntWMS  := IntWms()
+Local lFilDAK  := OsVlEntCom()<>1
+    
+    Pergunte("MT461B",.F.)
+	cQryDAK := " DAK_FILIAL = '"+xFilial("DAK")+"'"
+
+	If (MV_PAR01 == 1)
+		cQryDAK += " AND DAK_FEZNF <> '1'"
+	EndIf
+	
+    If !(Empty(MV_PAR03) .And. Upper(MV_PAR04) == Replicate('Z', Len(MV_PAR04)))
+		cQryDAK += " AND DAK_COD >= '"+MV_PAR03+"'"
+		cQryDAK += " AND DAK_COD <= '"+MV_PAR04+"'"
+		cQrySC9 += " AND SC9.C9_CARGA >= '"+MV_PAR03+"'"
+		cQrySC9 += " AND SC9.C9_CARGA <= '"+MV_PAR04+"'"
+	EndIf
+	
+	If !(Empty(MV_PAR05) .And. Upper(MV_PAR06) == Replicate('Z', Len(MV_PAR06)))
+		cQryDAK += " AND DAK_CAMINH >= '"+MV_PAR05+"'"
+		cQryDAK += " AND DAK_CAMINH <= '"+MV_PAR06+"'"
+	EndIf
+
+	cQrySC9 += " AND SC9.C9_DATALIB >= '"+Dtos(MV_PAR07)+"'"
+	cQrySC9 += " AND SC9.C9_DATALIB <= '"+Dtos(MV_PAR08)+"'"
+
+	// Seleciona somente cargas que tiveram o servico executado pelo WMS
+	If lIntWMS .And. MV_PAR09 == 2
+		// Não deve filtrar pedido, pois só devem aparecer as cargas totalmente liberadas
+		cQrySC9 += " AND NOT EXISTS (SELECT 1"
+		cQrySC9 +=                   " FROM "+RetSqlName("SC9")+" SC9B"
+		cQrySC9 +=                  " WHERE SC9B.C9_FILIAL  = SC9.C9_FILIAL"
+		cQrySC9 +=                    " AND SC9B.C9_CARGA   = SC9.C9_CARGA"
+		cQrySC9 +=                    " AND SC9B.C9_SEQCAR  = SC9.C9_SEQCAR"
+		cQrySC9 +=                    " AND SC9B.C9_BLWMS   = '01'"
+		cQrySC9 +=                    " AND SC9B.D_E_L_E_T_ = ' ')"
+	EndIf
+
+	cQryDAK += " AND DAK_DATA >= '"+DToS(MV_PAR10)+"'"
+	cQryDAK += " AND DAK_DATA <= '"+Dtos(MV_PAR11)+"'"
+
+	If lIntWMS .And. SuperGetMV("MV_WMSNEW",.F.,.F.) .And.;
+		!(Empty(MV_PAR12) .And. Upper(MV_PAR13) == Replicate('Z', Len(MV_PAR13)))
+		cQrySC9 += " AND SC9.C9_ROMEMB >= '"+MV_PAR12+"'"
+		cQrySC9 += " AND SC9.C9_ROMEMB <= '"+MV_PAR13+"'"
+	EndIf
+
+	// Pontos de Entrada para filtar os pedidos
+	If lEPM460QRT
+		cRetPE := ExecTemplate("M460QRY",.F.,.F.,{ cQrySC9 , 1 })
+		cQrySC9 := If(ValType(cRetPE)=="C", cRetPE, cQrySC9 )
+	EndIf
+
+	If lEPM460QRY
+		cRetPE := ExecBlock("M460QRY",.F.,.F.,{ cQrySC9 , 1 })
+		cQrySC9 := If(ValType(cRetPE)=="C", cRetPE, cQrySC9 )
+	EndIf
+
+	cQryDAK += " AND EXISTS (SELECT 1"
+	cQryDAK +=               " FROM "+RetSqlName("DAI")+" DAI"
+	cQryDAK +=              " INNER JOIN "+RetSqlName("SC9")+" SC9"
+	cQryDAK +=                 " ON SC9.C9_FILIAL  = "+Iif(lFilDAK,OsFilQry("SC9","DAI.DAI_FILPV"),"'"+xFilial("SC9")+"'")
+	cQryDAK +=                " AND SC9.C9_CARGA   = DAI.DAI_COD"
+	cQryDAK +=                " AND SC9.C9_SEQCAR  = DAI.DAI_SEQCAR"
+	cQryDAK +=                " AND SC9.C9_PEDIDO  = DAI.DAI_PEDIDO"
+	cQryDAK +=                " AND SC9.D_E_L_E_T_ = ' '"
+	cQryDAK +=              " WHERE DAI.DAI_FILIAL = '"+xFilial("DAI")+"'"
+	cQryDAK +=                " AND DAI.DAI_COD    = DAK_COD"
+	cQryDAK +=                " AND DAI.DAI_SEQCAR = DAK_SEQCAR"
+	cQryDAK +=                " AND DAI.D_E_L_E_T_ = ' ' "
+	cQryDAK +=                cQrySC9 + ")"
+
+	// Pontos de Entrada para filtrar carga
+	If l461QRYDAK
+		cRetPE := ExecBlock("M461QRYDAK",.F.,.F.,{ cQryDAK })
+		cQryDAK := If(ValType(cRetPE)=="C", cRetPE, cQryDAK )
+	EndIf
+
+	_cQrySC9 := cQrySC9
+
+Return cQryDAK
+
+//----------------------------------------------------------
+/*/{Protheus.doc} ValidMark
+Indicador se permite ou não selecionar a linha
+@author Jackson Patrick Werka
+@since  03/09/2018
+@version 1.0
+/*/
+//----------------------------------------------------------
+Static Function ValidMark()
+Local lRet := .F.
+
+lRet := ( DAK->DAK_FEZNF <> '1')
+If ExistBlock("M461AVAL")
+	lRet := ExecBlock("M461AVAL",.F.,.F.,{lRet})
+EndIf
+
+Return lRet
+
+//----------------------------------------------------------
+Static Function BrwStatus()
+Return Iif(DAK->DAK_FEZNF <> '1',"BR_VERDE","BR_VERMELHO")
+
+//----------------------------------------------------------
+Static Function BrwLegend()
+Local oLegend  :=  FWLegend():New()
+
+	oLegend:Add("","BR_VERDE"   , STR0019 ) // Notas Fiscais Não Geradas
+	oLegend:Add("","BR_VERMELHO", STR0020 ) // Notas Fiscais Geradas
+	oLegend:Activate()
+	oLegend:View()
+	oLegend:DeActivate()
+
+Return
+
+//-----------------------------------------------------------------------------
+Function OS460Nota(cAlias,nReg,nOpc)
+	If cPaisLoc == "BRA"
+		Return OS460BraNF(cAlias,nReg,nOpc)
+	Else
+		Return OS460LocNF(cAlias,nReg,nOpc)
+	EndIf
+	oBrowse:Refresh(.T.)
+Return Nil
+
+//-----------------------------------------------------------------------------
+Function OS460BraNF(cAlias,nReg,nOpc)
+Local lRet      := .T.
+Local lFilDAK   := OsVlEntCom()<>1
+Local lProcessa := .F.
+Local lProcess  := .T.
+Local lFiltrad  := .F.
+Local aAreaAnt  := GetArea()
+Local aFilial   := {}
+Local aCargas   := {}
+Local cMarca    := oBrowse:Mark()
+Local cMarcaSC9 := GetMark(,"SC9","C9_OK")
+Local cFilBkp   := cFilAnt
+Local cQrySC9   := ""
+Local cAliasQry := Nil
+Local nX        := 0
+Local cQuery    := "%" + MontaQuery() + "%"
+Local nTpVlEnt  := OsVlEntCom()
+Local lSemafNF := SuperGetMv("MV_OMSSMNF",.F.,.F.) //Controla num de notas por usuário
+	
+	cAliasQry := GetNextAlias()
+	BeginSql Alias cAliasQry
+		SELECT R_E_C_N_O_ RECNODAK, 
+			   DAK_COD
+		FROM %Table:DAK% 
+		WHERE %Exp:cQuery% 
+		AND DAK_OK = %Exp:cMarca%
+		AND DAK_FEZNF <> '1'
+		AND %NotDel%
+	EndSql
+	If (cAliasQry)->(!Eof())
+		lFiltrad := .T.
+		Do While (cAliasQry)->(!Eof())
+			DAK->(dbGoTo((cAliasQry)->RECNODAK))
+			If MarkSC9Fat(cMarcaSC9,aFilial,lFilDAK)
+				Aadd(aCargas, (cAliasQry)->DAK_COD)
+			ElseIf lProcess
+				lProcess := .F.
+			EndIf
+			(cAliasQry)->(dbSkip())
+		EndDo
+	EndIf
+	(cAliasQry)->(dbCloseArea())
+	
+	If Len(aCargas) > 0
+		FormBatch(STR0014,;
+			{STR0016,STR0017,STR0018},;
+			{{1,.T.,{|| lProcessa:=.T.,FechaBatch()}},;
+			 {2,.T.,{|| lProcessa:=.F.,FechaBatch()}}})
+		If lProcessa
+			Private cFilOpl := cFilAnt //-- Uso SIGAOMS - Tratamento para Filial Operador Logistico
+			__lIsPgtMat := .T.
+			SetMark(cMarcaSC9)
+			SetInvert(.F.)
+			// Ordena as filiais para processamento
+			aSort(aFilial)
+			For nX := 1 to Len(aFilial)
+				If !Empty(aFilial[nX]) .And. !Empty(FWFilial("SC5")) .And. nTpVlEnt <> 1
+					cFilAnt := aFilial[nX]
+				EndIf
+
+				// Vai repassar o filtro para a rotina de processamento
+				cQrySC9 := " SC9.C9_FILIAL = '"+xFilial("SC9")+"'" + _cQrySC9
+				bFiltraBrw := {|x| If(x==Nil,Nil,{"",cQrySC9,"",""}) }
+
+				If lSemafNF
+					While !LockByName("OMSA460B",.T.,.F.,.T.)
+						OmsMsgTime(STR0023, 3)//"Processo bloqueado por outro usuário..."
+					EndDo
+				EndIf
+				
+				If !Ma460Nota("DAK")
+					lRet := .F.
+					Exit
+				EndIf
+				__lIsPgtMat := .F.
+			Next
+		Else
+			lRet := .F.
+		EndIf
+	Else
+		lRet := .F.
+	EndIf
+
+	RestArea(aAreaAnt)
+	cFilAnt := cFilBkp
+
+	If lSemafNF
+		UnLockByName("OMSA460B",.T.,.F.,.T.)
+	EndIf
+
+	If lRet .And. ExistBlock("OS460NOT")
+		ExecBlock("OS460NOT",.F.,.F.,{aCargas})
+	EndIf
+	// Apresenta Alertas
+	If Len(aCargas) > 0
+		If !lProcess
+			MsgAlert(STR0022,"SIGAOMS") // Há carga(s) selecionada(s) que possui(em) alguma restrição para faturamento.
+		EndIf
+	Else
+		If lFiltrad
+			MsgAlert(STR0022,"SIGAOMS") // Há carga(s) selecionada(s) que possui(em) alguma restrição para faturamento.
+		Else
+			MsgAlert(STR0021,"SIGAOMS") // Não foi selecionada nenhuma carga para efetuar a geração das notas fiscais.
+		EndIf
+	EndIf
+Return lRet
+//-----------------------------------------------------------------------------
+Static __lIsPgtMat := .T.
+Function Os460IsPgt(lIsPgtMat)
+	If ValType(lIsPgtMat) == "L"
+		__lIsPgtMat := lIsPgtMat
+	EndIf
+Return __lIsPgtMat
+
+//-----------------------------------------------------------------------------
+Static Function MarkSC9Fat(cMarcaSC9,aFilial,lFilDAK)
+Local lRet      := .T.
+Local aAreaAnt  := GetArea()
+Local cAliasSC9 := GetNextAlias()
+Local nPos      := 0
+Local cFilSC9   := "%"+Iif(lFilDAK,OsFilQry("SC9","DAI.DAI_FILPV"),"'"+xFilial("SC9")+"'")+"%"
+Local cWhere    := "%"+_cQrySC9+"%"
+
+	BeginSql Alias cAliasSC9
+		SELECT SC9.R_E_C_N_O_ RECNOSC9
+		FROM %Table:DAI% DAI
+		INNER JOIN %Table:SC9% SC9
+		ON SC9.C9_FILIAL = %Exp:cFilSC9%
+		AND SC9.C9_CARGA = DAI.DAI_COD
+		AND SC9.C9_SEQCAR = DAI.DAI_SEQCAR
+		AND SC9.C9_PEDIDO = DAI.DAI_PEDIDO
+		AND SC9.C9_BLEST = '  '
+		AND SC9.C9_BLCRED = '  '
+		AND SC9.C9_BLWMS IN ('  ','05')
+		AND SC9.%NotDel%
+		WHERE DAI.DAI_FILIAL = %xFilial:DAI%
+		AND DAI.DAI_COD = %Exp:DAK->DAK_COD%
+		AND DAI.DAI_SEQCAR = %Exp:DAK->DAK_SEQCAR%
+		AND DAI.%NotDel%
+		%Exp:cWhere%
+	EndSql
+	If (cAliasSC9)->(!Eof())
+		Do While (cAliasSC9)->(!Eof())
+			// Posiciona na SC9 correspondente
+			SC9->(dbGoTo((cAliasSC9)->RECNOSC9))
+			// Caso a filial ainda não esteja na lista adiciona a mesma
+			If (nPos := aScan(aFilial,{|x| x == SC9->C9_FILIAL}) == 0)
+				Aadd(aFilial, SC9->C9_FILIAL)
+			EndIf
+			// Marca o registro da SC9 para faturamento
+			RecLock("SC9",.F.)
+			SC9->C9_OK := cMarcaSC9
+			SC9->(MsUnlock())
+			(cAliasSC9)->(DbSkip())
+		EndDo
+	Else
+		lRet := .F.
+	EndIf
+	(cAliasSC9)->(DbCloseArea())
+	RestArea(aAreaAnt)
+Return lRet
+//----------------------------------------------------------
+/*/{Protheus.doc} OsNumNota
+Permite determinar a série e a nota 
+@author  Guilherme C. Leal
+@version P12
+@since   04/05/2001
+/*/
+//----------------------------------------------------------
+Function OsNumNota(cSerieNF,cSerieId,dDEmissao)
+Local lContinua := .T.
+Local aRetPE    := {}
+Local lUsaNewKey:= TamSX3("F2_SERIE")[1] == 14 // Verifica se o novo formato de gravacao do Id nos campos _SERIE esta em uso
+Default cSerieNF  := ""
+Default dDEmissao := dDatabase
+
+	If lEPOS460SN
+		aRetPE := ExecBlock("OS460SNF",.F.,.F.,{})
+		If ValType(aRetPE) == "A" .And. Len(aRetPE) >= 2
+			lContinua := Iif(ValType(aRetPE[1])=="L",aRetPE[1],.F.)
+			cSerieNF  := Iif(ValType(aRetPE[2])=="C",aRetPE[2],"")
+			cSerieId  := IIf( lUsaNewKey .And. !Empty(cSerieNF) , SerieNfId("SF2",4,"F2_SERIE",dDEmissao,A460Especie(cSerieNF),cSerieNF) , cSerieNF )
+		Else
+			lContinua := .F.
+		EndIf
+	Else
+		lContinua := Sx5NumNota(@cSerieNF,SuperGetMV("MV_TPNRNFS"),,,,@cSerieId,dDEmissao) // O parametro cSerieId deve ser passado para funcao Sx5NumNota afim de tratar a existencia ou nao do mesmo numero na funcao VldSx5Num do MATXFUNA.PRX
+	EndIf
+Return lContinua
+
+//----------------------------------------------------------
+/*/{Protheus.doc} OS460LocNF
+Monta TRB para para utilizar A468Fatura pelo OMS
+@author  Guilherme C. Leal
+@version P12
+@since   04/05/2001
+/*/
+//----------------------------------------------------------
+Function OS460LocNF(cAlias,nReg,nOpc)
+Local aAreaAnt  := GetArea()
+Local cMarca    := oBrowse:Mark()
+Local aCargas   := {}
+Local aNFs      := {}
+Local aRems     := {}
+Local aPedidos	 := {}
+Local aLockSC5	 := {}
+Local lContinua := .T.
+Local lFechou   := .T.
+Local nX        := 0
+Local nNumLoc   := SuperGetMv("MV_NUMLOCS") // Numero de registros parta travamento na funcao MayIUseCode
+Local cSeekDAK  := ""
+Local cSeekSC9  := ""
+Local cMarcaSC9 := ""
+Local cAliasQry := Nil
+Local cQuery    := "%" + MontaQuery() + "%"
+Local cAliasSC9 := "SC9"
+Local cQuerySC9 := ""
+Local nCont     := 0
+Local cListCargas := ""
+
+// PRIVATE cCadastro   := STR0005    //"Preparação da Nota Fiscal"
+Private lSeqEspecie := GetMV("MV_SEQESPE",,.F.)
+
+	nNumLoc := SetMaxCodes(nNumLoc)  // funcao para acertar o numero de locs
+
+	cAliasQry := GetNextAlias()
+	BeginSql Alias cAliasQry
+		SELECT R_E_C_N_O_ RECNODAK, 
+			   DAK_COD
+		FROM %Table:DAK% 
+		WHERE %Exp:cQuery% 
+		AND DAK_OK = %Exp:cMarca%
+		AND DAK_FEZNF <> '1'
+		AND %NotDel%
+	EndSql
+	While (cAliasQry)->(!Eof())
+		aAdd(aCargas,(cAliasQry)->DAK_COD)
+		(cAliasQry)->(dbSkip())
+	EndDo
+	(cAliasQry)->(dbCloseArea())
+	
+	aSort(aCargas)
+
+	If Len(aCargas) == 0
+		MsgAlert(STR0005,"SIGAOMS") // Não foi selecionada nenhuma carga para efetuar a geração das facturas/remitos.
+		RestArea(aAreaAnt)
+		Return  
+	Endif
+
+	If ( ExistBlock("M460BLOC") )
+		ExecBlock("M460BLOC",.F.,.F.,{aCargas})
+	EndIf
+  
+	SetInvert(.F.)
+
+    If !Empty(aCargas)
+        cListCargas := ""
+        For nCont := 1 to Len(aCargas)
+            cListCargas += "'"+aCargas[nCont]+"',"
+        Next nCont
+        cListCargas := SubsTr(cListCargas,1,Len(cListCargas)-1)
+    EndIf
+    
+	SC5->(DbSetOrder(1))
+	SC6->(DbSetOrder(1))
+	cMarcaSC9 := GetMark(,'SC9','C9_OK')
+
+    cAliasSC9 := GetNextAlias()
+    cQuerySC9 := "SELECT R_E_C_N_O_  RECNO"
+    cQuerySC9 += "FROM "+RetSqlName("SC9")+" SC9 "
+    cQuerySC9 += "WHERE "
+    cQuerySC9 += "SC9.C9_FILIAL = '"+xFilial("SC9")+"' AND "
+    cQuerySC9 += "SC9.C9_CARGA IN ("+cListCargas+") AND "
+    cQuerySC9 += "SC9.D_E_L_E_T_=' ' "
+    cQuerySC9 += "ORDER BY RECNO"
+
+    cQuerySC9    := ChangeQuery(cQuerySC9)
+    dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuerySC9),cAliasSC9,.T.,.T.)
+
+    While (cAliasSC9)->(!Eof())
+        SC9->(DbGoto((cAliasSC9)->RECNO))
+        lContinua := A461LckSC9(cMarcaSC9,@aNFs,@aRems,@aPedidos,lContinua)
+		If OmValSep()
+			MsgAlert(STR0026) //"A Ordem de Separação vinculada a carga não foi concluida."
+			Return
+		Endif
+       (cAliasSC9)->(dbSkip())
+    EndDo
+    (cAliasSC9)->(dbCloseArea())
+
+	SC5->(DbSetOrder(1))
+	lContinua := A461LckSC5(aPedidos,@aNFs,@aRems,@aLockSC5,lContinua)
+
+	If Len(aRems) == 0 .And. Len(aNFs) == 0
+		MsgAlert(STR0006,STR0009) // Não foi possível alocar nenhum pedido para efetuar a geração das facturas/remitos. ## Problemas com o Travamento dos Registros
+		RestArea(aAreaAnt)
+		Return
+	Endif
+
+	If !lContinua
+		lContinua := MsgYesNo(STR0007+CRLF+STR0008,STR0009) //"Uno o mas pedidos no pueden ser facturados/remitidos, si lo desea puede facturarlos/remitirlos en otro momento."##"Confirma facturacion/remision ?"
+	Endif
+
+	If lContinua
+		MsAguarde({|| GeraRemFac(@aRems,@cMarcaSC9,@aNFs)},STR0010) // Preparando Documentos da Carga
+		//Tira os locks do SC5
+		//Os locks do SC9 sao tirados dentro das rotinas de faturamento e remito, na medida que vao sendo atualizados
+		For nX := 1 To Len(aLockSC5)
+			SC5->(MsGoto(aLockSC5[nX]))
+			SC5->(MsUnLock())
+		Next nX
+		//Atualiza o DAK soh se foram faturados/remitidos todos os itens da carga.
+		For nX := 1 To Len(aCargas)
+			SC9->(dbSetOrder(5))
+			SC9->(MsSeek(cSeekSC9 := xFilial("SC9")+aCargas[nX] ))
+			While SC9->( !Eof() ) .And. SC9->C9_FILIAL+SC9->C9_CARGA == cSeekSC9
+				//Se algum pedido desta carga nao foi remitido/faturado, o DAK_FEZNF nao e atualizado
+				If Empty(SC9->C9_NFISCAL+SC9->C9_REMITO)
+					lFechou := .F.
+					Exit
+				EndIf
+				SC9->( DBSkip() )
+			Enddo
+			If lFechou
+				DAK->( DBSetOrder(1) )
+				DAK->( MsSeek(xFilial("DAK")+aCargas[nX]) )
+				RecLock("DAK", .F.)
+				DAK->DAK_FEZNF := "1"
+				DAK->(MsUnlock())
+			EndIf
+			lFechou := .T.
+		Next nX
+	Endif
+
+	SetMaxCodes(nNumLoc)  // funcao para acertar o numero de locs
+	RestArea(aAreaAnt)
+Return( .T. )
+
+//----------------------------------------------------------
+/*/{Protheus.doc} GeraRemFac
+Gera remitos e notas fiscais para as cargas selecionadas
+@author  Bruno Sobieski
+@version P12
+@since   10/10/2001
+/*/
+//----------------------------------------------------------
+Static Function GeraRemFac(aRems,cMarcaSC9,aNFs)
+Local cMvparAnt := Nil
+Private aParams	 := {}
+
+Private cLocxNFPV := ""
+Private cIdPVArg  := ""
+	// Faz a geracao dos Remitos, se houver.
+	If Len(aRems) > 0 
+		MsProcTxt(STR0012) // Generando Remitos
+		If Pergunte('MT462R',.T.)
+			aParams := {mv_par01,mv_par02,mv_par03,mv_par04,mv_par05,mv_par06}
+	
+			// Verifica moeda
+			If aParams[05] == 2 .and. Recmoeda(dDatabase,aParams[06])<=0
+				MsgAlert(STR0011) // Não existe taxa para a moeda seleccionada.
+				Return .F.
+			EndIf
+	
+			If cPaisLoc == "ARG"
+				cMvparAnt := MV_PAR01
+				If !Pergunte("PVXARG",.T.)
+					Return .F.
+				Endif
+				cLocxNFPV := MV_PAR01
+				MV_PAR01  := cMvparAnt
+			EndIf 
+	
+			a462ANGera(Nil,cMarcaSC9,.T.,aRems,.T.,aParams)
+		EndIf
+	Endif
+	// Faz a geracao das Facturas, se houver.
+	If Len(aNFs) > 0 
+		MsProcTxt(STR0013) // Generando Facturas
+		If Pergunte('MT468C',.T.)
+			Private lInverte := .F.
+			Private cMarca   := cMarcaSC9
+			aParams	:=	{	SPACE(Len(SC9->C9_PEDIDO))	,Replicate('z',Len(SC9->C9_PEDIDO)),; //Pedido de - ate
+				SPACE(Len(SA1->A1_COD))		,Replicate('z',Len(SA1->A1_COD)),; //Cliente de - ate
+				SPACE(Len(SA1->A1_LOJA))	,Replicate('z',Len(SA1->A1_LOJA)),; //Loja de - ate
+				SPACE(Len(SB1->B1_GRUPO))	,Replicate('z',Len(SB1->B1_GRUPO)),; //Grupo de - ate
+				SPACE(Len(SA1->A1_AGREG))	,Replicate('z',Len(SA1->A1_AGREG)),; //Agregador de - ate
+				mv_par01	,mv_par02, mv_par03,; //lDigita # lAglutina # lGeraLanc
+				2			,mv_par04,	mv_par05	,; //lInverte# lAtuaSC7  # nSepara
+				0			,  	   2,; //nValorMin # factura proforma
+				SPACE(Len(SC5->C5_TRANSP))		,Replicate('z',Len(SC5->C5_TRANSP)),; //Trasnportadora de - ate
+				2,	mv_par06, mv_par07, mv_par08} //Reajusta na mesma nota #   Fatura Pedido pela   # Moeda para faturamento # Contabiliza por?
+	
+			// Verifica moeda
+			If aParams[22] == 2 .and. Recmoeda(dDatabase,aParams[23])<=0
+				MsgAlert(STR0011)
+				Return .F.
+			EndIf
+	
+			a468nFatura("SC9",aParams,@aNFs,,.T.)
+		EndIf
+	Endif
+Return
+
+//----------------------------------------------------------
+/*/{Protheus.doc} AllMark
+Marca/desmarca todos os registros filtrados
+@author Wander Horongoso
+@version P12
+@since   07/10/2019
+/*/
+//----------------------------------------------------------
+Static Function AllMark()
+Local aAreaAnt  := DAK->(GetArea())
+Local cAliasQry := GetNextAlias()
+Local cRecNo    := ''
+Local cQuery    := ''
+
+	/*Se existir ponto de entrada, há a necessidade de validar um registro de cada vez, posicionando a
+	  DAK para que seja feita a verificação via M461AVAL (dentro da função ValidMark).
+	  Caso contrário, o update pode ser feito diretamente, baseado no filtro montado via função MontaQuery.	  
+	*/
+	If ExistBlock("M461AVAL")
+		cQuery := "%" + MontaQuery() + "%"
+		
+		BeginSql Alias cAliasQry
+			SELECT R_E_C_N_O_
+			FROM %Table:DAK% 
+			WHERE %Exp:cQuery%
+			AND DAK_FEZNF <> '1' // validação já existente na função ValidMark, inclusa para otimizar seleção dos registros
+			AND %NotDel%
+		EndSql
+		
+		dbSelectArea("DAK")
+		Do While (cAliasQry)->(!Eof())
+			DbGoTo((cAliasQry)->R_E_C_N_O_)
+			If ValidMark()
+				cRecNo += AllTrim(Str((cAliasQry)->R_E_C_N_O_)) + ","
+			EndIf 
+			(cAliasQry)->(dbSkip())
+		EndDo
+		(cAliasQry)->(dbCloseArea())
+		
+		If !Empty(cRecNo)
+			cRecNo := SubStr(cRecNo, 1, Len(cRecNo)-1)
+			cQuery := "UPDATE " + RetSqlName("DAK")
+			cQuery += " SET DAK_OK = '" + Iif(lMarkAll, oBrowse:Mark(), " ") + "' "
+			cQuery += "	WHERE R_E_C_N_O_ IN (" + cRecNo + ")"
+			If TcSQLExec(cQuery) < 0
+				WmsMessage('Erro na marcação dos registros exibidos.' + CRLF + TcSQLError()) 
+			EndIf
+		EndIf
+	Else		
+		cQuery := "UPDATE " + RetSqlName("DAK")
+		cQuery += " SET DAK_OK = '" + Iif(lMarkAll, oBrowse:Mark(), " ") + "' "
+		cQuery += "	WHERE R_E_C_N_O_ IN (SELECT R_E_C_N_O_ FROM " + RetSqlName("DAK") + " WHERE "
+		cQuery += MontaQuery() + " AND DAK_FEZNF <> '1' AND D_E_L_E_T_ = ' ')"
+			
+		If TcSQLExec(cQuery) < 0
+			WmsMessage('Erro na marcação dos registros exibidos.' + CRLF + TcSQLError()) 
+		Else	
+			DAK->(dbGoTo(0))
+		EndIf
+	EndIf
+
+	RestArea(aAreaAnt)	
+	oBrowse:Refresh()
+Return Nil
+
+//----------------------------------------------------------
+/*/{Protheus.doc} OmsMsgTime
+Exibe uma mensagem temporaria
+@author Equipe OMS
+@since   23/08/2021
+@param cMessage Mensagem que deseja exibir
+@param nTempo Tempo em segundos que a mensagem sera exibida
+/*/
+//----------------------------------------------------------
+Function OmsMsgTime(cMessage, nTempo)
+	Local oDialog		:= Nil 
+	Local bOK  	   		:= {|| oDialog:DeActivate() } 	
+	Local bTimer		:= {|| oDialog:DeActivate() }
+	Local oContainer	:= Nil
+
+	oDialog := FWDialogModal():New()
+	oDialog:SetBackground( .F. )
+	oDialog:SetTitle( STR0025 ) //'Aviso'
+	oDialog:SetEscClose( .T. )
+	oDialog:SetSize( 85, 100 ) 
+	oDialog:EnableFormBar( .T. ) 
+	oDialog:SetCloseButton( .T. )
+	oDialog:CreateDialog() 
+	oDialog:SetTimer( nTempo, bTimer )
+	oDialog:CreateFormBar()
+	oDialog:AddButton( STR0024, bOK, STR0024, , .T., .F., .T., ) //"Confirmar"
+	oContainer := TPanel():New( ,,, oDialog:getPanelMain() )
+	oContainer:Align := CONTROL_ALIGN_ALLCLIENT
+	TSay():New(1,1,{|| cMessage},oContainer,,,,,,.T.,,,80,95,,,,,,.T.)
+	oDialog:Activate()
+Return
+
+//-----------------------------------------------rdo-----------
+/*/{Protheus.doc} OmValSep
+Verifica se existe Ordem de Separação a ser executada antes de faturar o documento de saida.
+@author  Murilo Brandao
+@version P12
+@since 23/03/2022
+/*/
+//----------------------------------------------------------
+
+Static Function OmValSep()
+Local lRet := .F.
+Local cAliasCb7 := Nil
+Local cSepara := SC9->C9_ORDSEP
+
+	If !Empty(cSepara) 
+		cAliasCb7 := GetNextAlias()
+		BeginSql Alias cAliasCb7	
+			SELECT R_E_C_N_O_,
+			CB7_STATUS,
+			CB7_TIPEXP
+			FROM %Table:CB7% 
+			WHERE 
+			CB7_ORDSEP = %Exp:cSepara%
+			AND %NotDel%
+		EndSql
+		If (cAliasCb7)->(!Eof())
+			If !(!'*03' $ (cAliasCb7)->CB7_TIPEXP .AND. (cAliasCb7)->CB7_STATUS >= "4" .AND. !"*09" $ (cAliasCb7)->CB7_TIPEXP)
+			lRet := .T.	 
+			EndIf
+		EndIf  
+		(cAliasCb7)->(dbCloseArea())
+	EndIf	
+
+Return (lRet)

@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "AJUSTE DE FECHA DE PAGO ID 0012 PROCEDIMIENTO DE ANTICIPO"
+	#define STR0002 "Verifique"
+	#define STR0003 "Corrija inconsistencia"
+	#define STR0004 "Corrección de fecha de pago de concepto con ID 0012"
+	#define STR0005 "Este programa efectuará la corrección de la fecha de pago en la tabla SRD, donde ocurrió una falla anteriormente."
+	#define STR0006 "Atención"
+	#define STR0007 "Haga clic en la 'OPCIÓN VERIFICAR' para cargar primero los datos de las inconsistencias."
+	#define STR0008 "Sin registros para procesar"
+	#define STR0009 "OK"
+	#define STR0010 "Es necesario completar por lo menos los campos 'Per. Final' y 'Suc. Final'."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "ADJUST OF PAYMENT DATE ID 0012 PREPAYMENT SCRIPT"
+		#define STR0002 "Check"
+		#define STR0003 "Adjust inconsistence"
+		#define STR0004 "Adjustment of payment date of allowance with ID 0012"
+		#define STR0005 "This program adjusts the payment date of the SRD table, in which a failure previously occurred;"
+		#define STR0006 "Attention"
+		#define STR0007 "Click 'BUTTON VERIFY' to load data of inconsistencies first."
+		#define STR0008 "With no data to process"
+		#define STR0009 "OK"
+		#define STR0010 "Complete at least the fields 'End Per.' and 'End Branch'."
+	#else
+		#define STR0001 "AJUSTE DE DATA DE PAGAMENTO ID 0012 ROTEIRO DE ADIANTAMENTO"
+		#define STR0002 "Verificar"
+		#define STR0003 "Corrigir inconsistência"
+		#define STR0004 "Correção de data de pagamento de verba com ID 0012"
+		#define STR0005 "Este programa efetuará a correção da data de pagamento na tabela SRD, onde ocorreu uma falha anteriormente."
+		#define STR0006 "Atenção"
+		#define STR0007 "Clique no 'BOTÃO VERIFICAR' para carregar primeiro os dados das inconsistencias."
+		#define STR0008 "Sem registros para processar"
+		#define STR0009 "OK"
+		#define STR0010 "É necessário o preenchimento de pelo menos os campos 'Per. Final' e 'Fil. Final'."
+	#endif
+#endif

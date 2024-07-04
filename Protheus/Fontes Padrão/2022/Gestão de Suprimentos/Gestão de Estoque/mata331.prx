@@ -1,0 +1,807 @@
+#INCLUDE "MATA331.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWEVENTVIEWCONSTS.CH"
+
+Static cFilBack
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATA331  ³ Autor ³ Marcos V. Ferreira    ³ Data ³ 20/04/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Rotina de Contabilizacao do Custo Medio                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpL1 = Indicacao da variavel de processamento em Batch    ³±±
+±±³          ³ ExpA2 = Lista com as filiais a serem consideradas (Batch)  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA331                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function MATA331(lBat, aListaFil, aParAuto, oJourney, lOnbord, cUserNamej)
+Local oDlg
+Local dBkpData := CTOD('  /  /  ')
+LOCAL lEnviron:= FindFunction("ACVERVLD")
+
+Default aListaFil := {}
+Default  lOnbord  := .F.
+Default	 cUserNameJ := ""
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica a permissao do programa em relacao aos modulos      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If AMIIn(4,12,44,72,34)
+
+	PRIVATE dInicio	   := GetMv("MV_ULMES")+1
+	PRIVATE a330ParamZX:= ARRAY(21)
+	PRIVATE lLanctoOn
+	PRIVATE lAglutina
+	PRIVATE lDigita
+	PRIVATE cCadastro  := OemToAnsi(STR0001)	 					// Contabilizacao do Custo Medio
+	PRIVATE l330ArqExcl:= IIf(Getmv("MV_CUSTEXC")!="N",.T.,.F.) 	// Abertura de arq. exclusivos/compartilhados
+	PRIVATE lMATA330   := .T.
+	PRIVATE lJourney
+	Private OJOURNEYLOG
+	PRIVATE aAuto330	:= aClone(aParAuto)
+	PRIVATE cFilStart  := cFilAnt
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Carrega as perguntas selecionadas                            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ dInicio  - Data Inicial para processamento                   ³
+	//³ mv_par01 - Data limite para processamento                    ³
+	//³ mv_par02 - Se mostra e permite digitar lancamentos contabeis ³
+	//³ mv_par03 - Se deve aglutinar os lancamentos contabeis        ³
+	//³ mv_par04 - Se deve atualizar os valores dos movimentos       ³
+	//³ mv_par05 - Porcentual a ser adicionado ao custo medio da MOD ³
+	//³ mv_par06 - 1 - centro de custo contabil  2 - extracontabil   ³
+	//³ mv_par07 - Contas contabeis a serem inibidas - conta inicial ³
+	//³ mv_par08 - Contas contabeis a serem inibidas - conta final   ³
+	//³ mv_par09 - Deleta movimentos de Estorno, 1 = Sim  2 = Nao    ³
+	//³ mv_par10 - Contabilizacao On line                            ³
+	//³ mv_par11 - Gera estrutura p/movimentos                       ³
+	//³ mv_par12 - Contabiliza ? 1 = Consumo 2 = Producao 3 = Ambas  ³
+	//³ mv_par13 - Calcula MO  ? 1 = Sim     2 = Nao                 ³
+	//³ mv_par14 - Metodo Apropriacao 1 = Sequencial                 ³
+	//³                               2 = Mensal                     ³
+	//³                               3 = Diaria                     ³
+	//³ mv_par15 - Recalcula Niveis   1 = Sim 2 = Nao                ³
+	//³ mv_par16 - Mostra Seq Calculo 1 = Nao Mostrar                |
+	//³                               2 = Custo Medio                |
+	//³                               3 = Custo FIFO                 |
+	//³ mv_par17 - Seq Proces  FIFO   1 = Data + Sequen 2 = Cus Medio³
+	//³ mv_par18 - Proc Internos Valorizados   1 = Antes 2 = Depois  ³
+	//³ mv_par19 - Recalcula custos de transporte 1 = Sim 2 = Nao    ³
+	//³ mv_par20 - Calculo de Custo por  1 = Todas Filiais           |
+	//|                                  2 = Filial Corrente         |
+	//|                                  3 = Selec. Filiais          |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	
+	lJourney := lOnbord	
+	if lEnviron
+		If !lJourney
+			OJOURNEYLOG	:= acJourneyLog():New()	
+		Else
+			OJOURNEYLOG	:= oJourney
+			iIf (Empty(cUserName), cUserName:= cUserNameJ, cUserName)
+		EndIf
+		OJOURNEYLOG:envValid(lJourney)
+	else
+		Help(" ",	1,"NOTATU",,STR0023,02,01)
+		Return Nil
+	EndIf
+	
+	MTA330Perg(.F.)
+
+	lDigita   := IIf(a330ParamZX[02] == 1,.T.,.F.)
+	lAglutina := IIf(a330ParamZX[03] == 1,.T.,.F.)
+	lLanctoOn := IIf(a330ParamZX[10] == 1,.T.,.F.)
+	lDigita   := IIf(lLanctoOn == .F.,.F.,lDigita)
+	lBat	  := IIf(lBat == NIL, .F., lBat)
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Inicializa o log de processamento   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	oJourneyLog:logIni()
+	If  oJourneyLog:nCondition == 1
+		oJourneyLog:idMovD3X()
+		oJourneyLog:setThreadId( Strzero(ThreadID(),15))
+	elseIF oJourneyLog:nCondition == 4 .or. oJourneyLog:nCondition == 2 
+		oJourneyLog:idMovCV8()
+	EndIF 
+	If lJourney
+		M331PrcLog("INIJOB", STR0029) // Inicio do job de contabilizacao
+	EndIf
+
+	If !lBat
+
+       If ExistBlock("M331DATA")
+   		   dBkpData := ExecBlock("M331DATA",.F.,.F.,{dInicio})
+		   If ValType(dBkpData) == "D" .And. !Empty(dBkpData) .And. dBkpData < dInicio
+			   dInicio := dBkpData
+		   EndIf
+   		Endif
+
+		DEFINE MSDIALOG oDlg FROM  96,9 TO 320,612 TITLE OemToAnsi(STR0001) PIXEL //"Contabilização dos Custo Medio"
+		@ 11,6 TO 90,287 LABEL "" OF oDlg  PIXEL
+		@ 16, 15 SAY OemToAnsi(STR0002) SIZE 268, 8 OF oDlg PIXEL //"Este programa permite que os lançamentos contabeis do periodo selecionado sejam refeitos sem que "
+		@ 26, 15 SAY OemToAnsi(STR0003) SIZE 268, 8 OF oDlg PIXEL //"seja necessario rodar novamente a rotina de Recalculo do Custo Medio."
+		@ 36, 15 SAY OemToAnsi(STR0004) SIZE 268, 8 OF oDlg PIXEL //"Atenção: As perguntas utilizadas nesta rotina são as mesmas utilizadas na rotina do Recalculo"
+		@ 46, 15 SAY OemToAnsi(STR0005) SIZE 268, 8 OF oDlg PIXEL //"do Custo Medio, porem somente as perguntas referentes a contabilização são utilizadas."
+		@ 56, 15 SAY OemToAnsi(STR0011) SIZE 268, 8 OF oDlg PIXEL //"Importante: Os lançamentos 669/667 somente serão contabilizados na rotina de Recalculo do Custo"
+		@ 66, 15 SAY OemToAnsi(STR0012) SIZE 268, 8 OF oDlg PIXEL //"Médio."
+		@ 80, 15 SAY OemToAnsi(STR0006) + DTOC(dInicio) SIZE 268, 8 OF oDlg PIXEL //"Data Inicial de Processamento : "
+
+		DEFINE SBUTTON FROM 93, 163 TYPE 15 ACTION ProcLogView(,'MATA331') ENABLE OF oDlg
+		DEFINE SBUTTON FROM 93, 193 TYPE 5  ACTION MTA330Perg(.T.) ENABLE OF oDlg
+		DEFINE SBUTTON FROM 93, 223 TYPE 1  ACTION If(MTA331TOk(),(Processa({|lEnd| MA331Process(aListaFil,lBat,@lEnd)},OemToAnsi(STR0007),OemToAnsi(STR0008),.F.),oDlg:End()),) ENABLE OF oDlg //##"Processando ..."##"Contabilizacao do Custo Medio"
+		DEFINE SBUTTON FROM 93, 253 TYPE 2  ACTION oDlg:End() ENABLE OF oDlg
+		ACTIVATE MSDIALOG oDlg CENTERED
+	Else
+		Processa({|lEnd| MA331Process(aListaFil,lBat,@lEnd)},OemToAnsi(STR0007),OemToAnsi(STR0008),.F.)
+	EndIf
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MA331Process³ Autor ³ Marcos V. Ferreira    ³ Data ³20/04/06³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Processa a Contabilizacao do Custo Medio                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpA1 = Lista com as filiais a serem consideradas (Batch)  ³±±
+±±³          ³ ExpL2 = Indicacao da variavel de processamento em batch    ³±±
+±±³          ³ ExpL3 = Variavel que controla interrupcao do processo      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA330                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Static Function MA331Process(aListaFil,lBatch,lEnd)
+Local cOrigens  := ""
+Local nForFilial:= 0
+Local nX		:= 0
+Local nY		:= 0
+Local aAuxFil   := {}
+Local cIDEvent 	:= ''
+Local cTitle   	:= ''
+Local cMessage 	:= ''
+LOCAL cTempo	:="",nTempoFim:=0,nTempo := 0,nTempoIni:=Seconds()
+Local lMVCTBJOB := GetNewPar( "MV_CTBJOB", 2 ) == 1
+
+// Variaveis utilizadas para criacao do arquivo de trabalho
+Local cNomTRC   := "TRC"+cEmpAnt+"SP"
+
+Private lBat    := lBatch
+
+// Variaveis utilizadas para lancamentos contabeis
+lDigita   := IIf(a330ParamZX[02] == 1,.T.,.F.)
+lAglutina := IIf(a330ParamZX[03] == 1,.T.,.F.)
+lLanctoOn := IIf(a330ParamZX[10] == 1,.T.,.F.)
+lDigita   := IIf(lLanctoOn == .F.,.F.,lDigita)
+
+cFilBack := cFilAnt
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Funcao para selecao das filiais para calculo por empresa     |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !lBat
+	aFilsCalc:=Ma330FCalc(.T.,aListaFil)
+Else
+	aFilsCalc:=Ma330FCalc(.F.,aListaFil)
+EndIf
+
+If !Empty(aFilsCalc) .And. M330331Lk(aFilsCalc)
+	A330CrTabs(aFilsCalc)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Validacao para o calendario contabil                    |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	For nForFilial := 1 to Len(aFilsCalc)
+		If aFilsCalc[nForFilial,1]
+			// Altera filial corrente
+			cFilAnt:=aFilsCalc[nForFilial,2]
+			//-- Verifica Calendario Contabil
+			If A330VldCal(dInicio,a330ParamZX[01])
+				Return .T.
+			EndIf
+		EndIf
+	Next nForFilial
+	// Restaura filial original apos processamento
+	cFilAnt:=cFilBack
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Realiza a a abertura do arquivo de trabalho "TRC" e cria seus indices.    |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbUseArea(.T.,"TOPCONN",cNomTRC,"TRC",.T.)
+	nY := Len(GetTRStru(2))
+	For nX := 1 To nY
+		dbSetIndex(cNomTRC +StrZero(nX,2))
+	Next nX
+	dbSetOrder(1)
+
+	If lJourney .And. oJourneyLog:processHasStarted(oJourneyLog:cIdParent, oJourneyLog:cIdChild, 'MATA331')
+		oJourneyLog:attStatus('PROCESSING', .T.)
+	Endif
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o log de processamento   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	M331PrcLog("INICIO") //"Inicio Processamento"
+	M331PrcLog("AMBIENTE")
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Envia mensagem de aviso no inicio da rotina ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	MEnviaMail("076", {cUserName, SubStr(cNumEmp,1,2), SubStr(cNumEmp,3,2), DtoC(Date()), Time()})
+	cIDEvent	:= "076"
+	cTitle		:= 	STR0024 // Início de processamento da contabilização do custo médio
+	cMessage	+=  STR0025 + cUserName + CRLF // Usuário // Min
+	EventInsert( FW_EV_CHANEL_ENVIRONMENT, FW_EV_CATEGORY_MODULES, cIDEvent, FW_EV_LEVEL_INFO, "",cTitle, cMessage, .T. ) // "Termino de geração com Tempo"
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Apaga os lancamentos contabeis relacionados                  ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	For nForFilial := 1 to Len(aFilsCalc)
+
+		If aFilsCalc[nForFilial,1]
+			//-- Altera filial corrente
+			cFilAnt:=aFilsCalc[nForFilial,2]
+
+			// Limpa dados da filial na tabela TRC
+			TCSQLEXEC("DELETE FROM " + cNomTRC + " WHERE TRC_FILIAL = '" + cFilAnt + "'")
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se vai abrir o arquivo para lancamentos contabeis   |
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If a330ParamZX[10] < 3
+				cOrigens := "MATA240/MATA250/MATA260/MATA261/MATA330/MTA460C/MTA520C/CNA200C/MATA685/"
+				If a330ParamZX[12] != 2
+					cOrigens += "MTA330C/"
+				EndIf
+				If a330ParamZX[12] != 1
+					cOrigens += "MTA330P/"
+				EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Atualiza o log de processamento			    ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				M331PrcLog("MENSAGEM",OemToAnsi(I18N(STR0013,{cFilAnt})),OemToAnsi(I18N(STR0013,{cFilAnt})),'2')
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Apagando Lancamentos Contabeis do Periodo   ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				cA100Apaga(cOrigens,a330ParamZX[01],lMVCTBJOB)
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Utiliza reprocessamento contabil            |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				aAdd(aAuxFil,cFilAnt)
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Atualiza o log de processamento			    ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				oJourneyLog:logIni()
+				If oJourneyLog:nCondition == 1
+					oJourneyLog:idMovD3X()
+				elseIF oJourneyLog:nCondition == 4 .or. oJourneyLog:nCondition == 2 
+					oJourneyLog:idMovCV8()
+				EndIF 
+			EndIf
+	   EndIf
+
+	Next nForFilial
+
+	//-- Restaura filial original apos processamento
+	cFilAnt:=cFilBack
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Reprocessamento Contabil para CA100APAGA()           ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !Empty(aAuxFil) .And. a330ParamZX[10] < 3
+		A330Reproc(aAuxFil,dInicio,a330ParamZX[01])
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Processa Lancamentos Contabeis por Filial 					 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lLanctoOn
+
+		For nForFilial := 1 to Len(aFilsCalc)
+
+			If aFilsCalc[nForFilial,1]
+				//-- Altera filial corrente
+				cFilAnt:=aFilsCalc[nForFilial,2]
+				//-- Gera lancamentos contabeis
+				GeraLancto(lBat,lEnd)
+
+			EndIf
+
+		Next nForFilial
+
+		//-- Restaura filial original apos processamento
+		cFilAnt:=cFilBack
+
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Processa geracao de lancamentos contabeis					 |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	A330Contab("MATA331",cNomTRC,NIL,aFilsCalc)
+
+	For nForFilial := 1 to Len(aFilsCalc)
+		If aFilsCalc[nForFilial,1]
+			A330LimCtt(aFilsCalc[nForFilial,2])
+		EndIf
+	Next nForFilial
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Apaga arquivo de Trabalho         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	dbSelectarea("TRC")
+	dbCloseArea()
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Atualiza o log de processamento   ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	M331PrcLog("FIM")
+
+	nTempoFim:=Seconds()
+	
+	If nTempoFim < nTempoIni
+		nTempo := (nTempoFim+86399) - nTempoIni
+	Else
+		nTempo := nTempoFim - nTempoIni
+	EndIf
+
+	cTempo:=StrZero((nTempo)/60,5,0)
+	cIDEvent:= "078"
+	cTitle  := 	STR0026 // Termino de processamento da contabilização do custo médio
+	cMessage:=	STR0027 + cTempo + STR0028 + CRLF // "Tempo de Execução: "
+	cMessage+=  STR0025 + cUserName + CRLF // Usuário // Min
+
+    MEnviaMail(cIDEvent,{cUserName,SubStr(cNumEmp,1,2),SubStr(cNumEmp,3,2),cTempo})
+	EventInsert( FW_EV_CHANEL_ENVIRONMENT, FW_EV_CATEGORY_MODULES, cIDEvent, FW_EV_LEVEL_INFO, "",cTitle, cMessage, .T. ) // "Termino de gração com Tempo"
+
+	if lJourney 
+		oJourneyLog:updateD3YPositi('MATA331')
+		oJourneyLog:attStatus('FINISHED', .F.)
+	endif
+	oJourneyLog:Destroy()
+	FreeObj(oJourneyLog)
+
+	// Desbloqueio de filiais bloqueadas
+	M330331ULk(aFilsCalc)
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ MA331FIM - Ponto de entrada utilizado para validacoes  |
+	//| no fim da contabilização                               ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ExistBlock("MA331FIM")
+		lRet:=ExecBlock("MA331FIM",.F.,.F.)
+		If ValType(lRet) # "L"
+			lRet:=.T.
+		EndIf
+	EndIf
+
+EndIf
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MTA331TOk ³ Autor ³Marcos V. Ferreira     ³ Data ³ 20/04/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida se pode efetuar a Contabilizacao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA331                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MTA331TOk()
+Local lRet := .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ MA331OK - Ponto de entrada utilizado para validacoes   |
+//| adicionais para execucao da rotina de contabilizacao.  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock("MA331OK")
+	lRet:=ExecBlock("MA331OK",.F.,.F.)
+	If ValType(lRet) # "L"
+		lRet:=.T.
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o periodo a ser processado nao se encontra encerrado |                                             ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lRet .And. (a330ParamZX[20] == 1 .Or. a330ParamZX[20] == 2)
+	If dInicio > a330ParamZX[1]
+		Aviso(STR0022,STR0020,{"Ok"},,STR0021) // ATENCAO - "A data limite final informada para execução da rotina de recalculo do custo medio e menor ou igual a data de inicio de processamento do parametro MV_ULMES. Favor verificar a data informada para processamento."
+		lRet := .F.
+	EndIf
+EndIf
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³GeraLancto   ³ Autor ³Marcos V. Ferreira  ³ Data ³ 20/04/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Gera Lancamentos Contabeis 							      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ ExpL1 = Indicacao da variavel de processamento em Batch    ³±±
+±±³          ³ ExpL2 = Variavel que indica o fim do processamento.        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA331                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function GeraLancto(lBat,lEnd)
+Local aAreaAnt := GetArea()
+Local aAreaSD1 := SD1->(GetArea())
+Local aAreaSD2 := SD2->(GetArea())
+Local aAreaSD3 := SD3->(GetArea())
+Local cAliasTRB:= "TRB"
+Local nTotRegs := 0
+Local nCntRegs := 0
+Local cQuery   := ""
+Local lVer67A  := .F.
+Local lVer67B  := .F.
+Local cSB1Fil
+Local cSF4Fil
+Local cSC2Fil
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ A330CDEV - Ponto de Entrada utilizado para contabilizar os   |
+//| lancamentos de devolucao de compras LP 678                   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lA330CDEV := ExistBlock("A330CDEV")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Tipos de Lancamentos Padronizados                            |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//| 641 -> Devolucao de Vendas (item Documento Entrada)                                                                         |
+//| 666 -> Saida de saldo em estoque (requisicao) para materiais com apropriacao direta                                         |
+//| 667 -> Antes de atualizar o custo - Saida de saldo em estoque (requisicao) para materiais com apropriacao direta            |
+//| 668 -> Entrada de saldo em estoque (devolucao / producao) para materiais com apropriacao direta                             |
+//| 669 -> Antes de atualizar o custo - Entrada de saldo em estoque (devolucao/producao) para materiais com apropriacao direta  |
+//| 670 -> Saida de saldo em estoque (requisicao) - movimento origem                                                            |
+//| 672 -> Entrada de saldo em estoque (devolucao) - movimento destino                                                          |
+//| 674 -> Saida de saldo em estoque (requisicao) no inventario On-Line                                                         |
+//| 676 -> Entrada de saldo em estoque (Devolucao/Producao) no inventario On-Line                                               |
+//| 678 -> Venda de mercadoria (item do Documento de Saida)                                                                     |
+//| 679 -> Entrada de saldo em estoque (devolucao/producao) para materiais com apropriacao indireta                             |
+//| 680 -> Saida de saldo em estoque (requisicao) para materiais com apropriacao indireta                                       |
+//| 681 -> Compra / Remessa de terceiros (item Documento Entrada)                                                               |
+//| 682 -> Retorno poder de terceiros (item Documento Entrada)                                                                  |
+//| 67A -> Rateio da Solicitacao ao Armazem - Saida de saldo em estoque (requisicao)                                            |
+//| 67B -> Rateio da Solicitacao ao Armazem-Estorno - Entrada de saldo em estoque (devolucao)                                   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+// Verifica se os LPs 67A e 67B estao configurados
+If lLanctoOn
+	lVer67A	:= VerPadrao("67A") // Movimento de Estoques - Rateio da Solicitacao ao Armazem
+	lVer67B	:= VerPadrao("67B") // Movimento de Estoques - Rateio da Solicitacao ao Armazem - Estorno
+EndIf
+
+dbSelectArea("SB1")
+cSB1Fil := xFilial("SB1")
+
+dbSelectArea("SF4")
+cSF4Fil := xFilial("SF4")
+
+dbSelectArea("SC2")
+cSC2Fil := xFilial("SC2")
+
+dbSelectArea("SD1")		//-- Itens das notas fiscais de entrada
+nTotRegs += RecCount()
+
+dbSelectArea("SD2")		//-- Itens das notas fiscais de saida
+nTotRegs += RecCount()
+
+dbSelectArea("SD3")		//-- Movimentacoes internas (producao/requisicao/devolucao)
+nTotRegs += RecCount()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+M331PrcLog("MENSAGEM",OemToAnsi(I18N(STR0014,{cFilAnt})),OemToAnsi(I18N(STR0014,{cFilAnt})),'3') //"Iniciando Processamento do Arquivo de Trabalho"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Monta Arquivo de Trabalho Top/CodeBase 					  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cAliasTRB := CriaTrab( Nil,.F.)
+
+cQuery := " SELECT "
+cQuery += " 'SD1' TRB_ARQ, R_E_C_N_O_ TRB_RECMOV, D1_SEQCALC TRB_SEQCALC FROM " + RetSqlName("SD1")
+cQuery += " WHERE "
+cQuery += " D1_FILIAL = '" + xFilial("SD1") + "' AND D1_DTDIGIT >= '" + DTOS(dInicio) + "' AND D1_DTDIGIT <= '" + DTOS(a330ParamZX[01]) + "' AND D1_SEQCALC <> '" + Criavar("D1_SEQCALC",.F.) + "' AND D_E_L_E_T_ = '' "
+
+cQuery += " UNION "
+
+cQuery += " SELECT "
+cQuery += " 'SD3' TRB_ARQ, R_E_C_N_O_ TRB_RECMOV, D3_SEQCALC TRB_SEQCALC FROM " + RetSqlName("SD3")
+cQuery += " WHERE "
+cQuery += " D3_FILIAL = '" + xFilial("SD3") + "' AND D3_EMISSAO >= '" + DTOS(dInicio) +"' AND D3_EMISSAO <= '" + DTOS(a330ParamZX[01]) + "' AND D3_SEQCALC <> '" + Criavar("D3_SEQCALC",.F.) +"' AND  D3_ESTORNO <> 'S' AND D_E_L_E_T_ = '' "
+
+cQuery += " UNION "
+
+cQuery += " SELECT "
+cQuery += " 'SD2' TRB_ARQ, R_E_C_N_O_ TRB_RECMOV, D2_SEQCALC TRB_SEQCALC FROM " + RetSqlName("SD2")
+cQuery += " WHERE "
+cQuery += " D2_FILIAL = '" + xFilial("SD2") + "' AND D2_EMISSAO >= '" + DTOS(dInicio) + "' AND D2_EMISSAO <= '" + DTOS(a330ParamZX[01]) + "' AND D2_SEQCALC <> '" + Criavar("D2_SEQCALC",.F.) + "' AND D_E_L_E_T_ = '' "
+
+cQuery += " ORDER BY 3 "
+
+cQuery := ChangeQuery(cQuery)
+
+dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), cAliasTRB, .F., .T.)
+dbSelectArea(cAliasTRB)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+M331PrcLog("MENSAGEM",OemToAnsi(I18N(STR0015,{cFilAnt})),OemToAnsi(I18N(STR0015,{cFilAnt})),'4') //"Termino do Processamento do Arquivo de Trabalho"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+M331PrcLog("MENSAGEM",OemToAnsi(I18N(STR0016,{cFilAnt})),OemToAnsi(I18N(STR0016,{cFilAnt})),'5') //"Definindo Tipos de Lançamentos Contabeis"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Processa Lancamentos Contabeis							  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dbSelectArea(cAliasTRB)
+dbGoTop()
+
+If !lBat
+	IF nTotRegs>500
+		nStep := Int(nTotRegs/100)
+	Else
+		nStep := nTotRegs
+	EndIf
+	ProcRegua(nStep)
+EndIf
+
+While !(cAliasTRB)->(Eof())
+
+	If lEnd
+		@PROW()+1,001 PSay OemToAnsi(STR0009) //-- "CANCELADO PELO OPERADOR"
+		Exit
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Movimentacao do Cursor                                    ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !lBat
+		nCntRegs++
+		IF nTotRegs>500
+			IF ((nTotRegs/100)-int(nTotRegs/100))==0
+				IncProc(OemToAnsi(STR0010))		//"Processando ..."
+			ENDIF
+		ELSE
+			IncProc(OemToAnsi(STR0010))		//"Processando ..."
+		ENDIF
+	EndIf
+
+	If (cAliasTRB)->TRB_ARQ == "SD1"
+		dbSelectArea("SD1")
+		dbGoto((cAliasTRB)->TRB_RECMOV)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o movimento foi processado pela funcao A330Recalc()  |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SubStr(D1_SEQCALC,1,Len(DTOS(dInicio))) <> DTOS(dInicio)
+			dbSelectArea(cAliasTRB)
+			dbSkip()
+			Loop
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona no SB1 para formulas de lancamento contabil        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SB1")
+		MsSeek(cSB1Fil+SD1->D1_COD)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona no SF4 - TES                                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SF4")
+		MsSeek(cSF4Fil+SD1->D1_TES)
+		dbSelectArea("SD1")
+
+		If SF4->F4_PODER3 == "D"
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD1->D1_SEQCALC,"682","MATA330","SD1",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		EndIf
+
+		If D1_TIPO != "D"
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD1->D1_SEQCALC,"681","MATA330","SD1",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		Else
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD1->D1_SEQCALC,"641","MATA330","SD1",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		EndIf
+
+	ElseIf (cAliasTRB)->TRB_ARQ == "SD3"
+		dbSelectArea("SD3")
+		dbGoto((cAliasTRB)->TRB_RECMOV)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona no SB1 para formulas de lancamento contabil        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SB1")
+		MsSeek(cSB1Fil+SD3->D3_COD)
+
+		dbSelectArea("SD3")
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o movimento foi processado pela funcao A330Recalc()  |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SubStr(D3_SEQCALC,1,Len(DTOS(dInicio))) <> DTOS(dInicio)
+			dbSelectArea(cAliasTRB)
+			dbSkip()
+			Loop
+		EndIf
+
+		If Alltrim(SD3->D3_CF) $ "PR0/PR1"	//-- Producoes
+			dbSelectArea("SC2")
+			dbSetOrder(1)
+			If dbSeek(cSC2Fil+SD3->D3_OP)
+				//-- Gera o lancamento no arquivo de prova
+				A330DET(SD3->D3_SEQCALC,"668","MATA330","SD3",,a330ParamZX)
+				(cAliasTRB)->(dbSkip())
+        		Loop
+			EndIf
+		ElseIf Alltrim(SD3->D3_CF) == "RE4"	//-- Transferencias / Requisicao
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD3->D3_SEQCALC,"670","MATA330","SD3",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		ElseIf Alltrim(SD3->D3_CF) == "DE4"	//-- Transferencias / Devolucao
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD3->D3_SEQCALC,"672","MATA330","SD3",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		ElseIf Alltrim(SD3->D3_CF) == "RE7"	//-- Transferencias Multiplas / Requisicao
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD3->D3_SEQCALC,"670","MATA330","SD3",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		ElseIf Alltrim(SD3->D3_CF) == "DE7"	//-- Transferencias Multiplas / Devolucao
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD3->D3_SEQCALC,"672","MATA330","SD3",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		ElseIf Alltrim(SD3->D3_CF) != "DE7" .And. Alltrim(D3_CF) != "DE4"   //-- RE0,1,2,3 e suas DE's respectivas
+
+			//-- Gera o lancamento no arquivo de prova
+			If SubStr(SD3->D3_CF,3,1) != "2"
+				If SD3->D3_TM <= "500"
+					//-- Gera o lancamento no arquivo de prova
+					A330DET(SD3->D3_SEQCALC,"668","MATA330","SD3",,a330ParamZX)
+
+					// Verifica se existe rateio na SA para contabilizar
+					If lVer67B .And. !Empty(SD3->D3_NUMSA) .And. !Empty(SD3->D3_ITEMSA)
+						A330CtbRat(SD3->D3_NUMSA, SD3->D3_ITEMSA, SD3->D3_SEQCALC, "67B", .F., a330ParamZX)
+					EndIf
+
+					(cAliasTRB)->(dbSkip())
+					Loop
+				Else
+					//-- Gera o lancamento no arquivo de prova
+					A330DET(SD3->D3_SEQCALC,"666","MATA330","SD3",,a330ParamZX)
+
+					// Verifica se existe rateio na SA para contabilizar
+					If lVer67A .And. !Empty(SD3->D3_NUMSA) .And. !Empty(SD3->D3_ITEMSA)
+						A330CtbRat(SD3->D3_NUMSA, SD3->D3_ITEMSA, SD3->D3_SEQCALC, "67A", .F., a330ParamZX)
+					EndIf
+
+					(cAliasTRB)->(dbSkip())
+					Loop
+				EndIf
+			Else
+				If SD3->D3_TM <= "500"
+					//-- Gera o lancamento no arquivo de prova
+					A330DET(SD3->D3_SEQCALC,"679","MATA330","SD3",,a330ParamZX)
+					(cAliasTRB)->(dbSkip())
+					Loop
+				Else
+					//-- Gera o lancamento no arquivo de prova
+					A330DET(SD3->D3_SEQCALC,"680","MATA330","SD3",,a330ParamZX)
+					(cAliasTRB)->(dbSkip())
+					Loop
+				EndIf
+			EndIf
+
+		EndIf
+
+	ElseIf (cAliasTRB)->TRB_ARQ == "SD2"
+		dbSelectArea("SD2")
+		dbGoto((cAliasTRB)->TRB_RECMOV)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o movimento foi processado pela funcao A330Recalc()  |
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If SubStr(D2_SEQCALC,1,Len(DTOS(dInicio))) <> DTOS(dInicio)
+			dbSelectArea(cAliasTRB)
+			dbSkip()
+			Loop
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona no SB1 para formulas de lancamento contabil        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SB1")
+		MsSeek(cSB1Fil+SD2->D2_COD)
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Posiciona no SF4 - TES                                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		dbSelectArea("SF4")
+		MsSeek(cSF4Fil+SD2->D2_TES)
+		dbSelectArea("SD2")
+
+		If SF4->F4_PODER3 <> "D" .And. SD2->D2_TIPO != "D"
+				//-- Gera o lancamento no arquivo de prova
+				A330DET(SD2->D2_SEQCALC,"678","MATA330","SD2",,a330ParamZX)
+				(cAliasTRB)->(dbSkip())
+				Loop
+		Elseif SD2->D2_TIPO == "D" .And. SF4->F4_PODER3 <> "R" .And. lA330CDEV .And. ExecBlock("A330CDEV",.F.,.F.)  
+			//-- Gera o lancamento no arquivo de prova
+			A330DET(SD2->D2_SEQCALC,"678","MATA330","SD2",,a330ParamZX)
+			(cAliasTRB)->(dbSkip())
+			Loop
+		EndIf
+	EndIf
+
+	dbSelectArea(cAliasTRB)
+	(cAliasTRB)->(dbSkip())
+
+EndDo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+// ProcLogAtu("MENSAGEM",STR0017,STR0017) //"Termino da Definição dos Tipos de Lançamentos Contabeis"
+M331PrcLog("MENSAGEM",OemToAnsi(I18N(STR0017,{cFilAnt})),OemToAnsi(I18N(STR0017,{cFilAnt})),'6')
+
+dbSelectArea(cAliasTRB)
+dbCloseArea()
+
+RestArea(aAreaSD1)
+RestArea(aAreaSD2)
+RestArea(aAreaSD3)
+RestArea(aAreaAnt)
+Return
+
+/*/{Protheus.doc} M331PrcLog
+	Encapsula chamada da ProcLogAtu para garantir gravacao da filial da CV8 com a filial
+	que esta executando o processo.
+	@type  Function
+	@author andre.oliveira
+	@since 04/09/2020
+	@version 1.0
+	@param cTipo, caracter, tipo do log a ser gerado
+	@param cTexto, caracter, mensagem a ser gravada no log gerado
+	@param cDetalhe, caracter, detalhe a ser gravado para o log gerado
+/*/
+Function M331PrcLog(cTipo,cTexto,cDetalhe, cStatus)
+
+Default cStatus := " " 
+oJourneyLog:LogProAtu(cTipo,cTexto,cDetalhe,cFilStart, cStatus,dDataBase,cFilAnt, lJourney)
+
+Return
+
+Function A331Legacy() 
+
+Return getLegacy()
+

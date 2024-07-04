@@ -1,0 +1,173 @@
+#Include 'Protheus.ch' 
+
+//------------------------------------------------------------------- 
+/*/{Protheus.doc} FIN104RREM()
+Rotina para construção de codigo fonte para geração de arquivo CNAB 
+
+@author 
+ 
+@since 16/08/2019  
+@version TOTVS Serviços MSSQL Raposo  
+/*/ 
+//------------------------------------------------------------------- 
+Function FIN104RREM()
+
+	Local aRetCNAB	:= {}
+
+	//                  1       2       3       4       5       6       7       8        9
+	//              	IDELIN, HEADET, CHALIN, IDESEG, DESMOV, POSINI, POSFIM, DECIMAL, CONARQ
+	//	AADD(aRetCNAB, {''    , ''    , ''    , ''    , ''    , ''    , ''    , ''     , ''     } )
+
+    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+    //³ NIVEL 1                 ³
+    //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	AADD(aRetCNAB, {'1','0','H','' ,'HEADER DO ARQUIVO             ','.T.','','','                                                  ','.F.','001','',''})
+	AADD(aRetCNAB, {'1','0','T','' ,'TRAILER DO ARQUIVO            ','.T.','','','                                                  ','.F.','002','',''})
+	AADD(aRetCNAB, {'1','1','H','' ,'HEADER DO LOTE                ','.T.','','','                                                  ','.F.','003','',''})
+	AADD(aRetCNAB, {'1','1','T','' ,'TRAILER DO LOTE               ','.T.','','','                                                  ','.F.','004','',''})
+	AADD(aRetCNAB, {'1','1','D','1','DETALHE SEGMENTO P            ','.T.','','','                                                  ','.F.','005','',''})
+	AADD(aRetCNAB, {'1','1','D','2','DETALHE SEGMENTO Q            ','.T.','','','                                                  ','.F.','006','',''})
+    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+    //³ NIVEL 2                 ³
+    //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	// 20H - 
+		AADD(aRetCNAB, {'2','0','H','' ,'BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','007','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'LOTE SERVICO   ','004','007','0','\"0000\"','.F.','008','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'TIPO REGISTRO  ','008','008','0','\"0\"','.F.','009','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'RESERVADO CNAB ','009','017','0','','.F.','010','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'TP INSC EMPRESA','018','018','0','IF(SM0->M0_TPINSC == 3, \"1\", \"2\")','.F.','011','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'NUM INSCRICAO  ','019','032','0','PADL(ALLTRIM(SM0->M0_CGC), 14, \"0\")','.F.','012','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'CONVENIO BANCO ','033','052','0','0','.F.','013','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'AG MANTENEDORA ','053','057','0','PADL(ALLTRIM(SEA->EA_AGEDEP), 5, \"0\")','.F.','014','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'DV AG MANT     ','058','058','0','CNABDVAG()','.F.','015','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'COD BENEF      ','059','064','0','PADL(ALLTRIM(SEE->EE_CODEMP), 6, \"0\")','.F.','016','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'RESERVADO BANCO','065','072','0','0','.F.','017','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'NOME DA EMPRESA','073','102','0','SM0->M0_NOMECOM','.F.','018','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'NOME DO BANCO  ','103','132','0','\"CAIXA ECONOMICA FEDERAL\"','.F.','019','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'RESERVADO CNAB ','133','142','0','','.F.','020','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'COD REM/RET    ','143','143','0','\"1\"','.F.','021','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'DT GERACAO ARQ ','144','151','0','GRAVADATA(DDATABASE, .F., 5)','.T.','022','{\"DATE()\",\"DDATABASE\"}','{\"DATE()\",\"DDATABASE\"}'})
+		AADD(aRetCNAB, {'2','0','H','' ,'HR GERACAO ARQ ','152','157','0','STRTRAN(TIME(), \":\", \"\")','.F.','023','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'SEQUENCIA (NSA)','158','163','0','VAL(SEE->EE_ULTDSK)','.F.','024','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'LAYOUT ARQUIVO ','164','166','0','\"101\"','.F.','025','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'DENSIDADE      ','167','171','0','\"00000\"','.F.','026','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'RESERVADO BANCO','172','191','0','','.F.','027','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'SITUACAO ARQUIV','192','211','0','\"REMESSA TESTE\"','.F.','028','',''})
+		AADD(aRetCNAB, {'2','0','H','' ,'RESERVADO CNAB ','212','240','0','','.F.','029','',''})
+	// 20T - 
+		AADD(aRetCNAB, {'2','0','T','' ,'BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','030','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'LOTE SERVICO   ','004','007','0','\"9999\"','.F.','031','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'TIPO REGISTRO  ','008','008','0','\"9\"','.F.','032','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'RESERVADO CNAB ','009','017','0','','.F.','033','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'QTDE LOTES     ','018','023','0','FNLOTECNAB()','.F.','034','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'QTDE REGISTROS ','024','029','0','FNLINCNAB()','.F.','035','',''})
+		AADD(aRetCNAB, {'2','0','T','' ,'RESERVADO BANCO','030','240','0','','.F.','036','',''})
+	// 21H - 
+		AADD(aRetCNAB, {'2','1','H','' ,'BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','037','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'LOTE SERVICO   ','004','007','0','FNLOTECNAB()','.F.','038','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'TIPO REGISTRO  ','008','008','0','\"1\"','.F.','039','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'TIPO OPERACAO  ','009','009','0','\"R\"','.F.','040','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'TIPO SERVICO   ','010','011','0','\"01\"','.F.','041','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'RESERVADO CNAB ','012','013','0','\"00\"','.F.','042','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'LAYOUT LOTE    ','014','016','0','\"060\"','.F.','043','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'RESERVADO CNAB ','017','017','0','','.F.','044','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'TP INSC EMPRESA','018','018','0','IF(SM0->M0_TPINSC == 3, \"1\", \"2\")','.F.','045','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'NUM INSCRICAO  ','019','033','0','PADL(ALLTRIM(SM0->M0_CGC), 15, \"0\")','.F.','046','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'CONVENIO BANCO ','034','039','0','PADL(ALLTRIM(SEE->EE_CODEMP), 6, \"0\")','.F.','047','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'RESERVADO BANCO','040','053','0','REPLICATE(\"0\", 14)','.F.','048','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'AG MANTENEDORA ','054','058','0','PADL(ALLTRIM(SEA->EA_AGEDEP), 5, \"0\")','.F.','049','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'DV AG MANT     ','059','059','0','CNABDVAG()','.F.','050','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'COD BENEF      ','060','065','0','PADL(ALLTRIM(SEE->EE_CODEMP), 6, \"0\")','.F.','051','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'COD MOD BOLETO ','066','072','0','0','.F.','052','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'DV AG/CONTA    ','073','073','0','\"0\"','.F.','053','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'NOME DA EMPRESA','074','103','0','SM0->M0_NOMECOM','.F.','054','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'MENSAGEM 1     ','104','143','0','','.F.','055','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'MENSAGEM 2     ','144','183','0','','.F.','056','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'NUM REM/RET    ','184','191','0','VAL(SEE->EE_ULTDSK)','.F.','057','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'DATA GRAVACAO  ','192','199','0','GRAVADATA(DDATABASE, .F., 5)','.T.','058','{\"DATE()\",\"DDATABASE\"}','{\"DATE()\",\"DDATABASE\"}'})
+		AADD(aRetCNAB, {'2','1','H','' ,'DATA CREDITO   ','200','207','0','0','.F.','059','',''})
+		AADD(aRetCNAB, {'2','1','H','' ,'RESERVADO CNAB ','208','240','0','','.F.','060','',''})
+	// 21T - 
+		AADD(aRetCNAB, {'2','1','T','' ,'BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','061','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'LOTE SERVICO   ','004','007','0','FNLOTECNAB()','.F.','062','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'TIPO REGISTRO  ','008','008','0','\"5\"','.F.','063','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'RESERVADO CNAB ','009','017','0','','.F.','064','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'QTDE REGISTRO  ','018','023','0','FNREGLOTE()','.F.','065','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'QTDE SIMPLES   ','024','029','0','0','.F.','066','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'VLR SIMPLES    ','030','046','0','0','.F.','067','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'QTDE VINCULADA ','047','052','0','0','.F.','068','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'VLR VINCULADA  ','053','069','0','0','.F.','069','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'QTDE CAUCIONADA','070','075','0','0','.F.','070','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'VLR CAUCIONADA ','076','092','0','0','.F.','071','',''})
+		AADD(aRetCNAB, {'2','1','T','' ,'RESERVADO BANCO','093','240','0','','.F.','072','',''})
+	// 21D1 - 
+		AADD(aRetCNAB, {'2','1','D','1','BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','073','',''})
+		AADD(aRetCNAB, {'2','1','D','1','LOTE SERVICO   ','004','007','0','FNLOTECNAB()','.F.','074','',''})
+		AADD(aRetCNAB, {'2','1','D','1','TIPO REGISTRO  ','008','008','0','\"3\"','.F.','075','',''})
+		AADD(aRetCNAB, {'2','1','D','1','NUM REGISTRO   ','009','013','0','FNLINLOTE()','.F.','076','',''})
+		AADD(aRetCNAB, {'2','1','D','1','SEGMENTO       ','014','014','0','\"P\"','.F.','077','',''})
+		AADD(aRetCNAB, {'2','1','D','1','RESERVADO CNAB ','015','015','0','','.F.','078','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD MOV REMESSA','016','017','0','IF(EMPTY(SE1->E1_OCORREN), \"01\", SE1->E1_OCORREN)','.F.','079','',''})
+		AADD(aRetCNAB, {'2','1','D','1','AGENCIA        ','018','022','0','PADL(ALLTRIM(SEA->EA_AGEDEP), 5, \"0\")','.F.','080','',''})
+		AADD(aRetCNAB, {'2','1','D','1','DV AGENCIA     ','023','023','0','CNABDVAG()','.F.','081','',''})
+		AADD(aRetCNAB, {'2','1','D','1','CONVENIO BANCO ','024','029','0','PADL(ALLTRIM(SEE->EE_CODEMP), 6, \"0\")','.F.','082','',''})
+		AADD(aRetCNAB, {'2','1','D','1','RESERVADO BANCO','030','039','0','0','.F.','083','',''})
+		AADD(aRetCNAB, {'2','1','D','1','MOD CART SINCO ','040','040','0','CNABG069()','.F.','084','',''})
+		AADD(aRetCNAB, {'2','1','D','1','MOD CART SIGCB ','041','042','0','\"14\"','.F.','085','',''})
+		AADD(aRetCNAB, {'2','1','D','1','ID TITULO BANCO','043','057','0','PADL(ALLTRIM(SE1->E1_IDCNAB), 15, \"0\")','.F.','086','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD CARTEIRA   ','058','058','0','SE1->E1_SITUACA','.F.','087','',''})
+		AADD(aRetCNAB, {'2','1','D','1','FORMA CADASTR  ','059','059','0','IF(SEE->EE_TPCOBRA == \"2\", \"2\", \"1\")','.F.','088','',''})
+		AADD(aRetCNAB, {'2','1','D','1','TIPO DOCUMENTO ','060','060','0','\"2\"','.F.','089','',''})
+		AADD(aRetCNAB, {'2','1','D','1','EMIS BOL PAGTO ','061','061','0','\"1\"','.F.','090','',''})
+		AADD(aRetCNAB, {'2','1','D','1','ID DISTRIB     ','062','062','0','\"0\"','.F.','091','',''})
+		AADD(aRetCNAB, {'2','1','D','1','NUM DOC COBRANC','063','073','0','PADL(ALLTRIM(SE1->E1_IDCNAB), 11, \"0\")','.F.','092','',''})
+		AADD(aRetCNAB, {'2','1','D','1','USO EXCL CNAB  ','074','077','0','','.F.','093','',''})
+		AADD(aRetCNAB, {'2','1','D','1','VENCIMENTO     ','078','085','0','GRAVADATA(SE1->E1_VENCTO, .F., 5)','.T.','094','{\"E1_VENCTO\",\"E1_EMISSAO\",\"E1_VENCREA\"}','{\"E1_VENCTO\",\"E1_EMISSAO\",\"E1_VENCREA\"}'})
+		AADD(aRetCNAB, {'2','1','D','1','VALOR NOMINAL  ','086','100','0','SE1->E1_SALDO * 100','.F.','095','',''})
+		AADD(aRetCNAB, {'2','1','D','1','AG COBRADORA   ','101','105','0','\"00000\"','.F.','096','',''})
+		AADD(aRetCNAB, {'2','1','D','1','DV AG COBRADORA','106','106','0','\"0\"','.F.','097','',''})
+		AADD(aRetCNAB, {'2','1','D','1','ESPECIE TITULO ','107','108','0','TABELA(SEE->EE_TABELA, SE1->E1_TIPO)','.F.','098','',''})
+		AADD(aRetCNAB, {'2','1','D','1','ACEITE         ','109','109','0','\"N\"','.F.','099','',''})
+		AADD(aRetCNAB, {'2','1','D','1','DATA EMISSAO   ','110','117','0','GRAVADATA(SE1->E1_EMISSAO, .F., 5)','.T.','100','{\"E1_VENCTO\",\"E1_EMISSAO\",\"E1_VENCREA\"}','{\"E1_VENCTO\",\"E1_EMISSAO\",\"E1_VENCREA\"}'})
+		AADD(aRetCNAB, {'2','1','D','1','COD JUROS/MORA ','118','118','0','\"1\"','.F.','101','',''})
+		AADD(aRetCNAB, {'2','1','D','1','DATA JUROS/MORA','119','126','0','GRAVADATA(SE1->E1_VENCTO, .F., 5)','.F.','102','',''})
+		AADD(aRetCNAB, {'2','1','D','1','JUROS/MORA     ','127','141','0','SE1->(E1_SALDO * (E1_PORCJUR / 100)) * 100','.F.','103','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD DESC 1     ','142','142','0','\"2\"','.F.','104','',''})
+		AADD(aRetCNAB, {'2','1','D','1','DATA DESC 1    ','143','150','0','GRAVADATA(SE1->(E1_VENCTO - E1_DIADESC), .F., 5)','.F.','105','',''})
+		AADD(aRetCNAB, {'2','1','D','1','VLR/PER DESC1  ','151','165','0','SE1->E1_DESCFIN * 100','.F.','106','',''})
+		AADD(aRetCNAB, {'2','1','D','1','VLR IOF        ','166','180','0','0','.F.','107','',''})
+		AADD(aRetCNAB, {'2','1','D','1','VLR ABATIMENTO ','181','195','0','SE1->E1_DESCONT * 100','.F.','108','',''})
+		AADD(aRetCNAB, {'2','1','D','1','ID TIT EMPRESA ','196','220','0','PADL(ALLTRIM(SE1->E1_IDCNAB), 25, \"0\")','.F.','109','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD PROTESTO   ','221','221','0','IF(EMPTY(SEE->EE_DIASPRT), \"3\", \"1\")','.F.','110','',''})
+		AADD(aRetCNAB, {'2','1','D','1','PRAZO PROTESTO ','222','223','0','VAL(SEE->EE_DIASPRT)','.F.','111','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD BX/DEV     ','224','224','0','\"1\"','.F.','112','',''})
+		AADD(aRetCNAB, {'2','1','D','1','PRAZO BX/DEV   ','225','227','0','','.F.','113','',''})
+		AADD(aRetCNAB, {'2','1','D','1','COD MOEDA      ','228','229','0','\"09\"','.F.','114','',''})
+		AADD(aRetCNAB, {'2','1','D','1','NUM CONTRATO   ','230','239','0','0','.F.','115','',''})
+		AADD(aRetCNAB, {'2','1','D','1','RESERVADO CNAB ','240','240','0','','.F.','116','',''})
+	// 21D2 - 
+		AADD(aRetCNAB, {'2','1','D','2','BANCO          ','001','003','0','SEE->EE_CODIGO','.F.','117','',''})
+		AADD(aRetCNAB, {'2','1','D','2','LOTE SERVICO   ','004','007','0','FNLOTECNAB()','.F.','118','',''})
+		AADD(aRetCNAB, {'2','1','D','2','TIPO REGISTRO  ','008','008','0','\"3\"','.F.','119','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NUM REGISTRO   ','009','013','0','FNLINLOTE()','.F.','120','',''})
+		AADD(aRetCNAB, {'2','1','D','2','SEGMENTO       ','014','014','0','\"Q\"','.F.','121','',''})
+		AADD(aRetCNAB, {'2','1','D','2','RESERVADO CNAB ','015','015','0','','.F.','122','',''})
+		AADD(aRetCNAB, {'2','1','D','2','COD MOV REMESSA','016','017','0','IF(EMPTY(SE1->E1_OCORREN), \"01\", SE1->E1_OCORREN)','.F.','123','',''})
+		AADD(aRetCNAB, {'2','1','D','2','TP INSC PAGADOR','018','018','0','IF(SA1->A1_PESSOA == \"J\", \"2\", \"1\")','.F.','124','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NUM INSCRICAO  ','019','033','0','PADL(ALLTRIM(SA1->A1_CGC), 15, \"0\")','.F.','125','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NOME           ','034','073','0','SA1->A1_NOME','.T.','126','{\"A1_NREDUZ\",\"A1_NOME\"}','{\"A1_NREDUZ\",\"A1_NOME\"}'})
+		AADD(aRetCNAB, {'2','1','D','2','ENDERECO       ','074','113','0','SA1->A1_ENDCOB','.F.','127','',''})
+		AADD(aRetCNAB, {'2','1','D','2','BAIRRO         ','114','128','0','SA1->A1_BAIRROC','.F.','128','',''})
+		AADD(aRetCNAB, {'2','1','D','2','CEP            ','129','136','0','SA1->A1_CEP','.F.','129','',''})
+		AADD(aRetCNAB, {'2','1','D','2','CIDADE         ','137','151','0','SA1->A1_MUNC','.F.','130','',''})
+		AADD(aRetCNAB, {'2','1','D','2','UF             ','152','153','0','SA1->A1_EST','.F.','131','',''})
+		AADD(aRetCNAB, {'2','1','D','2','TP INSC SACADOR','154','154','0','\"0\"','.F.','132','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NUM INSCRICAO  ','155','169','0','0','.F.','133','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NOME           ','170','209','0','','.F.','134','',''})
+		AADD(aRetCNAB, {'2','1','D','2','BANCO CORRESP  ','210','212','0','\"000\"','.F.','135','',''})
+		AADD(aRetCNAB, {'2','1','D','2','NOSSO NUMERO   ','213','232','0','','.F.','136','',''})
+		AADD(aRetCNAB, {'2','1','D','2','RESERVADO CNAB ','233','240','0','','.F.','137','',''})
+
+
+Return aRetCNAB 
+

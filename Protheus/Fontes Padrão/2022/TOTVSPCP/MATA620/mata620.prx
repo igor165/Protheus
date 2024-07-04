@@ -1,0 +1,399 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "MATA620.CH"
+#INCLUDE "FIVEWIN.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+
+/*/{Protheus.doc} MATA620
+Programa de atualização do cadastro de ferramentas (SH4)
+@author Carlos Alexandre da Silveira
+@since 26/07/2018
+
+@param aRotAuto	- Array dos campos para rotina automática
+@param nOpcAuto	- Número da opção selecionada para rotina automática
+
+/*/
+Function MATA620(aRotAuto,nOpcAuto)
+
+	Local aArea 	:= GetArea()
+	Local lRotAuto 	:= aRotAuto <> Nil
+	Local oBrowse
+
+	If !lRotAuto
+		oBrowse := BrowseDef()	
+		oBrowse:Activate()
+	Else
+		aRotina := MenuDef()
+		FWMVCRotAuto(ModelDef(), "SH4", nOpcAuto, {{"SH4MASTER", aRotAuto}})
+	EndIf
+	RestArea(aArea)
+
+Return NIL
+
+/*/{Protheus.doc} BrowseDef
+Definição do BROWSE do programa.
+@author Carlos Alexandre da Silveira
+@since 26/07/2018
+@version 1.0
+@return oBrowse	- Objeto FWMBrowse.
+/*/
+Static Function BrowseDef()
+
+	Local oBrowse := FWMBrowse():New()
+	
+	oBrowse:SetAlias("SH4")
+	oBrowse:SetDescription(STR0006) //STR0006 - Ferramentas
+
+Return oBrowse
+
+/*/{Protheus.doc} ModelDef
+Definição do modelo de dados para o programa
+@author Carlos Alexandre da Silveira
+@since 26/07/2018
+@version 1.0
+@return oModel	- Modelo de dados do programa.
+/*/
+Static Function ModelDef()
+	
+	Local oStruSH4 := FWFormStruct(1, "SH4")
+	Local oEvent   := MATA620EVDEF():New()
+	Local oModel
+
+	oModel := MPFormModel():New("MATA620")
+
+	oModel:AddFields("SH4MASTER", /*cOwner*/, oStruSH4)
+
+	oModel:SetPrimaryKey({})
+
+	oModel:SetDescription(STR0006) //STR0006 - Ferramentas
+	
+	//Instala o evento padrão do programa.
+	oModel:InstallEvent("MATA620EVDEF",/*cOwner*/,oEvent)
+	
+Return oModel
+
+/*/{Protheus.doc} ViewDef
+Definição da tela para o programa
+@author Carlos Alexandre da Silveira
+@since 26/07/2018
+@version 1.0
+@return oView	- Objeto View para a tela
+/*/
+Static Function ViewDef()
+	
+	Local oModel   := FWLoadModel('MATA620')
+	Local oStruSH4 := FWFormStruct(2, "SH4")
+	Local oView
+
+	oView := FWFormView():New()
+
+	oView:SetModel(oModel)
+	oView:AddField("VIEW_SH4", oStruSH4, "SH4MASTER")
+	oView:CreateHorizontalBox("TELA",100)
+	oView:SetOwnerView("VIEW_SH4","TELA")
+
+Return oView
+
+/*/{Protheus.doc} MenuDef
+Função para definir as opções de MENU do programa
+@author Carlos Alexandre da Silveira
+@since 26/07/2018
+@version 1.0
+@return aRotina
+/*/
+Static Function MenuDef()
+				
+	Private aRotina := {}
+
+	ADD OPTION aRotina TITLE STR0002 ACTION 'ViewDef.MATA620' OPERATION OP_VISUALIZAR ACCESS 0 	//STR0002 - Visualizar
+	ADD OPTION aRotina TITLE STR0001 ACTION 'AxPesqui' OPERATION OP_PESQUISAR ACCESS 0  	//STR0001 - Pesquisar
+	ADD OPTION aRotina TITLE STR0003 ACTION 'ViewDef.MATA620' OPERATION OP_INCLUIR ACCESS 0 	//STR0003 - Incluir
+	ADD OPTION aRotina TITLE STR0004 ACTION 'ViewDef.MATA620' OPERATION OP_ALTERAR ACCESS 0 	//STR0004 - Alterar
+	ADD OPTION aRotina TITLE STR0005 ACTION 'ViewDef.MATA620' OPERATION OP_EXCLUIR ACCESS 0 	//STR0005 - Excluir
+
+	// Ponto de entrada utilizado para inserir novas opcoes no array aRotina
+	If ExistBlock("MTA620MNU")
+		ExecBlock("MTA620MNU",.F.,.F.)
+	EndIf
+
+Return(aRotina)
+
+//-------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} MATA620PPI
+
+Realiza a integração com o PC-Factory - PPI Multitask
+
+@param cXml      - XML que será enviado. Caso não seja passado esse parametro, será realizada
+                   a chamada do Adapter para criação do XML.
+                   Se for passado esse parâmetro, não será exibida a mensagem de erro caso exista,
+                   nem será considerado o filtro da tabela SOE. 
+@param cFerr     - Obrigatório quando utilizado o parâmetro cXml. Contém o código do recurso.
+@param lExclusao - Indica se está chamando para rotina de exclusão de produto.
+@param lFiltra   - Identifica se será realizado ou não o filtro do registro.
+@param lPendAut  - Indica se será gerada a pendência sem realizar a pergunta para o usuário, caso ocorra algum erro.
+
+@author  Lucas Konrad França
+@version P118
+@since   09/06/2016
+@return  lRet  - Indica se a integração com o PC-Factory foi realizada. 
+           .T. -> Integração Realizada
+           .F. -> Integração não realizada.
+/*/
+//-------------------------------------------------------------------------------------------------
+Function MATA620PPI(cXml, cFerr, lExclusao, lFiltra, lPendAut)
+
+	Local aArea     := GetArea()
+	Local aAreaSH4  := SH4->(GetArea())
+	Local lRet      := .T.
+	Local aRetXML   := {}
+	Local aRetWS    := {}
+	Local aRetData  := {}
+	Local aRetArq   := {}
+	Local cNomeXml  := ""
+	Local cGerouXml := ""
+	Local cOperacao := ""
+
+	//Variável utilizada para identificar que está sendo executada a integração para o PPI dentro do MATI200.
+	Private lRunPPI := .T.
+
+	Default cXml      := ""
+	Default cFerr     := ""
+	Default lExclusao := .F.
+	Default lFiltra   := .T.
+	Default lPendAut  := .F.
+
+	If Empty(cXml)
+		If lExclusao 
+			cOperacao := Lower(STR0005) //"excluir"
+		Else
+			If INCLUI
+				cOperacao := Lower(STR0003) //"incluir"
+			Else
+				cOperacao := Lower(STR0004) //"alterar"
+			EndIf
+		EndIf
+	Else
+		If PCPEvntXml(cXml) == "delete"
+			lExclusao := .T.
+		EndIf
+	EndIf
+
+	If Empty(cXml)
+		cFerr := SH4->H4_CODIGO
+	EndIf
+
+	//Realiza filtro na tabela SOE, para verificar se o produto entra na integração.
+	If !Empty(cXml) .Or. !lFiltra .Or. PCPFiltPPI("SH4", cFerr, "SH4")
+		//Adapter para criação do XML
+		If Empty(cXml)
+			aRetXML := SFCI006("", TRANS_SEND, EAI_MESSAGE_BUSINESS)
+		Else
+			aRetXML := {.T.,cXml}
+		EndIf
+		/*
+		aRetXML[1] - Status da criação do XML
+		aRetXML[2] - String com o XML
+		*/
+		If aRetXML[1]
+			//Retira os caracteres especiais
+			aRetXML[2] := EncodeUTF8(aRetXML[2])
+			//Busca a data/hora de geração do XML
+			aRetData := PCPxDtXml(aRetXML[2])
+			/*
+			aRetData[1] - Data de geração AAAAMMDD
+			aRetData[1] - Hora de geração HH:MM:SS
+			*/
+			//Envia o XML para o PCFactory
+			aRetWS := PCPWebsPPI(aRetXML[2])
+			/*
+			aRetWS[1] - Status do envio (1 - OK, 2 - Pendente, 3 - Erro.)
+			aRetWS[2] - Mensagem de retorno do PPI
+			*/
+			If aRetWS[1] != "1" .And. Empty(cXml)
+				lRet := .T.
+			EndIf
+	     
+			If lRet
+				//Cria o XML fisicamente no diretório parametrizado
+				aRetArq := PCPXmLPPI(aRetWS[1],"SH4",cFerr,aRetData[1],aRetData[2],aRetXML[2])
+				/*
+				aRetArq[1] Status da criação do arquivo. .T./.F.
+				aRetArq[2] Nome do XML caso tenha criado. Mensagem de erro caso não tenha criado o XML.
+				*/
+				If !aRetArq[1]
+					If Empty(cXml) .And. !lPendAut
+						Alert(aRetArq[2])
+					EndIf
+				Else
+					cNomeXml := aRetArq[2]
+				EndIf
+				If Empty(cNomeXml)
+					cGerouXml := "2"
+				Else
+					cGerouXml := "1"
+				EndIf
+				//Cria a tabela SOF
+				PCPCriaSOF("SH4",cFerr,aRetWS[1],cGerouXml,cNomeXml,aRetData[1],aRetData[2],__cUserId,aRetWS[2],aRetXML[2])
+				//Array com os componentes que tiveram erro.
+				If Type('aIntegPPI') == "A"
+					If aRetWS[1] != "1"
+						aAdd(aIntegPPI,{cFerr,aRetWS[2]})
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+	//Tratativa para retornar .F. mesmo quando é pendência automática;
+	//Utilizado apenas para o programa de sincronização.
+	If (AllTrim(FunName()) $ "PCPA111|MATA620") .And. Len(aRetWs) > 0 .And. aRetWS[1] != "1"
+		lRet := .F.
+	EndIf
+
+	RestArea(aArea)
+	SH4->(RestArea(aAreaSH4))
+
+Return lRet
+
+/*/{Protheus.doc} A620IntSFC()
+Atualiza tabelas do SFC conforme modelagem dos dados (MVC)
+@author Carlos Alexandre da Silveira
+@since 27/07/2018
+@version 1.0
+@return Nil
+/*/
+Function A620IntSFC(nOpc,cError,cNome,oModel,lCommit)
+
+	Local aArea   	:= GetArea()	// Salva area atual para posterior restauracao
+	Local aAux    	:= {}			// Array auxiliar com o conteudo dos campos
+	Local aCampos 	:= {}			// Array dos campos a serem atualizados pelo modelo
+	Local cCodigo	:= Nil
+	Local cDescri	:= Nil
+	Local cTipoVid	:= Nil
+	Local dFimVal 	:= dDatabase	// Data final da validade
+	Local lBkpAlt   := Iif(Type('ALTERA')=="L",ALTERA,Nil)
+	Local lBkpInc   := Iif(Type('INCLUI')=="L",INCLUI,Nil)
+	Local lIntSFC 	:= ExisteSFC("SH4") .And. !IsInCallStack("AUTO620") // Determina se existe integracao com o SFC 
+	Local lRet    	:= .T.			// Conteudo de retorno
+	Local nDias	  	:= 0  			// Quantidade de dias calculadas quando tipo de vida util igual a "Horas"
+	Local nVidaUti	:= Nil
+	Local nX	  	:= 0			// Indexadora de laco For/Next
+	Local oModelSH4	:= FwModelActive()
+
+	Default lCargaSFC := .F.
+	Default lCommit   := .T.
+	Default oModel    := FWLoadModel("SFCA006")
+
+	If (Empty(oModelSH4) .Or. !oModelSH4:GetID() $ "MATA620|SH4MASTER")
+		cCodigo		:= SH4->H4_CODIGO
+		cDescri		:= SH4->H4_DESCRI
+		nVidaUti	:= SH4->H4_VIDAUTI
+		cTipoVid	:= SH4->H4_TIPOVID
+	Else
+		cCodigo		:= oModelSH4:GetModel("SH4MASTER"):GetValue("H4_CODIGO")
+		cDescri		:= oModelSH4:GetModel("SH4MASTER"):GetValue("H4_DESCRI")
+		nVidaUti	:= oModelSH4:GetModel("SH4MASTER"):GetValue("H4_VIDAUTI")
+		cTipoVid	:= oModelSH4:GetModel("SH4MASTER"):GetValue("H4_TIPOVID")
+	EndIf
+
+	// Caso o campo "Vida Util" for informado calcula data final da validade a ser enviada para o SFC
+	If nOpc # 5 .And. !Empty(nVidaUti)
+		If cTipoVid == "D"
+			dFimVal := dDataBase + nVidaUti
+		ElseIf cTipoVid == "H"
+			nDias   := Int(nVidaUti/24)
+			dFimVal := If(Empty(nDias),dDataBase,dDataBase + nDias)
+		ElseIf cTipoVid == "M"
+			dFimVal := dDataBase + (nVidaUti * 30)
+		Else
+			dFimVal := dDataBase + (nVidaUti * 365)
+		EndIf
+	EndIf
+
+	// Monta array com dados da Ferramenta para inclusao no cadastro de Recursos no SFC
+	If nOpc < 5
+		If nOpc == 3
+			aAdd(aCampos,{"CYH_CDRC"	,cCodigo})
+			aAdd(aCampos,{"CYH_TPRC"	,"2"})
+		EndIf	
+		aAdd(aCampos,{"CYH_QTUNCI"	,1})
+		aAdd(aCampos,{"CYH_DTVDBG"	,dDataBase})
+		aAdd(aCampos,{"CYH_NMRC"	,cDescri})
+		aAdd(aCampos,{"CYH_DTVDED"	,dFimVal})
+	EndIf
+
+	If nOpc # 3
+		// Quando se tratar de alteracao ou exclusao primeiramente o registro devera ser posicionado
+		CYH->(dbSetOrder(1))
+		CYH->(dbSeek(xFilial("CYH")+"2"+If(nOpc == 4,cCodigo,cCodigo)))
+	EndIf
+
+	// Atribui o numero da operacao a ser efetuada pelo Modelo
+	// 3-Inclusao, 4-Alteracao, 5-Exclusao
+	oModel:SetOperation(nOpc)
+	
+	If nOpc == MODEL_OPERATION_INSERT
+		INCLUI := .T.
+		ALTERA := .F.
+	ElseIf nOpc == MODEL_OPERATION_UPDATE
+		INCLUI := .F.
+		ALTERA := .T.
+	ElseIf nOpc == MODEL_OPERATION_DELETE
+		INCLUI := .F.
+		ALTERA := .F.
+	EndIf
+	
+	// Ativa o modelo de dados
+	If (lRet := oModel:Activate())
+		aAux := oModel:GetModel("CYHMASTER"):GetStruct():GetFields()
+		
+		// Loop para validacao e atribuicao de dados dos campos do Model
+		For nX := 1 To Len(aCampos)
+			If aScan(aAux,{|x| AllTrim(x[3]) ==  AllTrim(aCampos[nX,1])}) > 0
+				// Atribui os valores aos campos do Model caso passem pela validacao do formulario
+				// referente a tipos de dados, tamanho ou outras incompatibilidades estruturais.
+				If !(oModel:SetValue("CYHMASTER",aCampos[nX,1],aCampos[nX,2]))
+					lRet := .F.
+					Exit
+				EndIf
+			EndIf
+		Next nX
+	Endif
+
+	If lRet
+		// Valida os dados e integridade conforme dicionário do Model
+		If !(oModel:VldData())
+			lRet := .F.
+		Else
+			If lCommit
+				oModel:CommitData()
+			EndIf
+		EndIf
+	EndIf
+
+	// Gera log de erro caso não tenha passado pela validação
+	If !lRet
+		A010SFCErr(oModel,@cError,NIL,cNome,cCodigo)
+	EndIf
+
+	If lBkpInc != Nil
+		INCLUI := lBkpInc
+	EndIf
+	If lBkpAlt != Nil
+		ALTERA := lBkpAlt
+	EndIf
+	
+	If lCommit .And. (!lIntSFC .or. lCargaSFC)
+		oModel:DeActivate()
+	EndIf		
+
+	RestArea(aArea)
+
+Return lRet
+
+
+
+Function A620Incl()                     
+	
+	FWExecView(STR0006+" - "+STR0003,"MATA620",OP_INCLUIR,/*oDlg*/,{||.T.},/*bOk*/,20,/*aEnableButtons*/,/*bCancel*/,/*cOperatId*/,/*cToolBar*/,/*oModelAct*/) //"Incluir Calendário MRP"
+  
+Return

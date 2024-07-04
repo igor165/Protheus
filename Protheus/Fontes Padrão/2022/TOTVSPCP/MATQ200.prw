@@ -1,0 +1,32 @@
+#include "protheus.ch"
+#include "quicksearch.ch"
+#include "matq200.ch"
+
+QSSTRUCT MATA200 DESCRIPTION STR0001 /* Estrutura */ MODULE 10
+
+QSMETHOD INIT QSSTRUCT MATA200
+
+   QSTABLE "SG1" JOIN "SB1" ALIAS "SB101" ON "G1_COMP = SB101.B1_COD"
+   QSTABLE "SG1" JOIN "SB1" ALIAS "SB102" ON "G1_COD  = SB102.B1_COD"
+   
+   // campos do SX3 e indices do SIX
+   QSPARENTFIELD "G1_COMP" INDEX ORDER 2
+   QSPARENTFIELD "SB101.B1_DESC" INDEX ORDER 3 LABEL STR0002 //Descrição  
+   
+   // campos do SX3
+   QSFIELD "G1_COMP"  LABEL STR0003 //Item componente
+   QSFIELD "SB101.B1_DESC" 
+   QSFIELD "G1_COD"   LABEL STR0004 //Item pai
+   QSFIELD "SB102.B1_DESC"
+   QSFIELD "SB102.B1_UM"
+   QSFIELD "SB102.B1_ATIVO"
+   QSFIELD "G1_QUANT" LABEL STR0005 //Quantidade componente
+      
+      
+   // acoes do menudef, MVC ou qualquer rotina
+   QSACTION MENUDEF "MATA200" OPERATION 2 LABEL STR0001 //Estrutura
+   
+   QSFILTER STR0006 /*Todos*/   WHERE "1=1"
+   QSFILTER STR0007 /*Ativo*/   WHERE "SB102.B1_ATIVO = 'S'"
+   QSFILTER STR0008 /*Inativo*/ WHERE "SB102.B1_ATIVO = 'N'"
+Return

@@ -1,0 +1,2829 @@
+#INCLUDE "PONM090.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "PONCALEN.CH"
+
+Static lPnm090CposBlock	:= ExistBlock( "PNM090CPOS" )
+Static lPnm090EndBlock	:= ExistBlock( "PNM090END" )
+Static lPnm090VerBlock	:= ExistBlock( "PNM090VER" )
+Static lPnm090PNM090OK	:= ExistBlock( "PNM090OK" )
+Static lPort1510        := Port1510() 	//Verifica se Portaria 1510/2009 esta em vigor.
+Static __oSt
+Static cAliasLock 		:= "PN090LOCK" + cEmpAnt
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONM090  ³ Autor ³Marinaldo de Jesus     ³ Data ³14/05/2001³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Fechamento Mensal                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON							   						  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ FNC  ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Leandro Dr. ³13/04/14³      ³Retirada de ajustes, database e FieldPos  ³±±
+±±³            ³        ³      ³que nao serao utilizados na P12.		  ³±±
+±±³Renan Borges|05/06/15|TSMCG5|Ajuste para utilizar data de apontamento  ³±±
+±±³			   | 		|      |para realizar o fechamento do período cor-³±±
+±±³			   | 		|      |retamente.                                ³±±
+±±³Allyson M.  ³16/10/15³TTPMJ1³Ajuste p/ performance no fechamento quando³±± 
+±±³            ³        ³      ³ha integracao com o TSA.				  ³±± 
+±±³Eduardo K.M.³14/06/16³TVJJNG³Incrementada o STR0028 para especificar   ³±± 
+±±³            ³        ³      ³qual tabela está em uso no sistema        ³±±
+±±³Eduardo K.M.³20/06/16³TVIF90³Ajuste p/ respeitar as restrições de      ³±± 
+±±³            ³        ³      ³acesso por filial.                        ³±±	
+±±³Oswaldo L.  ³03/04/17³DRHPONTP-164 ³      ³Projeto cTree               ³±±
+±±³WinstonCosta³04/01/19³      ³Retirado tratamento AS/400                ³±±	
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Ponm090( lRobo, cFilFec, cMatFec )
+
+Local aArea			:= GetArea()
+Local aSraArea		:= SRA->(GetArea())
+Local aButtons		:= {}  
+Local aSays			:= {}
+Local aMa280FLock	:= {}
+Local cMsgInfo		:=  STR0047  //"Outro usuário está utilizando a rotina de Fechamento Mensal."
+Local cMayIUseCode	:= "PONM090"
+Local cSvFilAnt		:= cFilAnt
+Local lLocked		:= .F.
+Local lSPOCompart	:= Empty( xFilial( "SPO" ) )
+Local lBarG1ShowTm 	:= .F.
+Local lBarG2ShowTm 	:= .F.  
+Local lRetomaProcess:= .F.		
+Local nOpcA			:= 0
+
+DEFAULT lPnm090CposBlock := ExistBlock( "PNM090CPOS" )
+DEFAULT lPnm090EndBlock	:= ExistBlock( "PNM090END" )
+DEFAULT lPnm090VerBlock	:= ExistBlock( "PNM090VER" )
+DEFAULT lPnm090PNM090OK	:= ExistBlock( "PNM090OK" )
+
+Private cCadastro   := OemToAnsi(STR0001)	// "Fechamento Mensal do Ponto"
+Private aLogfile	:= {}  // Array para conter as ocorrencias a serem impressas  
+Private aMarcImp	:= {}
+Private aFilPer		:= {}
+
+Private oTmpTabFO1 
+Private cAliasTemp  
+
+Private aFldRot 	:= {'RA_NOME'}
+Private aOfusca	 	:= If(FindFunction('ChkOfusca'), ChkOfusca(), {.T.,.F.}) //[1] Acesso; [2]Ofusca
+Private lOfuscaNom 	:= .F. 
+Private aFldOfusca 	:= {}
+
+Default lRobo		:= .F.
+Default cFilFec		:= ""
+Default cMatFec		:= ""
+
+If aOfusca[2]
+	aFldOfusca := FwProtectedDataUtil():UsrNoAccessFieldsInList( aFldRot ) // CAMPOS SEM ACESSO
+	IF aScan( aFldOfusca , { |x| x:CFIELD == "RA_NOME" } ) > 0
+		lOfuscaNom := FwProtectedDataUtil():IsFieldInList( "RA_NOME" )
+	ENDIF
+EndIf
+
+If lPort1510
+	cCadastro += fPortTit() //Complementa titulo da tela com dizeres referente a portaria.
+EndIf
+     
+Begin Sequence
+
+	If lPnm090VerBlock .And. (ValType( lRetPE := ExecBlock( "PNM090VER", .F., .F. ) ) == "L")
+		If !lRetPE		
+			Break
+		EndIf
+	EndIf
+	
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Quando a operacao nao exigir a exclusividade sobre os arquivos³
+	³Apenas um usuario podera estar executando a operacao 		   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+
+	If lSPOCompart
+		IF !( lPonm090 := WhileYesNoWait(;
+											{ || MayIUseCode( cMayIUseCode ) }	,;	//Bloco a Ser Executando Enquando ( Devera Retornar Valor Logico )
+											1000								,;	//Numero de Tentativas
+											.T.									,;	//Se podera Encerrar as as Tentativas ( Button Cancel Enabled )
+											cMsgInfo							,;	//Mensagem de Corpo para a MsgInfo
+											cCadastro							,;	//Titulo para a MsgInfo 
+											NIL									,;	//Mensagem de Corpo para a MsgYesNo //"Tentar novamente?"
+											cCadastro							,;	//Titulo para a MsgYesNo
+											NIL									,;	//Mensagem de corpo para a ProcWaiting //"Tentanto executar novamente."
+											cCadastro							 ;	//Titulo para a ProcWaiting
+										);
+			)										
+			Break
+		EndIF
+	EndIf	
+	
+	If !lRobo		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ So Executa se os Modos de Acesso dos Arquivos Relacionados es³
+		³ tiverm OK e se Tiver Funcionario Cadastrado no SRA.          ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !(;
+				ValidArqPon();								//Verifica o Modo de Acesso dos Arquivos
+				.and.;              	
+				ChkVazio("SRA");							//O SRA nao pode estar vazio	
+				.and.;
+				CheckModSPO();								//Verifica o Modo de Acesso do SPO
+			)	
+			Break
+		EndIF
+	
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Mensagem para Rodar em modo exclusivo						   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		
+		AADD(aSays,OemToAnsi( STR0002 + ' '+ STR0003 ) )//"Esta  rotina  exige  que  os   arquivos associados a ela n†o estejam em uso por"
+		AADD(aSays,OemToAnsi( STR0004 ) )//"outras esta‡”es: " '
+		AADD(aSays,OemToAnsi( STR0050 + ' / ' + STR0051 ) )//"SP5 - Refeicoes" /"SPN - Acumulado de Refeicoes"
+		AADD(aSays,OemToAnsi( STR0052 + ' / ' + STR0053 ) )//"SP8 - Marcacoes" /"SPG - Acumulado de Marcacoes"
+		AADD(aSays,OemToAnsi( STR0054 + ' / ' + STR0055 ) )//"SPB - Resultados" /"SPL - Acumulado de Resultados"
+		AADD(aSays,OemToAnsi( STR0056 + ' / ' + STR0057 ) )//"SPC - Apontamentos" /"SPH - Acumulado de Apontamentos"
+		AADD(aSays,OemToAnsi( STR0005 + ' '   + STR0006 ) )//"Fa‡a com que os outros usu rios saiam do sistema."
+
+		
+		AADD(aButtons, { 1,.T.,{|o| nOpcA := 1,FechaBatch() }} )
+		AADD(aButtons, { 2,.T.,{|o| FechaBatch() }} )
+		FormBatch( cCadastro, aSays, aButtons ) 
+		IF nOpcA <>1
+			Break
+		Endif   
+	EndIf
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Abre arquivo de log de interrupcao                           ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !fOpenLog()
+		AADD(aLogFile, STR0039) // "Nao foi possivel criar arquivo de registro de ocorrencias."
+		Break
+	Else
+		(cAliasTemp)->(DbGoTop())  
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Abre Janela e Exibe os dados da uitima Filial/Funcionario Lidos quando ocorreu³
+		³ a interrupcao.																³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If !Empty( (cAliasTemp)->FILPER ) .OR. !Empty( (cAliasTemp)->FILIAL )
+			lRetomaProcess := ShowOnFech(cCadastro, cFilAnt, cAliasTemp, Empty( (cAliasTemp)->FILIAL ))
+		Endif	
+	EndIF	 
+
+	If !lRobo
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Abre Janela e Exibe os dados referentes as filiais a serem processadas.       ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	
+		If !ShowPonMes(  cCadastro, lSPOCompart,, lRetomaProcess, cAliasTemp, @aFilPer )
+			
+			If oTmpTabFO1 <> Nil
+				dbSelectArea(cAliasTemp)
+				dbCloseArea()
+				oTmpTabFO1:Delete()
+				Freeobj(oTmpTabFO1)
+			EndIf
+		
+			Break	//Usuario nao confirmou o Fechamento
+		ElseIf lPnm090PNM090OK .And. (ValType( lRetPE := ExecBlock( "PNM090OK", .F., .F. ) ) == "L")
+			If !lRetPE
+				Break
+			EndIf
+		EndIF
+	EndIf
+
+	aAdd( aMa280FLock , "SP5"	) //Refeicoes
+	aAdd( aMa280FLock , "SP8"	) //Marcacoes
+	aAdd( aMa280FLock , "SPB"	) //Resultados
+	aAdd( aMa280FLock , "SPC"	) //Apontamentos
+	
+	If lPort1510
+		aAdd( aMa280FLock , "RFF"	) //Pre-ACJEF
+		aAdd( aMa280FLock , "RFE"	) //Pre-Leitura
+	Endif
+	
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica se deve Mostrar Calculo de Tempo nas BarGauge			 ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	lBarG1ShowTm := ( SuperGetMv("MV_PNSWTG1",NIL,"N") == "S" )
+	lBarG2ShowTm := ( SuperGetMv("MV_PNSWTG2",NIL,"S") == "S" )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Processa o Fechamento Mensal do Ponto                        ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	If !lRobo
+		Proc2BarGauge( { |lEnd| Pnm090Processa( lSPOCompart, lRetomaProcess, cAliasTemp, aMa280FLock  ) } , cCadastro , NIL , STR0019 , .F. , lBarG1ShowTm , lBarG2ShowTm )	//"Processados:"
+	Else
+		Pnm090Processa( lSPOCompart, lRetomaProcess, cAliasTemp, aMa280FLock, lRobo, cFilFec, cMatFec  )
+	EndIf
+	
+End Sequence
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Se um dos arquivos foi Aberto em modo Exclusivo			   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+
+IF lLocked
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Garante o Destravamento dos Arquivos Fechando-os e Abrindo-os³
+	³ em Modo Compartilhado										   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	MsAguarde( { || ReOpenFiles( aMa280FLock ) } , STR0011 )	//"Aguarde..."
+
+EndIF
+
+If !lRobo
+	/*/
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³  Grava e Imprime Log										  ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+	fMakeLog( { aLogFile, aMarcImp } , { STR0033, OemToAnsi(STR0064) } , NIL , .T. , FunName() ) //'Log de Ocorrencias:'##"Funcionário(s) com Marcacoes impares"
+EndIf
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Libera o Codigo Exclusivo ja Utilizado						   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/ 
+If lSPOCompart
+	Leave1Code ( cMayIUseCode )  
+EndIf
+	
+If oTmpTabFO1 <> Nil
+	dbSelectArea(cAliasTemp)
+	dbCloseArea()
+    oTmpTabFO1:Delete()
+    Freeobj(oTmpTabFO1)
+EndIf
+
+cFilAnt := cSvFilAnt
+RestArea( aArea )
+RestArea( aSraArea )                                         	
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³PONM090Processa³Autor³Marinaldo de Jesus	³ Data ³14/05/2001³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa o Fechamento Mensal do Ponto Eletronico           ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON							             			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function Pnm090Processa( lSPOCompart, lRetomaProcess, cAliasTemp, aMa280FLock, lRobo, cFilFec, cMatFec )
+
+Local aTabCalend	:= {}
+Local aTabPadrao	:= {}   
+Local aTurnos		:= {}
+Local aPeriodos		:= {}
+Local aInfo			:= {}	
+Local aRecsSRA		:= {} 
+
+Local aCposSRA		:= {}
+Local aStruSRA		:= {}  
+Local aTempSRA		:= SRA->( dbStruct() )
+Local cQuery	 	:= ""
+Local xcQuery	 	:= ""
+Local cFixQuery		:= ""	
+Local cSRAIndexKey	:= ""   
+Local lSraQryOpened	:= .F.
+Local nContField	:= Len(aTempSRA)
+Local uRet			:= NIL
+Local nX     
+Local cMsgYesNo     := ""
+
+Local adbStructs	:= Array( 04 + (If(lPort1510,2,0)) , 06 )
+Local bWhileP5PN	:= { || .T. }
+Local bCondP5PN		:= { || .T. }
+Local bWhileP8PG	:= { || .T. }
+Local bCondP8PG		:= { || .T. }
+Local bWhilePCPH	:= { || .T. }
+Local bCondPCPH		:= { || .T. }
+Local bWhilePBPL	:= { || .T. }
+Local bCondPBPL		:= { || .T. }  
+Local bWhileRFRG	:= { || .T. }
+Local bCondRFRG		:= { || .T. }  
+Local bWhileRERH	:= { || .T. }
+Local bCondRERH		:= { || .T. }  
+Local bAscan		:= { |x| x[CALEND_POS_DATA_APO] == dData .and. x[CALEND_POS_TIPO_MARC] == cFlagMarc }
+
+Local cAliasSRA		:= "SRA"	
+Local cFilMat		:= ""
+Local cFil			:= ""
+Local cMat			:= ""
+Local cUltOrd		:= Space( TamSx3( "P8_ORDEM  " )[1] )
+Local cFilDe		:= ""
+Local cFilAte		:= ""
+Local cLastFil		:= "__cLastFil__"   
+Local cSvOldFil		:= cFilAnt
+Local cTimeIni		:= Time()
+Local cNextTno 		:= ""
+Local cNextSeq 		:= ""
+Local cNextReg 		:= ""
+Local cLastTno 		:= ""
+Local cLastSeq 		:= ""
+Local cLastReg 		:= ""
+Local cNextPer		:= "" 
+Local cNextTnoSra	:= ""
+Local cNextSeqSra	:= ""
+Local cNextRegSra   := ""
+Local cMsgBarG1		:= ""
+Local cSpaceRegra	:= Space( GetSx3Cache( "RA_REGRA  "	, "X3_TAMANHO" ) )
+Local cSpaceMat	  	:= Space( GetSx3Cache( "RA_MAT    " , "X3_TAMANHO" ) )
+Local cDelRFE		:= ""
+Local dNextPerIni	:= Ctod("//")
+Local dNextPerFim	:= Ctod("//")
+Local dNextTroca	:= Ctod("//")
+Local dLasPer		:= Ctod("//")
+Local lAtuSeq		:= .F.
+Local lPerCompleto	:= .F.   
+Local nOrdemSP5		:= RetOrdem( "SP5" )
+Local nOrdemSP8		:= RetOrdem( "SP8" )
+Local nOrdemSPB		:= RetOrdem( "SPB" )
+Local nOrdemSPC		:= RetOrdem( "SPC" )
+Local nOrdemSRA		:= RetOrdem( "SRA" , "RA_FILIAL+RA_TNOTRAB" )
+Local nOrdemRFF		:= RetOrdem( "RFF" )
+Local nOrdemRFE		:= RetOrdem( "RFE" , "RFE_FILIAL+RFE_MATORG+DTOS(RFE_DATA)+STR(RFE_HORA,5,2)" )
+Local nTamCalen		:= 0.00
+Local nPeriodos		:= 0.00
+Local nLastRec		:= 0.00
+Local nIncPercG1	:= 0.00
+Local nIncPercG2	:= 0.00
+Local nRecsBarG		:= 0.00
+Local nPosTurno		:= 0.00 
+Local nPosTab		:= 0.00 
+Local nFunProc		:= 0
+Local nOrd			:= 0
+Local nHorFim		:= 0.00
+
+Local lTSREP		:= SuperGetMv( "MV_TSREP" , NIL , .F. )
+Local bAcessaSRA 	:= &("{ || " + ChkRH(FunName(),"SRA","2") + "}")
+Local cJoin			:= ""
+Local cJoin2		:= ""
+Local cUnion 		:= ""
+Local cOrderby		:= ""
+Local cWhere		:= ""
+Local lMsgAcesso	:= .T.
+Local lInteRHAA1	:= FindFunction("IntegRHAA1") .AND. IntegRHAA1()
+Local aCampos 		:= {}
+
+Private dPerIni		:= Ctod("//")
+Private dPerFim		:= Ctod("//")
+Private lContinua	:= .T.
+Private lOracle		:= If(TCGetDB()=="ORACLE",.T.,.F.)   
+Private lRetSP8		:= .T.
+Private oObjREP 
+
+Default lRobo		:= .F.
+Default cFilFec		:= ""
+Default cMatFec		:= ""
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta os Blocos Condicionais para o Acumulado de Refeicoes    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bWhileP5PN	:= { || P5_FILIAL + P5_MAT == cFilMat }
+bCondP5PN := { || fDHtoNS(P5_DATA, P5_HORA) <= fDHtoNS(dLasPer, nHorFim) .Or. ((cAliasSRA)->( RA_SITFOLH == "D" .and. RA_DEMISSA <= dPerFim ))  }
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega Perguntas                                             ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Pergunte("PNM090",.F.)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Se for uma reAlimenta Variaveis de Memoria com o Conteudo das Perguntas    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+
+If  lRetomaProcess	                
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Alimenta Variaveis de Memoria com o Conteudo das Perguntas    ³
+	³Se nao existir registro da filial do funcionario espera-se    ³
+	³que todas as filais tenham sido processadas restanto apenas   ³
+	³o registro do novo periodo de apontamento. Por seguranca      ³
+	³reprocessamos a ultima filial.								   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+	cFilDe	:= IF(!Empty( (cAliasTemp)->FILIAL ),(cAliasTemp)->FILIAL, (cAliasTemp)->FILPER) 	//Filial De
+	cFilAte	:= mv_par02	//Filial Ate
+
+Else
+
+ 	If !( lSPOCompart )	
+	
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Alimenta Variaveis de Memoria com o Conteudo das Perguntas    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cFilDe	:= mv_par01	//Filial De
+		cFilAte	:= mv_par02	//Filial Ate
+	Endif	
+EndIf
+
+If !Pnm090LockPer( aMa280FLock, cFilDe, cFilAte, aFilPer)
+	Return Nil
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SPN ( Acumulado de Refeicoes )         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+adbStructs[ 01 , 01 ] := "SPN"
+adbStructs[ 01 , 02 ] := SPN->( dbStruct() )
+adbStructs[ 01 , 03 ] := SP5->( dbStruct() ) 
+adbStructs[ 01 , 04 ] := {||"SELECT " + adbStructs[ 01 , 05 ] + " FROM "		 + InitSqlName("SP5")+" SP5 "	+;
+									"WHERE "+;
+										"SP5.P5_FILIAL = '"+ cFil+ "' AND SP5.P5_MAT = '"+ cMat +"' " +; 
+										"AND ( "+; 
+											"SP5.D_E_L_E_T_ = ' ' "+;
+											")";	
+						  }									
+				
+adbStructs[ 01 , 05 ]	:= fCampos("SP5",adbStructs[ 01 , 03 ]) 
+If lOracle
+	adbStructs[ 01 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SP5") +;
+										" WHERE " +;
+											" P5_FILIAL = '" + cFil + "'" +;
+											" AND P5_MAT = '" + cMat + "'" + ;
+											" AND ( P5_DATA <= '" + Dtos(dPerFim) + "' " + ;
+											" OR ( P5_DATAAPO IS NOT NULL AND P5_DATAAPO <= '" + Dtos(dPerFim) +  "' ) ) ";
+								}
+Else
+	adbStructs[ 01 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SP5") +;
+										" WHERE " +;
+											" P5_FILIAL = '" + cFil + "'" +;
+											" AND P5_MAT = '" + cMat + "'" + ;
+											" AND ( P5_DATA <= '" + Dtos(dPerFim) + "' " + ;
+											" OR ( P5_DATAAPO <> '' AND P5_DATAAPO <= '" + Dtos(dPerFim) +  "' ) ) ";
+								}
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta os Blocos Condicionais para o Acumulado de Marcacoes	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bWhileP8PG	:= { || P8_FILIAL + P8_MAT == cFilMat  }
+                  
+bCondP8PG	:= 	{ ||( ( !Empty(P8_DATAAPO) .And. P8_DATAAPO <= dPerFim ) .or. ( (cAliasSRA)->( RA_SITFOLH == "D" .and. RA_DEMISSA <= dPerFim ) .And. P8_DATA <= dPerFim ) ) }
+		  	     
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SPG ( Acumulado de Marcacoes )         ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+adbStructs[ 02 , 01 ] := "SPG"
+adbStructs[ 02 , 02 ] := SPG->( dbStruct() )
+adbStructs[ 02 , 03 ] := SP8->( dbStruct() )
+If lOracle
+	adbStructs[ 02 , 04 ] := {||"SELECT " + adbStructs[ 02 , 05 ] + " FROM "			 + InitSqlName("SP8")+" SP8 "	+;
+										"WHERE "+;
+											"SP8.P8_FILIAL = '"+ cFil+ "' AND SP8.P8_MAT = '"+ cMat +"' " +;
+											" AND P8_DATAAPO <= '" + Dtos(dPerFim) + "'" + ;
+											" AND P8_DATAAPO IS NOT NULL " +	;  
+											"AND ( "+; 
+												"SP8.D_E_L_E_T_ = ' ' "+;
+												")";	
+							}	
+Else
+	adbStructs[ 02 , 04 ] := {||"SELECT " + adbStructs[ 02 , 05 ] + " FROM "			 + InitSqlName("SP8")+" SP8 "	+;
+										"WHERE "+;
+											"SP8.P8_FILIAL = '"+ cFil+ "' AND SP8.P8_MAT = '"+ cMat +"' " +;
+											" AND P8_DATAAPO <= '" + Dtos(dPerFim) + "'" + ;
+											" AND P8_DATAAPO <> '' " +	;  
+											"AND ( "+; 
+												"SP8.D_E_L_E_T_ = ' ' "+;
+												")";	
+							}	
+Endif
+adbStructs[ 02 , 05 ]	:= fCampos("SP8",adbStructs[ 02 , 03 ])
+If lOracle
+  	adbStructs[ 02 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SP8") +;
+   			 						" WHERE " +;
+	   			 						" P8_FILIAL = '" + cFil + "'" + ;
+    									" AND P8_MAT = '" + cMat + "'" + ;
+										" AND P8_DATAAPO IS NOT NULL " +	; 
+										" AND P8_DATAAPO <= '" + Dtos(dPerFim) + "'" ;
+    							}   
+Else
+	adbStructs[ 02 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SP8") +;
+   			 						" WHERE " +;
+	   			 						" P8_FILIAL = '" + cFil + "'" + ;
+    									" AND P8_MAT = '" + cMat + "'" + ;
+										" AND P8_DATAAPO <> '' " +	; 
+										" AND P8_DATAAPO <= '" + Dtos(dPerFim) + "'" ;
+    					  		}                                     
+EndIf
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta os Blocos Condicionais para o Acumulado de Apontamentos ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bWhilePCPH	:= { || PC_FILIAL + PC_MAT == cFilMat }
+bCondPCPH	:= { || PC_DATA <= dPerFim .or. ( (cAliasSRA)->( RA_SITFOLH == "D" .and. RA_DEMISSA <= dPerFim ) .And. PC_DATA <= dPerFim ) }
+
+					
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SPH ( Acumulado de Apontamentos )      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+adbStructs[ 03 , 01 ] := "SPH"
+adbStructs[ 03 , 02 ] := SPH->( dbStruct() )
+adbStructs[ 03 , 03 ] := SPC->( dbStruct() ) 
+adbStructs[ 03 , 04 ] := {||"SELECT " + adbStructs[ 03 , 05 ] + " FROM "			 + InitSqlName("SPC")+" SPC "	+;
+									"WHERE "+;
+										"SPC.PC_FILIAL = '"+ cFil+ "' AND SPC.PC_MAT = '"+ cMat +"' " +; 
+										"AND ( "+; 
+											"SPC.D_E_L_E_T_ = ' ' "+;
+											")";	
+						  }	
+adbStructs[ 03 , 05 ]	:= fCampos("SPC",adbStructs[ 03 , 03 ])
+adbStructs[ 03 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SPC") +;
+   			 						" WHERE " +;
+	   			 						" PC_FILIAL = '" + cFil + "'" + ;
+    									" AND PC_MAT = '" + cMat + "'" + ;
+										" AND PC_DATA <= '" + Dtos(dPerFim) + "'";
+    						}
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Monta os Blocos Condicionais para o Acumulado de Resultados   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+bWhilePBPL	:= { || PB_FILIAL + PB_MAT == cFilMat }
+bCondPBPL	:= { || PB_DATA <= dPerFim }
+
+
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega a Estrutura do SPH ( Acumulado de Resultados )        ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+adbStructs[ 04 , 01 ] := "SPL"
+adbStructs[ 04 , 02 ] := SPL->( dbStruct() )
+adbStructs[ 04 , 03 ] := SPB->( dbStruct() ) 
+adbStructs[ 04 , 04 ] := {||"SELECT " + adbStructs[ 04 , 05 ] + " FROM "			 + InitSqlName("SPB")+" SPB "	+;
+									"WHERE "+;
+											"SPB.PB_FILIAL = '" + cFil +"' AND SPB.PB_MAT ='" + cMat + "' " +; 
+									"AND "+;
+											"(SPB.PB_DATA <= '" + Dtos(dPerFim) + "')" +;
+									"AND ( "+; 
+											"SPB.D_E_L_E_T_ = ' ' "+;
+										")";		
+						  }	   
+						 
+						  
+adbStructs[ 04 , 05 ]	:= fCampos("SPB",adbStructs[ 04 , 03 ])
+adbStructs[ 04 , 06 ]	:= {||"DELETE FROM " + InitSqlName("SPB") +;
+   			 						" WHERE " +;
+	   			 						" PB_FILIAL = '" + cFil + "'" + ;
+    									" AND PB_MAT = '" + cMat + "'" + ;
+										" AND PB_DATA <= '" + Dtos(dPerFim) + "'";
+    						}
+
+
+If lPort1510
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Monta os Blocos Condicionais para o Acumulado de de Pre-ACJEF ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	bWhileRFRG	:= { || RFF_FILIAL + RFF_MAT == cFilMat }
+	bCondRFRG	:= { || RFF_DATA <= dPerFim }
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Carrega a Estrutura do RFG ( Acumulado de Pre-ACJEF)          ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	adbStructs[ 05 , 01 ] := "RFG"
+	adbStructs[ 05 , 02 ] := RFG->( dbStruct() )
+	adbStructs[ 05 , 03 ] := RFF->( dbStruct() ) 
+	adbStructs[ 05 , 04 ] := {||"SELECT " + adbStructs[ 05 , 05 ] + " FROM "			 + InitSqlName("RFF")+" RFF "	+;
+										"WHERE "+;
+												"RFF.RFF_FILIAL = '" + cFil +"' AND RFF.RFF_MAT ='" + cMat + "' " +; 
+										"AND "+;
+												"(RFF.RFF_DATA <= '" + Dtos(dPerFim) + "') " +;
+										"AND ( "+; 
+												"RFF.D_E_L_E_T_ = ' ' "+;
+											")";		
+							  }	   
+	adbStructs[ 05 , 05 ]	:= fCampos("RFF",adbStructs[ 05 , 03 ]) 
+	adbStructs[ 05 , 06 ]	:= {||"DELETE FROM " + InitSqlName("RFF") +;
+   			 						" WHERE " +;
+	   			 						" RFF_FILIAL = '" + cFil + "'" + ;
+    									" AND RFF_MAT = '" + cMat + "'" + ;
+										" AND RFF_DATA <= '" + Dtos(dPerFim) + "'";
+    						}
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Monta os Blocos Condicionais para o Acumulado de de Pre-Leitura³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	bWhileRERH	:= { || RFE_FILORG + RFE_MATORG == cFilMat }
+	bCondRERH	:= { || RFE_DATAAP <= dPerFim }
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Carrega a Estrutura do RFH ( Acumulado de Pre-Leitura)        ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	adbStructs[ 06 , 01 ] := "RFH"
+	adbStructs[ 06 , 02 ] := RFH->( dbStruct() )
+	adbStructs[ 06 , 03 ] := RFE->( dbStruct() ) 
+	adbStructs[ 06 , 04 ] := {||"SELECT " + adbStructs[ 06 , 05 ] + " FROM "			 + InitSqlName("RFE")+" RFE "	+;
+										"WHERE "+;
+  										   		"RFE.RFE_FILORG = '" + cFil +"' AND RFE.RFE_MATORG = '" + cMat + "' " +;	
+										"AND "+;
+												"RFE.RFE_DATAAP <= '" + Dtos(dPerFim) + "' " +;
+										"AND "+; 
+												"RFE.D_E_L_E_T_ = ' ' ";
+							  }
+	adbStructs[ 06 , 05 ]	:= fCampos("RFE",adbStructs[ 06 , 03 ])
+    							
+	If lOracle
+	  	adbStructs[ 06 , 06 ]	:= {||"DELETE FROM " + InitSqlName("RFE") +;
+	   			 						" WHERE " +;
+											" RFE_FILORG = '" + cFil + "'" + ;
+	    									" AND RFE_MATORG ='" + cMat + "'" + ;
+	    									" AND RFE_DATAAP IS NOT NULL " +	; 
+											" AND RFE_DATAAP <= '" + Dtos(dPerFim) + "'" ;
+	    							}   
+	Else
+		adbStructs[ 06 , 06 ]	:= {||"DELETE FROM " + InitSqlName("RFE") +;
+	   			 						" WHERE " +;
+											" RFE_FILORG = '" + cFil + "'" + ;
+	    									" AND RFE_MATORG ='" + cMat + "'" + ;
+	    									" AND RFE_DATAAP <> '' " +	; 
+											" AND RFE_DATAAP <= '" + Dtos(dPerFim) + "'" ;
+	    					  		}                                     
+	EndIf
+
+Endif
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega os Campos dos Arquivos Mensais e suas Respectivas posi³
+³coes														   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Ponm090CposMes( @adbStructs )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carrega Log do Inicio do Processo de Fechamento			   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+aAdd(aLogFile, STR0048  + Dtoc(MsDate()) + ', as ' + Time() + '.') //"- Inicio do Fechamento Mensal em "
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Atualiza a Mensagem para a IncProcG1() (Cadastro de Empresas)³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If !lRobo
+	IF ( lSPOCompart ).AND. (!lRetomaProcess)
+		CREATE SCOPE aInfo FOR ( M0_CODIGO == cEmpAnt )
+	Else
+		CREATE SCOPE aInfo FOR ( ( M0_CODIGO == cEmpAnt ) .and. ( FWGETCODFILIAL >= cFilDe .and. FWGETCODFILIAL <= cFilAte ) )
+	EndIF
+	BarGauge1Set( ( nRecsBarG := SM0->( ScopeCount( aInfo ) ) ) )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta a Ordem do Cadastro de Funcionarios                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+SRA->( dbSetOrder( nOrdemSRA ) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Apura Numero de Funcionarios a serem Processados			   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+
+cSRAIndexKey := SRA->( IndexKey() )
+
+AADD(aCposSRA, "RA_FILIAL"		)
+AADD(aCposSRA, "RA_MAT"			)
+AADD(aCposSRA, "RA_CC"			)
+AADD(aCposSRA, "RA_TNOTRAB"		)    
+AADD(aCposSRA, "RA_SEQTURN"		)
+AADD(aCposSRA, "RA_REGRA"		)
+AADD(aCposSRA, "RA_SITFOLH"		)
+AADD(aCposSRA, "RA_DEMISSA"		)
+AADD(aCposSRA, "RA_ADMISSA"		)
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Verifica e Seta os campos a mais incluidos no Mex             ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/				
+fAdCpoSra(aCposSra)	    
+	
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Ponto de Entrada para Campos do Usuario                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+IF ( lPnm090CposBlock )
+	IF ( ValType( uRet := ExecBlock("PNM090CPOS",.F.,.F.,aCposSRA) ) == "A" )
+		IF Len( uRet ) >= Len( aCposSRA )
+			aCposSRA := aClone(uRet)
+			uRet	 := NIL
+		EndIF
+	EndIF
+EndIF
+   
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Carrega os Campos do SRA para a Montagem da Query			   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF aScan( aCposSRA , { |x| Upper(AllTrim(x)) == Upper( AllTrim( aTempSRA[ nX , 1 ] ) ) } ) > 0.00
+		aAdd( aStruSRA , aClone( aTempSRA[ nX ] ) )
+	EndIF
+Next nX
+aCposSRA	:= aTempSRA := NIL
+    
+nContField:= Len(aStruSRA)
+	
+cQuery:= "SELECT DISTINCT "
+	
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inclui os Campos na Montagem da Query						   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery += aStruSRA[ nX , 1 ] + ", "
+Next nX                   
+
+cQuery  += " SRA.R_E_C_N_O_ RECNO "
+cQuery  += " FROM "+InitSqlName("SRA")+" SRA "   
+cJoin   := " JOIN "+InitSqlName("SPC")+" SPC ON SRA.RA_FILIAL = SPC.PC_FILIAL AND SRA.RA_MAT = SPC.PC_MAT AND SPC.D_E_L_E_T_=' ' "
+cJoin2  := " JOIN "+InitSqlName("SP8")+" SP8 ON SRA.RA_FILIAL = SP8.P8_FILIAL AND SRA.RA_MAT = SP8.P8_MAT AND SP8.D_E_L_E_T_=' ' "
+cWhere  += " WHERE SRA.RA_REGRA<>'" + cSpaceRegra + "'"		
+	
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Apenas quando o SPO nao for compartilhado ou se tratar de    ³
+³ uma retomada, restringe as filiais a serem processadas       ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF !( lSPOCompart ) .or. lRetomaProcess  
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Monta a Query Condicional             					   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+	cFixQuery := " AND "
+	cFixQuery += "SRA.RA_FILIAL>='"+cFilDe+"'"
+	cFixQuery += " AND "
+	cFixQuery += "SRA.RA_FILIAL<='"+cFilAte+"'"
+	cFixQuery += " AND "
+	cFixQuery += "SRA.D_E_L_E_T_=' ' "
+
+	cWhere += cFixQuery
+
+EndIF
+
+If lRobo
+	cWhere += " AND SRA.RA_FILIAL = '" + cFilFec + "' AND SRA.RA_MAT = '" + cMatFec + "'"
+EndIf
+
+cOrderby += " ORDER BY "+SqlOrder( cSRAIndexKey )
+cUnion := " UNION " + cQuery 
+	
+cQuery := cQuery + cJoin + cWhere +  " AND SRA.RA_DEMISSA <> ' ' " + cUnion
+cQuery += cJoin2 + cWhere + " AND RA_DEMISSA <> ' ' " + cUnion + cWhere + " AND RA_DEMISSA = ' ' "
+	
+xcQuery := "SELECT COUNT(*) NLASTREC FROM ("
+xcQuery += cQuery
+xcQuery += ") FUNC"
+
+cQuery := cQuery + cOrderby
+cQuery := ChangeQuery(cQuery)    
+    
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Monta e Abre a Query    									   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/  
+  
+cAliasSRA:=( "__Q" + "SRA" + "QRY" )
+IF ( lSraQryOpened := MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSRA,.T.,.T.) )
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Seta os Campos que nao Sao Caracteres						   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	For nX := 1 To nContField
+		IF ( aStruSRA[nX,2] <> "C" )
+			TcSetField(cAliasSRA,aStruSRA[nX,1],aStruSRA[nX,2],aStruSRA[nX,3],aStruSRA[nX,4])
+		EndIF
+	Next nX
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	
+	xcQuery := ChangeQuery(xcQuery)
+    IF ( MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,xcQuery),"__QRYCOUNT",.T.,.T.) )
+		nLastRec := __QRYCOUNT->NLASTREC
+		__QRYCOUNT->( dbCloseArea() )
+    Else
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Apenas quando o SPO nao for compartilhado ou se for uma reto-³
+		³ mada de processo.    						                   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !( lSPOCompart ) .OR. lRetomaProcess
+			
+			CREATE SCOPE aRecsSRA FOR ( RA_FILIAL >= cFilDe .and. RA_FILIAL <= cFilAte  )
+			//"Aguarde! "###"Selecionando Funcionarios..."
+			MsAguarde( { || nLastRec := SRA->( ScopeCount( aRecsSRA ) ) } , STR0020 + STR0014 )
+		
+		Else
+	
+			nLastRec := SRA->( RecCount() )
+	
+		EndIF
+		SRA->( dbGotop() )
+	EndIF
+	cFixQuery := ""	
+
+EndIF
+
+
+IF !lSraQryOpened
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura Arquivo Padrao 			                          ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cAliasSRA:= "SRA"
+	dbSelectArea(cAliasSRA)
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Apenas quando o SPO nao for compartilhado ou se for uma reto-³
+	³ mada de processo.    						                   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !( lSPOCompart )	.OR. lRetomaProcess
+		
+		CREATE SCOPE aRecsSRA FOR ( RA_FILIAL >= cFilDe .and. RA_FILIAL <= cFilAte  )
+		//"Aguarde! "###"Selecionando Funcionarios..."
+		MsAguarde( { || nLastRec := (cAliasSRA)->( ScopeCount( aRecsSRA ) ) } , STR0020 + STR0014 )
+	
+	Else
+
+		nLastRec := (cAliasSRA)->( RecCount() )
+
+	EndIF
+EndIF	
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Reinicializa aRecsSRA que sera utilizada para armazenar a Pro³
+³ ximo Turno/Sequencia e Regra								   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aRecsSRA := {}                                 
+
+If !lRobo
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicializa a Mensagem para a IncProcG2() ( Funcionarios )	   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IncProcG2( OemToAnsi( STR0015 ) , .F. )	//"Processando..."
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicia regua de processamento.                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	BarGauge2Set( nLastRec )
+EndIf
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Posiciona na Filial                                          ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+IF !lSraQryOpened
+	IF !( lSPOCompart ) 
+		(cAliasSRA)->( dbSeek( cFilDe , .T. ) )
+	Else
+		(cAliasSRA)->( dbGotop() )
+	EndIF
+Endif	
+
+Begin Sequence
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Efetua o Fechamento para as Filiais Selecionadas             ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	While (cAliasSRA)->( !Eof() ) 
+		cFil := (cAliasSRA)->RA_FILIAL
+		cMat := (cAliasSRA)->RA_MAT
+		
+		// Posiciona na SRA para que as validações do controle de acesso funcionem corretamente
+		SRA->(dbGoTo((cAliasSRA)->RECNO))
+		
+		IF !lSraQryOpened .And. !lSPOCompart
+			If cFil < cFilDe .Or. cFil > cFilAte
+				(cAliasSRA)->(dbSkip())
+				Loop		
+			EndIF	
+		EndIF	
+		
+		//Consiste controle de acessos e filiais validas
+		IF !( cFil $ fValidFil() ) .or. !Eval( bAcessaSRA ) 			
+			If lMsgAcesso
+				// O usuário atual possui restrições de acesso ao cadastro de funcionários e alguns registros não foram processadas.
+				// Caso seja necessário realizar o fechamento para esses funcionários este deve ser realizado por outro usuário.
+				aAdd( aLogFile, STR0067 + CRLF + STR0068 )
+				lMsgAcesso := .F.
+			EndIf
+			(cAliasSRA)->( dbSkip() )
+			Loop
+		EndIF
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se o processamento foi interrompido anteriormente   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	
+		IF lRetomaProcess           
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Verifica se o processamento foi interrompido no Funcionario  ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	
+		   IF !Empty( (cAliasTemp)->FILIAL )
+			   IF ( (cAliasSRA)->(RA_FILIAL + RA_TNOTRAB + RA_SEQTURN + RA_REGRA + RA_MAT ) < (cAliasTemp)->(FILIAL + TNOTRAB + SEQTURN + REGRA + MAT) )
+			        (cAliasSRA)->(DbSkip())
+			        Loop
+			   Endif
+   		   Else
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Verifica se o processamento foi interrompido na Filial do    ³
+				³ periodo de apontamento.									   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	
+		   	   IF ( (cAliasSRA)->(RA_FILIAL ) < (cAliasTemp)->FILPER )
+			        (cAliasSRA)->(DbSkip())
+			        Loop
+			   Endif
+		   EndIF
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Uma vez posicionado no ponto de parada, deixa de consistir os³
+			³ demais funcionarios/filial, pois a chave de comparacao       ³
+			³ devera ser maior que a inicial, apesar que os funcionarios ja³
+			³ processados poderao ser reavaliados no caso do resultado da  ³
+			³ troca ser uma nova chave maior que a do ponto da interrupcao.³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/	
+			lRetomaProcess	:= .F.   
+		Endif
+		
+		//-- Altera o estado da variavel inicializadora conforme o processamento
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Carrega as Filiais e Periodos de Apontamento                           ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	    IF !( cLastFil == cFil )
+	    
+	    	/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Somente para Top atualiza o Periodo a Cada Filial lida, pois para      ³
+			³o periodo devera ser atualizado apos a atualizacao do SRA.			    ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	    	If cLastFil	 <> "__cLastFil__"   .AND. !( lSPOCompart )
+	    	 	Pnm090UnlockPer( cLastFil, .T. )
+	    		If lContinua  
+		    		IF ( ( nPeriodos := Len( aPeriodos ) ) > 0.00 )
+						fAtualPer(aPeriodos, cLastFil, lSPOCompart)
+						aPeriodos := {} 
+					Endif
+				EndIf
+	        Endif
+	        
+	        //Exclui as marcacoes de visitantes da ultima filial
+	        If lPort1510  .and. cLastFil <> "__cLastFil__" .And. lContinua  
+	        	cDelRFE := ""
+	        	cDelRFE := "DELETE FROM " + InitSqlName("RFE") + " WHERE RFE_FILIAL = '" + cLastFil + "' AND RFE_MATORG ='" + cSpaceMat + "' AND RFE_DATA <= '" + Dtos(dPerFim) + "'"
+	        	fDelMov(cDelRFE,"RFE")
+	        EndIf
+	    
+	    	aAdd( aLogFile , STR0060 + " " + cFil )	// 'Filial: '			
+	    	
+	    	cLastFil := cFil  
+	    	cFilAnt	 := cLastFil
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Obtem o % de Incremento da 2a. BarGauge					   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			nIncPercG1 := SuperGetMv( "MV_PONINC1" , NIL , 5 , cLastFil )
+			/*                         
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Obtem o % de Incremento da 2a. BarGauge					   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			nIncPercG2 := SuperGetMv( "MV_PONINCP" , NIL , 5 , cLastFil )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Se o SPO for compartilhado so carrega o Periodo uma unica vez          ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	    	IF ( Empty( aPeriodos ) .or. !( lSPOCompart ) ) 
+		    	If lContinua  
+		    		fGravaLog(		cAliasTemp						,;  // Alias do arquivo log
+									cLastFil					,; 	// Filial do Periodo  de Apontamento
+									Ctod("")					,; 	// Data inicial do proximo periodo
+									Ctod("")					,; 	// Data final do proximo periodo
+									""							,; 	// Se periodo eh completo				
+									""							,;  // Filial do funcionario em processamento
+									""     						,;	// Matricula do funcionario em processamento
+									"" 					 		,;	// Turno do funcionario em processamento
+									""  						,;	// Sequencia do turno do funcionario em processamento
+									""  						,;	// Regra do funcionario em processamento
+									""  	 					;	// Alias em processamento 
+								) 
+	    		EndIf
+	    		IF ( CheckPonMes( @dPerIni , @dPerFim , NIL , NIL , .T. , cLastFil , NIL , @lPerCompleto ) )
+					dNextPerIni := ( dPerFim + 1 ) 
+					dNextPerFim := dNextPerIni 
+					PerAponta( @dNextPerIni , @dNextPerFim , dNextPerFim , .F.  , cLastFil , .T. , lPerCompleto ) 
+	    			aAdd( aPeriodos , { IF( lSPOCompart , Space( FWGETTAMFILIAL ) , cLastFil ) , dPerIni , dPerFim , lPerCompleto } )
+                    If lContinua  
+		    			fGravaLog(	cAliasTemp					,;  // Alias do arquivo log
+									cLastFil					,; 	// Filial do Periodo  de Apontamento
+									aPeriodos[1,2]				,; 	// Data inicial do proximo periodo
+									aPeriodos[1,3]				,; 	// Data final do proximo periodo
+									IF(aPeriodos[1,4], "S","N")	,; 	// Se periodo eh completo				
+									""							,;  // Filial do funcionario em processamento
+									""     						,;	// Matricula do funcionario em processamento
+									"" 					 		,;	// Turno do funcionario em processamento
+									""  						,;	// Sequencia do turno do funcionario em processamento
+									""  						,;	// Regra do funcionario em processamento
+									""  	 					;	// Alias em processamento 
+								) 
+					EndIf
+		   		Else
+					aAdd( aLogFile , STR0058 + " " + cLastFil )	// '- Nao Foi Encontrado periodo de Apontamento para a Filial: '
+	    			Break
+	    		EndIF
+	    	EndIF	
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza a Mensagem para a IncProcG1() ( Filial )			   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			fInfo( @aInfo , cFil )
+			cMsgBarG1 := ( STR0013 + " " + cFil + " - " + AllTrim( aInfo[3] ) ) ////"Filial:"
+			If !lRobo
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Inicializa Mensagem na 1a BarGauge                           ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IncProcG1( cMsgBarG1 , .F. )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Incrementa a Barra de Gauge referente a Filial				   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IncPrcG1Time( cMsgBarG1 , nRecsBarG , cTimeIni , .T. , 1 , nIncPercG1 )
+			EndIf
+	    EndIF                                                          
+
+		If !lRobo
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Movimenta a R‚gua de Processamento                           ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IncPrcG2Time( OemToAnsi( STR0019 ) , nLastRec , cTimeIni , .F. , 2 , nIncPercG2 )	//"Processados:"
+		EndIf
+	
+		 /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Posiciona no funcionario do arquivo SRA Padrao						    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lSraQryOpened )
+			nRecnoSRA := (cAliasSRA)->RECNO
+			SRA->( dbGoto( nRecnoSRA ) ) 	
+		Else                                   
+			nRecnoSRA := 	SRA->( Recno() )
+		EndIF
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Obtem a Filial e Matricula do Funcionario                              ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cFilMat := ( cFil + (cAliasSRA)->RA_MAT ) 
+
+		If lContinua
+			fGravaLog(	cAliasTemp					,;  // Alias do arquivo log
+						cLastFil					,; 	// Filial do Periodo  de Apontamento
+						aPeriodos[1,2]				,; 	// Data inicial do proximo periodo
+						aPeriodos[1,3]				,; 	// Data final do proximo periodo
+						IF(aPeriodos[1,4], "S","N")	,; 	// Se periodo eh completo				
+						cFil						,;  // Filial do funcionario em processamento
+						(cAliasSRA)->RA_MAT			,;	// Matricula do funcionario em processamento
+						(cAliasSRA)->RA_TNOTRAB		,;	// Turno do funcionario em processamento
+						(cAliasSRA)->RA_SEQTURN		,;	// Sequencia do turno do funcionario em processamento
+						(cAliasSRA)->RA_REGRA		,;	// Regra do funcionario em processamento
+						"SRA"	 					;	// Alias em processamento 
+					)        
+		 EndIf	
+
+		 /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Bloqueia o Funcionario no SRA verdadeiro 							    ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/   
+		While .T.	
+			IF ! PonLockRegs( "SRA", { nRecnoSRA } , { cFilMat }, 5 , 5 ) 
+				cMsgYesNo 	:= STR0031	//"Cadastro de funcionários (SRA)em uso por outro usuário."
+				cMsgYesNo 	+= CRLF
+				cMsgYesNo 	+= STR0032 //"Tentar novamente?"	
+				IF MsgYesNo(cMsgYesNo, STR0030) // Atencao
+				   Loop
+				Endif   
+				cMsgYesNo := OemToAnsi(STR0028)+CRLF	//"Não foi possível concluir o processo."	
+				MsgAlert( cMsgYesNo , OemToAnsi( STR0007 ) ) //" A  T  E  N  C  A  O "
+				
+				AADD(aLogFile, STR0031) //"Cadastro de funcionários (SRA)em uso por outro usuário."
+				AADD(aLogFile, STR0034 + SRA->RA_MAT + If(lOfuscaNom,''," - " + SRA->RA_NOME)) //"Filial/Matricula: " + XX - AAAAAAAAAAAAAAAAAAAAAAAAAAAA
+				
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Desbloqueia Registros e Arquivos										³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				 PonFreeLocks( "SRA" , nRecnoSRA ) 
+                Break
+			Else
+				Exit
+			EndIF
+		End While 
+			
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Reinicializa Variaveis                                                 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		( aTabCalend := {} , nTamCalen := 0.00 , cUltOrd := "", aTurnos:= {} )
+		
+	    /*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Se Atualizar a Sequencia, Cria o Calendario de Marcacoes      ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lAtuSeq := (cAliasSRA)->( ( RA_DEMISSA > dPerIni) .OR. Empty( RA_DEMISSA ) ) )
+			
+	    	/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Cria o Calendario de Marcacoes do Funcionario                 ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF SRA->( CriaCalend(  			dPerIni		,; //01 -> Periodo Inicial
+					   						dNextPerIni	,; //02 -> Periodo Final (Com mais 7 dias para garantir que terá a próxima sequência)
+											RA_TNOTRAB	,; //03 -> Turno de Trabalho
+											RA_SEQTURN	,; //04 -> Sequencia de Turno
+											@aTabPadrao	,; //05 -> Tabela de Horario Padrao
+											@aTabCalend	,; //06 -> Calendario de Marcacoes
+											RA_FILIAL	,; //07 -> Filial do Funcionario
+											RA_MAT		,; //08 -> Matricula do Funcionario
+											NIL   		,; //09 -> Centro de Custo do Funcionario (Nao Passar Pois Nao precisa carregar as Excecoes)
+											@aTurnos	,; //10 -> Array com as Trocas de Turno
+											NIL			,; //11 -> Array com Todas as Excecoes do Periodo
+											NIL			,; //12 -> Se executa Query para a Montagem da Tabela Padrao
+											.F.			,; //13 -> Se executa a funcao se sincronismo do calendario
+											.F.			 ; //14 -> Se forca a Criacao de novo Calendario	
+										  );
+					  		)
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Guarda o Posicionamento do Ultimo dia Do Calendario ( Neste Ca³
+				³so o Ultimo dia Corresponde ao Inicio do Proximo Periodo de  A³				
+				³pontamento )												   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF ( ( nTamCalen := Len( aTabCalend ) ) > 0.00 )
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Obtem Turno, Sequencia e Regra referente ao Primeiro dia do  ³
+					³  Novo periodo. Essas informacoes serao utilizadas para criar ³
+					³  a troca de turno do primeiro dia do proximo periodo (se for ³
+					³  necessario ).											   ³					
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					nPosTab:= 0
+					cNextTno := GetInfoPosTab(	CALEND_POS_TURNO		,;	//01 - Posicao em aTabCalend para Obtencao da Informacao
+												"1E"					,;	//02 - Flag da Marcacao "1E,1S,..."
+												dNextPerIni				,;	//03 - Data em aTabCalend
+												aTabCalend			 	,;	//04 - Calendario de Marcacoes
+												NIL						,;	//05 -> Tabela de Horario Padrao
+												NIL						,;	//06 -> Periodo Inicial de Apontamento
+												NIL						,;	//07 -> Periodo Final de Apontamento	
+												NIL						,;	//08 -> Informacao Referente a Funcionario
+												NIL						,;	//09 -> Turno de Trabalho
+												NIL						,;	//10 -> Sequencia
+												NIL						,;	//11 -> Filial
+												NIL						,;  //12 -> Carrega Excecoes 
+												bAscan					,;	//13 -> Bloco para Pesquisa em aTabCalend
+												@nPosTab				;	//14 -> Retorno da Posicao do aTabCalend 	
+											)
+					cNextSeq :=  If( Empty(nPosTab), Space(1), aTabCalend[ nPosTab , CALEND_POS_SEQ_TURNO 	] )
+					cNextReg  := If( Empty(nPosTab), Space(1), aTabCalend[ nPosTab , CALEND_POS_REGRA	    ] )
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Verifica a Ultima Ordem do Calendario de Marcacoes            ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					nPosTab:= 0
+					cUltOrd := GetInfoPosTab(	CALEND_POS_ORDEM		,;	//01 - Posicao em aTabCalend para Obtencao da Informacao
+												"1E"					,;	//02 - Flag da Marcacao "1E,1S,..."
+												dPerFim					,;	//03 - Data em aTabCalend
+												aTabCalend				,;	//04 - Calendario de Marcacoes
+							   					NIL						,;	//05 -> Tabela de Horario Padrao
+												NIL						,;	//06 -> Periodo Inicial de Apontamento
+												NIL						,;	//07 -> Periodo Final de Apontamento	
+												NIL						,;	//08 -> Informacao Referente a Funcionario
+												NIL						,;	//09 -> Turno de Trabalho
+												NIL						,;	//10 -> Sequencia
+												NIL						,;	//11 -> Filial
+												NIL						,;  //12 -> Carrega Excecoes 
+												bAscan					,;	//13 -> Bloco para Pesquisa em aTabCalend
+												@nPosTab				;	//14 -> Retorno da Posicao do aTabCalend 	
+					   						)
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Obtem Ultimo Turno, Sequencia e Regra do Periodo Atual confor³
+					³  me Calendario de Marcacao. Essas informacoes serao utiliza- ³
+					³  das para criar a troca de turno do primeiro dia do proximo  ³
+					³  periodo ( ser for necessario ).				               ³					
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					cLastTno := If( Empty(nPosTab), Space(1), aTabCalend[ nPosTab , CALEND_POS_TURNO 		] )
+					cLastSeq := If( Empty(nPosTab), Space(1), aTabCalend[ nPosTab , CALEND_POS_SEQ_TURNO 	] )
+					cLastReg := If( Empty(nPosTab), Space(1), aTabCalend[ nPosTab , CALEND_POS_REGRA	   	] )
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Obtem Turno, Sequencia e Regra da Ultima troca do            ³
+					³  Novo periodo. Essas informacoes serao utilizadas para atua- ³
+					³  lizar o cadastro de funcionarios.					 	   ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+					nPosTurno:=0   
+					If !Empty(aTurnos)
+						aeval(aTurnos,{|x,y| If ( ( x[2]>= dNextPerIni .AND. x[2]<= dNextPerFim ), nPosTurno:=Y, NIL) } )
+				   	Endif
+				   	/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Se nao foi cadastrada troca de turno para o Proximo Periodo  ³
+					³ assume a troca projetada para o primeiro dia do Novo periodo.³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/ 
+					IF Empty( nPosTurno ) 
+						cNextTnoSra	:= cNextTno
+						cNextSeqSra	:= cNextSeq
+						cNextRegSra := cNextReg 					 
+					Else
+						cNextTnoSra	:= aTurnos[nPosTurno,1] 
+						cNextSeqSra	:= aTurnos[nPosTurno,3]
+						cNextRegSra := aTurnos[nPosTurno,5] 
+					Endif
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Seleciona a data do periodo inicial/final para os lancamentos³
+					| de refeicoes a partir do calendario montado para cada	um dos |  
+					| funcionarios.												   |
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+												
+					If !Empty(nPosTab)
+						If((aTabCalend[nPosTab,1] == dPerFim) .and. (aTabCalend[nPosTab,2] == aTabCalend[nPosTab+1,2]))					
+							nOrd := nPosTab
+							Do While aTabCalend[nOrd,2] == aTabCalend[nPosTab,2]
+								dLasPer := aTabCalend[nOrd][CALEND_POS_LIM_MARCACAO][1]
+						   		nHorFim  := aTabCalend[nOrd][CALEND_POS_LIM_MARCACAO][2]
+								If nOrd < Len( aTabCalend )
+									nOrd++
+								Else
+									Exit
+								EndIf
+							EndDo
+						EndIf
+					Else
+						dLasPer := aTabCalend[Len(aTabCalend)][CALEND_POS_LIM_MARCACAO][1]
+						nHorFim := aTabCalend[Len(aTabCalend)][CALEND_POS_LIM_MARCACAO][2]
+					EndIf					
+					
+				EndIF
+			EndIF
+	
+		EndIF
+	
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Inicio da  Gravacao dos Acumulados                           ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Marcacoes													   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			Ponm090Acumula("SP8","SPG",nOrdemSP8,bWhileP8PG,bCondP8PG,cFilMat,adbStructs, cFil, cMat, @lRetSP8)
+			If lRetSP8
+				
+				// Refeições
+				Ponm090Acumula("SP5", "SPN", nOrdemSP5, bWhileP5PN, bCondP5PN, cFilMat, adbStructs, cFil, cMat)
+				
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Apontamentos												   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				Ponm090Acumula("SPC","SPH",nOrdemSPC,bWhilePCPH,bCondPCPH,cFilMat,adbStructs, cFil, cMat)
+				
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Resultados   											   	   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				Ponm090Acumula("SPB","SPL",nOrdemSPB,bWhilePBPL,bCondPBPL,cFilMat,adbStructs, cFil, cMat)
+				
+				If lPort1510                                                                                          
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Pre-ACJEF   											   	   ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					Ponm090Acumula("RFF","RFG",nOrdemRFF,bWhileRFRG,bCondRFRG,cFilMat,adbStructs, cFil, cMat)
+					
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Pre-Leitura  											   	   ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					Ponm090Acumula("RFE","RFH",nOrdemRFE,bWhileRERH,bCondRERH,cFilMat,adbStructs, cFil, cMat)
+				Endif
+			EndIf
+			
+			//-- Incrementa numero de funcionarios processados
+			nFunProc ++
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Final da Gravacao dos Acumulados                             ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Atualiza a Sequencia do Proximo Periodo de Apontamento       ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF lRetSP8 .And. ( ( lAtuSeq ) .and. ( nTamCalen > 0.00 ) )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Verifica se Ja Existe Troca de Turno para o Inicio do Proximo³
+			³ Periodo. Se Nao existir, cria.							   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			dNextTroca	:= Max( dNextPerIni , SRA->RA_ADMISSA )
+			cNextPer	:= Dtos( dNextTroca )
+			IF !SPF->( dbSeek( ( cFilMat + cNextPer ) , .F. ) )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Grava Turno e Sequencia Referente ao Proximo Periodo na Tabela³
+				³de Troca de Turno "SPF"									   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IF SPF->( RecLock( "SPF" , .T. ) )
+					SPF->PF_FILIAL	:= cFil
+					SPF->PF_MAT		:= cMat
+					SPF->PF_DATA	:= dNextTroca
+					SPF->PF_TURNODE	:= cLastTno
+					SPF->PF_SEQUEDE	:= cLastSeq
+					SPF->PF_REGRADE	:= cLastReg
+					SPF->PF_TURNOPA	:= cNextTno
+					SPF->PF_SEQUEPA	:= cNextSeq
+					SPF->PF_REGRAPA	:= cNextReg
+					SPF->( MsUnLock() ) 
+					
+					If lTSREP .And. cLastTno+cLastSeq != cNextTno+cNextSeq
+						WSRHTUser(cFil,cMat,Nil,.F.)
+					Endif
+					
+				Else
+					AADD(aLogFile, STR0035+Dtoc(dNextTroca)) // "Nao foi possivel incluir a troca de turno: "
+					AADD(aLogFile, STR0034 + cFil + "/" + cMat + " - " + If(lOfuscaNom,Replicate('*',15),(cAliasSRA)->RA_NOME)) //"Filial/Matricula: " + XX - AAAAAAAAAAAAAAAAAAAAAAAAAAAA	
+					AADD(aLogFile, STR0036 + cLastTno+"/"+cLastSeq+"/"+ cLastReg+Space(5)+STR0037 + cNextTno+"/"+cNextSeq+"/"+ cNextReg) // "Turno/Sequencia/Regra DE: " #####  "Turno/Sequencia/Regra PARA: "
+				EndIF	
+			EndIF
+			
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Grava Proximos Turno/Sequencia/Regra no SRA				   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Quando for top podemos alterar as informacoes do Cadastro de ³
+			³ Funcionarios pois estamos lendo uma QUERY e posicionando     ³
+			³ no SRA, nao alteramos a ordem de leitura da Query apesar de  ³
+			³ modificarmos os campos da chave de indice do SRA             ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			
+			IF SRA->( RecLock( "SRA" , .F. ) )
+				SRA->RA_TNOTRAB := cNextTnoSra
+				SRA->RA_SEQTURN	:= cNextSeqSra
+				SRA->RA_REGRA	:= cNextRegSra
+				SRA->( MsUnLock() )
+				If lInteRHAA1 //Integração GS
+					aCampos := {}
+					Aadd(aCampos,{"RA_TNOTRAB",SRA->RA_TNOTRAB})
+					Aadd(aCampos,{"RA_SEQTURN",SRA->RA_SEQTURN})
+					At020AltRH(xFilial("SRA"), SRA->RA_MAT, aCampos,.F.,SRA->RA_FILIAL)
+				Endif
+			Else  
+				AADD(aLogFile, STR0031) //"Cadastro de funcionários (SRA)em uso por outro usuário."
+				AADD(aLogFile, STR0034 + cFil + "/" + cMat + " - " + If(lOfuscaNom,Replicate('*',15),SRA->RA_NOME)) //"Filial/Matricula: " + XX - AAAAAAAAAAAAAAAAAAAAAAAAAAAA
+				AADD(aLogFile, STR0035) // "Nao foi possivel incluir a troca de turno: "
+				AADD(aLogFile, STR0038 + cNextTnoSra+"/"+cNextSeqSra+"/"+ cNextRegSra) // "Turno/Sequencia/Regra: " ###/##/##  
+			EndIF
+			
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Garante que todos os Registros Estarao Desboqueados         ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			PonFreeLocks() 
+		EndIF
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Pr¢ximo funcion rio.                                         ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		(cAliasSRA)->( dbSkip() )
+		
+	End While
+    
+	//Exclui as marcacoes de visitantes da ultima filial
+    If lPort1510
+       	cDelRFE := ""
+       	cDelRFE := "DELETE FROM " + InitSqlName("RFE") + " WHERE RFE_FILIAL = '" + cFil + "' AND RFE_MATORG ='" + cSpaceMat + "' AND RFE_DATA <= '" + Dtos(dPerFim) + "'"
+       	fDelMov(cDelRFE,"RFE")
+    EndIf
+
+   	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	| Grava o Proximo Periodo de Apontamento no Parametro do SX6  e³
+	| na Tabela de Periodos de Apontamento SPO                     ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF lContinua .And. ( ( nPeriodos := Len( aPeriodos ) ) > 0.00 )
+	
+		fAtualPer(aPeriodos, cSvOldFil, lSPOCompart)
+			
+		aPeriodos := {} 
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Limpar os Registros Deletados dos Arquivos do Modulo PON   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	EndIF	
+	
+	If lContinua
+		fGravaLog(	cAliasTemp		,;  // Alias do arquivo log
+					""			,; 	// Filial do Periodo  de Apontamento
+					CTOD("")	,; 	// Data inicial do proximo periodo
+					CTOD("")	,; 	// Data final do proximo periodo
+					""			,; 	// Se periodo eh completo				
+					""			,;  // Filial do funcionario em processamento
+					""     		,;	// Matricula do funcionario em processamento
+					"" 			,;	// Turno do funcionario em processamento
+					""  		,;	// Sequencia do turno do funcionario em processamento
+					""  		,;	// Regra do funcionario em processamento
+					""  	 	;	// Alias em processamento 
+				) 
+	EndIf
+
+End Sequence
+
+Pnm090UnlockPer(If(!lSPOCompart, cLastFil, ""), .T. )
+
+//-- Restaura o Conteudo Original da Filial de Entrada
+cFilAnt	:= cSvOldFil 
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Fecha a Query do SRA e Restaura o Padrao                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( lSraQryOpened )
+	(cAliasSRA)->( dbCloseArea() )
+	SRA->(dbCloseArea())
+EndIF
+		
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Numero de Funcionarios Processados					  	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+if nFunProc > 0 
+	cMsgLog := ( STR0059 + StrZero( nFunProc , 10 ) + "." )// '- Numero de Funcionarios Processados: '
+	aAdd( aLogFile , cMsgLog )		
+Else		
+	cMsgLog := OemToAnsi(STR0066)
+	aAdd( aLogFile , cMsgLog )	
+Endif 					
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Carrega Log do Fim do Processo de Fechamento			  	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+aAdd(aLogFile, STR0049  + Dtoc(MsDate()) + ', as ' + Time() + '.') //"- Fim do Fechamento Mensal em "
+
+If lPnm090EndBlock
+	ExecBlock( "PNM090END", .F., .F. )
+EndIf
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³PutSx1PerAponta³Autor³Marinaldo de Jesus  ³ Data ³03/09/2002³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Grava os Novos Periodos de Apontamento nas Perguntas do SX1 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso	   ³PONM090   												    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function PutSx1PerAponta( dPerIni , dPerFim )
+
+Local aArea		:= GetArea()
+Local aAreaSX1	:= SX1->( GetArea() )
+Local aPergs	:= Array( 16 , 02 )
+Local nPerg		:= 0.00
+Local nPergs	:= 0.00
+
+DEFAULT dPerIni	:= Ctod("//")
+DEFAULT dPerFim	:= Ctod("//")
+
+( aPergs[ 01 , 01 ] := "PNM010" , aPergs[ 01 , 02 ] := "13" )
+( aPergs[ 02 , 01 ] := "PNM010" , aPergs[ 02 , 02 ] := "14" )
+
+( aPergs[ 03 , 01 ] := "PNM030" , aPergs[ 03 , 02 ] := "07" )
+( aPergs[ 04 , 01 ] := "PNM030" , aPergs[ 04 , 02 ] := "08" )
+
+( aPergs[ 05 , 01 ] := "PNM040" , aPergs[ 05 , 02 ] := "18" )
+( aPergs[ 06 , 01 ] := "PNM040" , aPergs[ 06 , 02 ] := "19" )
+
+( aPergs[ 07 , 01 ] := "PNM070" , aPergs[ 07 , 02 ] := "16" )
+( aPergs[ 08 , 01 ] := "PNM070" , aPergs[ 08 , 02 ] := "17" )
+
+( aPergs[ 09 , 01 ] := "PNR010" , aPergs[ 09 , 02 ] := "19" )
+( aPergs[ 10 , 01 ] := "PNR010" , aPergs[ 10 , 02 ] := "20" )
+
+( aPergs[ 11 , 01 ] := "PNR050" , aPergs[ 11 , 02 ] := "14" )
+( aPergs[ 12 , 01 ] := "PNR050" , aPergs[ 12 , 02 ] := "15" )
+
+( aPergs[ 13 , 01 ] := "PNR060" , aPergs[ 13 , 02 ] := "14" )
+( aPergs[ 14 , 01 ] := "PNR060" , aPergs[ 14 , 02 ] := "15" )
+
+( aPergs[ 15 , 01 ] := "PNA010" , aPergs[ 15 , 02 ] := "01" )
+( aPergs[ 16 , 01 ] := "PNA010" , aPergs[ 16 , 02 ] := "02" )
+
+SX1->( dbSetOrder( 01 ) )
+nPergs := Len( aPergs )
+For nPerg := 1 To nPergs
+	IF SX1->( dbSeek( aPergs[ nPerg , 01 ] + aPergs[ nPerg , 02 ] , .F. ) )
+		IF SX1->( RecLock( "SX1" , .F. , .T. ) )
+			IF ( ( nPerg % 2 ) > 0.00 )
+				SX1->X1_CNT01	:= Dtoc( dPerIni )
+			Else
+				SX1->X1_CNT01	:= Dtoc( dPerFim )
+			EndIF
+			SX1->( MsUnLock() )
+		EndIF
+	EndIF
+Next nPerg
+
+( RestArea( aAreaSX1 ) , RestArea( aArea ) )
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³Ponm090Acumula³Autor³ Marinaldo de Jesus  ³ Data ³22/10/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Transferir para os Acumulados os dados do Mes a ser Fechado ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso	   ³PONM090   												    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Ponm090Acumula(	cAliasMes 	,; //Alias do Arquivo Mensal
+								cAliasAcu 	,; //Alias do Arquivo Acumulado
+								nOrdem    	,; //Ordem dos Arquivos
+								bWhile	  	,; //Bloco para a Iteracao While	
+								bCond	  	,; //Bloco para condicao especifica
+								cFilMat	  	,; //Filial + Matricula do Funcionario	 
+								adbStructs	,; //Array com a Estrutura dos Acumulados
+								cFil		,; // Filial
+								cMat		,; // Matricula 
+								lRetSP8		;  // Fechamento da SP8
+							   )      
+Local aArea			:= GetArea()							   
+Local aCposAcu		:= {}
+Local aCposMes		:= {}
+Local cAliasQuery 	:= ""
+Local cQuery		:= ""
+Local cSP8Fil		:= ""
+Local cSP8Mat		:= ""
+Local cSP8DtApo		:= ""
+
+Local lDeleted		:= .T.
+Local lFirst		:= .T.
+Local lPriImpar		:= .T.
+Local nCpo			:= 0.00
+Local nCposAcu		:= 0.00
+Local nCposMes		:= 0.00
+Local nFieldMes		:= 0.00
+Local nMarcs		:= 0
+Local nPosStruct	:= 0.00  
+Local nX			:= 0
+Local uCntMes		:= NIL      
+Local cSvFilAnt		:= cFilAnt    
+Local cSP8Data      := ""
+Local cCposQry		:= ""
+
+Default lRetSP8		:= .T.
+
+
+Begin Sequence
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Carrega as Estruturas dos Arquivos					           ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF ( ( nPosStruct := aScan( adbStructs , { |x| x[1] == cAliasAcu } ) ) > 0.00 )
+		aCposAcu := aClone( adbStructs[ nPosStruct , 02 ] )
+		aCposMes:= aClone( adbStructs[ nPosStruct , 03 ] )
+	EndIF
+	IF ( ( nCposAcu := Len( aCposAcu ) ) == 0.00 )
+		Break
+	EndIF
+	
+	nCposMes := Len( aCposMes )   
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³Inicia o Processo de Transferencia para os Acumulados         ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery		:= Eval(adbStructs[ nPosStruct , 04 ]) 
+	( cAliasMes )->( dbSetOrder( nOrdem ) )	
+	cCposQry := fCampos(cAliasMes,adbStructs[ nPosStruct , 03 ])
+	cAliasQuery := GetNextAlias()
+	
+	// Executa a consulta SQL na tabela mensal
+	fExecQuery(cAliasQuery,cAliasMes,nOrdem,cCposQry,cFil,cMat,dPerFim)
+	
+	For nX := 1 To nCposMes
+		IF !( aCposMes[ nX , 02 ] == "C" )
+			TcSetField(cAliasQuery,aCposMes[nX,01],aCposMes[nX,02],aCposMes[nX,03],aCposMes[nX,04])
+		EndIF
+	Next nX
+	
+	//-- Troca Filial para Integridade
+    cFilAnt	:= IF( !Empty( cFil ) , cFil , cFilAnt )
+	
+	While ( cAliasQuery )->( !Eof() .and. Eval( bWhile ) )
+	    //Posiciona no funcionario do arquivo do mes no caso do alias do laco ser uma query
+		(cAliasMes)->( DbGoTo( (cAliasQuery)->RECNO ) )
+
+		//Transfere os Dados para o Arquivo de Acumulados
+		IF ( cAliasMes )->( Eval( bCond ) )
+           //-- Verifica se ha marcacoes impares e aborta o fechamento
+            If lPort1510 .And. lFirst .And. cAliasMes == "SP8" .And. cAliasAcu == "SPG"
+            	lFirst := .F.
+            	
+            	While (cAliasQuery)->( !EoF() )
+            		nMarcs		:= 0
+           			cSP8Fil		:= (cAliasQuery)->P8_FILIAL
+           			cSP8Mat		:= (cAliasQuery)->P8_MAT
+           	 		cSP8Data	:= (cAliasQuery)->P8_DATA                
+           		 	cSP8DtApo 	:= (cAliasQuery)->P8_DATAAPO          
+           		 	
+           			IF cSP8DtApo >= dPerIni .AND. cSP8DtApo <= dPerFim
+           		    	While (cAliasQuery)->P8_FILIAL + (cAliasQuery)->P8_MAT + DtoC((cAliasQuery)->P8_DATAAPO) = cSP8Fil + cSP8Mat + DtoC(cSP8DtApo) 
+           					 IIf((cAliasQuery)->P8_TPMCREP != "D", nMarcs++, nMarcs)
+
+           					 (cAliasQuery)->(DbSkip())
+           				Enddo	 
+           		                  		               		    
+				  		If ( ( nMarcs % 2 ) != 0 )
+				  		    If lPriImpar
+					  			cHelp := STR0013 + Space(1) + cSP8Fil + Space(1) + STR0045 + ": " + cSP8Mat //"Existem Marcações Ímpares para o Funcionário: "
+						  		aAdd( aMarcImp , cHelp )
+						  		lPriImpar := .F.
+						  	EndIf
+						  	aAdd(aMarcImp, + STR0065 + DtoC(cSP8Data) ) //"Data: "
+					   		lContinua 	:= .F.
+					   		lRetSP8 	:= .F.
+				   	  	EndIf
+				   	Else
+				   		(cAliasQuery)->(DbSkip())
+					Endif					
+				End While
+                
+                If lRetSp8
+                	(cAliasQuery)->( DbGoTop() )
+                Else
+					(cAliasQuery)->( DbCloseArea() )
+
+					Break
+                EndIf
+            EndIf	    	
+	    	
+			//Novo Registro nos Acumulados
+			If ( cAliasAcu )->( RecLock( cAliasAcu , .T. ) )
+				//Percorre Todos os Campos do Arquivo de Acumulado
+				For nCpo := 1 To nCposAcu
+					//So Acumula conteudo de Campo Existente
+					If ( ( nFieldMes := aCposAcu[ nCpo , Len( aCposAcu[ nCpo ] ) , 02 ] ) > 0.00 )
+						uCntMes := ( cAliasMes )->( FieldGet( nFieldMes ) )
+						( cAliasAcu )->( FieldPut( nCpo , uCntMes ) )
+					EndIf
+				Next nCpo
+
+				//Destrava Registro dos Acumulados
+				( cAliasAcu )->( MsUnLock() )
+			EndIf
+		EndIf
+		( cAliasQuery )->( DbSkip() )
+	End While
+
+	(cAliasQuery)->(DbCloseArea())
+
+	//Inicia o Processo de Delecao quando TOP
+	//Exclui movimentacao quando TOP
+	fDelMov(Eval(adbStructs[ nPosStruct , 06 ]),cAliasMes)
+	//Finaliza o Processo de Delecao das Refeicoes/Visitantes
+End Sequence
+
+RestArea(aArea)
+//-- Restaura valor original da Filial de Entrada
+cFilAnt	:=	cSvFilAnt
+Return( lDeleted )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³Ponm090CposMes³Autor³ Marinaldo de Jesus  ³ Data ³11/04/2003³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Achar os Campos dos Arquivos Mensais conforme Acumulados    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso	   ³PONM090   												    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function Ponm090CposMes( adbStructs )
+                
+Local aCposMes		:= {}			
+Local aAlias 		
+Local cCpoAcu		:= ""
+Local cPrefixoCpo	:= ""
+Local nAlias		:= 0.00
+Local nCpo			:= 0.00
+Local nPosAlias		:= 0.00
+Local nAtPrefix   	:= 0.00
+Local nLstPrefix	:= 0.00
+Local nLenCposMes	:= 0.00
+Local nPosCpo		:= 0.00
+If lPort1510
+      aAlias 		:= { { "SPN" , "SP5" } , { "SPG" , "SP8" } , { "SPH" , "SPC" } , { "SPL" , "SPB" }, { "RFG" , "RFF" }, { "RFH" , "RFE" } }
+Else
+      aAlias 		:= { { "SPN" , "SP5" } , { "SPG" , "SP8" } , { "SPH" , "SPC" } , { "SPL" , "SPB" } }
+Endif 
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Varre Arquivo de Acumulado e Monta Campo Correspondente no  Mo³
+³vimento													   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+For nAlias := 1 To Len( aAlias )
+	IF ( ( nPosAlias := aScan( adbStructs , { |x| x[1] == aAlias[ nAlias , 01 ] } ) ) > 0.00 )
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Carrega o Prefixo do campo referente ao arquivo Mensal		   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cPrefixoCpo	:= PrefixoCpo( aAlias[ nAlias , 02 ] )
+		aAdd( aCposMes , { aAlias[ nAlias , 01 ] , {} } )
+		nLenCposMes := Len( aCposMes )
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Varre Todos os Campos do arquivo de acumulados para  encontrar³
+		³o correspondente Mensal									   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		For nCpo := 1 To Len( adbStructs[ nPosAlias , 02 ]  )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Obtem o Campo do Arquivo Acumulado						   	   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cCpoAcu := adbStructs[ nPosAlias , 02 , nCpo , 01 ]
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Obtem o Campo do Arquivo Mensal conforme campo do Acumulado   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			nAtPrefix   := At( "_" , cCpoAcu )
+			nLstPrefix	:= ( Len( cCpoAcu ) - ( nAtPrefix - 1 ) )
+			cCpoMes 	:= ( cPrefixoCpo + SubStr( cCpoAcu , nAtPrefix , nLstPrefix ) )
+			aAdd( aCposMes[ nLenCposMes , 02 ] , { cCpoAcu , cCpoMes ,  ( aAlias[ nAlias , 02 ] )->( FieldPos( cCpoMes ) ) } )
+		Next nCpo
+	EndIF
+Next nAlias
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Carrega o Campo e seu Respectivo posicionamento em adbStructs ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+For nAlias := 1 To Len( aCposMes )
+	IF ( ( nPosAlias := aScan( adbStructs , { |x| x[1] == aCposMes[ nAlias , 01 ] } ) ) > 0.00 )
+		For nCpo := 1 To Len( aCposMes[ nAlias , 02 ] )
+			IF ( ( nPosCpo := aScan( adbStructs[ nPosAlias , 02 ] , { |x| x[1] == aCposMes[ nAlias , 02 , nCpo , 01  ] } ) ) > 0.00 )
+				aAdd( adbStructs[ nPosAlias , 02 , nPosCpo ] , { aCposMes[ nAlias , 02 , nCpo , 02 ] , aCposMes[ nAlias , 02 , nCpo , 03 ] } )
+			EndIF
+		Next nCpo
+	EndIF
+Next nAlias
+
+Return( NIL )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³ReOpenFiles   ³Autor³Equipe Advanded RH   ³ Data ³11/03/2004³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Reabre os Arquivos em Modo Compartilhado					³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide parametros Formais>                                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso	   ³PONM090   												    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function ReOpenFiles( aFilesReOpen )
+
+Local nLoop
+Local nLoops
+
+nLoops := Len( aFilesReOpen )
+For nLoop := 1 To nLoops
+    ( aFilesReOpen[ nLoop ] )->( dbCloseArea() )
+    ChkFile( aFilesReOpen[ nLoop ] )
+Next nLoop
+
+Return( NIL )
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ShowPonMes	³ Autor ³Mauricio MR		   ³ Data ³07/10/2005³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Exibe Mensagem de Advertencia e Periodos de Apontamento das  ³
+³          ³filiais														 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+
+Static Function ShowPonMes(  cCadastro, lSPOCompart, cFil, lRetomaProcess, cAliasTemp, aPerAux)
+
+Local aSvKeys		:= GetKeys()
+Local aAdvSize		:= {}
+Local aInfoAdvSize	:= {}
+Local aObjCoords    := {}
+Local aButtons		:= {}
+Local aObjSize     	:= {}	
+Local aListBox		:= {} 
+Local cFilDE		//Nao inicializar essas variaveis para que se assuma valor padrao em LoadFil
+Local cFilATE		//Nao inicializar essas variaveis para que se assuma valor padrao em LoadFil
+Local cSays			:= ''
+Local cTextSay		:= ''	
+Local lRet			:= .F.   
+Local cSvFilAnt		:= cFilAnt
+
+Local oDlg 			:= NIL
+Local oListBox		:= NIL 
+Local oGroup1		:= NIL 
+Local oSay			:= NIL
+Local oFont			:= NIL
+Local oFont2		:= NIL
+Local aBotoes		:= {}
+
+DEFAULT cFil		:= cSvFilAnt
+
+cFilAnt := IF( !Empty( cFil ) , cFil , cFilAnt )
+ 
+aAdvSize		:= MsAdvSize(  , .T. , 390)
+aInfoAdvSize	:= { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 5 , 5 }
+aAdd( aObjCoords , { 000, 005, .T. , .F. } )
+aAdd( aObjCoords , { 000, 000, .T. , .T., .T. } )
+aAdd( aObjCoords , { 000, 005, .T. , .F. } )
+aObjSize := MsObjSize( aInfoAdvSize , aObjCoords )
+ 
+cSays +=OemToAnsi( STR0008 ) + ' ' + OemToAnsi( STR0009 )	// "Este programa tem o objetivo de Efetuar o Fechamento Mensal do Ponto e"#"Atualizar as Sequencias das Tabelas de Horario Padrao no Cadastro.    "
+		
+IF !( lSPOCompart )  
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³Se nao for retomada de processo, permite selecionar (botao) e exi-³
+		³be todas as filiais.											   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	   	IF !lRetomaProcess
+		   	aAdd(aButtons, { 5,.T.,{|| Pergunte("PNM090",.T. ), cFilDE:=MV_PAR01, cFilATE:=MV_PAR02, LoadFil(@aListBox, cFilDE, cFilATE, lSPOCompart, lRetomaProcess), oListBox:SetArray(aListBox), oListBox:bLine:={ || LineLstBox( oListBox ) }, oListbox:nAt :=1, oListBox:Refresh()} } )
+		    Pergunte("PNM090",.F. )	
+		                  
+			cFilDE	:=	MV_PAR01
+			cFilATE	:=	IF(Empty(MV_PAR02),Replicate("Z", FWGETTAMFILIAL) ,MV_PAR02 )
+	    Else
+	    	/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³A Filial DE sera:     									   	   ³
+			³Se for uma retomada, assume-se a filial do usuario e se essa  ³
+			³nao existir sera assumida a filial do periodo interrompido	   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/  
+			Pergunte("PNM090",.F. )
+			cFilDE	:=If(!Empty((cAliasTemp)->FILIAL),(cAliasTemp)->FILIAL,(cAliasTemp)->FILPER)
+			cFilATE	:=	MV_PAR02
+	    EndIF
+			
+		LoadFil(@aListBox, cFilDE, cFilATE, lSPOCompart, lRetomaProcess)
+Else
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³A Filial DE sera:     									   	   ³
+	³Se for uma retomada assume a filial do usuario e se essa nao  ³
+	³existir sera assumida a filial do periodo interrompido.	   ³
+	³Se nao for retomada do processo ou se o usuario definiu refa- ³
+	³zer o procedimento, assume-se todas as filiais				   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF  lRetomaProcess  
+		cFilDE	:=If(!Empty((cAliasTemp)->FILIAL),(cAliasTemp)->FILIAL,(cAliasTemp)->FILPER)
+		LoadFil(@aListBox, cFilDE, cFilATE, lSPOCompart, lRetomaProcess)
+	Else
+		LoadFil(@aListBox)
+	EndIF	
+EndIF
+	
+aAdd(aButtons, { 1,.T.,{|o| lRet := .T.,IF(GpconfOk(STR0012),oDlg:End(), lRet := .F. ) } } )
+aAdd(aButtons, { 2,.T.,{|o| oDlg:End(), lRet := .F. } } )
+
+
+
+DEFINE FONT oFont 	NAME "Arial" SIZE 0,-11 BOLD
+DEFINE FONT oFont2 	NAME "Arial" SIZE 0,-11 
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi( cCadastro ) From aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] OF GetWndDefault() PIXEL
+
+cTextSay := "{ | u | If( PCount() == 0, cSays, cSays:= u ) }"
+oSay := TMultiGet():New( aObjSize[1,1],aObjSize[1,2], &cTextSay,oDlg  ,aObjSize[1,4],aObjSize[1,3], oFont2,,,,,,,,,,,.T.,, , ,.T., .F. )
+
+@ aObjSize[1,1],aObjSize[1,2] GROUP oGroup1 TO aObjSize[3,3],aObjSize[3,4] LABEL OemToAnsi(STR0022) OF oDlg PIXEL		//"Per¡odos de Apontamento Atuais por Filial"			
+oGroup1:oFont:=oFont
+	
+@ aObjSize[2,1]+5,aObjSize[2,2]+5 LISTBOX oListBox FIELDS HEADERS ;
+									 OemToAnsi( STR0024 )									 			,;	//"Filial"
+									 OemToAnsi( STR0023 )									 			,;	//"Nome "
+									 OemToAnsi( STR0025 )									 			,;	//"Data Inicial"
+									 OemToAnsi( STR0026 )									 			;	//"Data Final"
+							COLSIZES ;                                                                                    
+									 GetTextWidth(0,Replicate("B",FWGETTAMFILIAL))							  		,;	//"Codigo Filial"
+									 GetTextWidth(0,Replicate("B",20))							  		,;	//"Filial"
+									 GetTextWidth(0,Replicate("B",Len(Dtoc(dDatabase))))	 			,;	//"Data Inicial"
+									 GetTextWidth(0,Replicate("B",Len(Dtoc(dDatabase))))	 			;	//"Data Final"
+							SIZE aObjSize[2,3]-10, aObjSize[2,4] OF oDlg PIXEL 
+oListBox:SetArray(aListBox)
+oListBox:bLine:={ || LineLstBox( oListBox ) }
+ 
+	bSet15 := {|| lRet := .T.,IF(GpconfOk(STR0012),oDlg:End(), lRet := .F. )}
+	bSet24 := {|| oDlg:End(), lRet := .F.}                                             
+	
+	aAdd(aBotoes, { 'PERGUNTE' , { || Pergunte("PNM090",.T. ), cFilDE:=MV_PAR01, cFilATE:=MV_PAR02, LoadFil(@aListBox, cFilDE, cFilATE, lSPOCompart, lRetomaProcess) , oListBox:SetArray(aListBox), oListBox:bLine:={ || LineLstBox( oListBox ) }, oListbox:nAt :=1, oListBox:Refresh()} , OemToAnsi('Parâmetros') } )  	// 'Legenda do calendario - <F4>'
+	
+	ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar( oDlg , bSet15 , bSet24 , Nil , aBotoes ) CENTERED 
+
+RestKeys( aSvKeys , .T. )
+
+cFilAnt := cSvFilAnt
+
+aPerAux := aListBox
+
+Return( lRet )
+
+
+
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³LoadFil		³ Autor ³Mauricio MR		   ³ Data ³07/10/2005³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Carrega Informacoes das Filiais e Periodos de Apontamento    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/  
+  
+ Static Function LoadFil(aEmpFil, cFilDe, cFilAte, lSPOCompart, lRetomaProcess)
+ Local nX			:= 1
+ Local aAreaSM0 	:= SM0->( GetArea() )
+ Local aAreaSPO 	:= SPO->( GetArea() )
+ Local cFilSPO		:= ""
+ Local dIniPonMes	:= Ctod("//")
+ Local dFimPonMes	:= Ctod("//") 
+ Local aEmpresas	:= fMontaSm0()
+ 
+ DEFAULT lSPOCompart	:= .F.
+ DEFAULT lRetomaProcess	:= .F.
+ DEFAULT cFilDe			:= Space(FWGETTAMFILIAL)
+ DEFAULT cFilAte		:= Replicate("Z", FWGETTAMFILIAL )
+ 
+ aEmpFil	:={}
+ 
+ For nX:= 1 To Len(aEmpresas)
+ 	IF aEmpresas[nX][1] <> cEmpAnt 
+ 	   	Loop
+ 	Endif    
+
+	IF ! lSPOCompart
+	   cFilSPO:= aEmpresas[nX][2]
+		If ! GetPonMesDat( @dIniPonMes , @dFimPonMes , cFilSPO )
+			Loop	
+		Endif 	 	
+	ElseIf ! GetPonMesDat( @dIniPonMes , @dFimPonMes , xFilial("SPO",cFilSPO ) )
+		Loop	
+	Endif 	 		
+ 	
+ 	SM0->(MsSeek( aEmpresas[nX][1] + aEmpresas[nX][2] ) ) 
+
+	IF (! lSPOCompart) .OR. lRetomaProcess 
+		If ( FWGETCODFILIAL < cFilDe ) .OR. ( FWGETCODFILIAL > cFilAte )
+	   		Loop
+	 	Endif 
+    Endif
+    
+	SM0->( AADD( aEmpFil, { FWGETCODFILIAL,OemToAnsi(alltrim(SM0->M0_FILIAL))+"/"+OemToAnsi( SM0->M0_NOME), dIniPonMes , dFimPonMes } ) )
+    RestArea( aAreaSM0 )    
+ Next nX	
+
+ RestArea( aAreaSM0 )
+ RestArea(aAreaSPO)
+ Return ( NIL ) 
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³Pn090Open	³ Autor ³Mauricio MR		   ³ Data ³06/10/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Verifica se foi possivel abrir os arquivos compartilhados    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/  
+Function Pn090Open(cMsg, cAviso, lLockPer,cPerApo, lFilAll, cFilAux, lFecha, cTipo)
+Local aFilesOpen 	
+Local aExclusFiles	:=	{}
+Local nLoop
+Local nLoops
+Local lLocked	   	:= .F.
+
+DEFAULT cAviso		:= STR0007  //Aviso
+DEFAULT lLockPer	:= .F.
+DEFAULT lFilAll		:= .F.
+DEFAULT cPerApo		:= ""
+DEFAULT lFecha		:= .F.
+DEFAULT cFilAux     := SRA->RA_FILIAL
+DEFAULT cTipo		:= "N"
+
+If lPort1510
+	aFilesOpen 	:=	{"SP5", "SP8", "SPB" ,"SPC", "SPF", "RFF", "RFE"}    
+Else
+	aFilesOpen 	:=	{"SP5", "SP8", "SPB" ,"SPC", "SPF"}    
+Endif
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Efetua o Travamento dos Arquivos                             ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+nLoops := Len( aFilesOpen )  
+
+For nLoop := 1 To nLoops
+	//-- Verifica se foi possível abrir o arquivo
+	IF !( lLocked := ChkFile( aFilesOpen[ nLoop ],.F.))
+		cMsg := STR0029	//"O Fechamento do SIGAPON está sendo executado. Tente mais tarde."	
+		//-- Recompoe o array com somente os arquivos abertos exclusivamente.
+		aFilesOpen	:=aClone(aExclusFiles)
+		//-- Reabre os arquivos sem exclusividade
+		ReOpenFiles( aFilesOpen )
+		Exit
+	EndIF 
+	//-- Armazena arquivos que foram abertos com exclusividade
+	AADD(aExclusFiles, aFilesOpen[ nLoop ] )
+Next nLoop 
+
+If lLocked .and. lLockPer//Se as tabelas não estão bloqueadas, verifica se existe bloqueio lógico de filial + período via DBF
+	If!( lLocked := Pn090VerLock(cPerApo,lFilAll, cFilAux, lFecha, cTipo) )
+		If !lFecha
+			cMsg := STR0029	//"O Fechamento do SIGAPON está sendo executado. Tente mais tarde."
+		EndIf
+	ElseIf !IsInCallStack("fAprovPon")
+		//Não existindo lock, efetua o lock lógico
+		(cAliasLock)->(Reclock(cAliasLock,.T.))
+		FILIAL  := cFilAux
+		PERIODO := cPerApo
+		If !lFilAll
+			FECHA   := If(lFecha,"S",cTipo)
+			MAT     := If(lFecha,"",SRA->RA_MAT)
+		Else
+			FECHA   := If(lFecha,"S",cTipo)
+		EndIf
+		MsUnLock()		
+	EndIf
+EndIf
+
+Return (lLocked)
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fOpenLog	³ Autor ³Mauricio MR		   ³ Data ³28/12/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Cria/Abre arquivo de LOG								     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/  
+Static Function fOpenLog()
+Local lRet			:= .T.
+Local aFields		:= {}
+
+AADD(aFields, { "FILPER"	,"C",TamSX3("PO_FILIAL")[1]		,0} )
+AADD(aFields, { "DATAINI"	,"D",TamSX3("PO_DATAINI")[1]	,0} )	
+AADD(aFields, { "DATAFIM"	,"D",TamSX3("PO_DATAFIM")[1]	,0} )	
+AADD(aFields, { "PERCOMPL"	,"C",1							,0} )	
+AADD(aFields, { "FILIAL"	,"C",TamSX3("RA_FILIAL")[1]		,0} )
+AADD(aFields, { "MAT"		,"C",TamSX3("RA_MAT")[1]		,0} )
+AADD(aFields, { "TNOTRAB"	,"C",TamSX3("RA_TNOTRAB")[1]	,0} )
+AADD(aFields, { "SEQTURN"	,"C",TamSX3("RA_SEQTURN")[1]	,0} )
+AADD(aFields, { "REGRA"		,"C",TamSX3("RA_REGRA")[1]		,0} )
+AADD(aFields, { "ALIASMES"	,"C",3							,0} )
+		
+cAliasTemp := GetNextAlias() 
+oTmpTabFO1:= RhCriaTrab(cAliasTemp, aFields, Nil)
+
+Return (lRet)  
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fGravaLog	³ Autor ³Mauricio MR		   ³ Data ³28/12/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Registra dados do funcionario em processo de fechamento      ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/ 
+Static Function fGravaLog(	cAliasTemp		,; 	// Alias do arquivo log
+							cFilPerLog 	,; 	// Filial do Periodo  de Apontamento
+							dDataIniLog	,; 	// Data inicial do proximo periodo
+							dDataFimLog	,; 	// Data final do proximo periodo
+							cPerComplLog,; 	// Se periodo eh completo						   
+							cFilialLog	,;  // Filial do funcionario em processamento
+							cMatlog		,;	// Matricula do funcionario em processamento
+							cTnoTrabLog	,;	// Turno do funcionario em processamento
+							cSeqTurnLog	,;	// Sequencia do turno do funcionario em processamento
+							cRegraLog	,;	// Regra do funcionario em processamento
+							cAliasMesLog;	// Alias em processamento
+						)                      
+						
+Local lPn090Inclui:= (cAliasTemp)->(LastRec() =0)		
+
+   Begin Transaction
+	  (cAliasTemp)->(DbGoTop()) 
+	    
+	  RecLock(cAliasTemp,lPn090Inclui .Or. (cAliasTemp)->(EOF())) 
+	
+	  (cAliasTemp)->FILPER		:= If(cFilPerLog 	== NIL	, (cAliasTemp)->FILPER		, cFilPerLog 	)
+	  (cAliasTemp)->DATAINI	:= If(dDataIniLog 	== NIL	, (cAliasTemp)->DATAINI	, dDataIniLog 	)  
+	  (cAliasTemp)->DATAFIM	:= If(dDataFimLog 	== NIL	, (cAliasTemp)->DATAFIM	, dDataFimLog 	)
+	  (cAliasTemp)->PERCOMPL	:= If(cPerComplLog 	== NIL	, (cAliasTemp)->PERCOMPL	, cPerComplLog 	)  
+	  
+	  (cAliasTemp)->FILIAL		:= If(cFilialLog 	== NIL	, (cAliasTemp)->FILIAL		, cFilialLog 	)
+	  (cAliasTemp)->MAT		:= If(cMatlog 		== NIL	, (cAliasTemp)->MAT		, cMatlog 		)
+	  (cAliasTemp)->TNOTRAB	:= If(cTnoTrabLog	== NIL	, (cAliasTemp)->TNOTRAB	, cTnoTrabLog	)
+	  (cAliasTemp)->SEQTURN	:= If(cSeqTurnLog	== NIL	, (cAliasTemp)->SEQTURN	, cSeqTurnLog	)
+	  (cAliasTemp)->REGRA		:= If(cRegraLog		== NIL	, (cAliasTemp)->REGRA		, cRegraLog		)
+	  (cAliasTemp)->ALIASMES	:= If(cAliasMesLog 	== NIL	, (cAliasTemp)->ALIASMES	, cAliasMesLog 	)
+	  (cAliasTemp)->( MsUnlock() )
+	  
+	End Transaction 
+Return (Nil)
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fAtualPer	³ Autor ³Mauricio MR		   ³ Data ³28/12/2006³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Atualiza Periodos de Apontamento das Filiais			     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/ 
+
+Static Function fAtualPer(aPeriodos, cSvOldFil, lSPOCompart)
+Local nPeriodo
+Local nPeriodos
+Local cFil
+Local dPerIni
+Local dPerFim                   
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+| Grava o Proximo Periodo de Apontamento no Parametro do SX6  e³
+| na Tabela de Periodos de Apontamento SPO                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( ( nPeriodos := Len( aPeriodos ) ) > 0.00 )
+	For nPeriodo := 1 To nPeriodos
+		cFil	:= aPeriodos[ nPeriodo , 01 ]
+		dPerIni := aPeriodos[ nPeriodo , 02 ]
+		dPerFim	:= aPeriodos[ nPeriodo , 03 ]  
+		cFilAnt := cFil
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		| Grava o Periodo anterior no SPO (Cadastro de Periodos de Apon³
+		| tamento                                                      ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		PutPerSPO( cFil , dPerIni , dPerFim )
+		
+		// Apura e Grava o novo Periodo no parametros MV_PONMES
+		If !CheckPonMes( @dPerIni, @dPerFim, .T., .F., .F., cFil, .T. )
+			//"Fechamento Concluído" - "Não foi possível alterar o período de apontamento."
+			MsgInfo( OemToAnsi( STR0071 ), OemToAnsi( STR0069 + " - " + STR0070)) // "Verifique no cadastro de períodos a configuração utilizada nos parâmetros MV_PONMES e MV_PAPONTA."
+		EndIf
+		
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		|Carrega o Novo Periodo em aPeriodos                  	   	   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		aPeriodos[ nPeriodo , 02 ]	:= dPerIni
+		aPeriodos[ nPeriodo , 03 ]	:= dPerFim
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		| Se o SPO for Compartilhado Grava as Datas do Proximo  Periodo³
+		| nas Perguntas do SX1                                         ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lSPOCompart .and. ( nPeriodo == 1 ) )
+			PutSx1PerAponta( dPerIni , dPerFim )
+		EndIF  
+
+	Next nPeriodo
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	|Verifica se o Periodo do MV_PAPONTA e completo e grava o  novo³
+	|periodo no MV_PAPONTA                                         ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	For nPeriodo := 1 To nPeriodos
+		IF ( aPeriodos[ nPeriodo , 04 ] )
+			cFil	:= aPeriodos[ nPeriodo , 01 ]
+			dPerIni := aPeriodos[ nPeriodo , 02 ]
+			dPerFim	:= aPeriodos[ nPeriodo , 03 ]  
+			cFilAnt := cFil
+			PutMvFil( "MV_PAPONTA" , ( Dtos( dPerIni ) + "/" + Dtos( dPerFim ) ) , cFil )
+		EndIF
+	Next nPeriodo
+	aPeriodos := {}
+EndIF
+
+//-- Restaura o Conteudo Original da Filial de Entrada
+cFilAnt	:= cSvOldFil	
+
+Return (NIL) 
+
+
+
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ShowOnFech	³ Autor ³Mauricio MR		   ³ Data ³02/01/2007³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Exibe Mensagem de Advertencia de Fechamento Interrompido	 ³
+³          ³abruptamente.												 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function ShowOnFech(  cCadastro, cFil, cAliasTemp, lOnlyFilPer)
+Local aArea			:= GetArea()   
+Local aAreaSM0		 
+Local aSRAArea		:= SRA->(GetArea())
+Local aSvKeys		:= GetKeys()
+Local aAdvSize		:= {}
+Local aInfoAdvSize	:= {}
+Local aObjCoords    := {}
+Local aButtons		:= {}
+Local aObjSize     	:= {}
+Local aListBox		:= {} 
+
+Local cSays			:= ''
+Local cTextSay		:= ''
+Local lRet			:= .F.   
+Local cSvFilAnt		:= cFilAnt
+
+Local oDlg 			:= NIL
+Local oListBox		:= NIL 
+Local oGroup1		:= NIL 
+Local oSay			:= NIL
+Local oFont			:= NIL
+Local oFont2		:= NIL
+
+DEFAULT cFil		:= cSvFilAnt  
+DEFAULT lOnlyFilPer	:= .F.
+
+cFilAnt := IF( !Empty( cFil ) , cFil , cFilAnt )
+
+aAdvSize		:= MsAdvSize(  , .T. , 390)
+aInfoAdvSize	:= { aAdvSize[1] , aAdvSize[2] , aAdvSize[3] , aAdvSize[4] , 5 , 5 }
+aAdd( aObjCoords , { 000, 005, .T. , .F. } )
+aAdd( aObjCoords , { 000, 000, .T. , .T., .T. } )
+aAdd( aObjCoords , { 000, 005, .T. , .F. } )
+aObjSize := MsObjSize( aInfoAdvSize , aObjCoords )
+
+cSays += OemToAnsi( STR0040 )	// "A operação anterior de Fechamento Mensal não foi concluída de forma normal. Deseja continuar a partir do ponto de interrupção."
+	
+aAdd(aButtons, { 1,.T.,{|o| lRet := .T.,IF(GpconfOk(STR0012),oDlg:End(), lRet := .F. ) } } ) //"Confirma o Fechamento Mensal?"
+aAdd(aButtons, { 2,.T.,{|o| oDlg:End(), lRet := .F. } } )
+
+DEFINE FONT oFont 	NAME "Arial" SIZE 0,-11 BOLD
+DEFINE FONT oFont2 	NAME "Arial" SIZE 0,-15
+
+DEFINE MSDIALOG oDlg TITLE OemToAnsi( cCadastro ) From aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] OF GetWndDefault() PIXEL
+
+cTextSay 	:= "{ | u | If( PCount() == 0, cSays, cSays:= u ) }"
+oSay 		:= TMultiGet():New( aObjSize[1,1],aObjSize[1,2]		, &cTextSay			,oDlg  		,aObjSize[1,4],aObjSize[1,3]	, oFont2,				,				,	,	,,,,,,,.T.,, , ,.T., .F. )
+
+SRA->( dbSetOrder( RetOrdem( "SRA" , "RA_FILIAL+RA_MAT" ) ) )
+SRA->( dbSeek( (cAliasTemp)->(FILIAL+MAT) ) )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+|Obtem a descricao da Filial caso a interrupcao tenha ocorrido ³
+|apos o fechamento de um funcionario e faltou fechar o periodo ³
+|da filial ou antes de iniciar o fechamento de uma filial	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+@ aObjSize[1,1],aObjSize[1,2]	GROUP oGroup1 TO aObjSize[3,3],aObjSize[3,4] LABEL OemToAnsi(STR0041) OF oDlg PIXEL		//"O processo será retomado a partir do funcionário abaixo:"
+oGroup1:oFont:=oFont
+
+IF lOnlyFilPer       
+    //-- Obtem a descricao da filial e monta o array para exibicao da mesma
+	aAreaSM0 := SM0->( GetArea() ) 
+	IF 	SM0->(MsSeek( cEmpAnt + (cAliasTemp)->FILPER ) ) 
+		aListBox:=	{{ (cAliasTemp)->FILPER, Capital(Alltrim(	SM0->M0_NOME))  } } 
+	Else
+		aListBox:=	{{ (cAliasTemp)->FILPER, " "	 } }
+	EndIF
+	RestArea( aAreaSM0 )
+
+	
+	@ aObjSize[2,1]+5,aObjSize[2,2]+5 LISTBOX oListBox FIELDS HEADERS ;
+									 OemToAnsi( STR0024 )									 			,;	//"Filial"
+									 OemToAnsi( STR0023 )									 			;	//"Nome "
+							COLSIZES ;                                                                                    
+									 GetTextWidth(0,Replicate("B",FWGETTAMFILIAL))						,;	//"Codigo Filial"
+									 GetTextWidth(0,Replicate("B",20))							  		;	//"Filial"
+							SIZE aObjSize[2,3]-10, aObjSize[2,4] OF oDlg PIXEL 
+Else		
+	(cAliasTemp)->( aAdd(aListBox,{If(lOnlyFilPer, FILPER, FILIAL), TNOTRAB, SEQTURN, REGRA, MAT, If(lOfuscaNom,Replicate('*',15),SRA->RA_NOME)}))
+	@ aObjSize[2,1]+5,aObjSize[2,2]+5 LISTBOX oListBox FIELDS HEADERS ;
+										 OemToAnsi( STR0024 )									 			,;	//"Filial"
+										 OemToAnsi( STR0042 )									 			,;	//"Turno"
+										 OemToAnsi( STR0043 )									 			,;	//"Seq"									 
+										 OemToAnsi( STR0044 )									 			,;	//"Regra"
+										 OemToAnsi( STR0045 )									 			,;	//"Matricula"
+										 OemToAnsi( STR0046 )									 			;	//"Nome"									 
+								COLSIZES ;                                                                                    
+										 If(lOnlyFilPer, GetTextWidth(0,Replicate("B",FWGETTAMFILIAL))					,;	//"Filial" do Periodo
+										 				 GetTextWidth(0,Replicate("B",TAMSX3("RA_FILIAL")[1]))	;	//"Filial" do funcionario
+										 	),;			 
+										 GetTextWidth(0,Replicate("B",TAMSX3("RA_TNOTRAB")[1]+3))	  		,;	//"Turno"
+										 GetTextWidth(0,Replicate("B",TAMSX3("RA_SEQTURN")[1]+3))	 		,;	//"Seq"
+										 GetTextWidth(0,Replicate("B",TAMSX3("RA_REGRA")[1]+3))	 		,;	//"Regra"
+										 GetTextWidth(0,Replicate("B",TAMSX3("RA_MAT")[1]))	 			,;	//"Matricula"
+										 GetTextWidth(0,Replicate("B",TAMSX3("RA_NOME")[1]))	 			;	//"Nome"									 
+								SIZE aObjSize[2,3]-10, aObjSize[2,4] OF oDlg PIXEL 
+
+Endif
+
+
+	
+oListBox:SetArray(aListBox)
+oListBox:bLine:={ || LineLstBox( oListBox ) }
+   
+bSet15 := {|| lRet := .T.,IF(GpconfOk(STR0012),oDlg:End(), lRet := .F. )}
+bSet24 := {|| oDlg:End(), lRet := .F. }
+ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar( oDlg , bSet15 , bSet24 , Nil , Nil ) CENTERED 
+
+RestKeys( aSvKeys , .T. )
+
+RestArea(aArea)  
+RestArea(aSRAArea)
+
+cFilAnt := cSvFilAnt
+
+Return( lRet ) 
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ShowOnFech	³ Autor ³Mauricio MR		   ³ Data ³03/01/2007³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Monta Lista de campos para Query do Alias informado			 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function fCampos(cAlias, aCpos)
+Local cCampos 	:= ""
+Local nCpos		:= Len(aCpos)
+Local nX
+
+For nX := 1 To nCpos
+	cCampos+= aCpos[nX,01]+","
+Next nX
+
+cCampos:= cCampos + cAlias + '.R_E_C_N_O_ RECNO '
+
+Return (cCampos)
+
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³fMontaSm0	³ Autor ³Alex Fagundes         ³ Data ³26/04/2011³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Monta Empresas para Fechamento								 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³<Vide Parametros Formais>									 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Retorno   ³NIL															 ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Observa‡„o³                                                      	     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³SIGAPON     												 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function fMontaSm0()
+	Local aListaEmpresas	:= fGetSM0(.T.)	
+	Local iEmp				:= 0
+	Local aEmpSM0			:= {}  
+	Local cEmpSm0			:= ""
+	Local cFilSm0			:= ""
+
+	For iEmp := 1 to Len(aListaEmpresas)
+		cEmpSm0 := aListaEmpresas[iEmp][1]
+		cFilSm0 := aListaEmpresas[iEmp][2]
+		Aadd( aEmpSM0, { cEmpSm0, cFilSm0, "" , 0, 0 } )
+	Next iEmp   
+Return (aEmpSM0)
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³fDelMOV		  ³Autor³Leandro Drumond	  ³ Data ³23/11/2011³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Deleta os registros do RFE - Fisicamente se for Top			³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   |fDelMov() 													³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³                 											³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Uso       ³Ponm090                                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+Static Function fDelMov(cQuery,cAlias)
+
+Local aArea 	  := GetArea()
+Local cRetSqlName := InitSqlName(cAlias)
+	
+TcSqlExec( cQuery )
+
+TcRefresh( cRetSqlName )
+    
+RestArea(aArea)
+
+Return ( .T. )
+
+/*/{Protheus.doc}Pnm090LockPer()
+- Retira exclusividade das tabelas e efetua lock lógico por filial + período
+@author: Leandro Drumond
+@since:  28/09/2017
+/*/
+Static Function Pnm090LockPer( aMa280FLock, cFilDe, cFilAte, aFilPer)
+Local nX	 	:= 0
+Local lRet      := .T.
+
+fCriaTemp(.T.) //Cria ou abre o arquivo
+
+//Verifica se existe lock em alguma filial/período
+For nX := 1 to Len(aFilPer)
+
+	//Verifica se existe bloqueio lógico nas filiais/períodos processados
+	If !(Pn090Open( , , .T.,DtoS(aFilPer[nx,3]) + DtoS(aFilPer[nX,4]), .F., aFilPer[nX,1], .T.))
+		MsgAlert( OemToAnsi(STR0028) + " SP8, SPB, SPC ou SP5", STR0007 )
+		If oTmpTabFO1 <> Nil
+			dbSelectArea(cAliasTemp)
+			dbCloseArea()
+			oTmpTabFO1:Delete()
+			Freeobj(oTmpTabFO1)
+		EndIf
+
+		lRet := .F.
+		Break
+	EndIf
+Next nX
+
+If !lRet
+	//Desbloqueia os registros que tenham sido bloqueados
+	For nX := 1 to Len(aFilPer)
+		 Pnm090UnlockPer( aFilPer[nX,1], .T. )
+	Next nX
+EndIf
+
+Return lRet
+
+/*/{Protheus.doc}fCriaTemp()
+- Cria tabela de lock e apaga todos os registros que por ventura existirem
+@author: Leandro Drumond
+@since:  28/09/2017
+/*/
+Static Function fCriaTemp(lCria)
+Local aFields		:= {}
+Local lRet			:= .T.  
+
+aAdd(aFields, { "FILIAL"	,"C",TamSX3("PO_FILIAL")[1]		,0} )
+aAdd(aFields, { "PERIODO"	,"C",16							,0} )
+aAdd(aFields, { "FECHA"  	,"C",1							,0} )
+aAdd(aFields, { "MAT"  	    ,"C",TamSX3("RA_MAT")[1]		,0} )
+
+If lCria
+	If Select(cAliasLock) <= 0
+		If TCCanOpen(cAliasLock)
+			If MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .F. ) //Tenta abrir de forma exclusiva
+				DbCloseArea()
+				If TCDelFile(cAliasLock) //Recria tabela, se estiver sem exclusividade, para apagar o lixo
+					MsCreate(cAliasLock,aFields,"TOPCONN")
+				EndIf
+			EndIf
+			MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .T. ) //Abre de forma compartilhada
+		Else
+			MsCreate(cAliasLock,aFields,"TOPCONN")
+	
+			MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .T. )
+		EndIf
+	EndIf
+Else
+	If Select(cAliasLock) <= 0
+		If TcCanOpen(cAliasLock) //Verifica se a tabela existe
+			If MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .F. )  //Tenta abrir de forma exclusiva
+				If !InTransact() // Não é possível recriar a tabela dentro de uma transação
+					If TCDelFile(cAliasLock) //Recria tabela, se estiver sem exclusividade, para apagar o lixo
+						MsCreate(cAliasLock,aFields,"TOPCONN")
+					EndIf
+				Else
+					// Apaga todos os registros para evitar lixo
+					(cAliasLock)->(dbEval({|| RecLock(cAliasLock, .F.), dbDelete(), MsUnLock() }))
+				EndIf
+				DbCloseArea()
+			EndIf
+			MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .T. )  //Abre de forma compartilhada
+			If Type("MAT") == "U"  //Tratamento para recriar a tabela caso falte campos
+				DbCloseArea()
+				TCDelFile(cAliasLock)
+				MsCreate(cAliasLock,aFields,"TOPCONN")
+				MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .T. )
+			EndIf
+		ElseIf IsInCallStack("fAprovPon") // Verifica se veio do Meu RH
+			lRet :=  .F.
+		Else
+			MsCreate(cAliasLock,aFields,"TOPCONN")
+			MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .T. )
+		EndIf
+	EndIf
+EndIf
+
+Return lRet
+
+/*/{Protheus.doc}Pn090VerLock()
+- Verifica se existe lock de período + filial
+@author: Leandro Drumond
+@since:  28/09/2017
+/*/
+Static Function Pn090VerLock(cPerApo, lFilAll, cFilAux, lFecha, cTipo)
+Local cPerAux		:= ""
+Local dIniPonMes	:= CtoD("")
+Local dFimPonMes	:= CtoD("")
+Local lRet 			:= .T.
+
+DEFAULT lFecha		:= .F.
+DEFAULT cFilAux		:= SRA->RA_FILIAL
+
+If fCriaTemp(.F.) //Abre o Arquivo
+	If Empty(cPerApo)
+		GetPonMesDat( @dIniPonMes , @dFimPonMes , cFilAux ) //Obtem o período de apontamento atual
+		cPerAux := DtoS(dIniPonMes) + DtoS(dFimPonMes)
+	Else
+		cPerAux := cPerApo
+	EndIf
+	DbSelectArea(cAliasLock)
+	DbGoTop()
+	While (cAliasLock)->(!Eof())
+		If lFilAll //Se for leitura e apontamento, bloqueia todas as filiais
+			If (cAliasLock)->PERIODO == cPerAux .and. (cAliasLock)->FECHA == "S"
+				lRet := .F.
+				Exit
+			EndIf
+		Else
+			If (cAliasLock)->FILIAL == cFilAux .and. (cAliasLock)->PERIODO == cPerAux
+				If lFecha
+					lRet := .F.
+				Else
+					If (cAliasLock)->FECHA == "S" .or. ( cTipo == "A" .and. (cAliasLock)->FECHA == cTipo )
+						lRet := .F.
+					Else
+						(cAliasLock)->(DbSkip())
+						Loop
+					EndIf
+				EndIf
+				Exit
+			EndIf
+		EndIf
+		(cAliasLock)->(DbSkip())
+	EndDo
+EndIf
+Return lRet
+
+/*/{Protheus.doc}Pnm090UnlockPer()
+- Exclui registro da tabela de bloqueio
+@author: Leandro Drumond
+@since:  28/09/2017
+/*/
+Function Pnm090UnlockPer( cFilAux, lFecha, cPerApo, cMatFunc, cTipo )
+
+DEFAULT cFilAux  := ""
+DEFAULT lFecha   := .F.
+DEFAULT cPerApo  := ""
+DEFAULT cMatFunc := ""
+DEFAULT cTipo 	 := ""
+
+DbSelectArea(cAliasLock)
+
+If Empty(cFilAux) //Apaga todos os registros
+	dbSelectArea(cAliasLock)
+	dbGoTop()
+	While (cAliasLock)->(!Eof())
+		If (!Empty(cTipo) .And. (cAliasLock)->FECHA == cTipo ) .Or. (cAliasLock)->FECHA == "S"
+			RecLock(cAliasLock,.F.)
+			DbDelete()
+			MsUnLock()
+		EndIf 
+		(cAliasLock)->(DbSkip())
+	EndDo
+	dbCloseArea()
+	If MsOpenDbf( .T. , __cRdd , cAliasLock , cAliasLock , .F. ) //Tenta abrir de forma exclusiva
+		DbCloseArea()
+		TCDelFile(cAliasLock)
+	EndIf	
+Else
+	DbGoTop()
+	While (cAliasLock)->(!Eof())
+		If cFilAux == (cAliasLock)->FILIAL
+			If lFecha .and. (cAliasLock)->FECHA == "S"
+				RecLock(cAliasLock,.F.)
+				DbDelete()
+				MsUnLock()
+			ElseIf !lFecha 
+				If (cAliasLock)->FECHA <> "S" .and. (cAliasLock)->PERIODO == cPerApo .and. (cAliasLock)->MAT == cMatFunc
+					RecLock(cAliasLock,.F.)
+					DbDelete()
+					MsUnLock()
+				EndIf
+			EndIf
+		EndIf
+		(cAliasLock)->(DbSkip())
+	EndDo
+EndIf
+
+Return Nil
+
+/*/{Protheus.doc} fExecQuery
+@author martins.marcio
+@since 25/04/2019
+@version 1.0
+@param cAliasQuery, characters, Nome do Alias da query que será executada, obtido anteriormente do getNextAlias()
+@param cAliasMes, characters, Tabela que será consultada
+@param nOrdem, numeric, indice de ordenação do cAliasMes
+@param cCposQry, characters, Campos que serao retornados no select
+@param cFil, characters, Filial do funcionario
+@param cMat, characters, Matricula do funcionario
+@param dPerFim, date, Data final do periodo
+/*/
+Static Function fExecQuery(cAliasQuery,cAliasMes,nOrdem,cCposQry,cFil,cMat,dPerFim)
+	Local cQuery := "SELECT " + cCposQry + " FROM " + RetSqlName(cAliasMes) + " " + cAliasMes + " WHERE "
+
+	__oSt := FWPreparedStatement():New()
+
+	Do Case
+		Case cAliasMes == "SP5"
+			cQuery += "SP5.P5_FILIAL = ? AND SP5.P5_MAT = ? AND D_E_L_E_T_ = ' ' " 
+		Case cAliasMes == "SP8"
+			If lOracle
+				cQuery += "SP8.P8_FILIAL = ? AND SP8.P8_MAT = ? AND P8_DATAAPO <= ? AND P8_DATAAPO IS NOT NULL AND D_E_L_E_T_ = ' ' "
+			Else
+				cQuery += "SP8.P8_FILIAL = ? AND SP8.P8_MAT = ? AND P8_DATAAPO <= ? AND P8_DATAAPO <> '' AND D_E_L_E_T_ = ' ' "
+			EndIf
+		Case cAliasMes == "SPC"
+			cQuery += "SPC.PC_FILIAL = ? AND SPC.PC_MAT = ? AND D_E_L_E_T_ = ' ' "	
+		Case cAliasMes == "SPB"
+			cQuery += "SPB.PB_FILIAL = ? AND SPB.PB_MAT = ? AND SPB.PB_DATA <= ? AND D_E_L_E_T_ = ' ' "
+		Case cAliasMes == "RFF"
+			cQuery += "RFF.RFF_FILIAL = ? AND RFF.RFF_MAT = ? AND RFF.RFF_DATA <= ? AND D_E_L_E_T_ = ' ' "
+		Case cAliasMes == "RFE"
+			cQuery += "RFE.RFE_FILORG = ? AND RFE.RFE_MATORG = ? AND RFE.RFE_DATAAP <= ? AND D_E_L_E_T_ = ' ' "
+	EndCase
+
+	cQuery += " ORDER BY " + SqlOrder( (cAliasMes)->( IndexKey() ) )
+
+	__oSt:SetQuery(cQuery)
+
+	__oSt:SetString(1,cFil)
+	__oSt:SetString(2,cMat)
+
+	If cAliasMes $ "SP8*SPB*RFF*RFE"
+		__oSt:SetString(3,DToS(dPerFim))
+	EndIf
+
+	cQuery := __oSt:GetFixQuery()
+
+	DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasQuery,.T.,.T.)
+Return
+
+/*/{Protheus.doc}Pnm090UnlockPer()
+- Fecha as tabelas do utilizadas no fechamento do ponto
+@author: Marco Nakazawa
+@since:  06/08/2020
+/*/
+Function Pn090Close()
+	Local nI			:= 0
+	Local aFilesOpen	:= {}
+
+	If lPort1510
+		aFilesOpen 	:=	{"SP5", "SP8", "SPB" ,"SPC", "SPF", "RFF", "RFE"}    
+	Else
+		aFilesOpen 	:=	{"SP5", "SP8", "SPB" ,"SPC", "SPF"}    
+	Endif
+
+	For nI := 1 To Len( aFilesOpen ) 
+		If Select( aFilesOpen[nI] ) > 0
+			(aFilesOpen[nI])->(DbCloseArea())
+		EndIf
+	Next nI 
+Return

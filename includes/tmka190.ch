@@ -1,0 +1,42 @@
+#ifdef SPANISH
+	#define STR0001 "Buscar"
+	#define STR0002 "Visualizar"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Actualización de la regla de negociación"
+	#define STR0007 "Informe una condición de pago para la regla o modifique el campo 'Liquidación' (K2_LIQUIDA) a 'No'."
+	#define STR0008 "Condición de pago"
+	#define STR0009 " esta duplicada."
+	#define STR0010 "Condicion de pago ya se ha informado."
+	#define STR0011 "Condición de pago informada no existe en el Archivo de reglas de negociación definidas para el usuario."
+	#define STR0012 "Campo 'K2_LIQUIDA' no se encontró. Actualice la tabla 'SK2'."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Search"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "Updating Negotiation Rule"
+		#define STR0007 "Enter payment term for rule or switch field 'Settlement' (K2_LIQUIDA) to 'No'."
+		#define STR0008 "Payment Conditions "
+		#define STR0009 " it is duplicated."
+		#define STR0010 "Payment term was not informed."
+		#define STR0011 "Payment conditions informed not exist in the Register of Negotiation Rules defined for user."
+		#define STR0012 "Field 'K2_LIQUIDA' not found. Update table 'SK2'."
+	#else
+		#define STR0001 "Pesquisar"
+		#define STR0002 "Visualizar"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Atualização da Regra de Negociação"
+		#define STR0007 "Informe uma condição de pagamento para a regra ou altere o campo 'Liquidação' (K2_LIQUIDA) para 'Não'."
+		#define STR0008 "Condição de Pagamento "
+		#define STR0009 " está duplicada."
+		#define STR0010 If( cPaisLoc $ "ANG|PTG", "A condição de pagamento já foi informada.", "Condição de pagamento já foi informada." )
+		#define STR0011 "Condição de Pagamento informada não existe no Cadastro das Regras de Negociação definidas para o usuário."
+		#define STR0012 "Campo 'K2_LIQUIDA' não encontrado. Atualize a tabela 'SK2'."
+	#endif
+#endif

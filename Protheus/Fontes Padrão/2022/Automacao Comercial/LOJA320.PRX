@@ -1,0 +1,397 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "LOJA320.CH"
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} LOJA320
+Acumulados Diarios - gera arquivo SL5 por Caixa / Data
+
+@author	Varejo
+@version	P11.8
+@since		22/01/98
+@return	.T.
+/*/ 
+//------------------------------------------------------------------------------
+Function LOJA320()
+
+Local cCadastro	:= OemToAnsi(STR0001)  // Acumulados Diarios
+Local nOpca		:= 2
+Local cArea		:= Alias()
+Local lEnd			:= .F.
+Local lCancel		:= .F.
+Local dDataMovto	:= dDataBase
+Local oFont		:= Nil
+Local oDataMov	:= Nil
+Local dDataIni	:= dDataBase
+Local oDataIni	:= Nil
+Local dDataFim	:= dDataBase
+Local oDataFim	:= Nil
+
+While .T.
+	DEFINE MSDIALOG oDlg FROM 39,85 TO 300,340 TITLE cCadastro PIXEL OF oMainWnd
+
+		DEFINE FONT oFont NAME "Ms Sans Serif" BOLD
+
+		@ 7, 4 TO 60, 121 LABEL STR0002 OF oDlg PIXEL //"Objetivo do Programa"
+		@ 19, 09 SAY OemToAnsi(STR0003 + STR0004 + STR0005) SIZE 110, 40 OF oDlg PIXEL FONT oFont
+		//STR0003-> "  Este programa consiste em alimentar "
+		//STR0004-> " o arquivo de Resumo de  Vendas  por Caixa na(s) data(s) informada(s)."
+		//STR0005-> " Deverá  ser utilizado na rotina  de  Contabilizaçao  de Vendas."
+
+		@ 67, 5 SAY STR0011 SIZE 48, 7 OF oDlg PIXEL //"Data Inicial"
+		@ 66, 37 MSGET oDataMov Var dDataIni SIZE 40, 8 OF oDlg PIXEL VALID lj320VldDt(dDataIni,dDataFim)
+	
+		@ 80, 5 SAY STR0012 SIZE 48, 7 OF oDlg PIXEL //"Data Final"
+		@ 80, 37 MSGET oDataFim Var dDataFim SIZE 40, 8 OF oDlg PIXEL VALID lj320VldDt(dDataIni,dDataFim)
+		
+		DEFINE SBUTTON FROM 115,65 TYPE 1 ENABLE OF oDlg;
+			ACTION ( nOpcA := 1, Processa( { |lEnd| LJ320Processa( dDataMovto, @lEnd, @lCancel, dDataIni, dDataFim) }, , , .T. ), oDlg:End() )
+	
+		DEFINE SBUTTON FROM 115,94 TYPE 2 ENABLE OF oDlg ACTION ( nOpcA := 2 , oDlg:End() )
+
+	ACTIVATE MSDIALOG oDlg CENTERED
+
+	If nOpcA == 2
+		Exit
+	EndIf
+End 
+
+dbSelectArea(cArea)
+
+Return 
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} LJ320Processa
+Executa Acumulado Diario 
+
+@author	Varejo
+@version	P11.8
+@since		22/01/98
+@return	.T.
+/*/ 
+//------------------------------------------------------------------------------
+Function LJ320Processa(dDataMovto, lEnd, lCancel, dDataIni, dDataFim)
+                         
+Local nI
+Local aDados		:= {}
+Local nDevolucao	:= 0
+Local nDescPro  	:= 0
+Local cNumero   	:= ""
+Local nMoeda		:= 1
+Local nMoedaCor	:= 1
+Local nDecs		:= MsDecimais(1)
+Local nX			:= 0
+Local aImps		:= {}	//array para inclusao de impostos do VARIMP1...Z
+Local cFilSL1		:= ""
+Local nIndex		:= 0
+Local cIndex		:= ""
+Local cChave		:= ""
+Local lMvLjTrDin	:= SuperGetMV("MV_LJTRDIN", ,0) == 0	// Determina se utiliza troco para diferentes formas de pagamento
+Local lHabTroco	:= SL1->(ColumnPos("L1_TROCO1")) > 0 .And. SuperGetMV( "MV_LJTROCO", ,.F. )	//Determina que o controle de troco esta habilitado
+Local aBckImps	:= {}
+Local lGrvOk		:= .F.
+Local ljVld320	:= ExistBlock("LJVLD320")
+Local lRetVld320	:= .F.
+
+Default dDataIni	:= cToD("  /  /  ")
+Default dDataFim	:= cToD("  /  /  ")
+
+DbSelectArea("SX3")
+SX3->(DbSetOrder(2))
+SX3->(DbSeek("L1_VALIMP1"))
+While !SX3->(EOF()) .AND. Substr(SX3->X3_CAMPO,1,9) == "L1_VALIMP"
+	Aadd(aImps, {SX3->X3_CAMPO,0})
+	SX3->(DbSkip())
+EndDo
+
+DbSelectArea("SL1")
+cFilSL1 := xFilial("SL1")
+ProcRegua(SL1->(LastRec()))
+
+cIndex	:= CriaTrab(Nil,.F.)
+cChave	:= "L1_FILIAL+DTOS(L1_EMISNF)" //Cria indice para capturar as vendas finalizadas no dia
+IndRegua("SL1",cIndex,cChave,,,)
+
+DbSelectArea("SL1")
+nIndex  := RetIndex("SL1")
+
+#IFNDEF TOP
+	SL1->(DbSetIndex( cIndex + OrdBagExt()))
+#ENDIF
+
+SL1->(DbSetOrder( nIndex + 1 ))
+
+If Empty(dDataIni) .Or. Empty(dDataFim)
+	dDataIni := dDataMovto
+	dDataFim := dDataMovto
+Else
+	dDataMovto := dDataIni
+EndIf 
+
+dbSelectArea("SL2")
+SL2->(dbSetOrder(1)) //L2_FILIAL+L2_NUM+L2_ITEM+L2_PRODUTO
+
+dbSelectArea("SD1")
+SD1->(dbSetOrder(3)) //D1_FILIAL+DTOS(D1_EMISSAO)+D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA
+	
+aBckImps := aClone(aImps)
+
+While dDataMovto <= dDataFim
+
+	If lEnd 
+		Exit
+	EndIf
+	
+	aDados := {}
+	aImps	:= aClone(aBckImps)
+	
+	SL1->(DbSeek(cFilSL1+ DtoS(dDataMovto),.T.))
+		
+	While !SL1->(EOF()) .And. (SL1->L1_FILIAL == cFilSL1) .and. (SL1->L1_EMISNF == dDataMovto)
+	
+		IncProc( OemToAnsi(STR0009) ) // Avaliando vendas no periodo ...
+
+		If lEnd
+			Exit
+		EndIf
+	
+		If	Empty(SL1->L1_TIPO) .Or. (SL1->L1_TIPO == "P" .And. Empty(SL1->L1_DOCPED)) .Or.;
+			(SL1->L1_TIPO=="V" .And. Empty(SL1->L1_DOC))
+			SL1->(dbSkip())
+			Loop
+		EndIf
+
+		//Ponto de entrada para validar se a venda será contabilizado ou não
+		If ljVld320
+			LjGrvLog("Acumulados Diarios","Antes da Chamada do Ponto de Entrada:LJVLD320",SL1->L1_FILIAL + "/" + SL1->L1_NUM)
+			lRetVld320 := ExecBlock("LJVLD320", .F., .F.)
+			LjGrvLog("Acumulados Diarios","Apos a Chamada do Ponto de Entrada:LJVLD320",lRetVld320)
+			
+			If ValType(lRetVld320) == "L" .And. lRetVld320 
+				SL1->(dbSkip())
+				Loop
+			EndIf
+		EndIf
+
+		SL2->(dbSeek(cFilSL1 + SL1->L1_NUM))
+		nDescPro := 0	
+
+		// Avalia Descontos
+		While !SL2->(Eof()) .and. (SL2->L2_FILIAL+SL2->L2_NUM == cFilSL1+SL1->L1_NUM) 	
+			nDescPro  += SL2->L2_DESCPRO
+			SL2->(dbSkip())
+		Enddo
+
+		// Avalia Vendas
+		For nX := 1 to Len(aImps)
+			aImps[nX][2] := SL1->(&(aImps[nX][1]))
+		Next nX
+	
+		Grava_Dados( @aDados			, SL1->L1_OPERADO, SL1->L1_DINHEIR		, SL1->L1_CHEQUES	,;
+					 SL1->L1_CARTAO	, SL1->L1_CONVENI, SL1->L1_VALES	, SL1->L1_FINANC	,;
+					 SL1->L1_OUTROS	, SL1->L1_VALICM , SL1->L1_VALIPI	, SL1->L1_VALISS 	,;
+					 nDescPro			, SL1->L1_VLRLIQ , 0				  	, SL1->L1_CREDITO	,;
+					 SL1->L1_VLRDEBI	, aImps			)
+
+		SL1->(DbSkip())
+	EndDo
+	
+	If lEnd
+		Exit
+	EndIf
+	
+	// Avalia Devolucoes
+	cFilSL1 := xFilial("SD1")
+	If SD1->(dbSeek(cFilSL1+Dtos(dDataMovto)))
+
+		ProcRegua( SD1->( LastRec() ) )
+		
+		While !SD1->(Eof()) .and. (SD1->D1_FILIAL == cFilSL1) .And. (DToS(dDataMovto) == DToS(SD1->D1_EMISSAO))
+		
+			If lEnd
+				Exit
+			EndIf
+
+			IncProc( OemToAnsi(STR0010) ) // Avaliando devolu‡”es no periodo ...
+			
+			If SD1->D1_TIPO == "D" .And. SD1->D1_ORIGLAN == "LO"
+			
+				If cPaisLoc != "BRA"
+					SF1->(DbSetOrder(1)) //F1_FILIAL+F1_DOC+F1_SERIE+F1_FORNECE+F1_LOJA+F1_TIPO
+					SF1->(DbSeek( xFilial("SF1")+SD1->( D1_DOC+D1_SERIE+D1_FORNECE+D1_LOJA ) ) )
+					nMoeda := Max(SF1->F1_MOEDA, 1)
+					nDevolucao := Round( xMoeda(SD1->D1_TOTAL, nMoeda, nMoedaCor, dDataMovto, nDecs+1), nDecs )
+				Else					
+					nDevolucao := (SD1->D1_TOTAL + SD1->D1_VALIPI - SD1->D1_VALDESC)
+				EndIf
+
+				Grava_Dados(	@aDados, Subs(SD1->D1_NUMCQ, 1, 3)	, 0, 0, 0, 0, 0			, 0,;
+								0		, 0								, 0, 0, 0, 0,	nDevolucao	, 0, 0)
+				                 
+				nDevolucao := 0
+				SD1->( dbSkip() )
+				Loop
+
+			EndIf
+			
+			SD1->(dbSkip())
+
+			While !Empty(cNumero) .and. cNumero == SD1->D1_SERIORI+SD1->D1_NFORI
+				SD1->(dbSkip())
+			EndDo
+
+		EndDo
+
+	EndIf
+
+	// Efetua gravacao
+	If Len(aDados) > 0
+		dbSelectArea("SL5")
+		For nI := 1 to Len(aDados)
+			
+			If SL5->(dbSeek(xFilial("SL5") + DToS(dDataMovto) + aDados[nI,1] ))
+				SL5->(Reclock("SL5",.F.))
+			Else
+				SL5->(Reclock("SL5",.T.))
+			EndIf
+
+			Replace SL5->L5_FILIAL  With xFilial("SL5")
+			Replace SL5->L5_OPERADO With aDados[nI,1]
+			Replace SL5->L5_DATA	   With dDataMovto
+			Replace SL5->L5_DINHEIR With aDados[nI,  2]
+			Replace SL5->L5_CHEQUES With aDados[nI,  3]
+			Replace SL5->L5_CARTAO  With aDados[nI,  4]
+			Replace SL5->L5_CONVENI With aDados[nI,  5]
+			Replace SL5->L5_VALES   With aDados[nI,  6] 
+			Replace SL5->L5_FINANC  With aDados[nI,  7]
+			Replace SL5->L5_OUTROS  With aDados[nI,  8]
+			Replace SL5->L5_VLRICM  With aDados[nI,  9]
+			Replace SL5->L5_VLRIPI  With aDados[nI, 10]
+			Replace SL5->L5_VLRISS  With aDados[nI, 11]
+			Replace SL5->L5_VLRDESC With aDados[nI, 12]
+			Replace SL5->L5_VLRLIQ  With aDados[nI, 13]
+			Replace SL5->L5_DEVOLV  With aDados[nI, 14]
+			Replace SL5->L5_CREDITO With aDados[nI, 15]
+			Replace SL5->L5_VLRDEBI With aDados[nI, 16]
+
+			For nX := 1 to Len(aImps)
+				cCampo := AllTrim("L5" + Substr(aImps[nX][1],3,7) + cValToChar(nX))			
+				If SL5->(( ColumnPos( cCampo ) )) > 0 //verifica se campos L5_VALIMP# existem
+					Replace SL5->(&(cCampo)) With aDados[nI][17][nX]
+				EndIf
+			Next nX
+
+			SL5->(dbCommit())
+			SL5->(MsUnlock())
+			lGrvOk := .T.
+		Next
+	EndIf
+	
+	//Encrementa para gerar do proximo dia
+	dDataMovto := dDataMovto + 1
+End
+
+//Recupera a Integridade dos dados
+
+#IFNDEF TOP
+	FErase(cIndex+OrdBagExt())
+#ENDIF
+
+// Recupera a Integridade dos dados
+SL1->(dbSetOrder(1))
+
+// Identifica se o processamento foi cancelado para nao abrir o dialogo           
+lCancel := lEnd
+
+If lGrvOk .And. !lCancel
+	MsgInfo(STR0013) //"Acumuladores Diários gerados com sucesso."
+Else
+	MsgInfo(STR0014) //"Não foram gerados os Acumuladores Diários."
+EndIf
+
+MsUnlockAll()
+
+Return .T.
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} Grava_Dados
+Grava valores no array aDados 
+
+@author	Varejo
+@version	P11.8
+@since		07/01/03
+@return	.T.
+/*/ 
+//------------------------------------------------------------------------------
+Static Function Grava_Dados(aDados, cCaixa, nDinheiro , nCheques, nCartao, nConveni, nVales  , nFinanc,;
+								    		nOutros   , nValICM , nValIPI, nValISS , nDescPro, nVlrLiq,;
+											nDevolucao, nCredito, nVlrDebi, aImps)
+
+Local aTmp		:= {}
+Local nI		:= 0
+Local nX		:= 0
+Local aValImp	:= {}	//array para incluir apenas os valores dos impostos
+
+DEFAULT aImps := {}	//Se aImps nao conter dados do parametro, como na chamada de Grava_Dados para Devolucao. 
+
+//Caso exista o array de impostos carrega apenas o valor do mesmo
+If Len(aImps) > 0
+	For nX := 1 to Len(aImps)
+		aAdd(aValImp,aImps[nX][2])
+	Next nX
+EndIf
+
+nI := aScan(aDados, {|aTmp| aTmp[1] == cCaixa})
+
+If nI > 0
+	
+	aDados[nI, 2] += nDinheiro
+	aDados[nI, 3] += nCheques
+	aDados[nI, 4] += nCartao 
+	aDados[nI, 5] += nConveni
+	aDados[nI, 6] += nVales 
+	aDados[nI, 7] += nFinanc 
+	aDados[nI, 8] += nOutros 
+	aDados[nI, 9] += nValICM 
+	aDados[nI,10] += nValIPI 
+	aDados[nI,11] += nValISS 
+	aDados[nI,12] += nDescPro
+	aDados[nI,13] += nVlrLiq
+	aDados[nI,14] += nDevolucao
+	aDados[nI,15] += nCredito
+	aDados[nI,16] += nVlrDebi
+	For nX := 1 to Len(aValImp)
+ 		aDados[nI][17][nX] += aValImp[nX]
+	Next nX
+Else
+
+	aAdd(aDados, {cCaixa		, nDinheiro	, nCheques	, nCartao	,;
+					nConveni	, nVales		, nFinanc 	, nOutros	,;
+					nValICM	, nValIPI		, nValISS	, nDescPro	,;
+					nVlrLiq	, nDevolucao 	, nCredito	, nVLRDebi	,;
+					aValImp } )
+EndIf
+
+Return .T.
+
+//------------------------------------------------------------------------------   
+/*/{Protheus.doc} lj320VldDt
+Função responsável por validar o preenchimento dos campos de data de inicial e data final 
+
+@author	Varejo
+@version	P11.8
+@since		01/09/2016
+@return	lRet: .T. -> Validado com sucesso / .F.-> problema no preenchimento das datas
+/*/ 
+//------------------------------------------------------------------------------
+Static Function lj320VldDt(dDataIni, dDtataFim)
+local lRet := .T.
+
+If Empty(dDtataFim) .Or. Empty(dDataIni) 
+	lRet := .F.
+	MsgAlert(STR0015) //"As datas devem estar preenchidas. Favor ajustar."
+ElseIf  dDtataFim < dDataIni
+	lRet := .F.
+	MsgAlert(STR0016) //"A data final não pode ser menor que a data inicial. Favor ajustar."
+EndIf 
+
+Return lRet 

@@ -1,0 +1,6 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "SHELL.CH"
+
+Main function GFPLoad()
+Return .T.

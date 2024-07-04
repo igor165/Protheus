@@ -1,0 +1,3372 @@
+#INCLUDE "MATA030.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWEVENTVIEWCONSTS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "XMLXFUN.CH"
+#INCLUDE "TBICONN.CH"
+#INCLUDE "CRMDEF.CH"
+
+STATIC lAmbOffLn  	:= SuperGetMv("MV_LJOFFLN", Nil, .F.)	//Identifica se o ambiente esta operando em offline
+STATIC lHistFiscal 	:= HistFiscal()
+STATIC aAOVMark    	:= {}
+STATIC lIntUnqCod  	:= IIF(FindFunction("A020CodUnq"),A020CodUnq(),.F.)
+STATIC lFindIsMVC	:= IIF(FindFunction("MA030ISMVC"),.T.,.F.)
+STATIC _lTemMR		:= NIL
+Static _lFWCodFil	:= FindFunction("FWCodFil")
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ BOPS ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Alf Medrano ³08/07/16³TVPIJ3³Se registra el Nit o Cedula en tabla CV0- ³±±
+±±³            ³        ³      ³dentro de la func MA030Trans, se eliminan ³±±
+±±³            ³        ³      ³valores de CV0 en func A030Deleta.        ³±±
+±±³            ³        ³      ³Se agrega func GetSxENum() en MA030Trans  ³±±
+±±³            ³        ³      ³se agrega ConfirmSX8 a la inclusion de va-³±±
+±±³            ³        ³      ³lores en CVO en func MA030Trans. Colombia ³±±
+±±³Veronica F. ³27/05/19³DMINA-³Se modifica la función  ma030IncTrn en    ³±±
+±±³            ³        ³  6724³AxInclui añadiendo en los parametros el   ³±±
+±±³            ³        ³      ³Transición "MA030Trans" para la inserción ³±±
+±±³            ³        ³      ³en la tabla CV0. Colombia                 ³±±
+±±³Marco A. Glz³31/07/20³DMINA-³Se modifican las funciones MA030Trans y   ³±±
+±±³            ³        ³  9497³M030AltTra; en las que se agrega la fun-  ³±±
+±±³            ³        ³      ³cion M030AltCV0() ubicada en LOCXCOL para ³±±
+±±³            ³        ³      ³la alteracion e inclusion de CV0. (COL)   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß/*/
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Visual
+
+Visualização de Cliente
+
+@sample	A030Visual(ExpC1,ExpN1,ExpN2)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Visual(cAlias,nReg,nOpc)
+
+Default cAlias := ""
+Default nReg	 := 0
+Default nOpc	 := 2
+
+If lFindIsMVC .And. MA030IsMVC()
+	FWExecView(STR0002,"CRMA980",MODEL_OPERATION_VIEW,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/) //"Visualizar"
+Else
+	A30Visual(cAlias,nReg,nOpc)
+EndIf	
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Visual
+
+Visualização de Cliente
+
+@sample	A30Visual(ExpC1,ExpN1,ExpN2)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function A30Visual(cAlias,nReg,nOpc)
+
+Local aUsrBut 	:= {} 
+Local aButtons	:= {}
+Local lPyme		:= IIF(Type("__lPyme") <> "U",__lPyme,.F.)
+Local nDel     	:= 0
+Local nPos     	:= 0
+
+Private cOldCli	:= ""	// XML do model da amarração Cliente x Tp. Retenção
+
+Default cAlias := ""
+Default nReg	 := 0
+Default nOpc	 := 2
+
+If Empty(cAlias) .AND. IsInCallStack("TECA201")
+	cAlias := "SA1"
+EndIf
+
+//Limpa o array de subsegmentos.
+aAOVMark := {} 
+
+aButtons := {{"POSCLI",{|| a450F4Con()},STR0017, STR0018 }}
+
+If nModulo == 13 .OR. nModulo == 73	// SigaTMK ou SigaCRM
+	// Botao para acessar Script de Campanha
+	aAdd( aButtons, { "PRODUTO", {|| TkLstScr( nOpc, cAlias, M->A1_COD, M->A1_LOJA) }, STR0046, STR0047 } ) //"Scripts de Campanha", "Scripts"
+EndIf
+
+If  nModulo == 73	// SigaCRM
+	// Botao para acessar Subsegmento
+	aAdd( aButtons, { STR0162, {|| CRMA620(@aAOVMark,"SA1", M->A1_COD, M->A1_LOJA, M->A1_CODSEG, 1 ) }, 'Subsegmentos', 'Subsegmentos' } ) 
+EndIf
+// Botão para inclusão de Amarração entre Cliente e Tipo de Retenção
+If FindFunction("FINA024CLI")
+	AAdd( aButtons, { 'VALTPRET', { || FINA024CLI(2) }, STR0185, STR0185 } ) //--"Valores Tp. Retenção"
+EndIf
+
+Aadd(aButtons,{"", { || MATA030A(SA1->A1_COD+SA1->A1_LOJA,2) } ,STR0161})//"Complemento de Cliente"
+
+If !lPyme
+	aButtons := CRMXAddAct("SA1",aButtons) //Adcionar Rotinas no 'Ações relacionadas' do Formulário
+EndIF
+
+If ExistBlock( "MA030BUT" ) .AND. Valtype( aUsrBut := Execblock( "MA030BUT", .F., .F., { 2 } ) ) == "A"
+	AEval( aUsrBut, { |x| AAdd( aButtons, x ) } )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para EXCLUSAO de botoes            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030DBT" ) .AND. Valtype( aUsrBut := Execblock( "MA030DBT", .F., .F., { 2 } ) ) == "A"
+	For nDel := 1 To Len(aUsrBut)
+		If ( nPos := Ascan(aButtons,{ |x| Upper(x[Len(x)]) == Upper(aUsrBut[nDel])}) ) > 0
+			ADel(aButtons,nPos)
+			ASize(aButtons,Len(aButtons)-1)
+		EndIf
+	Next nDel
+EndIf
+
+nOpcA:=AxVisual( cAlias, nReg, nOpc,,,,,aButtons)
+
+DbSelectArea(cAlias)
+	
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Inclui
+
+Inclusão de Cliente
+
+@sample	A030Inclui(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Inclui(cAlias,nReg,nOpc)
+
+Default cAlias := "SA1"
+Default nReg	 := 0
+Default nOpc	 := 3
+
+If lFindIsMVC .And. MA030IsMVC()
+	dbSelectArea(cAlias)
+	FWExecView(STR0003,"CRMA980",MODEL_OPERATION_INSERT,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)		// "Incluir"
+Else
+	A30Inclui(cAlias,nReg,nOpc)
+EndIf
+
+Return Nil
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30Inclui
+
+Inclusão de Cliente
+
+@sample	A30Inclui(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function A30Inclui(cAlias,nReg,nOpc)
+
+Local aButtons   	:= {} 
+Local aUsrBut   	:= {} 
+Local nOpcA		:= 0
+Local lAtuADL    	:= SX2->(DbSeek("ADL")) .AND. GetMv( "MV_CRMADL",,.T. )  // Indica se a ADL deverá ter manutenção 
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Limpa algum filtro do SA1                                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local cOldFilter 	:= SA1->(dbFilter())
+Local nOrd       	:= SA1->(IndexOrd())
+Local cKey      	:= SA1->(IndexKey())
+Local nDel     	:= 0					// Contador do aUsrBut
+Local nPos		 	:= 0                	// Posição do filtro                   
+Local aParam	 	:= {{|| .T.}, {|| .T.}, {|| .T.}, {||IIF(lAmbOffLn,Ma030AltOk(),(Ma30IntFim(.F., nOpc),MA030OK(nOpc)))} }	//Bloco de codigo executado apos a transacao da inclusao do cliente
+Local cEventID   	:= 0    				// Variavel usada para armazenar o ID do EventViewer	  
+Local cMessagem  	:= " " 				// Variavel para armazenar a mensagem utilizada no eventviewer
+Local aFieldValue	:= {}
+Local aStruModel	:= {}
+Local lIntGFE		:= SuperGetMv("MV_INTGFE",,.F.) 
+
+//-- Variavel usada para verificar se o disparo da funcao IntegDef() pode ser feita manualmente
+Local lIntegDef  	:= FWHasEAI("MATA030",.T.,,.T.)
+Local l030Inc  	:= (ExistBlock("M030Inc"))	
+Local lT030Inc 	:= (ExistTemplate("M030Inc"))   
+Local lCRMTerr 	:=  SuperGetMV("MV_CRMTERR",.F.,.F.)
+Local lRet 		:= Nil
+Local lCentPDV	:= IIf( FindFunction("LjGetCPDV"), LjGetCPDV()[1] , .F. ) // Eh Central de PDV  - CENTRAL TOTVSPDV                                                          
+Local nSendOn	 	:= SuperGetMV("MV_LJSENDO",,0) //Retorno como sera a integracao do cliente para retaguarda - 0 - via job - 1 online - 2 startjob - CENTRAL TOTVSPDV 
+Local lSendCli	:= .F. 			//Informa se o cliente foi gravado com sucesso na retaguarda quando se utiliza central de PDV - TOTVSPDV
+Local nX 		 	:= 0
+Local nCampos    	:= 0
+Local aSA1       	:= {}
+Local aRetInt		:= {}
+
+Local lIncluiBkp     := INCLUI
+Local lAlteraBkp     := ALTERA
+
+//--Variáveis para controle do código único.
+Local cProduct		:= 'Datasul'
+Local cAliasCli		:= "SA1"
+Local cField		:= 'A1_COD'
+
+// Variaveis para controle do facilitador fiscal
+Local lFacFis  := IIf(FindFunction("FSA172VLD"), FSA172VLD(), .F.)
+
+Private cOldCli	:= ""	// XML do model da amarração Cliente x Tp. Retenção
+
+Default cAlias := "SA1"
+Default nReg	 := 0
+Default nOpc	 := 3
+
+If Type("aRotAuto") == "U"
+   Private aRotAuto	:= Nil
+EndIf
+
+If Type("aRAutoFOJ") == "U"
+	Private aRAutoFOJ	:= Nil
+EndIf
+If IsInCallStack("TECA201") .And. Empty(cAlias)
+	cAlias := "SA1"
+EndIf
+
+//Limpa o array de subsegmentos.
+aAOVMark := {} 
+If _lTemMR == NIL
+	_lTemMR := If(FindFunction("FTemMotor"), FTemMotor(), .F.) .and. FindFunction("FINA024CLI")
+Endif
+
+//----------------------------------------------------------------
+// Ponto de Entrada - Validação efetuada ao clicar no botão 
+// "Incluir" do cadastro de clientes, permitindo ou bloqueando 
+//  a abertura da tela.
+//----------------------------------------------------------------
+If ExistBlock( "MA030VINC" ) .AND. !( lRet := ExecBlock( "MA030VINC", .F., .F. ) )
+ 	Return( lRet )
+EndIf 
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Limpa o filtro do ponto de entrada                           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SA1->( dbClearFilter() ) 
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Adiciona botoes a enchoicebar                                ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+If  nModulo == 73	// SigaCRM
+	// Botao para acessar Subsegmento
+	aAdd( aButtons, { STR0162, {|| CRMA620(@aAOVMark,"SA1", M->A1_COD, M->A1_LOJA, M->A1_CODSEG, 3 ) }, STR0162, STR0162 } ) // Subsegmentos
+	If lCRMTerr
+		aAdd( aButtons, { STR0163, {|| CRMA690EvalTerritory("MATA030","SA1",.T.,.T.) },STR0163,STR0163 } ) // Avaliar Territorio
+	EndIf
+EndIf
+// Botão para inclusão de Amarração entre Cliente e Tipo de Retenção 
+If _lTemMR
+	AAdd( aButtons, { 'VALTPRET', { || FINA024CLI(3) }, STR0185, STR0185 } ) //--"Valores Tp. Retenção"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para criacao de botoes do usuario  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030BUT" ) .AND. Valtype( aUsrBut := Execblock( "MA030BUT", .F., .F., { 3 } ) ) == "A"
+	AEval( aUsrBut, { |x| AAdd( aButtons, x ) } ) 
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para EXCLUSAO de botoes            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030DBT" ) .AND. Valtype( aUsrBut := Execblock( "MA030DBT", .F., .F., { 3 } ) ) == "A"
+	For nDel := 1 To Len(aUsrBut)
+		If ( nPos := Ascan(aButtons,{ |x| Upper(x[Len(x)]) == Upper(aUsrBut[nDel]) } ) ) > 0
+			ADel(aButtons,nPos)
+			ASize(aButtons,Len(aButtons)-1)
+		EndIf
+	Next nDel
+EndIf 		
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se a rotina automatica esta ativa                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ							
+If ( Type("l030Auto") == "U" )
+	l030Auto := .f.
+EndIf
+
+//Retorna o array aRotina do Mata030, pois, caso venha do CNTA300 é necessária a chamada para corrigir 
+If IsInCallStack("CNTA300")
+	aRotina := { 	{STR0001,"PesqBrw"    , 0 , 1,0 ,.F.},;  			// "Pesquisar"
+						{STR0002, "A030Visual" , 0 , 2,0   , NIL},;  	// "Visualizar"
+						{STR0003, "A030Inclui" , 0 , 3,81  , NIL},;  	// "Incluir"
+						{STR0004, "A030Altera" , 0 , 4,143 , NIL},;  	// "Alterar"
+						{STR0005, "A030Deleta" , 0 , 5,144 , NIL}}		// "Excluir"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Envia para processamento dos Gets          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nOpcA:=0
+Begin Transaction
+	nOpcA := AxInclui(cAlias,nReg,nOpc,/*aAcho*/,/*cFunc*/,/*aCpos*/,"MA030TudOk(nOpc)",/*lF3*/,"MA030Trans(" + Alltrim(Str(nOpcA)) + "," + Alltrim(Str(nOpc)) + ")"/*cTransact*/,aButtons,aParam,aRotAuto,/*lVirtual*/)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+	//³Chamada da função IntegDef()	³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ   
+	If nOpcA == 1 .And. lIntegDef
+		RegToMemory("SA1", .F. ) 
+		aRetInt := FwIntegDef("MATA030",,,,"MATA030")
+	  	If Valtype(aRetInt) == "A" .AND. Len(aRetInt) == 2
+			If !aRetInt[1]
+				cMsgRet := If(Empty(AllTrim(aRetInt[2])), STR0177, AllTrim(aRetInt[2]))
+					
+				//-- Exclusão CustomerVendorReservID
+				If lIntUnqCod
+					lIncluiBkp     := INCLUI
+					lAlteraBkp     := ALTERA      
+            
+					INCLUI    := .F. 
+					ALTERA    := .F.         
+       
+					MATA020B(.T.,M->A1_COD,"MATA030",(Type("l030Auto") == "U"))               
+       
+					INCLUI    := lIncluiBkp  
+					ALTERA    := lAlteraBkp                           
+				EndIf
+                     
+				Help('',1,STR0023,, cMsgRet,01,02)                    
+				DisarmTransaction()
+				Return .F.
+			Else
+				If lIntUnqCod			               
+					If !MATA020B(.T.,SA1->A1_COD,"MATA030",(Type("l030Auto") == "U"))
+						DisarmTransaction()
+						Return .F.
+					EndIf
+				EndIf
+			Endif
+		Endif
+	Else
+		//-- EXCLUSÃO DA RESERVEID
+		If lIntegDef .And. lIntUnqCod		
+			
+			lIncluiBkp	:= INCLUI
+			lAlteraBkp	:= ALTERA		
+				
+			INCLUI	:= .F. 
+			ALTERA	:= .F. 		
+			
+			MATA020B(.T.,,"MATA030",.F.,.T.,.T.)			
+			
+			INCLUI	:= lIncluiBkp	
+			ALTERA	:= lAlteraBkp		
+			
+		EndIf
+	EndIf	
+End Transaction		
+
+// P.E só é executado se inclusão foi cancelada pois na confirmação o P.E é executado pela rotina MA030Trans()
+If nOpcA==3
+	If lT030Inc
+		ExecTemplate("M030Inc",.f.,.f., nOpcA )
+	Endif
+	If l030Inc
+		ExecBlock("M030Inc",.f.,.f., nOpcA )
+	Endif
+
+	///////////////////////////////////////////////////////////
+	// Agroindustria  									      /
+	///////////////////////////////////////////////////////////
+	If FindFunction("OGXUtlOrig") .And. FindFunction("OGA010InFo") .AND. OGXUtlOrig()
+	    OGA010InFo()
+	Endif
+Endif
+
+//--------------------
+// Integração Reserve
+//--------------------
+If nOpcA == 1 .And.;
+	SuperGetMV("MV_RESEXP",.F.,"0") <> "0" .And.;			//Verifica a forma de exportacao definida
+	SubStr(SuperGetMV("MV_RESCAD",.F.,"111"),2,1) == "1"	//Verifica se a exportacao do cliente esta habilitada
+	Fina659(nOpc)
+EndIf	
+
+If nOpca == 1 .AND. lAtuADL .AND. !Empty(SA1->A1_VEND)
+	Ft520Inc(SA1->A1_VEND,"SA1",SA1->A1_COD,SA1->A1_LOJA) 
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Event Viewer - Envia e-mail ou RSS na inclusao de clientes. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nOpcA == 1             
+	cEventID  := "032" //Inclusao de cliente
+	cMessagem := STR0058+"  "+STR0059+"/"+STR0060+" :"+SA1->A1_COD+"/"+SA1->A1_LOJA+CHR(13)+CHR(10)+STR0111+" :"+SA1->A1_NOME+CHR(13)+CHR(10)+STR0112+": "+Subs(cUsuario,7,15)+"."
+	EventInsert(FW_EV_CHANEL_ENVIRONMENT, FW_EV_CATEGORY_MODULES, cEventID,FW_EV_LEVEL_INFO,""/*cCargo*/,STR0057,cMessagem,.T./*lPublic*/)	
+EndIf
+
+DbSelectArea(cAlias)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Retorna o filtro original                                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+DbSelectArea("SA1")
+
+If !Empty(cOldFilter) .AND. nOrd == 0 .AND. !Empty(cKey)
+	cOldFilter += ".AND. ORDERBY("+StrTran(ClearKey(cKey),"+",",")+")"
+EndIf
+If !Empty( cOldFilter )
+	SET FILTER TO &cOldFilter
+EndIf
+
+If lIntGFE
+	aFieldValue := { { "A1_CLIFIL", { || A030CliFil(SA1->A1_CGC) } }}
+EndIf	
+
+Aadd(aStruModel, { "SA1", "MATA030_SA1" , NIL, NIL, NIL, aFieldValue } )
+
+If nOpcA == 1 
+
+	If lIntGFE
+		MaEnvEAI(,,nOpc+1,"MATA030",aStruModel,,,,,,"MATA030" )
+	Else
+		MaEnvEAI(,,nOpc,"MATA030",aStruModel,,,,,,"MATA030" )	
+	EndIf
+ 
+EndIf	
+
+//Tratamento para envio online do cliente para retaguarda quando utiliza central de PDV
+If nOpcA == 1 .AND. lCentPDV .AND. (nSendOn == 1 .OR. nSendOn == 2)
+
+	nCampos := SA1->(FCount())
+	
+	For nX := 1 To nCampos   		
+		If AllTrim(FieldName( nX )) == 'A1_SITUA'
+			AAdd( aSA1 , { FieldName( nX ), '' } )
+		Else
+			AAdd( aSA1 , { FieldName( nX ), FieldGet( nX ) } )
+		EndIf 
+	Next nX   
+
+	If Len(aSA1) > 0
+
+		//Transmite o cliente para retaguarda  - gorgulho
+		If nSendOn == 1            
+			MsgRun(STR0195,STR0196,{||STDSendCli(aSA1,@lSendCli)}) //"Transmitindo cliente"##"Aguarde..."
+		ElseIf nSendOn == 2
+			StartJob("STDSendCli", GetEnvServer(), .F., aSA1,@lSendCli,.T.,cEmpAnt,cFilAnt)
+		EndIf
+        
+	EndIf
+
+EndIf
+
+//--Grava InternalId caso esteja ligado o código único (Protheus x Datasul) e se não houver envio no Adapter do Mata030.
+If lIntUnqCod .And. nOpc == 3 .And. nOpcA == 1 .AND. !lIntegDef
+	CFGA070Mnt(cProduct, cAliasCli, cField, SA1->A1_COD, SA1->(A1_COD+A1_LOJA), .F.)
+EndIf
+// Verifica se deve acionar o facilitador fiscal - Perfis Tributários
+// Não acionar o facilitador de dentro do FISA170 pois se o cliente estiver sendo cadastrado pela
+// consulta padrão ele já será vinculado ao perfil.
+If nOpca == 1 .And. lFacFis .And. FunName() <> "FISA170"
+	FSA172FAC({"CLIENTE", SA1->A1_COD, SA1->A1_LOJA})
+EndIf
+		
+If ExistFunc("TMSIntRot")  //Integração MapLink
+	TMSIntRot("SA1",SA1->(Recno())) 
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} MA030Trans
+
+Processa gravações durante a inclusão.  
+
+@author Conrado Q. Gomes 
+@since 03/01/2008
+@version 1.0
+@return 
+@obs Função tambem utiizada na consulta padrão do cliente/*/
+//------------------------------------------------------------------------------
+Function MA030Trans( nOpc, nOpcA )
+Local l030Inc  := (ExistBlock("M030Inc"))    // Existi função
+Local lT030Inc := (ExistTemplate("M030Inc")) // Existi função
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Funcionalidades do APDL                                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local cFilialAdm  := SuperGetMV("MV_APDLFOP",.F.,cFilAnt) // Aparametros de Funcionalidade Advpl
+Local lOMSOper    := .F.
+Local lFilialCli  := ( cFilialAdm <> cFilAnt )  // controla filial do cliente
+Local cChave      := ""
+Local aAutoAO4    := {}
+Local aAutoAO4Aux := {}
+Local aTerritory  := {}
+Local lCodUser    := .T.
+Local aDULRec     := {}
+Local cAliasQry   := ""
+Local cQuery      := ""
+Local lPropri	  := .T.
+Local lMVCRMUAZS  := SuperGetMv("MV_CRMUAZS",, .F.)
+Local aUserPaper  := CRMXGetPaper() 
+
+Default nOpcA     := 4
+
+lOMSOper   := (IntDL() .And. SuperGetMV("MV_APDLOPE",.F.,.F.))
+
+If lT030Inc
+	ExecTemplate("M030Inc",.f.,.f., nOpc )
+Endif
+If l030Inc
+	ExecBlock("M030Inc",.f.,.f., nOpc )
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gravacao no Log de Alteracoes do Front Loja. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+FRTGeraSLH("SA1", "I")	
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Caso utilize os modulos do APDL e esteja sendo utilizado ³
+//³ no ambiente de operador logistico avisa o usuario sobre o³
+//³ procediemento de cadastro de clientes.                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lOMSOper .AND. lFilialCli
+	If !( l030Auto )
+		HELP(" ",1,"APDLCLIOPL")
+	EndIf
+	Mat030Oper(SA1->A1_COD,SA1->A1_LOJA,SA1->A1_CGC,cFilialAdm)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gravacao do subsegmentos. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !Empty(aAOVMark) .AND. !Empty(SA1->A1_CODSEG)
+	CRMA620GrvAOW(aAOVMark, "SA1", SA1->A1_COD, SA1->A1_LOJA, SA1->A1_CODSEG, .F. )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona ou Remove o privilegios deste registro.  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+cChave 	:= PadR(xFilial("SA1")+SA1->A1_COD+SA1->A1_LOJA,TAMSX3("AO4_CHVREG")[1])		
+If lMVCRMUAZS
+	aAutoAO4 := CRMA200PAut(MODEL_OPERATION_INSERT,"SA1",cChave,/*cCodUsr*/,/*aPermissoes*/,/*aNvlEstrut*/,/*cCodUsrCom*/,/*dDataVld*/,,,lPropri)    
+	
+	If !Empty( aUserPaper )
+			
+		// Se o codigo do vendendor logado for diferente do cadastrado, insere na AO4 como compartilhado
+		If ( !Empty(SA1->A1_VEND) .And. !Empty(aUserPaper[USER_PAPER_CODVEND]) .And. aUserPaper[USER_PAPER_CODVEND] <> SA1->A1_VEND )
+					
+			AZS->(DbSetOrder(4))	// AZS_FILIAL+AZS_VEND
+				
+			If AZS->(DbSeek(xFilial("AZS")+SA1->A1_VEND))
+				aAutoAO4Aux := CRMA200PAut( MODEL_OPERATION_INSERT,"SA1",cChave,AZS->AZS_CODUSR,/*aPermissoes*/,;
+												/*aNvlEstrut*/,aUserPaper[USER_PAPER_CODUSR],/*dDataVld*/,,,/*lPropri*/, AZS->AZS_SEQUEN + AZS->AZS_PAPEL )
+				aAdd(aAutoAO4[2],aAutoAO4Aux[2][1]) 
+			EndIf 
+					
+		EndIf 
+		
+	EndIf
+			
+	If Len(aAutoAO4) > 0
+		CRMA200Auto(aAutoAO4[1],aAutoAO4[2],MODEL_OPERATION_INSERT)
+	EndIf
+Else
+	aAutoAO4:= CRMA200PAut(MODEL_OPERATION_INSERT,"SA1",cChave,/*cCodUsr*/,/*aPermissoes*/,/*aNvlEstrut*/,/*cCodUsrCom*/,/*dDataVld*/)    
+	 
+	DbSelectArea("AO3")
+	AO3->(DbSetOrder(1))	// AO3_FILIAL+AO3_CODUSR
+			 
+	If AO3->(DbSeek(xFilial("AO3")+RetCodUsr()))
+				
+		// Se o codigo do vendendor logado for diferente do cadastrado, insere na AO4 como compartilhado
+		If !Empty(SA1->A1_VEND) .AND. AO3->AO3_VEND <> SA1->A1_VEND
+					
+			AO3->(DbSetOrder(2))	// AO3_FILIAL+AO3_VEND
+				
+			If AO3->(DbSeek(xFilial("AO3")+SA1->A1_VEND))
+				aAutoAO4Aux := CRMA200PAut(MODEL_OPERATION_INSERT,"SA1",cChave,AO3->AO3_CODUSR,/*aPermissoes*/,/*aNvlEstrut*/,RetCodUsr(),/*dDataVld*/)
+				aAdd(aAutoAO4[2],aAutoAO4Aux[2][1]) 
+			EndIf 
+					
+		EndIf 
+	Else
+		//Quando não passa usuario por rotina automatica, não chamar rotina de previlégios
+		lCodUser := .F.			
+	EndIf
+			
+	If lCodUser .And. Len(aAutoAO4) > 0
+		CRMA200Auto(aAutoAO4[1],aAutoAO4[2],MODEL_OPERATION_INSERT)
+	EndIf
+EndIf
+	
+If cPaisLoc == 'COL'
+	M030AltCV0(.T.) //Inclusion de registro en CV0
+EndIf
+
+If (nOpcA == 3 .Or. nOpcA == 4) .And.  SuperGetMv("MV_CPLINT",.F.,"2") == "1" .And. SuperGetMv("MV_CPLCLI",.F.,"2") == "1"
+	If ( SuperGetMv("MV_CPLEX",.F.,"2") == "2" .And. (Empty(SA1->A1_PAIS) .Or. SA1->A1_PAIS == PadR('105',Len(SA1->A1_PAIS))) .And. SA1->A1_EST != PadR('EX',Len(SA1->A1_EST)));
+		.Or. SuperGetMv("MV_CPLEX",.F.,"2") == "1"
+
+		aAdd(aDULRec,{"SA1",SA1->(Recno())})
+		
+		cAliasQry := GetNextAlias()
+		cQuery := "SELECT R_E_C_N_O_ DULRECNO FROM " + RetSqlName("DUL") + " WHERE D_E_L_E_T_ = ''"
+		cQuery += " AND DUL_FILIAL = '" + xFilial("DUL") + "'"
+		cQuery += " AND DUL_CODCLI = '" + SA1->A1_COD + "'"
+		cQuery += " AND DUL_LOJCLI = '" + SA1->A1_LOJA + "'"
+		
+		dbUseArea( .T., "TOPCONN", TCGENQRY(,,ChangeQuery(cQuery)), cAliasQry, .F., .T.)
+		
+		While !(cAliasQry)->(Eof())
+		
+			aAdd(aDULRec,{"DUL",(cAliasQry)->DULRECNO})
+			
+			(cAliasQry)->(dbSkip())
+		EndDo
+		
+		(cAliasQry)->(dbCloseArea())
+		
+		If FindFunction("OMSXJOBCAD")
+			OMSXJOBCAD(aDULRec,4)
+		EndIf
+		
+		aSize(aDULRec,0)
+	EndIf
+EndIf
+
+If nOpcA == 1 .AND. _lTemMR
+
+	If aRAutoFOJ <> NIL
+		lRet	:= F024CExAut( aRotAuto, aRAutoFOJ, nOpc )
+	EndIf
+
+	If Empty(cOldCli)
+		
+		//O Model realiza os cálculos Valores Tp. Retenção
+		oModelCli := FWLoadModel("FINA024CLI")
+		oModelCli:SetOperation( MODEL_OPERATION_UPDATE )
+		oModelCli:Activate()
+		cOldCli	:= oModelCli:GetXMLData()
+		oModelCli:Deactivate()
+		oModelCli:Destroy()
+	ElseIf !Empty(cOldCli)
+		
+		//O Model realiza os cálculos Valores Tp. Retenção
+		oModelCli := FWLoadModel("FINA024CLI")
+		oModelCli:SetOperation( MODEL_OPERATION_UPDATE )
+		oModelCli:Activate()
+		oModelCli:LoadXMLData( cOldCli )
+		FN024CGrv()
+		oModelCli:Deactivate()
+		oModelCli:Destroy()
+	EndIf
+	
+	lRet := FN024FOJ()
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//?Faz a distribuicao da conta + rodizio para o territorio vencedor. ?
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ?
+If SuperGetMV("MV_CRMTERR",.F.,.F.) .And. ( Empty( SA1->A1_TPMEMB ) .Or. Empty( SA1->A1_CODMEMB ) )
+	aTerritory := CRMA690CasterTerritory("MATA030","SA1", SA1->A1_CODTER, /*cScript*/, /*lSimulation*/)
+	If aTerritory[1] 
+		RecLock("SA1",.F.)
+		SA1->A1_CODTER 	:= aTerritory[2]  // C?igo do Territorio.
+		SA1->A1_TPMEMB 	:= aTerritory[3]  // Tipo do Membro
+		SA1->A1_CODMEMB	:= aTerritory[4]  // Codigo do Membro
+		SA1->A1_VEND	:= aTerritory[5]  // Vendedor DONO/RESPONSAVEL da conta
+		SA1->(MsUnLock())
+	EndIf
+EndIf
+	
+/* Integração RISK - TOTVS Mais Negócios
+Se a integração com o RISK estiver habilitada, associa o cliente ao contato*/	
+If FindFunction( "RskIsActive" ) .And. RskIsActive()
+	RskNCtoCli()
+EndIf
+
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Altera
+
+Alteração do cadastro de cliente
+
+@sample	A030Altera(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Altera(cAlias,nReg,nOpc)
+
+Default cAlias := "SA1"
+Default nReg	 := 0
+Default nOpc	 := 4
+
+If lFindIsMVC .And. MA030IsMVC()
+	dbSelectArea(cAlias)
+	FWExecView(STR0004,"CRMA980",MODEL_OPERATION_UPDATE,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/) // "Alterar"
+Else
+	A30Altera(cAlias,nReg,nOpc)	
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30Altera
+
+Alteração do cadastro de cliente
+
+@sample	A30Altera(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Wagner Xavier    
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function A30Altera(cAlias,nReg,nOpc)
+
+Local nOpcA      	:= 0
+Local lExecuta	:= .T.
+Local lVldInt		:= .T.
+Local cAliasAtu	:= ""
+Local nOrderAtu	:= 0
+Local nDel       	:= 0
+Local nPos       	:= 0
+Local nX         	:= 0
+Local dDataAlt	:= cTod("")
+Local cHoraAlt	:= ""
+Local cVendAnt	:= ""
+Local cNomeAnt	:= ""
+Local cCGCAnt	 	:= ""
+Local cCodSeg    	:= ""
+Local l030Alt    	:= ExistBlock("M030Alt")
+Local lM030PALT  	:= ExistBlock("M030PALT")
+Local lMT030Int  	:= ExistBlock("MT030INT")
+Local lMt030AltT 	:= ExistTemplate("MALTCLI")
+Local aButtons	:= {{"POSCLI",{|| a450F4Con()},STR0017, STR0018 }}
+Local lPyme		:= Iif(Type("__lPyme") <> "U",__lPyme,.F.)
+Local cCEPAnt    	:= SA1->A1_CEP
+Local cTelAnt    	:= SA1->A1_TEL
+Local cDDDAnt    	:= SA1->A1_DDD
+Local lACAtivo   	:= GetNewPar("MV_ACATIVO", .F.)
+Local lHistTab   	:= GetNewPar("MV_HISTTAB", .F.)
+Local cFilialAIF 	:= xFilial("AIF")
+Local cFilialSA1 	:= xFilial("SA1")
+Local lAtuADL 	:= SX2->(DbSeek("ADL")) .AND. GetMv( "MV_CRMADL",,.T. )  // Indica se a ADL deverá ter manutenção
+Local aParam	 	:= {{|| .T.}, {|| .T.}, {|| .T.}, {||IIF(lAmbOffLn,Ma030AltOk(),(Ma30IntFim(.F., nOpc),MA030OK(nOpc)))} }	//Bloco de codigo executado apos a transacao da inclusao do cliente
+Local lCRMTerr 	:= SuperGetMV("MV_CRMTERR",.F.,.F.)
+Local bCampoSA1  	:= { |x| SA1->(Field(x)) } 
+Local aCmps      	:= {}
+Local cTransact	:= ""  
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Tratamento Integracao POS - Synthesis  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lIntPOS 	:= (SuperGetMV("MV_LJSYNT",,"0") == "1")
+Local lCentPDV	:= IIF( FindFunction("LjGetCPDV"), LjGetCPDV()[1] , .F. ) // Eh Central de PDV
+
+Private cOldCli	:= ""	// XML do model da amarração Cliente x Tp. Retenção
+
+If Type("aRAutoFOJ") == "U"
+	Private aRAutoFOJ	:= Nil
+EndIf
+
+Default cAlias := "SA1"
+Default nReg	 := 0
+Default nOpc	 := 4
+
+IF cPaisLoc == 'RUS'
+	SetKey(VK_F2,{|| TDFieldActv()})
+EndIf
+	
+If IsInCallStack("TECA201") .And. Empty(cAlias)
+	cAlias := "SA1"
+	nReg := If(nReg==0, SA1->(RecNo()), nReg)
+EndIf
+
+//Limpa o array de subsegmentos.
+aAOVMark := {} 
+
+If Type("aCpoAltSA1") == "U"
+	Private aCpoAltSA1 := {} 
+EndIf
+
+lCGCValido := .F. // Variavel usada na validacao do CNPJ/CPF (utilizando o Mashup)
+If _lTemMR == NIL
+	_lTemMR := If(FindFunction("FTemMotor"), FTemMotor(), .F.) .and. FindFunction("FINA024CLI")
+Endif
+
+If !lPyme
+	aButtons := CRMXAddAct("SA1",aButtons) //Adcionar Rotinas no 'Ações relacionadas' do Formulário
+EndIf
+
+Aadd(aButtons,{"", { || MATA030A(SA1->A1_COD+SA1->A1_LOJA,4) } ,STR0161})//"Complemento de cliente"
+
+If cPaisLoc == "COL" .And. FindFunction("Lx2M030CO") 
+	Lx2M030CO(@aButtons)
+EndIf
+
+If  nModulo == 73	// SigaCRM
+	// Botao para acessar Subsegmento
+	aAdd( aButtons, { STR0162, {|| CRMA620(@aAOVMark,"SA1", M->A1_COD, M->A1_LOJA, M->A1_CODSEG, 4 ) }, STR0162, STR0162 } )	//'Subsegmentos'##'Subsegmentos'##'Subsegmentos' 
+	If lCRMTerr
+		aAdd( aButtons, { STR0163, {|| CRMA690EvalTerritory("MATA030","SA1",.T.,.T.) }, STR0163, STR0163 } )	//"Simular Território"##"Simular Território"##"Simular Território" 
+	EndIf 
+EndIf
+// Botão para inclusão de Amarração entre Cliente e Tipo de Retenção 
+If _lTemMR
+	AAdd( aButtons, { 'VALTPRET', { || FINA024CLI(4) }, STR0185, STR0185 } ) //--"Valores Tp. Retenção"
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para criacao de botoes do usuario  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030BUT" ) .AND. Valtype( aUsrBut := Execblock( "MA030BUT", .F., .F., { 4 } ) ) == "A"
+	AEval( aUsrBut, { |x| AAdd( aButtons, x ) } ) 
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para EXCLUSAO de botoes            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030DBT" ) .AND. Valtype( aUsrBut := Execblock( "MA030DBT", .F., .F., { 4 } ) ) == "A"
+	For nDel := 1 To Len(aUsrBut)
+		If ( nPos := Ascan(aButtons,{ |x| Upper(x[Len(x)]) == Upper(aUsrBut[nDel])}) ) > 0
+			ADel(aButtons,nPos)
+			ASize(aButtons,Len(aButtons)-1)
+		EndIf
+	Next nDel
+EndIf 		
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Caso exista o execblock , executa ,se voltar³
+//³.F. abandona o programa                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+#IFNDEF SHELL
+	If l030Alt
+		lExecuta := ExecBlock("M030Alt",.F.,.F.)
+		If !(lExecuta)
+			Return .T.
+		Endif
+	EndIf
+#ENDIF
+
+cVendAnt := SA1->A1_VEND
+cNomeAnt := SA1->A1_NOME
+cCGCAnt  := SA1->A1_CGC
+cCodSeg  := SA1->A1_CODSEG
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ MT030INT - Ponto de Entrada utilizado para permitir a altera-|
+//|            cao do cliente quando o cadastro foi gerado via   |
+//|            integracao.                                       |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ							
+If lMT030Int
+	lVldInt := Execblock("MT030INT",.F.,.T.)
+Endif
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se a rotina automatica esta ativa                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ							
+If ( Type("l030Auto") == "U" )
+	l030Auto := .F.
+EndIf
+
+// Se não for processamento pelo EAI (Mensagem Unica) não permite alterar 
+// os dados do cliente
+If !IsInCallStack("FWUMESSAGE") .AND. SA1->A1_ORIGEM== "S1" .And. lVldInt
+	Help(" ",1,"INTEGDEF",,STR0186 + SA1->A1_ORIGEM ,3,0)	//"Alteração não permitida, registro proveniente da integracao do: "
+	Return .T.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Salva dados antes da alteracao.³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aCmps :=  RetCmps("SA1",bCampoSA1)	
+
+//Bloco antes da transação
+cTransact := "M030AltTra('"+cVendAnt+"'," + cValToChar(nOpc) + ",@nOpcA,@aParam)"
+
+nOpcA := AxAltera(cAlias,nReg,nOpc,/*aAcho*/,/*aCpos*/,/*nColMens*/,/*cMensagem*/,	iif(!lACAtivo, "MA030TudOk(nOpc)", "MA030TudOk(nOpc) .And. AC700ALTALU()"),cTransact,/*cFunc*/,aButtons, aParam  ,aRotAuto,/*lVirtual*/)
+
+If nOpca == 1 .AND. lAtuADL     
+
+	If Empty(cVendAnt) .AND. !Empty(SA1->A1_VEND)
+		Ft520Inc(SA1->A1_VEND,"SA1",SA1->A1_COD,SA1->A1_LOJA)
+	ElseIf !Empty(cVendAnt) .AND. SA1->A1_VEND <> cVendAnt
+		Ft520Alt(cVendAnt, SA1->A1_VEND, "SA1", SA1->A1_COD, SA1->A1_LOJA)
+	EndIf  
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³Atualiza a tabela de referencia ADL³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If ((cCGCAnt <> SA1->A1_CGC) .OR. (cNomeAnt <> SA1->A1_NOME))
+		Ft520AtuEn("SA1", SA1->A1_COD, SA1->A1_LOJA, SA1->A1_NOME, SA1->A1_CGC)
+	EndIf
+EndIf
+
+If nOpca == 1
+
+	///////////////////////////////////////////////////////////
+	// Agroindustria  									      /
+	///////////////////////////////////////////////////////////
+	If FindFunction("OGXUtlOrig") .And. FindFunction("OGA010AlFo") .AND. OGXUtlOrig()
+	    OGA010AlFo()
+	Endif	
+               
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Pontos de entrada 									³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lMt030AltT
+		ExecTemplate("MALTCLI",.F.,.F.)
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gravacao no Log de Alteracoes do Front Loja. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nOpcA == 1
+	FRTGeraSLH("SA1", "A")
+EndIf
+
+If nOpcA == 1 .AND. nModulo == 12	// SIGALOJA
+	
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Se for SigaLoja e for um registro criado automaticamente a partir ³
+	//³ do cadastro de Adm.Cartäes, deve atualizar o SAE.                 ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	cAliasAtu := Alias()
+	nOrderAtu := IndexOrd()
+	
+	DbSelectArea("SAE")
+	DbSetOrder(2)
+	If DbSeek( xFilial("SAE") + SA1->A1_COD )
+		
+		If SA1->A1_NOME <> SAE->AE_DESC
+			RecLock("SAE", .F.)
+			Replace AE_DESC With SA1->A1_NOME
+			MsUnlock()
+		EndIf
+		
+	EndIf
+	
+	DbSelectArea(cAliasAtu)
+	DbSetOrder(nOrderAtu)
+	
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao com o POS - Synthesis ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lIntPOS .And. (nOpcA == 1) .AND. SA1->(ColumnPos("A1_POSFLAG") > 0) .And. SA1->(ColumnPos("A1_POSDTEX") > 0) .And. (SA1->A1_POSFLAG == "1")
+	RecLock("SA1",.F.)
+	SA1->A1_POSDTEX := CtoD("")
+	SA1->( MsUnLock() )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Integracao Central PDV x Retaguarda³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lCentPDV .And. (nOpcA == 1) .AND. nModulo == 12 .AND. SA1->(ColumnPos("A1_SITUA") > 0) 
+	RecLock("SA1",.F.)
+	SA1->A1_SITUA := "00"
+	SA1->( MsUnLock() )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualizacao do movimento de viagem (SIGATMS) ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If nOpcA == 1 .AND. cCEPAnt <> SA1->A1_CEP .AND. IntTMS()
+	Begin Transaction
+		MsgRun(STR0027,,{|| TmsCEPDUD(SA1->A1_CEP,SA1->A1_COD,SA1->A1_LOJA) })  // "Aguarde, Atualizando movimento de viagem." 
+	End Transaction
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualizacao do telefone na Seq.Endereco³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙs
+If nOpcA == 1 .AND. (cTelAnt <> SA1->A1_TEL .Or. cDDDAnt <> SA1->A1_DDD) .AND. IntTMS()
+	Begin Transaction
+		MsgRun(STR0070,,{|| TmsTELDUL(SA1->A1_DDD,SA1->A1_TEL,SA1->A1_COD,SA1->A1_LOJA,cDDDAnt,cTelAnt) })  // "Aguarde, Atualizando movimento de viagem." 
+	End Transaction
+EndIf
+
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Gravar o historico das alteracoes realizadas pelo usuario    ³
+//³na tabela AIF usando o vetor aCpoAltSA1 que foi carregado na ³
+//³funcao Ma030TudOk().                                         ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Altera .And. nOpcA == 1 .And. lHistTab .And. Len(aCpoAltSA1) > 0
+	dDataAlt := Date()
+	cHoraAlt := Time()
+	For nX := 1 To Len(aCpoAltSA1)
+		MSGrvHist(cFilialAIF,;			// Filial de AIF
+		          cFilialSA1,;			// Filial da tabela SA1
+		          "SA1",;				// Tabela SA1
+		          SA1->A1_COD,;			// Codigo do cliente
+		          SA1->A1_LOJA,;		// Loja do cliente
+		          aCpoAltSA1[nX][1],;	// Campo alterado
+		          aCpoAltSA1[nX][2],;	// Conteudo antes da alteracao
+		          dDataAlt,;			// Data da alteracao
+		          cHoraAlt)				// Hora da alteracao
+	Next nX
+	//aCpoAltSA1 := {} // limpar o vetor
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Gravacao do Historico das alteracoes.      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lHistFiscal .And. Altera .And.  nOpcA == 1  .And. Len(aCpoAltSA1) > 0
+	GrvHistFis("SA1", "SS2", aCmps) 
+EndIf	
+
+aCpoAltSA1 := {} // limpar o vetor
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³Integracao SIGATMS X SIGAGFE	³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ          
+If nOpcA == 1
+  	MaEnvEAI(,,nOpc,"MATA030",{ { "SA1", "MATA030_SA1", NIL, NIL, NIL, NIL } },,,,,,"MATA030"  )                
+EndIf	  
+
+//--------------------
+// Integração Reserve
+//--------------------
+If nOpcA == 1 .And.;
+	SuperGetMV("MV_RESEXP",.F.,"0") <> "0" .And.;			//Verifica a forma de exportacao definida
+	SubStr(SuperGetMV("MV_RESCAD",.F.,"111"),2,1) == "1"	//Verifica se a exportacao do cliente esta habilitada
+	Fina659(nOpc)
+EndIf	
+
+If ExistFunc("TMSIntRot")  //Integração MapLink
+	TMSIntRot("SA1",SA1->(Recno()))
+EndIf
+
+#IFDEF SHELL
+	If l030Alt
+		lExecuta := ExecBlock("M030Alt",.F.,.F.,nOpca)
+		If !(lExecuta)
+			Return .T.
+		Endif
+	Endif
+#ENDIF
+If lM030PALT
+	If ValType(lExecuta := ExecBlock("M030PALT",.F.,.F.,{nOpca})) == "L" .And. !lExecuta
+		Return .T.
+	EndIf
+EndIf
+
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} M030AltTra
+Função que é chamada antes de finalizar a transação 
+na execução da funcao axAltera()
+
+@author reynaldo
+@since 18/11/2014
+@version 1.0
+
+@return nenhum
+/*/
+//------------------------------------------------------------------------------
+Function M030AltTra(cVendAnt, nOpc, nOpcAxAlt, aParmAxAlt)
+
+Local lMt030Alt  	:= ExistBlock("MALTCLI")
+Local aTerritory	:= {}
+Local cChave		:= ""
+Local cChaveUSR		:= ""
+Local aAutoAO4		:= {}
+Local cUserAnt		:= ""
+Local lAOWDeleted	:= .F.	
+Local aDULRec 		:= {}
+Local cAliasQry		:= ""
+Local cQuery		:= ""
+Local cMsgRet		:= ""
+Local lIntegDef	  	:= FWHasEAI("MATA030",.T.,,.T.)	//-- Variavel usada para verificar se o disparo da funcao IntegDef() pode ser feita manualmente
+Local aRetInt		:= {}
+Local lMVCRMUAZS	:= SuperGetMv("MV_CRMUAZS",, .F.)
+Local cCodUsr		:= If(lMVCRMUAZS, CRMXCodUser(), RetCodUsr())
+
+Default nOpc 		:= 4
+Default nOpcAxAlt	:= 1																														//nOpcAxAlt (passado por referência) contém o valor da variável nOpcA do AxAltera
+Default aParmAxAlt	:= {{|| .T.}, {|| .T.}, {|| .T.}, {||IIF(lAmbOffLn,Ma030AltOk(),(Ma30IntFim(.F., nOpc),MA030OK(nOpc)))} }	//aParmAxAlt (passado por referência) Bloco de código executado após a transação da alteração do cliente
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Gravacao do subsegmentos. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Empty(SA1->A1_CODSEG)
+	lAOWDeleted := .T.
+EndIf
+CRMA620GrvAOW(aAOVMark, "SA1", SA1->A1_COD, SA1->A1_LOJA, SA1->A1_CODSEG, lAOWDeleted )
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Faz a distribuicao da conta + rodizio para o territorio vencedor. ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If SuperGetMV("MV_CRMTERR",.F.,.F.) .And. ( Empty( M->A1_TPMEMB ) .Or. Empty( M->A1_CODMEMB ) )
+	aTerritory := CRMA690CasterTerritory()
+	If aTerritory[1] .And. aTerritory[2] <> M->A1_CODTER
+		RecLock("SA1",.F.)
+		SA1->A1_CODTER 	:= aTerritory[2]  // Código do Territorio.
+		SA1->A1_TPMEMB 	:= aTerritory[3]  // Tipo do Membro
+		SA1->A1_CODMEMB	:= aTerritory[4]  // Codigo do Membro
+		SA1->(MsUnLock())
+	EndIf
+EndIf
+
+If lMt030Alt
+	Execblock("MALTCLI",.F.,.F.)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Adiciona, Altera ou Remove o privilegios deste registro.  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Empty(cVendAnt)
+	cVendAnt := SA1->A1_VEND
+EndIf
+
+cChave := PadR(xFilial("SA1")+SA1->A1_COD+SA1->A1_LOJA,TAMSX3("AO4_CHVREG")[1])
+
+If !Empty(SA1->A1_VEND) .And. lMVCRMUAZS
+	DbSelectArea("AZS")
+	AZS->(DbSetOrder(4))	// AZS_FILIAL+AZS_VEND
+	
+	If AZS->(DbSeek(xFilial("AZS")+cVendAnt))
+		
+		DbSelectArea("AO4")
+		AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+		
+		If ! AO4->(DbSeek( xFilial("AO4") + "SA1" + cChave + AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL))
+			aAutoAO4 := CRMA200PAut(MODEL_OPERATION_INSERT,"SA1",cChave,AZS->AZS_CODUSR,/*aPermissoes*/,/*aNvlEstrut*/,;
+									cCodUsr,/*dDataVld*/,,,/*lPropri*/, AZS->AZS_SEQUEN + AZS->AZS_PAPEL )
+		Else
+						
+			cUserAnt := AZS->AZS_CODUSR 
+			cRoleAnt := AZS->AZS_SEQUEN + AZS->AZS_PAPEL
+				
+			If AZS->AZS_VEND <> SA1->A1_VEND
+					
+				If AZS->(DbSeek(xFilial("AZS")+SA1->A1_VEND))
+						
+					DbSelectArea("AO4")
+					AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+							
+					//Verifica se o vendedor atual possui privilegios para este registro.
+					If AO4->(DbSeek( xFilial("AO4") + "SA1" + cChave + AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL))
+						//Se possui deleta o acesso do vendedor anterior
+						If AO4->(DbSeek( xFilial("AO4") + "SA1" + cChave+cUserAnt + cRoleAnt))
+							RecLock("AO4",.F.)
+							AO4->(DbDelete())
+							AO4->(MsUnlock())
+						EndIf	
+					Else
+						//Senao troca o privilegios.
+						If AO4->(DbSeek( xFilial("AO4") + "SA1" + cChave+cUserAnt + cRoleAnt))
+							RecLock("AO4",.F.)
+							AO4->AO4_CODUSR := AZS->AZS_CODUSR
+							AO4->AO4_IDESTN := AZS->AZS_IDESTN
+							AO4->AO4_NVESTN := AZS->AZS_NVESTN 
+							AO4->AO4_USRPAP := AZS->AZS_SEQUEN + AZS->AZS_PAPEL
+							AO4->(MsUnlock())
+						EndIf	
+					EndIf
+						
+				EndIf
+					
+			EndIf
+			
+		EndIf
+		
+	EndIf
+ElseIf !Empty(SA1->A1_VEND)
+
+	DbSelectArea("AO3")
+	AO3->(DbSetOrder(2))	// AO3_FILIAL+AO3_VEND
+	If AO3->(DbSeek(xFilial("AO3")+cVendAnt))
+
+		DbSelectArea("AO4")
+		AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+		If !AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave+AO3->AO3_CODUSR))
+			aAutoAO4 := CRMA200PAut(MODEL_OPERATION_INSERT,"SA1",cChave,AO3->AO3_CODUSR,/*aPermissoes*/,/*aNvlEstrut*/,RetCodUsr(),/*dDataVld*/)
+		Else
+			cUserAnt := AO3->AO3_CODUSR
+			If AO3->AO3_VEND <> SA1->A1_VEND
+				If AO3->(DbSeek(xFilial("AO3")+SA1->A1_VEND))
+					DbSelectArea("AO4")
+					AO4->(DbSetOrder(1))		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+					//Verifica se o vendedor atual possui privilegios para este registro.
+					If AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave+AO3->AO3_CODUSR))
+						//Se possui deleta o acesso do vendedor anterior
+						If AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave+cUserAnt))
+							RecLock("AO4",.F.)
+							AO4->(DbDelete())
+							AO4->(MsUnlock())
+						EndIf
+					Else
+						//Senão troca o privilegios.
+						If AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave+cUserAnt))
+							RecLock("AO4",.F.)
+							AO4->AO4_CODUSR := AO3->AO3_CODUSR
+							AO4->AO4_IDESTN := AO3->AO3_IDESTN
+							AO4->AO4_NVESTN := AO3->AO3_NVESTN
+							AO4->(MsUnlock())
+						EndIf
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+
+	EndIf
+
+ElseIf !Empty(cVendAnt)
+	cChaveUSR := AO3->AO3_CODUSR
+	If lMVCRMUAZS
+		DbSelectArea("AZS")
+		DBSetOrder(4)		    // AZS_FILIAL+AZS_VEND
+	Else
+		DbSelectArea("AO3")
+		DbSetOrder(2)			// AO3_FILIAL+AO3_VEND
+	EndIf
+	
+	If DbSeek(xFilial()+cVendAnt)
+		If lMVCRMUAZS
+			cChaveUSR  := AZS->AZS_CODUSR + AZS->AZS_SEQUEN + AZS->AZS_PAPEL
+		EndIf
+		 
+		DbSelectArea("AO4")
+		DbSetOrder(1)		// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+		
+		If AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave+cChaveUSR))
+			RecLock("AO4",.F.)
+			AO4->(DbDelete())
+			AO4->(MsUnlock())
+		EndIf
+	EndIf
+EndIf
+
+If Len(aAutoAO4) > 0
+	DbSelectArea("AO4")
+	AO4->(DbSetOrder(1)) 	// AO4_FILIAL+AO4_ENTIDA+AO4_CHVREG+AO4_CODUSR
+	nOperation := If(AO4->(DbSeek(xFilial("AO4")+"SA1"+cChave)), MODEL_OPERATION_UPDATE, MODEL_OPERATION_INSERT)
+	CRMA200Auto(aAutoAO4[1],aAutoAO4[2],nOperation)
+EndIf
+
+If cPaisLoc == 'COL'
+	M030AltCV0(.F.) //Modificacion de registro en CV0
+EndIf
+
+If (nOpc == 3 .Or. nOpc == 4) .And.  SuperGetMv("MV_CPLINT",.F.,"2") == "1" .And. SuperGetMv("MV_CPLCLI",.F.,"2") == "1"
+	If (nOpc == 3 .Or. nOpc == 4) .And. (( SuperGetMv("MV_CPLEX",.F.,"2") == "2" .And. (Empty(SA1->A1_PAIS) .Or. SA1->A1_PAIS == PadR('105',Len(SA1->A1_PAIS))) .And. SA1->A1_EST != PadR('EX',Len(SA1->A1_EST)));
+			.Or. SuperGetMv("MV_CPLEX",.F.,"2") == "1")
+
+		aAdd(aDULRec,{"SA1",SA1->(Recno())})
+
+		cAliasQry := GetNextAlias()
+		cQuery := "SELECT R_E_C_N_O_ DULRECNO FROM " + RetSqlName("DUL") + " WHERE D_E_L_E_T_ = ''"
+		cQuery += " AND DUL_FILIAL = '" + xFilial("DUL") + "'"
+		cQuery += " AND DUL_CODCLI = '" + SA1->A1_COD + "'"
+		cQuery += " AND DUL_LOJCLI = '" + SA1->A1_LOJA + "'"
+		dbUseArea( .T., "TOPCONN", TCGENQRY(,,ChangeQuery(cQuery)), cAliasQry, .F., .T.)
+		While !(cAliasQry)->(Eof())
+			aAdd(aDULRec,{"DUL",(cAliasQry)->DULRECNO})
+			(cAliasQry)->(dbSkip())
+		EndDo
+		(cAliasQry)->(dbCloseArea())
+
+		If FindFunction("OMSXJOBCAD")
+			OMSXJOBCAD(aDULRec,4)
+		EndIf
+
+		aSize(aDULRec,0)
+	EndIf
+EndIf
+
+If lIntegDef
+	aRetInt := FwIntegDef("MATA030")
+	If Valtype(aRetInt) == "A" .AND. Len(aRetInt) == 2 .AND. !aRetInt[1]
+		cMsgRet			:= If(Empty(AllTrim(aRetInt[2])), STR0177, AllTrim(aRetInt[2]))
+		Help('', 1, STR0023,, cMsgRet, 01, 02) //-- 'O Movimento informado nao existe para este Servico / Tipo de Transporte. Movto./Serv.Transp./Tp.Transp.'
+		aParmAxAlt		:= {{|| .T.}, {|| .T.}, {|| .T.}, {|| .T.} }
+		nOpcAxAlt		:= 0
+		DisarmTransaction() // Desarma a transação que está configurada dentro da função AxAltera...
+		BREAK
+	Endif
+EndIf
+//Motor de Tributos - Amarração Cliente x Regra Financeira
+If (nOpc == 3 .Or. nOpc == 4) .AND. _lTemMR
+	
+	If aRAutoFOJ <> NIL
+		lRet	:= F024CExAut( aRotAuto, aRAutoFOJ, nOpc )
+	EndIf
+	
+	If Empty(cOldCli)
+		//O Model realiza os cálculos Valores Tp. Retenção
+		oModelCli := FWLoadModel("FINA024CLI")
+		oModelCli:SetOperation( MODEL_OPERATION_UPDATE )
+		oModelCli:Activate()
+		cOldCli	:= oModelCli:GetXMLData()
+		oModelCli:Deactivate()
+		oModelCli:Destroy()
+	ElseIf !Empty(cOldCli)
+		//O Model realiza os cálculos Valores Tp. Retenção
+		oModelCli := FWLoadModel("FINA024CLI")
+		oModelCli:SetOperation( MODEL_OPERATION_UPDATE )
+		oModelCli:Activate()
+		oModelCli:LoadXMLData( cOldCli )
+		FN024CGrv()
+		oModelCli:Deactivate()
+		oModelCli:Destroy()
+	EndIf
+	
+	lRet := FN024FOJ()
+EndIf
+
+/* Integração RISK - TOTVS Mais Negócios
+Se a integração com o RISK estiver habilitada, associa o cliente ao contato*/	
+If FindFunction( "RskIsActive" ) .And. RskIsActive()
+	RskNCtoCli()
+EndIf
+Return
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Deleta
+
+Exclusão do cadastro de cliente
+
+@sample	A030Deleta(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Jorge Queiroz  
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Deleta(cAlias,nReg,nOpc)
+Default cAlias := "SA1"
+Default nReg	 := 0
+Default nOpc	 := 5
+
+If lFindIsMVC .And. MA030IsMVC()
+	FWExecView(STR0005,"CRMA980",MODEL_OPERATION_DELETE,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)		// "Excluir"
+Else
+	A30Deleta(cAlias,nReg,nOpc)
+EndIf
+
+Return Nil
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30Deleta
+
+Exclusão do cadastro de cliente
+
+@sample	A30Deleta(cAlias,nReg,nOpc)
+
+@param		ExpC1 = Alias do arquivo 
+			ExpN1 = Numero do registro
+			ExpN2 = Opcao selecionada 
+
+@return	Nil
+
+@author	Jorge Queiroz  
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function A30Deleta(cAlias,nReg,nOpc)
+
+Local aUsrBut    	:= {}
+Local aButtons   	:= {{"POSCLI",{|| a450F4Con()},OemtoAnsi(STR0017),OemtoAnsi(STR0018)}}
+Local aSM0CodFil 	:= {}
+Local aFiliais   	:= {}
+Local aObjects   	:= {}
+Local aSize      	:= {} 
+Local aInfo      	:= {}
+Local aPosObj    	:= {}  
+Local cCodCli    	:= ""
+Local cQuery     	:= ""
+Local cQueryAD5  	:= ""
+Local cQuerySL1  	:= ""
+Local cCod       	:= ""
+Local cQuerySFM  	:= ""
+Local cAliasCO3		:= ""
+Local oDlg			:= Nil
+Local lExecuta   	:= .T.                 
+Local l030DelT   	:= (ExistTemplate("M030DEL"))
+Local l030Del    	:= (ExistBlock("M030DEL"))
+Local lM030Exc    	:= (ExistBlock("M030EXC"))
+Local lPodeApagar	:= .T.
+Local lAtuADL		:= SX2->(DbSeek("ADL")) .AND. GetMv( "MV_CRMADL",,.T. )  // Indica se a ADL deverá ter manutenção   
+//-- Variavel usada para verificar se o disparo da funcao IntegDef() pode ser feita manualmente
+Local lIntegDef  	:= FWHasEAI("MATA030",.T.,,.T.)
+Local nRecnoSM0  	:= SM0->(RecNo())
+Local nLoop      	:= 0 
+Local nPosMemo   	:= 0 
+Local nOpcA      	:= 0
+Local nBusca     	:= 0 
+Local nDel       	:= 0
+Local nPos       	:= 0
+Local bCampoSA1  	:= {|x| SA1->(Field(x))}
+Local aCmps      	:= {}
+Local lDelJUR    	:= .F.
+Local lDelJURErr 	:= .F.
+Local aErrorJUR  	:= {}
+Local lPai			:= .F.
+Local cChave	  	:= "" 
+Local aAutoAO4		:= {}
+Local aRetInt	  	:= {}
+Local aMemos	  	:= {}
+Local lAuxChkDel	:= .F.
+Local cMVResExp		:= SuperGetMV("MV_RESEXP",.F.,"0")		//Forma de exportação dos cadastros para o Sistema Reserve. 0=Desativado,1=Online,2=Scheduler, 3=Online e Scheduler
+Local cMVResCad		:= SuperGetMV("MV_RESCAD",.F.,"111")	//Define as exportações habilitadas do Protheus para o Reserve (0=Não/1=Sim). Ex. 010 (0=C.Custo/1=Clientes/0=Participantes)
+Local cOldArea		:= ""
+//--Variáveis para controle do código único.
+Local cProduct		:= 'Datasul'
+Local cAliasCli		:= "SA1"
+Local cField		:= 'A1_COD'
+Local oModelCli		:= Nil	// Model da amarração Cliente x Tp. Retenção
+Local lCliAgro		:= FindFunction("OGXUtlOrig") .And. FindFunction("OGA010VaFo") .And. FindFunction("OGA010ExFo")
+
+Private cOldCli		:= ""	// XML do model da amarração Cliente x Tp. Retenção
+
+Default cAlias		:= "SA1"
+Default nReg		:= 0
+Default nOpc		:= 5
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Monta a entrada de dados do arquivo                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Private aTELA[0][0],aGETS[0]
+
+//Limpa o array de subsegmentos.
+aAOVMark := {} 
+If _lTemMR == NIL
+	_lTemMR := If(FindFunction("FTemMotor"), FTemMotor(), .F.) .and. FindFunction("FINA024CLI")
+Endif
+
+If Empty(cAlias) .And. IsInCallStack("TECA201")
+	cAlias := "SA1"
+	nReg := If(nReg == 0, SA1->(Recno()), nReg)
+EndIf
+
+//Foi removida a validacao que checava o parametro MV_RMCLASS pois a integracao entre
+//RM Classis x Backoffice do Protheus na versao 12 sera feita exclusivamente via
+//mensagem unica, portanto, as chamadas da integracao via procedure foram removidas
+
+lPai := PermExcPai(SA1->(A1_FILIAL),SA1->(A1_COD),SA1->(A1_LOJA))
+If lPai
+	Return .F.
+EndIf
+
+Aadd(aButtons,{"", { || MATA030A(SA1->A1_COD+SA1->A1_LOJA,5) } ,STR0161})//"Complemento de Cliente"
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Caso exista o execblock , executa ,se voltar³
+//³.F. abandona o programa                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If l030DelT
+	lExecuta := ExecTemplate("M030DEL",.f.,.f.)
+	If !lExecuta
+		Return .T.
+	Endif
+Endif 
+
+If l030Del
+
+	///////////////////////////////////////////////////////////
+	// Agroindustria  									      /
+	///////////////////////////////////////////////////////////
+	If lCliAgro .AND. OGXUtlOrig()
+	    lExecuta := OGA010VaFo()
+	    If !lExecuta
+		    Return .T.
+		Endif
+	Endif	
+
+	lExecuta := ExecBlock("M030DEL",.f.,.f.)
+	If !lExecuta
+		Return .T.
+	Endif
+Endif
+
+If ! Select("JA2") == 0 .AND. ! Empty(SA1->A1_NUMRA)
+	JA2->(dbSetOrder(1))
+ 	If JA2->(dbSeek(xfilial("JA2")+SA1->A1_NUMRA))
+		Return .F.
+	EndIF
+EndIf         
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para criacao de botoes do usuario  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030BUT" ) .AND. Valtype( aUsrBut := Execblock( "MA030BUT", .F., .F., { 5 } ) ) == "A"
+	AEval( aUsrBut, { |x| AAdd( aButtons, x ) } ) 
+EndIf 		
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para EXCLUSAO de botoes            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ExistBlock( "MA030DBT" ) .AND. Valtype( aUsrBut := Execblock( "MA030DBT", .f., .f., { 5 } ) ) == "A"
+	For nDel := 1 To Len(aUsrBut)
+		nPos := Ascan(aButtons,{ |x| Upper(x[Len(x)]) == Upper(aUsrBut[nDel]) })		
+		If nPos > 0
+			ADel(aButtons,nPos)
+			ASize(aButtons,Len(aButtons)-1)
+		EndIf
+	Next nDel
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se a rotina automatica esta ativa                   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If ( Type("l030Auto") == "U" )
+	l030Auto := .F.
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Validação de exclusão de registro para os módulos SIGAEIC/SIGAESS  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ	
+If ( nModulo == 17 .OR. nModulo == 85 ) .AND. !EICDelCli()
+	Return .F.
+EndIf
+
+// Se não for processamento pelo EAI (Mensagem Unica) não permite alterar 
+// os dados do cliente
+If !IsInCallStack("FWUMESSAGE") .AND. SA1->A1_ORIGEM == "S1" 
+	Help(" ",1,"INTEGDEF",,STR0197 + " " + STR0198 + " " + SA1->A1_ORIGEM ,3,0)	//"Exclusão não permitida, registro proveniente da integracao."##"Origem:"
+	Return .T.
+EndIf
+	
+nOpcA	:= 0
+SoftLock(cAlias)
+While .T.
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Envia para processamento dos Gets          ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !l030Auto
+	
+		aSize := MsAdvSize()       
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Ajusta a largura para o tamanho padrao Protheus ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		
+		aObjects := {}
+		AAdd( aObjects, { 100, 100, .T., .T. } )
+		aInfo    := { aSize[1], aSize[2], aSize[3], aSize[4], 2, 2 } 
+		
+		aPosObj := MsObjSize( aInfo, aObjects ) 
+			
+		DEFINE MSDIALOG oDlg TITLE cCadastro FROM aSize[7],0 TO aSize[6],aSize[5] OF oMainWnd PIXEL STYLE nOr(WS_VISIBLE,WS_POPUP)
+		nOpcA := EnChoice( cAlias, nReg, nOpc,,"AC",STR0009,, aPosObj[1] )  //"Quanto … exclus„o?"
+		nOpca := 1
+		ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar(oDlg,{|| IIf(ValBTOk(nOpc),(nOpca := 2,oDlg:End()),nil) },{|| nOpca := 1,oDlg:End()},,aButtons)
+	Else
+		nOpcA := 2
+	EndIf
+	DbSelectArea(cAlias)
+	
+	If nOpcA == 2
+		
+		// Preenche um array com as filiais
+		DbSelectArea("SM0")
+		DbGoTop()
+		Do While ! Eof()
+			If SM0->M0_CODIGO == cEmpAnt
+				Aadd(aSM0CodFil, FWGETCODFILIAL)
+			Endif
+			dbSkip()
+		End	
+		DbGoto(nRecnoSM0)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Antes de deletar eu vou verificar se existe movimentacao     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		cCod := SA1->A1_COD+SA1->A1_LOJA
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Orcamento no Televendas SUA               ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		DbSelectArea("SUA")
+		DbSetOrder(6)
+		aFiliais := GetFilChk(aSM0CodFil, "SA1", "SUA")
+		For nBusca := 1 To Len(aFiliais)
+        	If DbSeek(aFiliais[nBusca]+cCod)
+        		Help(" ",1,"TMKNDELREL")
+				lPodeApagar := .F.
+				Exit
+			EndIf
+		Next			
+
+		If lPodeApagar
+	        //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Gravacao do subsegmentos. ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+			CRMA620GrvAOW(aAOVMark, "SA1", SA1->A1_COD, SA1->A1_LOJA, SA1->A1_CODSEG, .T. )
+		EndIf
+       
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifico se o cliente esta esta associado a alguma Programacao de Entrega.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("SD0")
+			DbSetOrder(2)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SD0")
+			For nBusca := 1 To Len(aFiliais)
+				If SD0->(DbSeek( aFiliais[nBusca] + SA1->A1_COD))
+ 					Help(" ",1,"NODELETA",,STR0144,3,0) //"O mesmo está sendo utilizado na Programação de Entrega!"
+ 					lPodeApagar := .F.
+ 					Exit
+ 				EndIf 
+			Next
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifico se o cliente esta esta associado ao Grupo Societário ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("AGU")  
+			DbSetOrder(2)
+			If AGU->(DbSeek(xFilial("AGU")+SA1->A1_COD+SA1->A1_LOJA))
+				Help(" ",1,"NODELETA",,STR0076,2,0)	//"Este cliente esta sendo utilizado pela rotina de Grupos Societários."
+				lPodeApagar := .F.				
+				Exit
+			EndIf
+		EndIf
+
+	    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifico se o cliente esta associado a algum apontamento CRM - ADM VENDAS	³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+
+			cOldArea  := Alias()
+			cQueryAD5 := "SELECT AD5_CODCLI, AD5_LOJA "
+			cQueryAD5 += " FROM " + RetSqlName("AD5")+ " AD5 "
+			cQueryAD5 += " WHERE "
+			cQueryAD5 += " AD5_FILIAL = '"+xFilial("AD5")+"' AND "
+			cQueryAD5 += " AD5_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQueryAD5 += " AD5_LOJA   = '"+SA1->A1_LOJA+"' AND "
+			cQueryAD5 += " AD5.D_E_L_E_T_ = ' ' "
+
+			cQueryAD5 := ChangeQuery(cQueryAD5)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQueryAD5),"TRB",.F.,.T.)
+			lAuxChkDel	:= TRB->(EOF())
+		 	TRB->(DbCloseArea())
+			DbSelectArea(cOldArea)
+
+		   	If ! lAuxChkDel
+		   		Aviso( STR0023, STR0063,; 		// "Este cliente possui apontamento(s) associado(s) na rotina CRM - Adm Vendas e não poderá ser excluído. "
+					{STR0024 }, 2 ) 			// Ok 
+				lPodeApagar := .F.				
+				Exit
+			Endif	    
+		EndIf	
+
+		//------------------------------------------------------------------- 
+		// Verifica se o cliente está associado a algum processo licitatório.
+		//-------------------------------------------------------------------
+		If lPodeApagar
+
+			cOldArea	:= Alias()
+	    	cAliasCO3	:= GetNextAlias()
+	        BeginSQL Alias cAliasCO3
+
+	        	SELECT COUNT (CO3.CO3_CODIGO) CODIGO	
+	        	  FROM %table:CO3% CO3	
+	        	 WHERE CO3.CO3_FILIAL = %xfilial:CO3%
+	        	   AND CO3.CO3_CODIGO = %exp:SA1->A1_COD%
+	        	   AND CO3.CO3_LOJA = %exp:SA1->A1_LOJA%
+	        	   AND CO3.%NotDel%
+
+	        EndSql
+			lAuxChkDel	:= (cAliasCO3)->CODIGO > 0
+			(cAliasCO3)->(DbCloseArea())
+			DbSelectArea(cOldArea)
+
+	        If lAuxChkDel
+				Help(" ",1,"NODELETA")
+	       		lPodeApagar := .F.
+	       		Exit		
+			EndIf
+		EndIf		
+
+		//------------------------------------------------------------------- 
+		// Verifica se o cliente está associado a alguma TES inteligente.
+		//-------------------------------------------------------------------
+		If lPodeApagar .AND. AliasInDic("SFM")
+		    
+			cOldArea  := Alias()
+			cQuerySFM := "SELECT FM_CLIENTE, COUNT(FM_CLIENTE) TOTSFM "
+			cQuerySFM += " FROM "+RetSqlName("SFM")+" SFM "
+			cQuerySFM += " WHERE "
+			cQuerySFM += " FM_FILIAL = '"+xFilial("SFM")+"' AND "
+			cQuerySFM += " FM_CLIENTE = '"+SA1->A1_COD+"' AND "
+			cQuerySFM += " FM_LOJACLI = '"+SA1->A1_LOJA+"' AND "
+			cQuerySFM += " SFM.D_E_L_E_T_ = ' ' "
+			cQuerySFM += " GROUP BY FM_CLIENTE "
+					
+			cQuerySFM := ChangeQuery(cQuerySFM)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuerySFM),"SFMT",.F.,.T.)
+			lAuxChkDel	:= (SFMT->TOTSFM > 0)
+			SFMT->(DbCloseArea())
+			DbSelectArea(cOldArea)
+
+		    If lAuxChkDel
+		    	Aviso( STR0023, STR0110,;	//"Este cliente está associado com alguma TES inteligente."
+		    		{STR0024}, 2 ) 			// Ok 
+		    	lPodeApagar := .F.	
+				Exit
+		    EndIf
+	    EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifico se o cliente esta associado a algum orçamento Venda Direta			³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+
+			cOldArea  := Alias()
+			cQuerySL1 := "SELECT L1_CLIENTE, L1_LOJA "
+			cQuerySL1 += " FROM " + RetSqlName("SL1")+ " SL1 "
+			cQuerySL1 += " WHERE "
+			cQuerySL1 += " L1_FILIAL = '"+xFilial("SL1")+"' AND "
+			cQuerySL1 += " L1_CLIENTE = '"+SA1->A1_COD+"' AND "
+			cQuerySL1 += " L1_LOJA = '"+SA1->A1_LOJA+"' AND "
+			cQuerySL1 += " SL1.D_E_L_E_T_ = ' ' "
+					
+			cQuerySL1 := ChangeQuery(cQuerySL1)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuerySL1),"TRBSL1",.F.,.T.)
+			lAuxChkDel	:= TRBSL1->(EOF())
+		 	TRBSL1->(DbCloseArea())
+			DbSelectArea(cOldArea)
+
+		   	If ! lAuxChkDel
+		   		Aviso( STR0023,STR0098,; 		// "Este cliente possui orçamento(s) na rotina Venda Direta, e não poderá ser excluído."
+					{STR0024 }, 2 ) 			// Ok 
+				lPodeApagar := .F.				
+				Exit
+			Endif	    
+	  	EndIf
+		  
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe o Cliente vinculado a um LayOut no Edi    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DbSelectArea("DEC") 
+			DbSetOrder(1)
+			If DEC->(DbSeek(xFilial("DEC")+cCod))
+				Help(" ",1,"TMSCLIEDI")
+				lPodeApagar := .F.				
+				Exit
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Atendimento no Telemarketing SUC          ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("SUC")
+			DbSetOrder(2)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SUC")
+			For nBusca := 1 To Len(aFiliais)		
+	        	If DbSeek(aFiliais[nBusca]+'SA1'+cCod)
+	        		Help(" ",1,"TMKNDELREL")
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next			
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		// Verifica se existe Atendimento no Teleatendimento ADE
+		If lPodeApagar .And. FindFunction("Tk510TAxEn")
+			lPodeApagar := Tk510TAxEn("SA1", SA1->A1_FILIAL, SA1->A1_COD + SA1->A1_LOJA)
+			If !lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Pedido de Venda                           ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DbSelectArea("SC5")
+			DbSetOrder(3)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SC5")
+			For nBusca := 1 To Len(aFiliais)
+				If DbSeek(aFiliais[nBusca]+SA1->A1_COD) .And. xFilial("SA1",aFiliais[nBusca]) == SA1->A1_FILIAL
+					While !Eof() .AND. aFiliais[nBusca]+SA1->A1_COD == SC5->C5_FILIAL+SC5->C5_CLIENTE .AND. lPodeApagar
+						If ((SA1->A1_LOJA == SC5->C5_LOJACLI) .AND. !(SC5->C5_TIPO $ "BD"))
+							Help(" ",1,"MA030TEMPV",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+							lPodeApagar := .F.
+							Exit
+						EndIf
+						If (SA1->A1_LOJA == SC5->C5_LOJAENT) .AND. !(SC5->C5_TIPO$"DB")
+							lPodeApagar := .F.
+							Help(" ",1,"MA030LOJEN",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+							Exit
+						EndIf
+						DbSkip()
+					End  
+					If !lPodeApagar
+						Exit
+					EndIf
+				EndIf
+			Next nBusca
+			DbSetOrder(1)
+			If ! lPodeApagar
+				Exit
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Contas a Receber deste cliente       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DbSelectArea("SE1")      // Contas a receber
+			DbSetOrder(2)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SE1")
+			For nBusca := 1 To Len(aFiliais)		
+				If DbSeek(aFiliais[nBusca]+cCod)
+					Help(" ",1,"MA030TEMCR",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+			DbSetOrder(1)
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Nota Fiscal de saida para este cliente ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DbSelectArea("SF2")
+			DbSetOrder(2)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SF2")
+			For nBusca := 1 To Len(aFiliais)		
+				DbSeek(aFiliais[nBusca]+cCod)
+				While !Eof() .AND. aFiliais[nBusca]+cCod == SF2->F2_FILIAL+SF2->F2_CLIENTE+SF2->F2_LOJA
+					If ! (SF2->F2_TIPO $ "BD")
+						Help(" ",1,"MA030TEMNF",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+						lPodeApagar := .F.
+						Exit
+					EndIf
+					DbSkip()
+				EndDo
+				If ! lPodeApagar
+					Exit
+				Endif
+			Next
+			DbSetOrder(1)
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Base Instalada deste cliente       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			AA3->( dbSetOrder( 1 ) ) 
+			If AA3->( dbSeek( xFilial( "AA3" ) + cCod ) )
+				Help( " ", 1, "MA030TEMBA" ) // "O cliente nao pode ser excluido pois existe base instalada para o mesmo !"
+				lPodeApagar := .F. 
+				Exit
+			EndIf
+		EndIf
+
+        //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	  	//³ Verifica se existe referencias cadastradas deste cliente  ³
+	  	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DbSelectArea("SAO")      // Contas a receber
+			DbSetOrder(1)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SAO")
+			For nBusca := 1 To Len(aFiliais)		
+				If dbSeek(aFiliais[nBusca]+cCod)
+					Help(" ",1,"MATA030REF",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Orcamento para este cliente        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			SCJ->(DbSetOrder(3)) 
+			If SCJ->(DbSeek(xFilial("SCJ") + cCod ))
+				Help(" ", 1,"MATA030ORC") // "Este cliente não poderá ser excluído pois há orçamento cadastrado !"
+				lPodeApagar := .F. 
+				Exit
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Pontos por setor                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DA7->(DbSetOrder(2))
+			If DA7->(DbSeek(xFilial("DA7")+cCod))
+				Help(" ",1,"NODELETA")
+				lPodeApagar := .F.				
+				Exit
+			EndIf
+		EndIf  
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Verba de Vendas  para este Cliente     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			dbSelectArea("ACK")
+			dbSetOrder(5)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "ACK")
+			For nBusca := 1 to Len(aFiliais)
+				If dbSeek(aFiliais[nBusca]+cCod)
+					Aviso(STR0023,STR0071,{STR0024},2) //"Atencao!"###"Este cliente não poderá ser excluído pois há Verba de Vendas relacionado."###"Ok"
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+			If ! lPodeApagar
+				Exit
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existem Regras de Monitoração para este Cliente ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			dbSelectArea("AGC")
+			AGC->(dbSetOrder(2))
+			If dbSeek(xFilial("AGC")+SA1->A1_COD+SA1->A1_LOJA)
+				Aviso(STR0023,STR0086,{STR0024},2)  //"Este cliente não poderá ser excluído, pois esta associado a Regras de Monitoração."
+				lPodeApagar := .F.
+				Exit
+			EndIf
+		EndIf
+        
+      	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Integracao com modulo TMS   					        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar .AND. IntTms()
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Contrato de Cliente                  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			AAM->( dbSetOrder( 2 ) ) 
+			If AAM->(DbSeek(xFilial("AAM") + cCod))
+				Help(" ",1,"MATA030DV8") //Nao e possivel excluir o cliente.  Verifique os Doc e Regras existentes para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Perfil de Cliente                    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DUO->( dbSetOrder( 1 ) ) 
+			If DUO->(DbSeek(xFilial("DUO") + cCod))
+				Help(" ",1,"MATA030DV7") //Nao e possivel excluir o cliente.  Verifique os Doc e Regras existentes para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf			
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Doc e Regras deste cliente           ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DV1->( dbSetOrder( 1 ) ) 
+			If DV1->(DbSeek(xFilial("DV1") + cCod))
+				Help(" ",1,"MATA030DV1") //Nao e possivel excluir o cliente.  Verifique os Doc e Regras existentes para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Observações de Clientes (TMSA610)    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DV2->( dbSetOrder( 1 ) ) 
+			If DV2->(DbSeek(xFilial("DV2") + cCod))
+				Help(" ",1,"MATA030DV2") //Nao e possivel excluir o cliente.  Verifique a rotina observações de clientes (TMSA610) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf 
+ 			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Inscricoes Cliente      (TMSA620)    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DV3->( dbSetOrder( 1 ) ) 
+			If DV3->(DbSeek(xFilial("DV3") + cCod))
+				Help(" ",1,"MATA030DV3") //Nao e possivel excluir o cliente.  Verifique a rotina Inscricoes Cliente (TMSA620) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Bloqueio Cliente        (TMSA630)    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DV5->( dbSetOrder( 1 ) ) 
+			If DV5->(DbSeek(xFilial("DV5") + cCod))
+				Help(" ",1,"MATA030DV5") //Nao e possivel excluir o cliente.  Verifique a rotina Bloqueio de cliente (TMSA630) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf 				
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Averbação cliente       (TMSA650)    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DV6->( dbSetOrder( 2 ) ) 
+			If DV6->(DbSeek(xFilial("DV6") + cCod))
+				Help(" ",1,"MATA030DV6") //Nao e possivel excluir o cliente.  Verifique a rotina Averbação Cliente (TMSA650) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf 				
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Prazos de Regioes por cliente  (TMSA395)³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DVN->( dbSetOrder( 1 ) ) 
+			If DVN->(DbSeek(xFilial("DVN") + cCod))
+				Help(" ",1,"MATA030DVN") //Nao e possivel excluir o cliente.  Verifique a rotina Prazos de Regioes por cliente (TMSA395) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf 
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existe Consignatario    (TMSA100)³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DTI->( dbSetOrder( 1 ) ) 
+			If DTI->(DbSeek(xFilial("DVN") + cCod))
+				Help(" ",1,"MATA030DTI") //Nao e possivel excluir o cliente.  Verifique a rotina Consignatarios (TMSA100) para este cliente.
+				lPodeApagar := .F.
+				Exit
+			EndIf  
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Time Service                           ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DAF->( DbSetOrder( 1 ) ) 
+			cQuery := "SELECT COUNT(*) QTDTIME "
+			cQuery += " FROM " + RetSqlName("DAF")+ " DAF "
+			cQuery += " WHERE "
+			cQuery += " DAF_FILIAL = '"+xFilial("DAF")+"' AND "
+			cQuery += " DAF_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQuery += " DAF_LOJA   = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " DAF.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDTIME > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("DAF")
+
+			If lAuxChkDel
+				Help(" ",1,"NODELETA") //Nao e possivel excluir o ajudante pois o mesmo encontras-se relacionado a outros cadastro ### INCLUIR ATUSX
+				lPodeApagar := .F.
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Regras de Entrega                      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			DAD->( DbSetOrder( 1 ) )
+			cQuery := "SELECT COUNT(*) QTDREGRA "
+			cQuery += " FROM " + RetSqlName("DAD")+ " DAD "
+			cQuery += " WHERE "
+			cQuery += " DAD_FILIAL = '"+xFilial("DAD")+"' AND "
+			cQuery += " DAD_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQuery += " DAD_LOJA   = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " DAD.D_E_L_E_T_ = ' ' "
+			
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDREGRA > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("DAD")
+
+			If lAuxChkDel
+				Help(" ",1,"NODELETA") //Nao e possivel excluir o ajudante pois o mesmo encontras-se relacionado a outros cadastro ### INCLUIR ATUSX
+				lPodeApagar := .F.
+				Exit
+			Endif
+		EndIf
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existem Regras de bonificacao financeira      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			AI1->( DbSetOrder( 1 ) )
+			cQuery := "SELECT COUNT(*) QTDREGRA "
+			cQuery += "FROM " + RetSqlName("AI1")+ " AI1 "
+			cQuery += "WHERE "
+			cQuery += "AI1_FILIAL='"+xFilial("AI1")+"' AND "
+			cQuery += "AI1_CODCLI='"+SA1->A1_COD   +"' AND "
+			cQuery += "AI1_LOJA='"  +SA1->A1_LOJA  +"' AND "
+			cQuery += "AI1.D_E_L_E_T_=' '"
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDREGRA > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("SA1")
+
+			If lAuxChkDel
+				Help(" ",1,"NODELETA") //Nao e possivel excluir o cliente pois o mesmo encontras-se relacionado a outros cadastro ### INCLUIR ATUSX
+				lPodeApagar := .F.
+				Exit
+			EndIf
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existem Ordens de servicos                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			AB6->( DbSetOrder( 1 ) )
+			cQuery := "SELECT COUNT(*) QTDORDENS "
+			cQuery += "FROM " + RetSqlName("AB6")+ " AB6 "
+			cQuery += "WHERE "
+			cQuery += "AB6_FILIAL='"+xFilial("AB6")+"' AND "
+			cQuery += "AB6_CODCLI='"+SA1->A1_COD   +"' AND "
+			cQuery += "AB6_LOJA='"  +SA1->A1_LOJA  +"' AND "
+			cQuery += "AB6.D_E_L_E_T_=' '"
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDORDENS > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("SA1")
+
+			If lAuxChkDel
+				Help(" ",1,"MATA030OS",,STR0034,1,0) // "Este cliente possui uma ordem de servico e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existem Chamados tecnicos                     ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			AB1->( DbSetOrder( 1 ) )
+			cQuery := "SELECT COUNT(*) QTDCHAMADOS "
+			cQuery += "FROM " + RetSqlName("AB1")+ " AB1 "
+			cQuery += "WHERE "
+			cQuery += "AB1_FILIAL='"+xFilial("AB1")+"' AND "
+			cQuery += "AB1_CODCLI='"+SA1->A1_COD   +"' AND "
+			cQuery += "AB1_LOJA='"  +SA1->A1_LOJA  +"' AND "
+			cQuery += "AB1.D_E_L_E_T_=' '"
+			
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDCHAMADOS > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("SA1")
+			
+			If lAuxChkDel
+				Help(" ",1,"MATA030CT",,STR0033,1,0) // "Este cliente possui um chamado tecnico e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Nota de Entrada                        ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			SF1->( DbSetOrder( 1 ) )
+			cQuery := "SELECT COUNT(*) QTDNFENT "
+			cQuery += " FROM " + RetSqlName("SF1")+ " SF1 "
+			cQuery += " WHERE "
+			cQuery += " F1_FILIAL = '"+xFilial("SF1")+"' AND "
+			cQuery += " F1_FORNECE = '"+SA1->A1_COD+"' AND "
+			cQuery += " F1_LOJA   = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " (F1_TIPO   = 'B' OR "
+			cQuery += " F1_TIPO   = 'D') AND "
+			cQuery += " SF1.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYVAL",.F.,.T.)
+			lAuxChkDel	:= (QRYVAL->QTDNFENT > 0)
+			QRYVAL->(DbCloseArea())
+			DbSelectArea("SF1")
+
+			If lAuxChkDel
+				Help(" ",1,"NODELETA") //Nao e possivel excluir o ajudante pois o mesmo encontras-se relacionado a outros cadastro ### INCLUIR ATUSX
+				lPodeApagar := .F.
+				Exit
+			EndIf
+		EndIf
+
+		//-- Executa validacoes do modulo SIGATMS
+		If lPodeApagar .AND. IntTms() .AND. ExistFunc("TMSMATA030")		
+			If !(lPodeApagar := TMSMATA030())
+				Exit
+			EndIf
+		EndIf
+
+	    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se o Cliente esta ligado a uma familia, operadora,             ³
+		//³grupo empresa, contrato ou sub-contrato do SIGAPLS-Modulo Plano de Saude.³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("BA3")
+			DbSetOrder(3)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "BA3")
+			For nBusca := 1 To Len(aFiliais)
+				If DbSeek( aFiliais[nBusca] + SA1->A1_COD + SA1->A1_LOJA )
+					Help(" ",1,"BA3DELCLI",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+
+		If lPodeApagar
+			DbSelectArea("BA0")
+			DbSetOrder(3)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "BA0")
+			For nBusca := 1 To Len(aFiliais)
+				If dbSeek( aFiliais[nBusca] + SA1->A1_COD + SA1->A1_LOJA )
+	 				Help(" ",1,"BA0DELCLI",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+	 				lPodeApagar := .F.
+	 				Exit
+	 			EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+    
+		If lPodeApagar
+	 		DbSelectArea("BG9")
+	 		DbSetOrder(4)
+	 		aFiliais := GetFilChk(aSM0CodFil, "SA1", "BG9")
+	 		For nBusca := 1 To Len(aFiliais)
+	 			If DbSeek( aFiliais[nBusca] + SA1->A1_COD + SA1->A1_LOJA )
+	 				Help(" ",1,"BG9DELCLI",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+        
+		If lPodeApagar
+			DbSelectArea("BT5")
+			DbSetOrder(5)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "BT5")
+	 		For nBusca := 1 To Len(aFiliais)
+	 			If DbSeek( aFiliais[nBusca] + SA1->A1_COD + SA1->A1_LOJA )
+	 				Help(" ",1,"BT5DELCLI",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+	 				lPodeApagar := .F.
+	 				Exit
+ 				EndIf
+ 			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+         
+		If lPodeApagar
+	 		DbSelectArea("BQC")
+	 		DbSetOrder(4)
+	 		aFiliais := GetFilChk(aSM0CodFil, "SA1", "BQC")
+	 		For nBusca := 1 To Len(aFiliais)
+	 			If DbSeek( aFiliais[nBusca] + SA1->A1_COD + SA1->A1_LOJA )
+	 				Help(" ",1,"BQCDELCLI",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+	 				lPodeApagar := .F.
+	 				Exit
+	 			EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe contrato - Gestao de Contratos         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+		    DbSelectArea("CN9")
+		
+			cQuery := "SELECT COUNT(*) QTDCNT "
+			cQuery += " FROM " + RetSqlName("CN9")+ " CN9 "
+			cQuery += " WHERE "
+			cQuery += " CN9_FILIAL = '"+xFilial("CN9")+"' AND "
+			cQuery += " CN9_CLIENT = '"+SA1->A1_COD+"' AND "
+			cQuery += " CN9_LOJACL = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " CN9.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYCN9",.F.,.T.)
+			lAuxChkDel	:= (QRYCN9->QTDCNT > 0)
+			QRYCN9->(DbCloseArea())
+			DbSelectArea("CN9")
+	
+	        If lAuxChkDel
+	        	Help(" ",1,"MATA030CNT") //"Cliente relacionado a um ou mais contratos do modulo Gestao de Contratos"
+				lPodeApagar := .F.				
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Regra de Desconto   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+		    DbSelectArea("ACO")
+		
+			cQuery := "SELECT COUNT(*) QTDRDSC "
+			cQuery += " FROM " + RetSqlName("ACO")+ " ACO "
+			cQuery += " WHERE "
+			cQuery += " ACO_FILIAL = '"+xFilial("ACO")+"' AND "
+			cQuery += " ACO_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQuery += " ACO_LOJA = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " ACO.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYACO",.F.,.T.)
+			lAuxChkDel	:= (QRYACO->QTDRDSC > 0)
+			QRYACO->(dbCloseArea())
+			DbSelectArea("ACO")
+		
+	        If lAuxChkDel
+				Help(" ",1,"MA030RGN",,STR0072,1,0) // "Este cliente possui uma Regra de Desconto e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif	        	
+		EndIf		
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Regra de Bonificacao³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+		    DbSelectArea("ACQ")
+		
+			cQuery := "SELECT COUNT(*) QTDRBON "
+			cQuery += " FROM " + RetSqlName("ACQ")+ " ACQ "
+			cQuery += " WHERE "
+			cQuery += " ACQ_FILIAL = '"+xFilial("ACQ")+"' AND "
+			cQuery += " ACQ_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQuery += " ACQ_LOJA = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " ACQ.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYACQ",.F.,.T.)
+			lAuxChkDel	:= (QRYACQ->QTDRBON > 0)
+			QRYACQ->(DbCloseArea())
+			DbSelectArea("ACQ")
+	
+	        If lAuxChkDel
+				Help(" ",1,"MA030RGB",,STR0073,1,0) // "Este cliente possui uma Regra de Bonificacao e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif	        	
+		EndIf		
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Regra de Negocio  ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+		    DbSelectArea("ACS")
+		
+			cQuery := "SELECT COUNT(*) QTDRNEG "
+			cQuery += " FROM " + RetSqlName("ACS")+ " ACS "
+			cQuery += " WHERE "
+			cQuery += " ACS_FILIAL = '"+xFilial("ACS")+"' AND "
+			cQuery += " ACS_CODCLI = '"+SA1->A1_COD+"' AND "
+			cQuery += " ACS_LOJA = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " ACS.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYACS",.F.,.T.)
+			lAuxChkDel	:= (QRYACS->QTDRNEG > 0)
+			QRYACS->(DbCloseArea())
+			DbSelectArea("ACS")
+
+	        If lAuxChkDel
+				Help(" ",1,"MA030RNG",,STR0074,1,0) // "Este cliente possui uma Regra de Negocio e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif
+		EndIf
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe contrato/serviços ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			cOldArea := Alias()
+			cQuery := "SELECT COUNT(*) QTDRNEG "
+			cQuery += " FROM " + RetSqlName("AAM")+ " AAM "
+			cQuery += " WHERE "
+			cQuery += " AAM_FILIAL = '"+xFilial("AAM")+"' AND "
+			cQuery += " AAM_CLIENT = '"+SA1->A1_COD+"' AND "
+			cQuery += " AAM_LOJENT = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " AAM.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYAAM",.F.,.T.)
+			lAuxChkDel	:= (QRYAAM->QTDRNEG > 0)
+			QRYAAM->(DbCloseArea())
+			dbSelectArea(cOldArea)
+
+	        If lAuxChkDel
+				Help(" ",1,"MATA030CP",,STR0087,1,0) // "Este cliente possui um Contrato de pestação de serviço e nao podera ser excluido."
+				lPodeApagar := .F.				
+				Exit
+			Endif	        	
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe contrato/Manutencao ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			cOldArea := Alias()
+			cQuery := "SELECT COUNT(*) QTDRNEG "
+			cQuery += " FROM " + RetSqlName("AAH")+ " AAH "
+			cQuery += " WHERE "
+			cQuery += " AAH_FILIAL = '"+xFilial("AAH")+"' AND "
+			cQuery += " AAH_CLIENT = '"+SA1->A1_COD+"' AND "
+			cQuery += " AAH_LOJENT = '"+SA1->A1_LOJA+"' AND "
+			cQuery += " AAH.D_E_L_E_T_ = ' ' "
+
+			cQuery := ChangeQuery(cQuery)
+			dBUseArea(.T.,"TOPCONN",TCGENQRY(,,cQuery),"QRYAAH",.F.,.T.)
+			lAuxChkDel	:= (QRYAAH->QTDRNEG > 0)
+			QRYAAH->(dbCloseArea())
+			dbSelectArea(cOldArea)
+
+	        If lAuxChkDel
+				Help(" ",1,"MATA030CM",,STR0088,1,0) // "Este cliente possui um Contrato de manutenção e nao podera ser excluido."
+				lPodeApagar := .F.
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existem movimentacoes no modulo Gestao Agricola		   ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar 
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existem Saldos do cliente - Gestao Agricola  		   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea("NPL")
+			DbSetOrder(1)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "NPL")
+			For nBusca := 1 To Len(aFiliais)
+				If dbSeek( aFiliais[nBusca] + SA1->A1_COD)
+					Help(" ",1,"MATA030AGR",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+		EndIf
+	
+		If lPodeApagar
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Verifica se existem Saldos Iniciais do cliente - Gestao Agricola   ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea("NPK")
+			DbSetOrder(1)
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "NPK")
+			For nBusca := 1 To Len(aFiliais)
+				If DbSeek( aFiliais[nBusca] + SA1->A1_COD)
+					Help(" ",1,"MATA030AGR",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+			If ! lPodeApagar
+				Exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Contrato de Parceria                      ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("ADA")
+			DbSetOrder(2)
+		
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "ADA")
+			For nBusca := 1 To Len(aFiliais)
+				If DbSeek(aFiliais[nBusca]+cCod)
+					//Verificar Contrato de Parceria existente para este cliente.
+					Help(" ",1,"MA030TEMCP",, STR0199 + aFiliais[nBusca], 3, 0)	//"Filial "
+					lPodeApagar := .F.
+					DbSelectArea(cAlias)
+					MsUnLock()
+					Exit
+				EndIf
+			Next
+		    If ! lPodeApagar
+			   Exit
+			Endif
+	    EndIf
+	
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se existe Restrições-Visitas                       ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("ACW")
+			DbSetOrder(3)
+
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "ACW")
+			For nBusca := 1 To Len(aFiliais)
+				If DbSeek(aFiliais[nBusca]+cCod)
+					//	Help(" ",1,"MATA030ACW")//Verificar Restrições-Visitas existente para este cliente.
+					Help(" ",1,"NODELETA",,STR0077,2,0)	//"Este cliente esta sendo utilizado pela rotina de Restrições-Visitas."   
+					lPodeApagar := .F.
+					DbSelectArea(cAlias)
+					MsUnLock()
+					Exit
+				EndIf
+			Next
+			If ! lPodeApagar
+				Exit
+			Endif  
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Verifica se cliente possui amarração a um produto         ³
+	    //ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar
+			DbSelectArea("SA7")      // Amarração Produto X Cliente
+			DbSetOrder(1)
+
+			aFiliais := GetFilChk(aSM0CodFil, "SA1", "SA7")
+			For nBusca := 1 To Len(aFiliais)
+				If dbSeek(aFiliais[nBusca]+cCod)
+					Help(" ",1,"NODELETA",,STR0150,3,0)//Nao e possivel excluir o cliente pois o mesmo encontra-se relacionado a outro cadastro (Produto X Cliente)
+					DbSelectArea(cAlias)
+					MsUnLock()
+					lPodeApagar := .F.
+					Exit
+				EndIf
+			Next
+			If ! lPodeApagar
+				exit
+			Endif
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Verifica se existe vinculo do cliente com o cadastro de oportunidades ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lPodeApagar .AND. MA30VerOp()
+			lPodeApagar := .F.
+		EndIf
+
+		//****************************************************************************
+		//Fim da verificacao do cliente Modulo PLS
+		//****************************************************************************
+		If lPodeApagar
+			Ma030Int(.F., 5)
+		EndIf
+
+		//
+		// Verificacao do cliente nos modulos Juridicos. So rodamos em TOP
+		// Valida se pode apagar e apaga as tabelas dos modulos Juridicos
+		//
+		If lPodeApagar .AND. MSFile( RetSqlName( 'NUH' ) )  // Se tem NUH tem SIGAJURI ou SIGAPFS
+			If  A30ValJUR()
+				lDelJUR := .T.
+			Else
+				lPodeApagar := .F.
+			Endif
+		EndIf
+
+	    //Se foi encontrada alguma impossibilidade de se excluir o cliente,
+		//então, o cliente não será excluído, não processando a TRANSAÇÃO abaixo
+		If ! lPodeApagar
+		   Exit
+		Endif    
+
+		Begin Transaction
+
+			///////////////////////////////////////////////////////////
+			// Agroindustria  									      /
+			///////////////////////////////////////////////////////////
+			If lCliAgro .AND. OGXUtlOrig()
+				OGA010ExFo()
+			Endif
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ PONTO DE ENTRADA M030EXC                                      ³
+			//³ Ponto de entrada para manuten‡oes antes de excluir-se os dados³
+			//³ do cliente e logo apos confirma‡ao                            ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			IF lM030Exc
+				ExecBlock("M030EXC",.F.,.F.)
+			Endif
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Apos passar por todas as verificacoes , deleta o registro    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea(cAlias)
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Exclui a amarracao com os contatos                           ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			FtContato( Alias(), Recno(), 2, , 3 ) 
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Exclui a amarracao com os conhecimentos                      ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			MsDocument( Alias(), RecNo(), 2, , 3 ) 
+	    
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Exclui as referencias dos memos                              ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If Valtype('aMemos') == 'A'
+				For nLoop := 1 To Len( aMemos )
+					If !Empty( nPosMemo := SA1->( ColumnPos( aMemos[ nLoop, 1 ] ) ) )  
+						MSMM( SA1->( FieldGet( nPosMemo ) ),,,,2)
+					EndIf 	
+			    Next nLoop 
+			EndIf
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Tratamento para a chamada de função IntegDef() ³
+			//Se a funcao  GETROTINTEG() existir no RPO, significa que a EnchoiceBar³
+			//nao chama a IntegDef, logo deve ser chamada manualmente             ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ				
+			If lIntegDef
+				DbSelectArea("SA1")      // Amarração Produto X Cliente
+				SA1->(DbSetOrder(1))
+				If ( SA1->( dbSeek( xFilial("SA1") + cCod ) ) )
+		  	  		aRetInt := FwIntegDef("MATA030")
+				  	If Valtype(aRetInt) == "A" .AND. Len(aRetInt) == 2 .AND. !aRetInt[1]
+						lPodeApagar := .F.
+						cMsgRet		:= If(Empty(AllTrim(aRetInt[2])), STR0177, AllTrim(aRetInt[2]))
+						Help('',1,STR0023,, cMsgRet,01,02)
+						DisarmTransaction()
+						Break
+						//|
+						//| Confirma Código Único
+					Endif
+		  		Endif
+			EndIf
+		
+			//-- Exclusao Cadastro Emitente GFE 
+			If ! MATA030IPG(5)
+				lPodeApagar := .F.
+				DisarmTransaction()
+				Break		
+			EndIf
+		
+			//--------------------
+			// Integração Reserve
+			//--------------------
+			If cMVResExp <> "0" .And. SubStr(cMVResCad,2,1) == "1"			//Verifica a forma de exportacao definida ## Verifica se a exportacao do cliente esta habilitada
+				Fina659(nOpc)
+			EndIf
+		
+			//
+			// Delecao das tabelas de cliente nos modulos Juridicos. So rodamos em TOP
+			//
+			If lDelJUR .AND. !A30DelJUR(@aErrorJUR)  // Se tem NUH tem SIGAJURI ou SIGAPFS
+				lPodeApagar := .F.
+			    lDelJURErr	:= .T.
+				Disarmtranction()
+				Break
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Adiciona ou Remove o privilegios deste registro.  ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			cChave		:= PadR(xFilial("SA1")+SA1->A1_COD+SA1->A1_LOJA,TAMSX3("AO4_CHVREG")[1])		
+			aAutoAO4	:= CRMA200PAut(nOpc,"SA1",cChave,/*cCodUsr*/,/*aPermissoes*/,/*aNvlEstrut*/,/*cCodUsrCom*/,/*dDataVld*/)    
+			CRMA200Auto(aAutoAO4[1],aAutoAO4[2],MODEL_OPERATION_DELETE)
+
+			If FindFunction("FINA024CLI")
+				If Empty(cOldCli)
+					//O Model realiza os cálculos Valores Tp. Retenção
+					oModelCli := FWLoadModel("FINA024CLI")
+					oModelCli:SetOperation( MODEL_OPERATION_DELETE )
+					oModelCli:Activate()
+					cOldCli  := oModelCli:GetXMLData()
+					oModelCli:Deactivate()
+					oModelCli:Destroy()
+				ElseIf !Empty(cOldCli)
+					//O Model realiza os cálculos Valores Tp. Retenção
+					oModelCli := FWLoadModel("FINA024CLI")
+					oModelCli:SetOperation( MODEL_OPERATION_DELETE )
+					oModelCli:Activate()
+					oModelCli:LoadXMLData( cOldCli )
+					FN024FGrv()
+					oModelCli:Deactivate()
+					oModelCli:Destroy()
+				EndIf
+				lRet := FN024FOJ(.T.)
+			EndIf
+							
+			cCodCli := SA1->A1_COD
+			RecLock(cAlias,.F.,.t.)
+			dbDelete()
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Gravacao no Log de Alteracoes do Front Loja. ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			FRTGeraSLH("SA1", "D")
+		
+			If lHistFiscal .And. nOpcA == 2 
+				aCmps :=  RetCmps("SA1",bCampoSA1)	
+				GrvHistFis("SA1", "SS2", aCmps) 
+			EndIf	
+
+			If nModulo == 12 // SIGALOJA
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Se for SigaLoja e for um registro criado automaticamente a partir³
+				//³ do cadastro de Adm.Cartäes, deve ser deletado do SAE.            ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				DbSelectArea("SAE")
+				DbSetOrder(2)
+				If DbSeek( xFilial("SAE") + cCodCli )	
+					RecLock("SAE", .F.)
+					dbDelete()
+					MsUnlock()
+					DbSelectArea("SAE")
+				EndIf
+				DbSetOrder(1)
+			EndIf
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Remove a amarracao da conta do vendedor na tabela ADL³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lAtuADL .AND. !Empty(SA1->A1_VEND)
+				Ft520Del(SA1->A1_VEND,"SA1",SA1->A1_COD,SA1->A1_LOJA)
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Se houver prospect vinculado a este cliente, limpa o codigo³
+			//³nos campos US_CODCLI e US_LOJACLI                          ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			DbSelectArea("SUS")
+			DbSetOrder(5) //US_FILIAL+US_CODCLI+US_LOJACLI
+			If DbSeek(xFilial("SUS")+SA1->A1_COD+SA1->A1_LOJA)
+				RecLock("SUS",.F.)
+				Replace US_CODCLI	With ""
+				Replace US_LOJACLI	With ""
+				Replace US_STATUS	With "1"	//Classificado
+				MsUnLock()
+			EndIf
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Remove a amarracao da conta do vendedor na tabela ADL³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lAtuADL .AND. !Empty(SA1->A1_VEND)
+				Ft520AltEn(	5			, SA1->A1_VEND ,"SA1"	, SA1->A1_COD,;
+							SA1->A1_LOJA)
+			EndIf
+				
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Exclusao de Anotações    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ		                                                                        
+			If nModulo == 73
+				CRMA090Del( "SA1", SA1->( Recno() ) )
+			EndIf
+		
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³Remove a amarracao cod. Externo X cod. Interno - tabela XXF - De/Para                    ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If FWXX4Seek("MATA030")
+				CFGA070Mnt( , 'SA1', 'A1_COD', ,SA1->( A1_COD + A1_LOJA ), .T. )  
+			EndIf       
+			//Exclui Assciação com a regra da Margem Minima
+			FT101Exc(SA1->A1_COD,SA1->A1_LOJA )
+		
+		End Transaction
+		
+		If lDelJURErr
+			Help("",1,"HELP",ProcName(),aErrorJUR[6],1)	
+		Endif	
+		
+		//Insere o registro na integracao
+		If lPodeApagar .AND. lAmbOffLn
+			Ma030AltOk()
+		Endif
+
+		If 	lPodeApagar
+			Ma30IntFim(.F., 5)
+		EndIf
+		
+	Else
+		lPodeApagar	:= .F.
+	EndIf
+	Exit
+EndDo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+//³Integracao SIGATMS X SIGAGFE	³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+If lPodeApagar .AND. nOpcA == 2 
+	MaEnvEAI(,,nOpc,"MATA030",{ { "SA1", "MATA030_SA1", NIL, NIL, NIL, NIL } },,,,,,"MATA030")
+EndIf	
+
+If nOpcA == 2 .And. cPaisLoc == 'COL'	
+	DbSelectArea("CV0")
+	DbSetOrder(4)//CV0_FILIAL+CV0_COD+CV0_TIPO00+CV0_CODIGO
+	If DbSeek(xFilial("CV0")+SA1->A1_COD+'01'+SA1->A1_CGC) .OR. DbSeek(xFilial("CV0")+SA1->A1_COD+'01'+SA1->A1_PFISICA)
+		RecLock("CV0",.F.)
+		dbDelete()
+		MsUnlock()
+	EndIf                  
+EndIf	
+
+If lPodeApagar
+	If lIntUnqCod .And. nOpc == 5 .And. nOpcA == 2 .AND. !lIntegDef
+		CFGA070Mnt(cProduct, cAliasCli, cField, SA1->A1_COD, SA1->(A1_COD+A1_LOJA), .T.)
+	EndIf
+	If ExistFunc("TMSExcDAR") // Integração TMS x MapLink 
+		TMSExcDAR(SA1->A1_COD, SA1->A1_LOJA)
+	EndIf 
+EndIf
+
+DbSelectArea(cAlias)
+DbSetOrder(1)
+MsUnLock()
+Return
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mata030Grv
+
+Funcao de gravacao dos dados.  
+
+@sample	Mata030Grv()
+
+@return	Verdadeiro
+
+@author	Eduardo Motta   
+@since		
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Mata030Grv()
+
+Local nI 		  := 0,nJ
+Local nPosNom     := aScan(aHeader3,{|x| AllTrim(x[2]) == "AO_NOMINS"  })
+Local lM030SAO    := ExistBlock("M030SAO")
+
+aSvHeader[1] := aClone(aHeader1)
+aSvCols[1]   := aClone(aCols1)
+aSvHeader[2] := aClone(aHeader2)
+aSvCols[2]   := aClone(aCols2)
+aSvHeader[3] := aClone(aHeader3)
+aSvCols[3]   := aClone(aCols3)
+
+DbSelectArea("SAO")
+DbSetOrder(1)
+DbSeek(xFilial("SAO")+SA1->A1_COD+SA1->A1_LOJA)
+While !Eof() .AND. AO_FILIAL == xFilial("SAO") .AND. AO_CLIENTE == SA1->A1_COD .AND. AO_LOJA == SA1->A1_LOJA
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Ponto de entrada antes da exclusao.³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If lM030SAO
+		ExecBlock("M030SAO",.F.,.F.,{5})
+	Endif
+   	RecLock("SAO",.F.)
+   	DbDelete()
+   	MsUnlock()
+   	DbSkip()
+End
+
+If nOpcao == 3 .OR. nOpcao == 4   // se for inclusao ou alteracao
+	For nI := 1 To Len(aSvCols)
+ 		For nJ := 1 To Len(aSvCols[nI])
+   			If Empty(aSvCols[nI,nJ,nPosNom]) .OR. aSvCols[nI,nJ,len(aSvHeader[nI])+1]   // se o campo nome estiver em branco ou a linha estiver deletada nao processa.
+            	Loop
+        	EndIf   
+         	RecLock("SAO",.T.)
+         	SAO->AO_FILIAL  := xFilial("SAO")
+         	SAO->AO_CLIENTE := SA1->A1_COD
+         	SAO->AO_LOJA    := SA1->A1_LOJA
+         	SAO->AO_TIPO    := Str(nI,1)      // tipo 1(instituicao de credito), 2(empresas) ou 3(bancos)
+         	GravaACols("SAO",aSvHeader[nI],aSvCols[nI,nJ])
+         	MsUnlock()
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ Ponto de entrada apos alteracao.³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lM030SAO
+				ExecBlock("M030SAO",.F.,.F.,{nOpcao})
+			Endif
+      	Next
+   	Next   
+EndIf
+
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mata030Lin
+
+Checagem de linha na getdados.
+
+@sample	Mata030Lin()
+
+@return	Verdadeiro
+
+@author	Eduardo Motta     
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Mata030Lin()
+
+If aCols[n,Len(aHeader)+1]
+   Return .T.
+EndIf
+If Empty(aCols[n,1])
+   Return .F.
+EndIf   
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} GravaACols
+
+Funcao para gravacao dos dados no aCols de acordo com o aHeader passado.
+
+@sample	GravaACols(cAlias,aAHeader,aACols)
+
+@param		ExpC1 = cAlias   - Alias que sera gravado   
+			ExpA1 = array aHeader   
+			ExpA2 = array aCols (devera ser passado a linha do aCols 
+							ex: GravaACols(aHeader,aCols[1]))
+
+@return	Verdadeiro
+
+@author	Eduardo Motta   
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function GravaACols(cAlias,aAHeader,aACols)
+
+Local nI := 0,cCampo,uValor
+If aACols[Len(aACols)]   // se o item do aCols estiver deletado
+   Return .F.
+EndIf   
+For nI := 1 to Len(aAHeader)   	
+   If Trim(aAHeader[nI][2]) <> "AO_ALI_WT" .And. Trim(aAHeader[nI][2]) <> "AO_REC_WT" .And. Trim(aAHeader[nI][10]) <> "V"
+      cCampo	:= cAlias+"->"+Trim(aAHeader[nI,2])
+      uValor	:= aACols[nI]
+      &cCampo	:= uValor
+   EndIf
+Next nI
+Return .T.
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Fd_EntraEnc
+
+Atualiza aTela e aGets quando e focada a enchoice  
+
+@sample	Fd_EntraEnc(nE,cAlias))
+
+@param		ExpN1 = Numero da Enchoice 
+			ExpC1 = Alias da Tabela 
+
+@return	Nil
+
+@author	Eduardo Motta       
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Fd_EntraEnc(nE,cAlias)
+
+aTela := AClone(aSvAtela[nE])
+aGets := AClone(aSvaGets[nE])
+DbSelectArea(cAlias)
+
+Return  
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Fd_SaiEnc 
+
+Guarda aTela e aGets na saida do foco na enchoice   
+
+@sample	Fd_Saienc(nE)
+
+@param		ExpN1 = Numero da Enchoice 
+			
+@return	Nil
+
+@author	Eduardo Motta       
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Fd_Saienc(nE)
+
+aSvATela[nE]	:= aClone(aTela)
+aSvAGets[nE] 	:= aClone(aGets)
+
+Return
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MT030Refre
+
+Efetua o refresh nas GetDados
+
+@sample	MT030Refre( aGetDad )
+
+@param		ExpA1 = Array da getDados 
+			
+@return	Verdadeiro
+
+@author	Marco Bianchi      
+@since		22/01/2007
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function MT030Refre( aGetDad )
+        
+aGetDad[1]:oBrowse:lDisablePaint := .F.
+aGetDad[1]:oBrowse:Refresh(.T.) 
+
+Return( .T. )
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} Mata030Rot
+
+Retorna o array aRotina do Mata030              
+
+@sample	Mata030Rot()
+		
+@return	MenuDef() - Operações realizadas pela aplicação.
+
+@author	Vendas CRM       
+@since		01/09/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function Mata030Rot()
+
+Return MenuDef()
+
+//------------------------------------------------------------------------------
+/*/	Retorna o menu da rotina mata030 no fonte crma070
+do CRM. 
+@version P11.9
+@since 08/11/2013
+/*/
+//------------------------------------------------------------------------------
+Function A030Menu()
+
+Return MenuDef()
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} RetX3Box
+
+Retorna array da ComboBox
+
+@sample	RetX3Box(cCampo)
+
+@param		ExpC1 = Nome do Campo
+			
+@return	aRet = Array do combo
+
+@author	Eduardo Motta  
+@since		12/12/2000
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function RetX3Box(cCampo)
+
+Local aRET := {},nCONT
+Local cCBox
+Local aSvArea := SX3->(GetArea())
+
+SX3->(DbSetOrder(2))
+SX3->(DbSeek(cCampo))
+cCBox := SX3->(X3Cbox())
+   
+BEGIN SEQUENCE 
+   While !Empty(cCBOX)
+      nCONT:=AT(";",cCBOX)
+      IF nCont == 0
+         AADD(aRET,SubStr(AllTrim(cCBOX),3))
+         Exit
+      Else
+         AADD(aRET,SubStr(AllTrim(SubStr(cCBOX,1,nCONT-1)),3))
+      Endif 
+      cCBOX := SubStr(cCBOX,nCONT+1)
+   End
+ENDSEQUENCE
+   
+RestArea(aSvArea)
+
+Return aRET
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} MT030Fld
+
+Funcao de Tratamento dos Folders
+
+@sample	A030Altera(cAlias,nReg,nOpc)
+
+@param		ExpN1 = Numero do Folder Destino 
+			ExpN2 = Numero do Folder Atual
+			ExpO1 = Objeto do Folder
+			ExpA1 = Array da GetDados  
+
+@return	lRet
+
+@author	Marco Bianchi     
+@since		22/11/2007
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function MT030Fld(nFldDst,nFldAtu,oFolder,aGetDad)
+
+Local lRetorno:= .F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Efetua a Validacao da GetDados                        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+aGetDad[nFldAtu]:TudoOk()
+If ( aGetDad[nFldAtu]:TudoOk() )
+	lRetorno := .T.
+	aGetDad[nFldAtu]:oBrowse:lDisablePaint := .T.
+	Do Case
+		Case ( nFldAtu == 1 )
+			aCols1  := aClone(aCols)
+			aHeader1:= aClone(aHeader)
+		Case ( nFldAtu == 2 )
+			aCols2  := aClone(aCols)
+			aHeader2:= aClone(aHeader)
+		Case ( nFldAtu == 3 )
+			aCols3  := aClone(aCols)
+			aHeader3:= aClone(aHeader)
+	EndCase
+	N := Max(aGetDad[nFldDst]:oBrowse:nAt,1)
+	Do Case
+		Case ( nFldDst == 1 )
+			aCols   := aClone(aCols1)
+			aHeader := aClone(aHeader1)
+		Case ( nFldDst == 2 )
+			aCols   := aClone(aCols2)
+			aHeader := aClone(aHeader2)
+		Case ( nFldDst == 3 )
+			aCols   := aClone(aCols3)
+			aHeader := aClone(aHeader3)
+	EndCase
+	aGetDad[nFldDst]:oBrowse:lDisablePaint := .F.
+	aGetDad[nFldDst]:oBrowse:Refresh(.T.)
+EndIf     
+
+Return(lRetorno)
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030Per
+
+Chama a tela de Perfil do cliente caso esteja no modulo CRM
+
+@sample	 A030Per()
+
+@return	Nil
+
+@author	Vendas CRM    
+@since		07/11/2013
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030Per()
+
+TK010Con(,,,,,"SA1",SA1->A1_COD+SA1->A1_LOJA)
+
+Return
+
+//----------------------------------------------------------
+/*	Cliente Filial
+@author  	Leandro Paulino
+@version 	P10 R1.4
+@build		7.00.101202A
+@since 		06/04/2011
+@return 		cRet Identificação se o fornecedor é uma filial*/
+//-----------------------------------------------------------
+Function A030CliFil(cCnpj)
+
+Local aDadosEmp := FwLoadSM0()
+Local cRet      := If(!Empty(aDadosEmp) .And. Ascan(aDadosEmp,{ |x| x[SM0_CGC] == cCnpj }) > 0, "1", "2") // 1=Sim ## 2=Sim
+
+Return cRet
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} ma030IncTrn
+
+Inserir registro e atualizar tabela de sincronizacao          
+
+@sample	ma030IncTrn()
+
+@return	Nil
+
+@author	Paulo Benedet     
+@since		25/09/2008
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function ma030IncTrn()
+
+Local aParam 		:= {||}
+Local cAlias 		:= "" 			// Alias em uso
+Local nReg   		:= 0
+Local nOpc   		:= 3 				// Inclusao
+
+If lFindIsMVC .And. !MA030IsMVC()
+	aParam	:= {{|| .T.}, {|| .T.}, {|| .T.}, {||ma030AltOk()}} //Bloco de codigo executado apos a transacao da inclusao do cliente
+	cAlias	:= "SA1" 			// Alias em uso
+	nReg  	:= SA1->(RecNo()) // Numero do registronOpc 
+	nOpcA  := AxInclui(cAlias,nReg,nOpc,/*aAcho*/,/*cFunc*/,/*aCpos*/,".T.",.T.,"MA030Trans(0,3)",/*aButtons*/,aParam,/*aRotAuto*/)
+Else
+	FWExecView(STR0003,"CRMA980",MODEL_OPERATION_INSERT,/*oDlg*/,/*bCloseOnOk*/,/*bOk*/,/*nPercReducao*/)		// "Incluir"
+EndIf
+
+Return Nil
+
+//-------------------------------------------------------------------
+/*/ {Protheus.doc} A030GAOWMark
+	
+Retorna o array estatico com os subsegmentos em cache.
+		 
+@sample	A030GAOWMark()
+			
+@param		Nenhum
+				
+@author    Anderson Silva
+@since		04/07/2015
+@version	P12 
+/*/
+//-------------------------------------------------------------------
+Function A030GAOWMark()
+Return( aAOVMark )
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} GetFilChk
+Retorna o array com qual(is) filial(is) do ambiente deve ocorrer a verificação da
+existência de movimentações do Cód.do Cliente que se deseja confirmar a exclusão.
+@sample     GetFilChk(aSM0CodFil, cAliasDom, cAliasCDom)
+@param      aSM0CodFil  - Array com todas as Empresas/Unid.Negócios/Filiais (para 
+                          quando é Gestão de Empresa), ou Filiais (quando não é 
+                          Gestão de Empresas) conforme SM9.
+            cAliasDom   - Alias da tabela Domínio
+            cAliasCDom  - Alias da tabela Contra-domínio
+@return		aRetBranchs - Array com as Filiais que precisam ser testadas para o 
+                          Contra-domínio recebido
+@author     Squad CRM/FAT    
+@since		Jan/2021
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Static Function GetFilChk(aSM0CodFil, cAliasDom, cAliasCDom)
+
+Local cSM0LayOut	:= ""
+Local cTpCp1FDom	:= ""	//Compartilhamento EMPRESA do Domínio
+Local cTpCp2FDom	:= ""	//Compartilhamento UNID.NEGOCIO do Domínio
+Local cTpCp3FDom	:= ""	//Compartilhamento FILIAL do Domínio
+Local cTpCp1FCDm	:= ""	//Compartilhamento EMPRESA do Contra-domínio
+Local cTpCp2FCDm	:= ""	//Compartilhamento UNID.NEGOCIO do Contra-domínio
+Local cTpCp3FCDm	:= ""	//Compartilhamento FILIAL do Contra-domínio
+Local cTpCmpDom		:= ""
+Local cTpCmpCDm		:= ""
+Local cFilDom		:= ""
+Local cFilCDom		:= ""	//xFilial(cAliasCDom)
+Local nElementos	:= Len(aSM0CodFil)
+Local nPos			:= 0
+Local lGestaoEmp    := .F.
+Local aRetBranchs	:= {}
+
+If _lFWCodFil
+	cSM0LayOut		:= FWSM0Layout()
+	lGestaoEmp		:= ("E" $ cSM0LayOut .OR. "U" $ cSM0LayOut)
+EndIf
+cTpCp3FDom			:= FWModeAccess(cAliasDom,  3)	//Compartilhamento FILIAL do Domínio, independentemente de utilizar ou não a Gestão de Empresas
+cTpCp3FCDm			:= FWModeAccess(cAliasCDom, 3)	//Compartilhamento FILIAL do Contra-domínio, independentemente de utilizar ou não a Gestão de Empresas
+
+If lGestaoEmp
+	cTpCp1FDom		:= FWModeAccess(cAliasDom,  1)	//Compartilhamento EMPRESA do Domínio com a Gestão de Empresas
+	cTpCp1FCDm		:= FWModeAccess(cAliasCDom, 1)	//Compartilhamento EMPRESA do Contra-domínio com a Gestão de Empresas
+	cTpCp2FDom		:= FWModeAccess(cAliasDom,  2)	//Compartilhamento UNID.NEGOCIO do Domínio com a Gestão de Empresas
+	cTpCp2FCDm		:= FWModeAccess(cAliasCDom, 2)	//Compartilhamento UNID.NEGOCIO do Contra-domínio com a Gestão de Empresas
+	cTpCmpDom		:= (cTpCp1FDom + cTpCp2FDom + cTpCp3FDom)
+	cTpCmpCDm		:= (cTpCp1FCDm + cTpCp2FCDm + cTpCp3FCDm)
+	If cTpCmpDom <> cTpCmpCDm
+		cFilDom		:= xFilial(cAliasDom)
+		For nPos := 1 to nElementos
+			If	xFilial(cAliasDom, aSM0CodFil[nPos]) == cFilDom
+				cFilCDom	:= xFilial(cAliasCDom, aSM0CodFil[nPos])
+				If aScan(aRetBranchs, cFilCDom) == 0
+					aAdd(aRetBranchs, cFilCDom)
+				EndIf
+			EndIf
+		Next nPos
+	Else
+		cFilCDom	:= xFilial(cAliasCDom)
+		aRetBranchs	:= {cFilCDom}
+	EndIf
+Else
+	cFilCDom	:= xFilial(cAliasCDom)
+	aRetBranchs	:= If(cTpCp3FDom == "C" .AND. cTpCp3FCDm == "E", aSM0CodFil, {cFilCDom})
+EndIf
+
+Return aRetBranchs

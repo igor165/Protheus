@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Consulta de modificaciones en la estructura"
+	#define STR0002 "Componentes"
+	#define STR0003 "Historial"
+	#define STR0004 "Estructura"
+	#define STR0005 "Ningún resultado se encontró con el filtro definido."
+	#define STR0006 "Actualice el filtro para contener los resultados deseados."
+	#define STR0007 "Rutina no disponible en esta release."
+	#define STR0008 "Imposible modificar la grid."
+	#define STR0009 "Parámetros"
+	#define STR0010 "Finalizar"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Verification of editions in the structure"
+		#define STR0002 "Components"
+		#define STR0003 "History"
+		#define STR0004 "Structure"
+		#define STR0005 "No result was found with the defined filter."
+		#define STR0006 "Update the filter to have the desired results."
+		#define STR0007 "Routine not available in this release."
+		#define STR0008 "Unable to edit the grid."
+		#define STR0009 "Parameters"
+		#define STR0010 "Close"
+	#else
+		#define STR0001 "Consulta de alterações na estrutura"
+		#define STR0002 "Componentes"
+		#define STR0003 "Histórico"
+		#define STR0004 "Estrutura"
+		#define STR0005 "Nenhum resultado encontrado com o filtro definido."
+		#define STR0006 "Atualize o filtro para conter os resultados desejados."
+		#define STR0007 "Rotina não disponível nesta release."
+		#define STR0008 "Impossível alterar a grid."
+		#define STR0009 "Parâmetros"
+		#define STR0010 "Fechar"
+	#endif
+#endif

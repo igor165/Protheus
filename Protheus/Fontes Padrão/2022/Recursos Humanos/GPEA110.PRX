@@ -1,0 +1,2368 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "GPEA1110.CH"
+#INCLUDE "FONT.CH"
+#INCLUDE "COLORS.CH"
+#INCLUDE "PONCALEN.CH"
+#INCLUDE "HEADERGD.CH"
+
+#DEFINE CONFIRMA 1
+#DEFINE REDIGITA 2
+#DEFINE ABANDONA 3
+
+Static lIncluir:= .F.
+
+/*/{Protheus.doc} GPEA110
+Cadastro Valores Futuros
+@author Fernando joly
+@since 10/09/1996
+@param nOpcAuto, numeric, descricao
+@param aCab, array, descricao
+@param aItens, array, descricao
+@history 15/03/2013, Mohanad Odeh,	RQ005			Unificacao dos fontes V12
+@history 20/03/2014, Raquel Hager,	RHU210_03_14	Ajustes devido acesso pela rotina gpea011 Gestao de Funcionario.
+@history 22/04/2014, Esther V.,		M_RH003			Replica V11 para V12. Tratamento do parametro MV_ITMCLVL para aceitar '3', não obrigando o preenchimento dos campos.
+@history 27/05/2014, Esther V.,		M_RH003			Ajustes na obrigatoriedade dos campos Item e Classe de Valor quando MV_ITMCLVL for igual a 3.
+@history 03/06/2014, Renan Borges,	TPO406			Correção do help informado na validação do campo RK_VALORTO.
+@history 08/06/2015, Esther V.,		TSNTY3			Adicionada validacao p/ considerar status do lcto na quantidade de lctos diaria.
+@history 22/07/2015, Renan Borges,	TSTYSU			Ajuste para não incluir nos “Lançamentos de Valores Futuros” as verbas que possuem o campo “Futuros” (RV_LEEPRE) como “Não”.
+@history 28/07/2015, JR.Briseno,	PCREQ-5930		Se corrigio que al actualizar el periodo y pago de un prestamo, al  cambiar el pago se regresaba el valor original del periodo.
+@history 07/01/2016, Allyson M,		TUCYMY			Ajuste para nao validar a quantidade de lancamentos permitidos quando a verba for de emprestimo consignado
+@history 17/06/2016, Eduardo K M,	TVK814			Ajuste para que o campo RK_DTMOVI carregue o conteudo correto ou permita edita-lo caso o funcionario seja autonomo
+@history 14/06/2016, Cícero Alves,	TVUM43			Ajuste para não deixar editar o campo RK_MESDISS
+@history 10/01/2016, Jonathan Glz,	PCREQ-7944		Localizacion GPE de Chile p/v12. Se modifica funcion GP110LINOK, para que tome el campo RK_EMPCONS solo para brasil
+@history 27/01/2016, Jonathan Glz,	PCREQ-9280		Se modifica funcion fCalcVrParc, para que no tome los campos RK_PCJUROS/RK_VLJUROS pues estos no son usados en Colombia.
+@history 06/12/2016, Renan Borges,	MRH-2160		Ajuste para permitir C.C diferente para o mesmo doc.
+@history 16/12/2016, Marcelo F.,	MRH-3218		Compatibilização projeto soyuz(Russia)
+@history 25/04/2017, Jônatas A.,	DRHPAG-777		Ajuste em fMontaGet() p/ buscar todos os lançamentos de parcelas pagas do SRD.
+@history 03/05/2017, Luis Enriquez,	MMI-126			Se modifica funcion GP110LINOK, para que tome el campo RK_EMPCONS solo para brasil. Pais: Mexico.
+@history 30/10/2017, Eduardo V,		DRHESOCP-1587	Inclusão de das funções Gp110vld/Gp110When
+@history 13/11/2017, Marcos Cout.,	DRHESOCP-1968	Realizar ajustes para que os valores futuros seja interpretado corretamente Linha a Linha
+@history 06/12/2017, Jaqueline L,	DRHPAG-2725		Posicionar o RCH quando o usuário fizer a digitação do Período sem abrir a Consulta Padrão.
+/*/
+Function GPEA110(nOpcAuto, aCabec, aIten)
+
+	Local bBlock		:= {|| }
+	Local nPos			:= 0
+	Local nPosFil		:= 0
+	Local nPosMat		:= 0
+	Local nOpcBusca		:= 0
+
+	Private aArray		:= {}
+	Private aCRA		:= {STR0001, STR0002, STR0003}	//'Confirma' # 'Redigita' # 'Abandona'
+	Private lAuto		:= If( nOpcAuto != NIL .And. aCabec != NIL .And. aIten != Nil, .T., .F. )
+	Private lAutoDel	:= .F.
+	Private aRotina		:= MenuDef()
+	Private lGpea110Inc	:= .F.
+	PRIVATE aColsAnt	:= {}
+	Private aButtons	:= {}
+	Private aCab		:= aCabec
+	Private aItens		:= aIten
+	Private lNlResM2	:= Type( "lResM2" ) <> "U"
+	Private lUlResM2	:= Type( "lResM2" ) == "U"
+	Private lGpa110G2	:= ExistBlock("Gpa110G2")
+	Private lGpa110Grv	:= ExistBlock("Gpa110Grv")
+
+	cCadastro := OemToAnsi(STR0009)	//"Valores Futuros"
+
+	If (lNlResM2 .And. lResM2)	//Tratamento para chamada da rotina atraves da tela de rescisão (Modelo 2)
+		If FWChkFuncAccess( "GPEA110", 4, .T.)
+			GP110Atu( "SRA" , 1 , 4 )
+		ElseIf FWChkFuncAccess( "GPEA110", 2, .T.)
+			If ! lAuto
+				Aviso( STR0065, STR0091, {STR0015}) //"Atenção" # "Permissão somente para visualização dos resgistros" # "Ok"
+				GP110Atu( "SRA" , 1 , 2 )
+			Else
+				AutoGRLog(STR0091)
+			EndIf
+		Else
+			If ! lAuto
+				Aviso( STR0065, STR0092, {STR0015}) //"Atenção" # "O usuário não tem O USUARIO NAO TEM PERMISSAO DE ACESSO A ESTA ROTINA." ### "OK"
+			Else
+				AutoGRLog(STR0092)
+			EndIf
+		Endif
+	Endif
+
+	If lAuto
+
+		Do Case
+			Case nOpcAuto == 3
+				INCLUI := .T.
+				ALTERA := .F.
+			Case nOpcAuto == 4
+				INCLUI := .F.
+				ALTERA := .T.
+			Otherwise
+				INCLUI := .F.
+				ALTERA := .F.
+		EndCase
+
+		DbSelectArea("SRA")
+
+		//Posiciona no funcionário
+		nPosFil := aScan(aCab, {|x| x[1] == "RA_FILIAL"})
+		nPosMat := aScan(aCab, {|x| x[1] == "RA_MAT"})
+
+		If nPosFil > 0 .And. nPosMat > 0
+			SRA->(DBSetOrder(1))
+			If ! ( SRA->(dbSeek(aCab[nPosFil][2] + aCab[nPosMat][2])))
+				AutoGrLog( STR0100 +  aCab[nPosFil][2] + STR0101 + aCab[nPosMat][2] + STR0102)	// "Funcionário não encontrato. Verifique se a Filial: " # " e a matricula " # " Estão corretas."
+				Return
+			EndIf
+		Else
+			AutoGrLog(STR0103)	// "Filial ou Matricula não informada."
+			Return
+		EndIf
+
+		If Type("lGPEA011") != "U"
+			If lGPEA011
+				bBlock := &( "{ |a, b, c, d, e| " + aRotina[ nOpcAuto,2 ] + "(a, b, c, d, e) }" )
+				Eval( bBlock, Alias(), (Alias())->(Recno()), nOpcAuto)
+			EndIf
+		Else
+			If nOpcAuto == 5
+				nOpcBusca	:= 4
+				lAutoDel	:= .T.
+			Else
+				nOpcBusca	:= nOpcAuto
+			EndIf
+			nPos := Ascan(aRotina, {|x| x[4] == nOpcBusca})
+			If ( nPos <> 0 )
+				bBlock := &( "{ |a, b, c, d, e| " + aRotina[ nPos, 2 ] + "(a, b, c, d, e) }" )
+				Eval( bBlock, Alias(), (Alias())->(Recno()), nPos)
+			EndIf
+		EndIf
+
+	Elseif nOpcAuto <> Nil
+
+		Do Case
+			Case nOpcAuto == 3
+				INCLUI := .T.
+				ALTERA := .F.
+			Case nOpcAuto == 4
+				INCLUI := .F.
+				ALTERA := .T.
+			Otherwise
+				INCLUI := .F.
+				ALTERA := .F.
+		EndCase
+
+		DbSelectArea('SRA')
+
+		If Type("lGPEA011") != "U"
+			If lGPEA011
+				bBlock := &( "{ |a, b, c, d, e| " + aRotina[ nOpcAuto,2 ] + "(a, b, c, d, e) }" )
+				Eval( bBlock, Alias(), (Alias())->(Recno()), nOpcAuto)
+			EndIf
+		Else
+			nPos := Ascan(aRotina, {|x| x[4] == nOpcAuto})
+			If ( nPos <> 0 )
+				bBlock := &( "{ |a, b, c, d, e| " + aRotina[ nPos, 2 ] + "(a, b, c, d, e) }" )
+				Eval( bBlock, Alias(), (Alias())->(Recno()), nPos)
+			EndIf
+		EndIf
+
+	Elseif( lUlResM2 .Or. ! lResM2)
+
+		If ! ChkVazio("SRA")	// Verifica se o arquivo esta vazio
+			Return NIL
+		EndIf
+
+		// Inicializa p filtro utilizando a função filbrowse
+		aArray := {"SRA", "SRV" , "SRK" }
+		fFiltro("GPEA110", aArray, 2)	// Cria todas as variaveis para filtro
+
+		// Executa apenas o primeiro Filtro
+		fFiltro("GPEA110", aArray, 1 /* Exec Filtro*/, 1 /*Inicio*/, 2/*Fim*/)
+
+		SetBrwCHGAll(.T.)	// Endereça a função de Browse
+		DbSelectArea('SRA')
+
+		mBrowse(6, 1, 22, 75, "SRA",,,,,, fCriaCor())
+
+		Chk_Pack('SRK', 20)	// Executa um pack caso exista mais do que 20% de registros deletados
+
+		If Len(aArray)>0
+			ffiltro("GPEA110", aArray, 0)	// 0- Limpa os filtros
+		Endif
+
+	EndIf
+
+Return Nil
+
+/*/{Protheus.doc} GP110Atu
+Rotina de Visualização, Inclusão, Alteração, e exclução de valores futuros
+@author Fernando Joly
+@since 10/09/1996
+@param cAlias, characters, Alias do arquivo
+@param nReg, numeric, Numero do registro
+@param nOpcx, numeric, Numero da opcao selecionada
+/*/
+Function GP110Atu(cAlias, nReg, nOpcx)
+
+	Local a110alter			:= {}
+	Local aAdvSize			:= {}
+	Local aInfoAdvSize		:= {}
+	Local aObjSize			:= {}
+	Local aObjCoords		:= {}
+	Local aOfusca			:= If(FindFunction('ChkOfusca'), ChkOfusca(), {.T. , .F.}) //[1] Acesso; [2]Ofusca
+	Local aFldOfusca 		:= {}
+	Local aFldRot 			:= {'RA_NOME', 'RA_ADMISSA'}
+
+	Local bSet15			:= { || NIL }
+	Local bSet24			:= { || NIL }
+	Local cMat				:= SRA->RA_MAT
+	Local cLancDemi			:= Upper( AllTrim( GetMv("MV_DEMISRC") ) )
+	Local aArea				:= GetArea()
+	Local nCnt				:= 0.00
+	Local nOpcNewGd			:= IF( ( ( nOpcx == 2 ) .or. ( nOpcx == 5 ) ) , 0 , GD_INSERT + GD_UPDATE + GD_DELETE	)
+	Local nX				:= 0
+	Local nPosPd			:= 0
+	Local nPosDesc			:= 0
+	Local nPosNrDoc			:= 0
+	Local lOfuscaNom		:= .F.
+	Local lOfuscaAdm		:= .F.
+	Local oFont
+	Local oGroup
+
+	// Variáveis do objeto oGet
+	Local cKey				:= ''
+	Local bKey				:= NIL
+	Local aFields			:= {}
+	Local aVirtGd			:= {}
+	Local aVisualGD			:= {}
+	Local aNotFields		:= {}
+	Local nOpca				:= 0
+	Local aGdAltera			:= {}
+	Local aGdNaoAltera		:= {}
+	Local nTamRKDoc			:= 6
+	Local nI                := 0
+	Local nPosDocumen       := 0
+	Local cProxNum          := ""
+	Private oGet			:= NIL
+	Private a110Field		:= {'RK_FILIAL','RK_MAT'}
+	Private aVirtual		:= {}
+	Private aAC				:= {'Abandona','Confirma'}
+	Private aColsRec		:= {} //ARRAY QUE CONTEM O RECNO() DOS REGISTROS DA ACOLS
+	Private cProcesso		:= SRA->RA_PROCES
+	Private cCategoria		:= SRA->RA_CATFUNC 	//ARMAZENA A CATEGORIA DO FUNCIONARIO. UTILIZADA PARA A VALIDACAO DO NUMERO DE PAGAMENTO
+	Private cFilFun			:= SRA->RA_FILIAL
+	Private cPeriodo		:= ""
+	Private cCond			:= "1"
+	Private cRot			:= fGetRotOrdinar()
+	Private lRotEmpty		:= .T.
+	Private lPeGp110TdOk	:= ExistBlock("Gp110TdOk")
+	Private lPeGp110LnOk	:= ExistBlock("Gp110LnOk")
+
+	// Verificar contabilização por iten contábil e classe de valor
+	Private IItemCLVL := SuperGetMv( "MV_ITMCLVL", .F., "2" ) $ "1*3" // Variável que define se os campos "Item Contabil" e Classe de Valor" estão ativos
+	
+	Private aTransf		:= {}
+	fTransf(@aTransf,,,,,,,.T.)
+
+	If SRA->RA_CATFUNC $ "A*P"
+		cRot := fGetCalcRot("9")
+	EndIf
+
+	If lIncluir
+		nOpcx := 3
+		lIncluir :=.F.
+	Else
+		fAtuDocumen()
+	Endif
+
+	cAlias := 'SRK'
+
+	// Monta as dimenções dos objetos
+	aAdvSize		:= MsAdvSize()
+	aInfoAdvSize	:= { aAdvSize[1], aAdvSize[2], aAdvSize[3], aAdvSize[4], 5, 5 }
+	aAdd( aObjCoords, { 0, 20, .T., .F. })
+	aAdd( aObjCoords, { 0,  0, .T., .T. })
+	aObjSize := MsObjSize( aInfoAdvSize, aObjCoords )
+
+	Do While .T.
+		IF SRA->RA_SITFOLH  == "D" //VERIFICA SE O FUNCIONARIO ESTA DEMITIDO
+			IF !( cLancDemi == "S" )
+				Help(" ", 1, "NOLANCDEMI") //NAO PERMITE O LANCAMENTO PARA O FUNCIONARIO
+				Exit
+			Else
+				Help(" ", 1, "A090DEMITI") //PERMITE O LANCAMENTO PARA O FUNCIONARIO
+			EndIF
+		EndIF
+
+		//VERIFICA SE EXISTE ALGUM DADO NO ARQUIVO
+		dbSelectArea(cAlias)
+		dbSeek(cFilFun + cMat)
+		nCnt := 0
+		Do While ! EOF() .And. RK_FILIAL + RK_MAT == cFilFun + cMat
+			nCnt++
+			dbSkip()
+		EndDo
+
+		If !lAuto .AND. nCnt > 0  .And. nOpcx == 3 //QUANDO INCLUSAO E EXISTIR REGISTRO
+			If lGpea110Inc
+				lGpea110Inc := .F.
+				Exit
+			EndIf
+			Help(' ',1,'A040CLANC')
+			Exit
+		Elseif nCnt == 0 .And. nOpcx # 3 //QUANDO NAO FOR INCLUSAO E NAO EXISTIR REGISTRO
+			If !(lNlResM2 .And. lResM2)  //TRATAMENTO PARA CHAMADA DA ROTINA ATRAVES DE TELA DE RESCISAO (MODELO 2)
+				If nOpcx # 5
+					Help(' ', 1, 'A040SLANC')
+				Else
+					Help(' ', 1, 'GPEA110DEL')
+				EndIf
+				Exit
+			Endif
+		Endif
+
+		//MONTA A ENTRADA DE DADOS DO ARQUIVO
+		Private aTELA[0][0], aGETS[0], aHeader[0], Continua := .F., nUsado := 0
+
+		//POSICIONA PONTEIRO DO ARQUIVO CABECA E INICIALIZA VARIAVEIS
+		nOpcA := 0
+		PRIVATE aCOLS[1][1]
+
+		//MONTA OS DADOS PARA A GETDADOS
+		aAdd(aNotFields, "RK_FILIAL")
+		aAdd(aNotFields, "RK_MAT")
+
+		If !IItemCLVL     //SE ESTIVER COMO FALSE ELE ENTRA COMO ITEM QUE NAO DEVE SER APRESENTADO
+			aAdd(aNotFields, "RK_ITEM")
+			aAdd(aNotFields, "RK_CLVL")
+		EndIf
+
+		cKey 	:= (cFilFun + cMat)
+		If Len(aArray)>0
+			ffiltro("GPEA110",aArray, 1 /* Exec Filtro*/, 2 /*Inicio*/, 3/*Fim*/, .T.)
+		Endif
+
+		aCols := SRK->(GdMontaCols( @aHeader	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+									@nUsado		,;	//02 -> Numero de Campos em Uso
+									@aVirtGd	,;	//03 -> [@]Array com os Campos Virtuais
+									@aVisualGd	,;	//04 -> [@]Array com os Campos Visuais
+									"SRK"		,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+									aNotFields	,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+									@aColsRec	,;	//07 -> [@]Array unidimensional contendo os Recnos
+									"SRA"		,;	//08 -> Alias do Arquivo Pai
+									cKey		,;	//09 -> Chave para o Posicionamento no Alias Filho
+									NIL			,;	//10 -> Bloco para condicao de Loop While
+									NIL			,;	//11 -> Bloco para Skip no Loop While
+									NIL			,;	//12 -> Se Havera o Elemento de Delecao no aCols
+									NIL			,;	//13 -> Se cria variaveis Publicas
+									NIL			,;	//14 -> Se Sera considerado o Inicializador Padrao
+									NIL			,;	//15 -> Lado para o inicializador padrao
+									NIL			,;	//16 -> Opcional, Carregar Todos os Campos
+									NIL			,;	//17 -> Opcional, Nao Carregar os Campos Virtuais
+									NIL			,;	//18 -> Opcional, Utilizacao de Query para Selecao de Dados
+									NIL			,;	//19 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+									NIL			,;	//20 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+									.T.			,;	//21 -> Carregar Coluna Fantasma
+									NIL			,;	//22 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+	 								NIL			,;	//23 -> Verifica se Deve Checar se o campo eh usado
+									NIL			,;	//24 -> Verifica se Deve Checar o nivel do usuario
+									!lAuto		,;	//25 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+									NIL			,;	//26 -> [@]Array que contera as chaves conforme recnos
+									NIL			,;	//27 -> [@]Se devera efetuar o Lock dos Registros
+									NIL			,;	//28 -> [@]Se devera obter a Exclusividade nas chaves dos registros
+									NIL			,;	//29 -> Numero maximo de Locks a ser efetuado
+									.T.			 ;	//30 -> Utiliza Numeracao na GhostCol
+							))
+		// O INICIALIZADOR PADRAO DA GHOSTCOL E RETIRADO PARA VERIFICAR QUAIS LINHAS
+		// FORAM INCLUIDAS E QUAIS JA FORAM GRAVADAS. REGISTROS JA GRAVADOS NAO PODERAM
+		// SER DELETADOS.
+		aHeader[ GdFieldPos( "GHOSTCOL"  , aHeader ) , __AHEADER_INITPAD__ ] := ""
+
+		aAdd( aVisualGd, "RK_STATUS"   )
+		aAdd( aVisualGd, "RK_VALORAR"  )
+		aAdd( aVisualGd, "RK_NUMID"  )
+		aAdd( aVisualGd, "RK_MESDISS"  )
+
+		aAdd( aVirtGd, "RK_MESDISS"  )
+
+		nPosPd		:= GdFieldPos( "RK_PD"		, aHeader )
+		If Len(aCols) = 1 .AND. Empty(aCols[1, nPosPd])
+			aCols[1, GdFieldPos( "GHOSTCOL" , aHeader )] := "0"
+		EndIf
+
+		aColsAnt:= aClone(aCols)
+
+		//DEFINE OS CAMPOS QUE NAO SERAO ALTERADOS
+		aGdNaoAltera := { "RK_STATUS", "RK_MESDISS" }
+
+		//CARREGA, APENAS, OS CAMPOS EDITAVEIS
+		aGdAltera := {}
+		For nX := 1	To nUsado
+			IF (;
+					( aScan( aVirtGd 		, PADR(aHeader[nX, 2], 10)) == 0 ) .AND. ;
+					( aScan( aVisualGd 		, PADR(aHeader[nX, 2], 10)) == 0 ) .AND. ;
+					( aScan( aNotFields  	, PADR(aHeader[nX, 2], 10)) == 0 ) .AND. ;
+					( aScan( aGdNaoAltera	, PADR(aHeader[nX, 2], 10)) == 0 ) 	   ;
+				)
+				aAdd( aGdAltera , aHeader[ nX , 02 ] )
+			EndIf
+		Next nX
+
+		//CARREGA A DESCRICAO DAS VERBAS
+		nPosPd		:= GdFieldPos("RK_PD", aHeader)
+		nPosDesc	:= GdFieldPos("RK_DESCPD", aHeader)
+		For nX:= 1 to len(aCols)
+			aCols[nx,nPosDesc] := fDesc("SRV", aCols[nX, nPosPd], "RV_DESC")
+		Next nX
+
+		nTamRKDoc := GetSx3Cache("RK_DOCUMEN", "X3_TAMANHO")
+		nPosNrDoc := GdFieldPos("RK_DOCUMEN", aHeader)
+		If Len(aCols) == 1 .AND. Empty(aCols[1,nPosNrDoc])
+			aCols[1,nPosNrDoc] := SOMA1(REPLICATE("0",nTamRKDoc))
+		EndIf
+
+		nOpca := 0
+		aButtons := {}
+
+	If ! lAuto
+		DEFINE FONT oFont NAME "Arial" SIZE 0,-11 BOLD
+		DEFINE MSDIALOG oDlg TITLE OemToAnsi(STR0009) FROM aAdvSize[7],0 TO aAdvSize[6],aAdvSize[5] OF oMainWnd PIXEL //' Valores Futuros '
+
+		//Protecao de Dados Sensiveis
+		If aOfusca[2]
+			aFldOfusca := FwProtectedDataUtil():UsrNoAccessFieldsInList( aFldRot) // CAMPOS SEM ACESSO
+			IF aScan( aFldOfusca , { |x| x:CFIELD == "RA_NOME" } ) > 0
+				lOfuscaNom	:= FwProtectedDataUtil():IsFieldInList( "RA_NOME" )
+			ENDIF
+			IF aScan( aFldOfusca , { |x| x:CFIELD == "RA_ADMISSA" } ) > 0
+				lOfuscaAdm := FwProtectedDataUtil():IsFieldInList( "RA_ADMISSA" )
+			ENDIF
+		EndIf
+
+			@ aObjSize[1,1], aObjSize[1,2] GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]*0.14 LABEL OemToAnsi(STR0011) OF oDlg PIXEL // "Matricula:"
+			oGroup:oFont:= oFont
+			@ aObjSize[1,1], aObjSize[1,4]*0.15 GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]*0.60 LABEL OemToAnsi(STR0012) OF oDlg PIXEL // "Nome:"
+			oGroup:oFont:= oFont
+			@ aObjSize[1,1], aObjSize[1,4]*0.61 GROUP oGroup TO aObjSize[1,3], aObjSize[1,4]      LABEL OemToAnsi(STR0013) OF oDlg PIXEL // "Admiss„o:"
+			oGroup:oFont:= oFont
+
+			@ aObjSize[1,1]+10, aObjSize[1,2]+10 SAY OemToAnsi(SRA->RA_MAT)  SIZE 050,10 OF oDlg PIXEL FONT oFont
+			@ aObjSize[1,1]+10, aObjSize[1,4]*0.15+10 SAY If(lOfuscaNom,Replicate('*',15),OemToAnsi(SRA->RA_NOME)) SIZE 146,10 OF oDlg PIXEL FONT oFont
+			@ aObjSize[1,1]+10, aObjSize[1,4]*0.61+10 SAY If(lOfuscaAdm,Replicate('*',10),Dtoc(SRA->RA_ADMISSA))   SIZE 050,10 OF oDlg PIXEL FONT oFont
+
+			oGet	:= MsNewGetDados():New(	aObjSize[2,1]			    				,;
+											aObjSize[2,2]								,;
+											aObjSize[2,3]								,;
+											aObjSize[2,4]								,;
+											nOpcNewGd      								,;
+											"gp110LinOk"								,;
+											"gp110TudOk"								,;
+											"+RK_DOCUMEN"								,;
+											aGdAltera									,;
+											NIL											,;
+											99999										,;
+											'Gp110ValCpos()'							,;
+											NIL											,;
+											NIL											,;
+											@oDlg										,;
+											@aHeader									,;
+											@aCols		 								 ;
+											)
+
+			oGet:bDelOk:= {|| gp110ChkDel()}
+
+			bSet15	:= {|| aCols:=oGet:aCols, nOpca:=If(nOpcx==5,2,1),If(oGet:TudoOk(),oDlg:End(),nOpca:=0)}
+			bSet24	:= {|| oDlg:End()}
+
+			F110choice(Odlg)
+
+			ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar( oDlg , bSet15 , bSet24, NIL, aButtons  ) CENTERED
+		Else
+			// MsGetDAuto não realiza auto incremento do RK_DOCUMEN utilizado no MsNewGetDados
+			cProxNum := ""
+
+			For nI := 1 To Len(aItens)
+				IF aScan(aItens[nI], {|x| AllTrim(x[1]) == "LINPOS"}) == 0				
+					nPosDocumen := aScan(aItens[nI], {|x| AllTrim(x[1]) == "RK_DOCUMEN"})
+
+					If (Empty(nPosDocumen))
+						If (Empty(cProxNum))
+							If (INCLUI)
+								cProxNum := StrZero(1, TamSX3("RK_DOCUMEN")[1])
+							Else
+								cProxNum := fRetMaxDoc(cMat)
+							Endif
+						Else
+							cProxNum := Soma1(cProxNum)
+						Endif
+						aAdd(aItens[nI], {"RK_DOCUMEN", cProxNum, Nil})
+					Endif
+				EndIf
+			Next nI
+
+			If nOpcNewGd != 5
+				If MsGetDAuto( aItens, "gp110LinOk", "gp110TudOk", , nOpcNewGd,.F.)
+					nOpcA := CONFIRMA					
+				EndIf
+			Else
+				nOpcA := CONFIRMA
+			EndIf
+
+		EndIf
+
+		// SE NAO FOR EXCLUSAO
+		If nOpcx # 5
+			IF nOpcA == REDIGITA
+				LOOP
+			ELSEIF nOpcA == CONFIRMA .And. nOpcx # 2
+				Begin Transaction
+					gp110Grava(cAlias,aVirtGd,nOpcx) //GRAVACAO
+					If lNlResM2 .And. lResM2 //TRATAMENTO PARA CHAMADA DA ROTINA ATRAVES DE TELA DE RESCISÃO (MODELO 2)
+						lM2Modif:= .T.
+					Endif
+					EvalTrigger() //PROCESSA GATILHOS
+				End Transaction
+				//PONTO DE ENTRADA EXECUTADO APOS A GRAVACAO DE CADA LANCAMENTO
+				If lGpa110G2
+					ExecBlock("Gpa110G2",.F.,.F.)
+				Endif
+			Endif
+		Elseif nOpca == 2 .And. nOpcx == 5
+			Begin Transaction
+				gp110Dele() //-- Se for Exclusao.
+			End Transaction
+		Endif
+		Exit
+	EndDo
+
+	//RESTAURA A INTEGRIDADE DA JANELA
+	RestArea(aArea)
+
+	If nOpca == 3 .Or. IsInCallStack("GPEA011")
+		MBrChgLoop(.F.)
+	EndIf
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³                   ROTINAS DE CRITICA DE CAMPOS                        ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110Grava³ Autor ³ Fernando Joly         ³ Data ³ 12.09.96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Grava no arquivo de Valores Futuros                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110Grava(cAlias,aVirtual)
+Local n				:= 0
+Local ny			:= 0
+Local nMaxArray		:= Len(aHeader)
+Local nPosPd		:= GdFieldPos("RK_PD", aHeader)
+Local nPosNrDoc		:= GdFieldPos("RK_DOCUMEN", aHeader)
+Local nPosNId		:= GdFieldPos("RK_NUMID", aHeader)
+
+DbSelectArea(cAlias)
+For n:= 1 TO Len(aCols)
+
+	If n <= Len(aColsRec)
+		dbGoto(aColsRec[n])
+		RecLock(cAlias,.F.,.T.)
+		If aCols[n,nUsado+1]  # .F. //VERIFICA SE ESTA DELETADO
+			dbDelete()
+			Loop
+		Endif
+	Else
+		If aCols[n,nUsado+1] == .F. //VERIFICA SE NAO ESTA DELETADO NO ACOLS
+			RecLock(cAlias,.T.,.T.)
+			Replace SRK->RK_FILIAL WITH cFilFun
+			Replace SRK->RK_MAT    WITH SRA->RA_MAT
+			Replace SRK->RK_NUMID  WITH cAlias + cFilFun + SRA->RA_MAT + aCols[n,nPosPd] + aCols[n,nPosNrDoc] // FILIAL + MAT + PD + NR. DOC
+			//CARREGA O CAMPO NUMID DO ACOLS PARA NAO SOBREPOR NA GRAVACAO
+			If (nPosNId > 0)
+				aCols[n, nPosNId] := SRK->RK_NUMID
+			EndIf
+		Else
+			Loop
+		Endif
+	Endif
+	For ny := 1 To nMaxArray
+		cCampo := Trim(aHeader[ny][2])
+		If Ascan(aVirtual,cCampo) == 0
+			xConteudo := aCols[n,ny]
+			Replace &cCampo With xConteudo
+		EndIf
+	Next ny
+	MsUnlock()
+
+	//PONTO DE ENTRADA EXECUTADO APOS A GRAVACAO DE CADA LANCAMENTO
+	If lGpa110Grv
+		ExecBlock("Gpa110Grv",.F.,.F.)
+	Endif
+
+Next n
+
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110Dele ³ Autor ³ Fernando Joly         ³ Data ³ 12.10.96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Deleta os Registro de Valores Futuros                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110Dele()
+	Help(' ',1,'GPEA110DEL')
+	//HELP - NAO E PERMITIDO EXCLUIR REGISTROS A PARTIR DA ROTINA VALORES FUTUROS.
+	//SOLUCAO - SOMENTE NA TELA DE C.C. VALORES FUTUROS E PERMITIDO FAZER LANCAMENTOS PARA A SUSPENSAO DE VALORES
+Return Nil
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110LinOk³ Autor ³ Fernando Joly         ³ Data ³ 12.10.96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Critica linha digitada                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110LinOk(o)
+Local lRet				:= .T.
+Local aCposKey			:= {}
+Local nPosNumPag		:= GdFieldPos("RK_NUMPAGO", aHeader)
+Local nPosDtVenc		:= GdFieldPos("RK_DTVENC", aHeader)
+Local nCont				:= 0
+Local nNext				:= 0
+Local nTot				:= 0
+Local nPosPd			:= GdFieldPos("RK_PD", aHeader)
+Local nPosCC			:= GdFieldPos("RK_CC", aHeader)
+Local nPosDt			:= GdFieldPos("RK_DTMOVI", aHeader)
+Local nPosStatus		:= GdFieldPos("RK_STATUS", aHeader)
+Local nPosItem			:= GDFieldPos ("RK_ITEM",aHeader)
+Local nPosCLVL			:= GDFieldPos ("RK_CLVL",aHeader)
+Local nPosEmpCon		:= GDFieldPos ("RK_EMPCONS",aHeader)
+Local nConsPOS			:= GdFieldPos( "RK_CONSFGT")
+Local nBcoPOS			:= GdFieldPos( "RK_BCOCONS")
+Local nNrCPOS			:= GdFieldPos( "RK_NRCONTR")
+Local nPosDeleted		:= GdFieldPos("GDDELETED")
+Local lDataIgual		:= .F.  //UTILIZADA PARA MOSTRAR A MENSAGEM DE CONFIGURACAO DO CADASTRO DE VERBAS NAO PODE LANCAR VERBA COM A MESMA DATA.
+Local lLctMax			:= .F.  //UTILIZADA PARA MOSTRAR A MENSAGEM DE CONFIGURACAO DO CADASTRO DE VERBAS QUANTIDADE MAXIMA ATINGIDA.
+Local lMensChave		:= .F.  //UTILIZADA PARA MOSTRAR A MENSAGEM DE CHAVE DUPLICADA
+Local cVerba			:= ""   //UTILIZADA PARA ARMAZENAR O CODIGO DA VERBA PARA SER MOSTRADA NA MENSAGEM AO USUARIO
+Local cTLanc			:= ""   //UTILIZADA PARA ARMAZENAR A QUANTIDADE MAXIMA DE LANCAMENTOS POSSIVEIS DE ACORDO COM O CADASTRO DE VERBAS
+Local cDiario			:= ""	//UTILIZADA PARA INDICAR SE CONTROLA POR LANCAMENTO DIARIO
+Continua				:= .F.
+
+Begin Sequence
+	IF !(GdDeleted()) //SE A LINHA DA GETDADOS NAO ESTIVER DELETADA
+		IF !IItemCLVL .or. SuperGetMv( "MV_ITMCLVL") == "3" //VERIFICA SE O CAMPOS ESTAO DEVIDAMENTE PREENCHIDOS
+			aCposKey := {"RK_PD", "RK_VALORTO", "RK_CC", "RK_PARCELA", "RK_DTVENC", "RK_DOCUMEN"}
+		Else
+			aCposKey := {"RK_PD", "RK_VALORTO", "RK_CC", "RK_PARCELA", "RK_DTVENC", "RK_DOCUMEN","RK_ITEM","RK_CLVL"}
+		Endif
+		IF !(lRet := GdNoEmpty(aCposKey))
+	    	Break
+		EndIF
+	ELSE
+		aCposKey := {"RK_DOCUMEN","RK_PD","RK_CC"}
+		IF !(GdCheckKey(aCposKey, 4 ))
+			lRet := .F.
+		EndIF
+	EndIf
+
+	If (lRet)
+		lRet := gp110ValidNumPag(aCols[n,nPosNumPag]) //PERIODO E NUMERO DE PAGAMENTO
+	EndIf
+
+	If (lRet)
+		lRet := ValidParEsp(o)
+	EndIf
+
+	If !fVldAccess(SRA->RA_FILIAL, aCols[n,nPosDtVenc], aCols[n,nPosNumPag], .T., cRot )
+		lRet := .F.
+		Break
+	EndIf
+
+End Sequence
+
+	//CONTROLE DE LANCAMENTOS PELA QUANTIDADE
+	For nCont := 1 To Len(aCols)
+		If ((Len(aCols) >= 2) .and. (lRet))
+			nTot := 0
+			For nNext := 1 To Len(aCols)
+				//TRATA APENAS NAO DELETADAS; VERBAS IGUAIS; COM STATUS ATIVO
+				If (aCols[nCont, nPosDeleted] == .F.) .AND. (aCols[nNext, nPosDeleted] == .F.) .AND.;
+					(aCols[nCont, nPosPd] == aCols[nNext, nPosPd]) .AND. !(aCols[nNext, nPosStatus] $ ("3/4")) .And. (IIf(cPaisLoc == "BRA", aCols[nNext,nPosEmpCon] != "1", .T.))
+
+					lLctMax 	:= .F.
+					lDataIgual	:= .F.
+					cDiario 	:= PosSrv(aCols[nCont, nPosPd], SRA->RA_FILIAL, "RV_LCTODIA")
+					cVerba 		:= aCols[nCont, nPosPd]
+					cTLanc 		:= PosSrv(aCols[nCont, nPosPD], SRA->RA_FILIAL, "RV_QTDLANC")
+					cTLanc 		:= If((cTLanc == "0" .Or. Empty(cTLanc)), "1", cTLanc)
+
+					If !IItemCLVL //NAO TEM ITEM CLASSE VALOR
+						If EMPTY(cDiario) .OR. (cDiario $ "N") //DEFAULT VAZIO OU N=NAO (INICIALIZADOR PADRAO)
+	  						nTot++
+	  						If (nTot > Val(cTLanc))
+								nNext		:= Len(aCols)
+								nCont		:= nNext
+								lRet		:= .F.
+								lLctMax	:= .T.
+							Endif
+						ElseIf (cDiario $ "S") .AND. (aCols[nCont, nPosDt] == aCols[nNext, nPosDt])
+							nTot++
+							If (nTot > Val(cTLanc))
+								nNext		:= Len(aCols)
+								nCont		:= nNext
+								lRet		:= .F.
+								lDataIgual	:= .T.
+							EndIf
+						EndIf
+				    Else //TEM ITEM CLASSE VALOR
+						If (aCols[nCont, nPosCC] == aCols[nNext, nPosCC]) .AND. ;
+							(aCols[nCont, nPosItem] == aCols[nNext, nPosItem]) .AND.;
+							(aCols[nCont, nPosCLVL] == aCols[nNext, nPosCLVL])
+
+							If EMPTY(cDiario) .OR. (cDiario $ "N") //DEFAULT VAZIO OU N=NAO (INICIALIZADOR PADRAO)
+								nTot++
+								If (nTot > Val(cTLanc))
+									nNext		:= Len(aCols)
+									nCont		:= nNext
+									lRet		:= .F.
+									lLctMax	:= .T.
+								EndIf
+							ElseIf cDiario $ "S" .AND. (aCols[nCont, nPosDt] == aCols[nNext, nPosDt])
+							nTot++
+							If (nTot > Val(cTLanc))
+									nNext		:= Len(aCols)
+									nCont		:= nNext
+									lRet		:= .F.
+									lDataIgual	:= .T.
+								EndIf
+							EndIf
+						EndIf
+					EndIf
+				EndIf
+			Next
+
+			If lLctMax == .T.
+				If ! lAuto
+					Aviso(STR0024,STR0089 +  Space(1)+ STR0068 + Space(1) + cVerba ,{"Ok"}) //AVISO ### "QUANTIDADE MAXIMA DE LANCAMENTOS ATINGIDA, VERIFIQUE O CADASTRO DE VERBAS CAMPO QUANTIDADE DE LANCAMENTOS" ### "VERBA"
+				Else
+					AutoGRLog(STR0089 + Space(1)+ STR0068 + Space(1) + cVerba )
+				EndIf
+			Elseif lDataIgual == .T.
+				If ! lAuto
+					Aviso(STR0024, STR0088 + Space(1)+ STR0068 + Space(1) + cVerba ,{"Ok"}) //AVISO ### "NAO E POSSIVEL REALIZAR LANCAMENTO NO MESMO DIA, VERIFIQUE O CADASTRO DE VERBAS NO CAMPO LANCAMENTO DIARIO" ### "VERBA"
+				Else
+					AutoGRLog(STR0088 + Space(1)+ STR0068 + Space(1) + cVerba)
+				EndIf
+			Elseif (nTot > Val(cTlanc)) .OR. (lMensChave == .T.)
+				If ! lAuto
+					MsgAlert(OemToAnsi(STR0024) + CRLF + ;				//"ALERTA"
+					OemToAnsi(STR0068) + Space(1) + cVerba + " + " + ;	//"VERBA"
+					OemToAnsi(STR0070) + " + " + ;						//"CENTRO DE CUSTO"
+					OemToAnsi(STR0075),;								//"DATA DO MOVIMENTO"
+					OemToAnsi(STR0024))									//"ALERTA"
+				Else
+					AutoGRLog(STR0068 + Space(1) + cVerba + " + " + STR0070 + " + " + STR0075 )
+				EndIf
+
+				lRet := .F.
+			EndIf
+		EndIf
+		If !(lRet)
+			nCont := Len(aCols)
+		EndIf
+	Next
+
+	If (lRet .AND. lPeGp110LnOk)
+		lRet := ExecBlock("Gp110LnOk", .F., .F.)
+	EndIf
+
+	If !IsInCallStack("GP110TudOk") .AND. cPaisLoc == "BRA" .And. nConsPOS > 0 .And. nBcoPOS > 0 .And. nNrCPOS > 0
+		If !lAuto
+			lRet:= Gp110Vld(oGet:oBrowse:nAt)
+		Else
+			lRet:= Gp110Vld(Len(acols))
+		Endif
+	EndIf
+
+	If lRet
+		lGpea110Inc := .T.
+	Endif
+
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110TudOk³ Autor ³ Fernando Joly         ³ Data ³ 12.10.96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³                                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function GP110TUDOK(o)
+Return(gp110LinOk())
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fCalcVrParc()³ Autor ³ R.H.- Natie         ³ Data ³ 18/12/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Calcula Vlr das parcelas (fixas)acrescido de Juros conforme  ³±±
+±±³          ³nperiodo                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³nNrParcela - Numero de parcelas                              ³±±
+±±³          ³nValPrinc  - Valor Principal                                 ³±±
+±±³          ³nPercJrMes - Percentual de Jr ao Mes                         ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function fCalcVrParc(nValPrinc, nNrParcela , nPercJrMes, aSRKHeader, aSRKCols)
+Local cFormula
+Local cMsgHelp
+Local cFldVar
+Local cVarRead
+Local lRet				:= .F.
+Local nX				:= 0
+Local nPosFld			:= 0
+Local nFator1			:= 0
+Local nFator2			:= 0
+Local nColVlrParc		:= 0 				//-- Valor Parcela
+Local nColResiduo		:= 0				//-- Valor do Residuo das parcelas
+Local nColPrincipal		:= 0				//-- Valor Principal
+Local nColParcela		:= 0 				//-- Parcelas
+Local nColSaldo			:= 0 				//-- Saldo
+Local nValParcela		:= 0
+Local nJuros			:= 0
+
+DEFAULT nValPrinc 	:= 0
+DEFAULT nNrParcela	:= 0
+DEFAULT nPercJrMes	:= 0
+DEFAULT aSRKHeader	:= aHeader
+DEFAULT aSRKCols	:= aCols
+
+//SO PERMITIRA A ALTERACAO DO  VLR DO LANCAMENTO, DOS PERC.DE JUROS OU DO
+//NUMERO DE PARCELAS SE NAO HOUVER NENHUMA PARCELA QUITADA
+If !FchkPagto(aSRKHeader, aSRKCols)
+	Return(.F.)
+Endif
+
+cFormula := SuperGetMv("MV_FORVLRF" , NIL, "")
+nColVlrParc	:= GdFieldPos("RK_VALORPA",aSRKHeader)	//VALOR PARCELA
+nColREsiduo	:= GdFieldPos("RK_VALORAR",aSRKHeader)	//VALOR DO RESIDUO DAS PARCELAS
+nPosPDJuros	:= GdFieldPos("RK_PDJUROS",aSRKHeader)	//VERBA JUROS
+nColSaldo := GdFieldPos("RK_VLSALDO", aSRKHeader)	// SALDO
+
+IF cPaisLoc <> "COL"
+	nPosParJuros	:= GdFieldPos("RK_PCJUROS",aSRKHeader)	//PARCELA JUROS
+	nPosVlrJuros	:= GdFieldPos("RK_VLJUROS",aSRKHeader)	//VALOR JUROS
+ENDIF
+
+If nValPrinc = 0 .and. !( "RK_VALORTO" $ ReadVar() )
+	nColPrincipal:= GdFieldPos("RK_VALORTO",aSRKHeader)	//VALOR PRINCIPAL
+	nValPrinc	:= 	aSRKCols[n,nColPrincipal]
+Endif
+If 	nNrParcela = 0 .and. !( "RK_PARCELA" $ ReadVar() )
+	nColParcela	:=  GdFieldPos("RK_PARCELA",aSRKHeader)//QTDE DE PARCELAS
+	nNrParcela	:= 	aSRKCols[n,nColParcela]
+Endif
+If nPercJrMes = 0 .and. !( ReadVar() $ "M->RK_JUROMES*M->RK_JUROANO" )
+	nColJrMes	:=  GdFieldPos("RK_JUROMES",aSRKHeader)	//VALOR PRINCIPAL
+	nPercJrMes	:= 	aSRKCols[n,nColJrMes]
+Endif
+
+If Empty(cFormula)
+	/*	nFator => Percentual aplicado ao valor Principal para calcular-se o valor da parcela mensal,  que deverá ter o mesmo valor
+		          em  todas as parcelas, ja com os juros mensais informados.
+		i:= Jrs ao mes
+		n:= Periodo (Meses)
+
+		nFator :=      [ { ( 1 + i)^n  } * i ]
+    	               ----------------------
+       	             [ { (1+i)^n } -1  ]                     */
+
+	If aSRKCols[n,nUsado+1] == .F.
+		If nPercJrMes > 0 //SE HOUVER JUROS, ENTAO CALCULA O VR DA PARCELA COM  OS JUROS
+			//CALCULA O VLR DA PARCELA COM  OS JUROS INFORMADO NO CAMPO DE JR AO MES
+			nFator1					:= (( 1 + (nPercJrMes / 100) ) ^ nNrParcela )
+			nFator2					:= (( 1 + (nPercJrMes / 100) ) ^ nNrParcela ) -1
+			nFator 					:= ( nPercJrMes / 100) * ( (nFator1 / nFator2))
+			nValParcela				:= NoRound(( nFator * nValPrinc ), 2)	//VALOR DA PARCELA COM  JUROS
+			nJuros					:= nValParcela - ( nValPrinc / nNrParcela )	//Valor da parcela de juros
+
+			If !PictureIsExploded("RK_VALORPA" , nValParcela)
+				If !Empty(aSRKCols[n,nPosPDJuros]) //SE ESTIVER INFORMADA SERA  GRAVADO NOS CAMPOS VALOR JUROS(RK_VLRJUROS) E PARC.JUROS(RK_PCJUROS)
+
+					aSRKCols[n,nColVlrParc]	:= nValParcela-nJuros
+					aSRKCols[n,nColResiduo]	:= 0
+					If nColSaldo > 0
+						aSRKCols[n, nColSaldo] := (nValParcela - nJuros) * nNrParcela
+					EndIf
+
+					IF cPaisLoc <> "COL"
+						aSRKCols[n,nPosParJuros]	:= nJuros
+						aSRKCols[n,nPosVlrJuros]	:= nJuros * nNrParcela
+					ENDIF
+
+				Else
+
+					IF cPaisLoc <> "COL"
+						aSRKCols[n,nPosParJuros]	:= 0
+						aSRKCols[n,nPosVlrJuros]	:= 0
+					ENDIF
+
+					aSRKCols[n,nColVlrParc] := nValParcela
+					aSRKCols[n,nColResiduo]	:= 0
+					If nColSaldo > 0
+						aSRKCols[n, nColSaldo] := nValParcela * nNrParcela
+					EndIf
+
+				EndIf
+				lRet := .T.
+			Else
+				cMsgHelp := OemToAnsi(STR0077) + CRLF	//"O CALCULO COM OS CAMPOS: "
+				iIf (nColJrMes == 0, nColJrMes := GdFieldPos( "RK_JUROMES" ,aSRKHeader ) , .F.)
+				If(nColJrMes > 0)
+					cMsgHelp += aHeader[nColJrMes     ,1]+CRLF
+				EndIf
+				iIf (nColParcela == 0, nColParcela := GdFieldPos( "RK_PARCELA" ,aSRKHeader ) , .F.)
+				If (nColParcela > 0 )
+					cMsgHelp += aHeader[nColParcela   ,1]+CRLF
+				EndIf
+				iIf (nColPrincipal == 0, nColPrincipal := GdFieldPos( "RK_VALORTO" ,aSRKHeader ) , .F.)
+				If( nColPrincipal > 0 )
+					cMsgHelp += aHeader[nColPrincipal ,1]+CRLF
+				EndIf
+
+				cMsgHelp += OemToAnsi(STR0078) //"RESULTARAO EM UM VALOR MUITO ALTO, POR FAVOR CORRIJA-OS"
+
+				If ! lAuto
+					MsgAlert(cMsgHelp, OemToAnsi(STR0024))
+				Else
+					AutoGRLog(cMsgHelp)
+				EndIf
+
+				lRet := .F.
+			EndIf
+		Else  //PARCELA FIXA : VLR PARCELA SERA O (VALOR TOTAL DO LANCAMENTO / NR TOTAL PARCELAS)
+			aSRKCols[n,nColVlrParc]	:= NoRound(nValPrinc / nNrParcela,2)
+			aSRKCols[n,nColResiduo]	:= NoRound(nValPrinc - (aSRKCols[n,nColVlrParc]*nNrParcela), 2)
+
+			IF cPaisLoc <> "COL"
+				aSRKCols[n,nPosParJuros]:= 0
+				aSRKCols[n,nPosVlrJuros]:= 0
+			ENDIF
+
+			lRet := .T.
+		Endif
+	EndIf
+Else
+	If MV_MODFOL == "1"
+		lRet := fFormula(AllTrim(cFormula))
+	Else //GERAR AS VARIAVEIS DE MEMORIA DE CADA CAMPO
+		cVarRead := ReadVar()
+		For nX := 1 To Len(aHeader)
+			cFldVar := "M->"+aHeader[nX, __AHEADER_FIELD__]
+			If cFldVar <> cVarRead
+				nPosFld := GdFieldPos(aHeader[nX, __AHEADER_FIELD__], aSRKHeader)
+				&(cFldVar) := aSRKCols[n, nPosFld]
+			EndIf
+		Next nX
+		lRet := fFormula(AllTrim(cFormula), .T., "SRK", .T.)
+		If lRet
+			For nX := 1 To Len(aHeader)
+				cFldVar := "M->"+aHeader[nX, __AHEADER_FIELD__]
+				nPosFld := GdFieldPos(aHeader[nX, __AHEADER_FIELD__], aSRKHeader)
+				aSRKCols[n, nPosFld] := &(cFldVar)
+			Next nX
+		EndIf
+	EndIf
+EndIf
+
+If !(type('oGet') == "U")
+	oGet:oBrowse:nAt
+	oGet:oBrowse:Refresh(.T.)
+EndIf
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³GetValSRK       ³ Autor ³ Mauricio Takakura³ Data ³ 17/04/07 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retornar o Valor de um determinado campo da GetDados         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cCampo - Nome do campo a retornar o valor                    ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Formulas                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function  GetValSRK(cCampo)
+Local nPosField := GdFieldPos(cCampo, aHeader)
+Local uValor
+
+If oGet:oBrowse:ColPos == nPosField
+	uValor := &('M->'+cCampo)
+Else
+	uValor := aCols[n, nPosField] //QTDE DE PARCELAS
+EndIf
+
+Return(uValor)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³PutValSRK	   ³ Autor ³ Mauricio Takakura   ³ Data ³ 17/04/07 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Atualizar o Valor de um determinado campo da GetDados        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cCampo - Nome do campo a retornar o valor                    ³±±
+±±³          ³uValor - Conteudo do Campo                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Formulas                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function PutValSRK(cCampo, uValor)
+Local nPosField	:= GdFieldPos(cCampo ,aHeader)
+Local cTipo		:= aHeader[nPosField, __AHEADER_TYPE__]
+Local lRet			:= .F.
+
+If ValType(uValor) == cTipo
+	aCols[n,nPosField] := uValor
+	lRet := .T.
+EndIf
+
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fCalcJurMes()³ Autor ³ R.H.- Natie         ³ Data ³ 18/12/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Calcula Vlr dos Juros ao mes ( ou Periodo ) , qdo informados ³±±
+±±³          ³juros cobrados ao Ano                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³nVlrJrAno - Valor do percentual de Juros ao ano (12 meses)   ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function  fJrAnoToMes(nVlrJrAno)
+Local nVlrJurMes	:= 0
+// Iam :={ [  {1+ (PercAM /100 ) } ^ ( nPeriodo  /12 )  ] - 1 } * 100
+nVlrJurMes	:=(  1 + ( nVlrJrAno/100 ) )
+nVlrJurMes	:=( (nVlrJurMes ^ ( 1 / 12 ) )  - 1 ) * 100
+oGet:oBrowse:nAt
+oGet:oBrowse:Refresh(.T.)
+
+If !fCalcVrParc(0,0,nVlrJurMes)
+	nVlrJurMes	:= 0
+Endif
+Return(nVlrJurMes)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³FchkPagto()  ³ Autor ³ R.H.- Natie         ³ Data ³ 18/12/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Verifica a possibilidade de alterar vlr e nr. parc. do movto ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                             ³±±
+±±³          ³                                                             ³±±
+±±³          ³                                                             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GpeA110                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function FchkPagto(aSRKHeader, aSRKCols)
+Local lRet				:= .T.
+DEFAULT aSRKHeader	:= aHeader
+DEFAULT aSRKCols		:= aCols
+
+nColValPago	:=  GdFieldPos( "RK_VLRPAGO" ,aSRKHeader ) //VALOR PAGO
+nColParcPago	:=  GdFieldPos( "RK_PARCPAG" ,aSRKHeader ) //VALOR NR DE PARDELAS PAGAS
+
+//CALCULA O VLR DA PARCELA COM  OS JUROS INFORMADO NO CAMPO DE JR AO MES
+If aSRKCols[n,nColValPago] != 0  .or. aSRKCols[n,nColParcPago] != 0
+	Help(' ',1,'RKJAPGO') 	//NAO E POSSIVEL ALTERAR OS VALORES DESTE LANCAMENTO, POIS JA FOI EFETUADO, PELO MENOS, UM  PAGAMENTO REFERENTE A ESTE MOVIMENTO
+	lRet	:= .F.
+Endif
+
+Return(lRet)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³F110Choice³ Autor ³ ARy Medeiros          ³ Data ³          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Carrega o array aButtons                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function F110Choice(oDlg)
+Local bGeraTab		:= {|| NIL}
+Local bLanAcum		:= {|| NIL}
+
+bGeraTab	:= {|| fGeraRGB()}
+bLanAcum	:= {|| FMONTAGET()}
+
+aAdd(aButtons, {"BUDGET", {|| Eval(bLanAcum)},  OemToAnsi(STR0034)}) //"LANCAMENTOS ACUMULADOS"
+
+//SE EXISTIR OS CAMPOS RK_VALPARE/RK_VNAOAPL RETIRADO O BOTAO DA TELA
+//POIS O CALCULO DEVE PREVER O TRATAMENTO PARA OS NOVOS CAMPOS
+If ((GdFieldPos("RK_VALPARE", aHeader) == 0) .AND. If(cPaisLoc $ "ARG|COS|DOM",(GdFieldPos("RK_VNAOAPL", aHeader) == 0), .T.))
+	aAdd(aButtons, { "BPMSDOCI", {|| Eval(bGeraTab)},  OemToAnsi(STR0054)}) //"GERAR NA TABELA DE MOVIMENTO (RGB)"
+Endif
+
+Return NIL
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³FMontaGet ³ Autor ³ R.H.- Natie           ³ Data ³ 29/12/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Monta Get dos Valores dos lancamentos efetuados            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static function fMontaGet()
+Local cKeyRD			:= ''
+Local nColPD			:= GdFieldPos("RK_PD",aHeader)		//VERBA LANCADA
+Local nColDtVenc		:= GdFieldPos("RK_DTVENC",aHeader)	//DT VENCIMENTO
+Local nColDtMovi		:= GdFieldPos("RK_DTMOVI",aHeader)	//DT MOVIMENTO
+Local nColNumId			:= GdFieldPos("RK_NUMID",aHeader)	//NUMERO DE IDENTIFICACAO
+Local bKeyRD			:= NIL
+Local bSkipRD			:= NIL
+Local aFields			:= {}
+Local aVirtGd			:= {}
+Local aVisualGD		:= {}
+Local aNotFields		:= {}
+Local aAdvSize			:= {}
+Local aInfoAdvSize	:= {}
+Local aObjSize			:= {}
+Local aObjCoords		:= {}
+Private cPd			:= oGet:aCols[oGet:oBrowse:nAt,nColPD]
+Private dDataPgt		:= If(nColDtVenc > 0, oGet:aCols[oGet:oBrowse:nAt,nColDtVenc], CToD("  /  /  "))
+Private dDataMovi		:= oGet:aCols[oGet:oBrowse:nAt,nColDtMovi]
+Private cNumId			:= oGet:aCols[oGet:oBrowse:nAt,nColNumId]
+Private aColsRecRD	:= {}
+Private nCnt2			:= 0
+Private oGetRD
+
+DbSelectArea("SRD")
+
+//MONTA A ENTRADA DE DADOS DO ARQUIVO
+Private aTELA2[0][0],aGETS2[0],aHeader2[0],nUsado2:=1
+nCnt2 := If (nCnt2 = 0,1,nCnt2)
+PRIVATE aCOLS2[nCnt2][nUsado2]
+
+//VERIFICA DADOS NECESSARIOS BUSCAR OS LANCAMENTOS NO SRD
+If Empty(cPd) .or. Empty(DTOS(dDataMovi)) .or. (nColDtVenc > 0 .And. Empty(dtos(dDataPgt)))
+	If ! lAuto
+		MsgAlert(oemToAnsi(STR0033), oEmtoAnsi(STR0024)) //"CODIGO DA VERBA,  DATA DE MOVIMENTO E DATA DO PROXIMO VENCIMENTO DEVEM  SER INFORMADOS" ##"ALERTA"
+	Else
+		AutoGRLog(STR0033)
+	EndIf
+	Return(Nil)
+Endif
+
+//MONTA AS DIMENSOES DOS OBJETOS
+aAdvSize		:= MsAdvSize() //RETORNA A AREA UTIL DA TELA
+aAdvSize[3]	-= 25
+aAdvSize[4]	-= 50
+aAdvSize[5]	-= 50
+aAdvSize[6]	-= 50
+aAdvSize[7]	+= 50
+aInfoAdvSize	:= {aAdvSize[1], aAdvSize[2], aAdvSize[3], aAdvSize[4], 5, 5}
+aAdd(aObjCoords, {000, 000, .T., .T.})
+aObjSize		:= MsObjSize(aInfoAdvSize, aObjCoords)
+
+//MONTA OS DADOS PARA A GETDADOS
+aAdd(aNotFields, "RD_FILIAL")
+aAdd(aNotFields, "RD_MAT")
+aAdd(aNotFields, "RD_VSTATUS")
+aAdd(aNotFields, "RD_STATUS")
+aAdd(aNotFields, "RD_INSS")
+aAdd(aNotFields, "RD_IR")
+aAdd(aNotFields, "RD_FGTS")
+aAdd(aNotFields, "RD_QTDSEM")
+
+cKeyRD	:= SRA->(RA_FILIAL + RA_MAT)
+bKeyRD	:= {|| SRD->(RD_FILIAL + RD_MAT)}
+
+If !Empty(dDataPgt)
+	bSkipRD := {|| SRD->RD_PD != cPd .OR. SRD->RD_DATPGT < dDatapgt }
+Else
+	bSkipRD := {|| SRD->RD_PD != cPd .OR. Empty(SRD->RD_NUMID)  .OR. SRD->RD_NUMID # cNumId }
+Endif
+
+If Len(aArray)>0
+	ffiltro("GPEA110",aArray, 1 /*EXEC FILTRO*/, 2 /*INICIO*/, 3/*FIM*/, .T.)
+Endif
+
+aCols2 	:= SRK->(GdMontaCols(@aHeader2,;
+								@nUsado2,;
+								@aVirtGd,;
+								@aVisualGd,;
+								"SRD",;
+								aNotFields,;
+								@aColsRecRD,;
+								"SRK",;
+								cKeyRD,;
+								bKeyRD,;
+								bSkipRD,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								,;
+								.F.))
+//VERIFICA SE HOUVE LANCAMENTOS NO SRD
+If Empty(aCols2)
+	If ! Empty(dDataPgt)
+		If ! lAuto
+			MsgAlert(oemToAnsi(STR0023),oEmtoAnsi(STR0024)) //NAO EXISTEM  LANCAMENTOS NO MOVIMENTO DE ACUMULADOS  QUE CORRESPONDAM A VERBA,  DATA DE MOVIMENTO E DATA DO PROX. VENCIMENTO INFORMADOS###"ALERTA"
+		Else
+			AutoGRLog(STR0023)
+		EndIf
+	Else
+		If ! lAuto
+			MsgAlert(oemToAnsi(STR0093),oEmtoAnsi(STR0024)) //NAO EXISTEM  LANCAMENTOS NO MOVIMENTO DE ACUMULADOS  QUE CORRESPONDAM A VERBA,  DATA DE MOVIMENTO E DATA DO PROX. VENCIMENTO INFORMADOS###"ALERTA"
+		Else
+			AutoGRLog(STR0093)
+		EndIf
+	Endif
+	Return(NIL)
+Endif
+
+//ACERTO DATA ARQUIVO E CPO DESCRICAO DA VERBA
+fDataArq()
+
+DEFINE MSDIALOG oDlg1 TITLE STR0009 From aAdvSize[7]+ 28 ,05 TO aAdvSize[6]+28,aAdvSize[5] PIXEL
+	oGetRD := MsNewGetDados():New(   aObjSize[1,1], aObjSize[1,2] ,aObjSize[1,3],aObjSize[1,4],2,.T.,.T.,"",NIL,0,0,NIL,NIL,,@oDlg1,@aHeader2,@aCols2)
+ACTIVATE MSDIALOG oDlg1 ON INIT EnchoiceBar(oDlg1,{||aCols2:=oGetRD:aCols, oDlg1:End()},{||oDlg1:End()})
+
+Return(Nil)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ fDataArq | Autor ³R.H.- Natie            ³ Data ³ 13/02/04 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Alteracao do conteudo do Campo rd_datarq p/ o formato       ³±±
+±±³          ³Dia/Mes                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ gpea110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function  fDataArq()
+Local aColsAux	:= {}
+Local nx		:= 0
+Local nColPos 	:= GdFieldPos("RD_DATARQ", aHeader2)
+Local nPosPd	:= GdFieldPos("RD_PD"		, aHeader2)
+Local nPosDesc	:= GdFieldPos("RD_DESCPD", aHeader2)
+
+aColsAux	:= aClone(aCols2)
+
+For nX:= 1 to len(aColsAux)
+	aColsAux[nX,nColPos ] :=  Substr(aColsAux[nX,nColPos],5,2) + Substr(aColsAux[nX,nColPos],1,4)
+	aColsAux[nx,nPosDesc] := fDesc("SRV", aColsAux[nX, nPosPd], "RV_DESC")
+Next nX
+
+aCols2 := aClone(aColsAux)
+
+Return(Nil)
+
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110ChkDe| Autor ³Equipe RH              ³ Data ³ 04/10/12 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida exclusao. So sera permitido excluir se houver ponto  ³±±
+±±³          ³de entrada                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ gpea110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function gp110ChkDel()
+Local lRet      := !(aCols[n, GdFieldPos("RK_REC_WT", aHeader)] > 0)
+Local nPosValor := GdFieldPos("RK_VLRPAGO", aHeader)
+Local nPosParc  := GdFieldPos("RK_PARCPAG", aHeader)
+//PONTO DE ENTRADA PARA VALIDAR A EXCLUSAO DO LANCAMENTO; O RETORNO DEVE SER LOGICO (.T. OU .F.)
+
+lRet := aCols[n,nPosValor] == 0 .And. aCols[n,nPosParc] == 0
+
+If ExistBlock("Gpa110Exc")
+	lRet := ExecBlock("Gpa110Exc",.F.,.F.)
+Endif
+
+If !lRet
+	Help(' ',1,'GPEA110DEL')
+	//HELP - Não é permitido excluir registros a partir da rotina Valores Futuros
+	//SOLUCAO - Somente na tela de C.C. Valores Futuros e permitido fazer lancamentos para a suspensao de valores
+EndIf
+
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110ValidNumPag³ Autor ³ Tatiane Matias        ³ Data ³04.11.2004³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Validacao do campo Numero de Pagamento                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ gp110ValidNumPag(cNumPag)                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cNumPag 	= Valor informado no campo numero de pagamento          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GPEA110 (gp110LinOk) e no Valid do campo do SX3                  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function GP110ValidNumPag(cNumPag)
+Local cChkNrPgto	:= Getmv("MV_CATNPGT") //ARMAZENA AS CATEGORIAS QUE NAO DEVERAO VALIDAR O NUMERO DE PAGAMENTO INFORMADO
+Local cSRKProces	:= cProcesso
+Local lRet			:= .T.
+Local nPosPeriodo	:= GdFieldPos("RK_PERINI", aHeader)
+Local nPosProces	:= GdFieldPos("RK_PROCES", aHeader)
+Local cFilBkp		:= cFilAnt
+Local cEmpBkp		:= cEmpAnt
+Local nI
+
+If Type("aTransf") != "U" .And. !Empty(aTransf)
+	For nI := 1 To Len(aTransf)
+		If !(aTransf[nI][1] + aTransf[nI][8] == aTransf[nI][4] + aTransf[nI][10]) .And. aCols[n, nPosPeriodo] < aTransf[nI][12]
+			cEmpAnt := aTransf[nI][1]
+			cFilAnt := aTransf[nI][8]
+		EndIf 
+	Next nI
+EndIf
+
+If nPosProces > 0 // VERIFICA SE O CAMPO PROCESSO EXISTE NA TABELA
+	cSRKProces := aCols[n,nPosProces]
+EndIf
+
+// NAO VALIDAR O NUMERO DE PAGAMENTO SE A CATEGORIA DO FUNCIONARIO SELECIONADO
+// NAO ESTIVER CADASTRADO NO PARAMETRO MV_CATNPGT
+If !(cCategoria $ cChkNrPgto)
+	lRet := ExistCpo("RCH", cSRKProces + aCols[n, nPosPeriodo] + cNumPag , 3)
+EndIf
+
+cFilAnt := cFilBkp
+cEmpAnt := cEmpBkp
+
+Return (lRet)
+/*
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³gp110Perio| Autor ³Equipe RH              ³ Data ³ 04/10/12   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida exclusao. So sera permitido excluir se houver ponto    ³±±
+±±³          ³de entrada                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ gpea110                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110Periodo(cVar)
+	cPeriodo := cVar
+Return (.T.)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Gp110SRKGET   ³ Autor ³ Mauricio Takakura        ³ Data ³13.10.2005 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorna a Posicao do campo da GetDados                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Gp110SRKGET(cCampo, uValor, nTipo)                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ 														                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GPEA110 sera usado en formula                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Gp110SRKGET(cCampo, uValor, nTipo)
+Local uReturn
+Local nPosFld
+Local nPosAt
+//1 = RETORNA COLUNA DO CAMPO
+//2 = RETORNA POSICAO DA LINHA
+//3 = PEGAR VALOR
+//4 = ATUALIZAR UM CAMPO
+DEFAULT nTipo 		:= 1
+
+If nTipo == 1 .Or. nTipo == 2
+	uReturn := 0
+ElseIf nTipo == 3
+	uReturn	:= NIL
+ElseIf nTipo == 4
+	uReturn := .F.
+EndIf
+
+If Empty(cCampo) .and. nTipo <> 1
+	Return(uReturn)
+EndIf
+
+nPosFld := GdFieldPos(cCampo, oGet:aHeader)
+nPosAt  := oGet:oBrowse:nAt
+If nTipo == 1
+	uReturn := nPosFld
+ElseIf nTipo == 2
+	uReturn := nPosAt
+ElseIf nTipo == 3
+	uReturn := oGet:aCols[nPosAt, nPosFld]
+ElseIf nTipo == 4
+	oGet:aCols[nPosAt, nPosFld] := uValor
+	uReturn := .F.
+EndIf
+
+Return (uReturn)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fGeraRGB        ³ Autor ³ Mauricio Takakura     ³ Data ³14.09.2005³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Gerar movimento de Valor Futuro em SRC                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ fGeraRGB                                                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GPEA110                                                          ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß */
+Function fGeraRGB()
+Local cSvRot
+Local oMovDlg
+Local oFont
+Local oRoteiro
+Local oPeriodo
+Local oNumPag
+Local oValor
+Local nValor		:= GdFieldGet("RK_VALORPA", oGet:nAt, NIL, oGet:aHeader)
+Local nOpcA			:= 0
+Local nSaldo		:= GdFieldGet("RK_VLSALDO", oGet:nAt, NIL, oGet:aHeader)
+Local nSRCRecno		:= 0
+Local oSize
+
+Private cCond		:= "1"
+Private cRot		:= fGetRotOrdinar()
+Private cProcesso	:= SRA->RA_PROCES
+Private cPer
+Private cNumPagto
+Private cNumID
+
+If Len(aColsRec)= 0
+	MsgInfo(OemToAnsi(STR0074)) //"PARA GENERACION EN LA TABLA DE MOVIMIENTO ES NECESARIO QUE LAS INFORMACIONES ESTEN GRABADOS EN LA TABLA DE VALORES FUTUROS(SRK)"
+	Return
+Endif
+
+DbSelectArea("SRK")
+DbGoto(aColsRec[oGet:nAt])
+cNumID := SRK->RK_NUMID
+
+Begin Sequence
+	If  nSaldo <= 0
+		MsgInfo(OemToAnsi(STR0055)) //"NAO EXISTE SALDO PARA GERAR MOVIMENTO!"
+	    Return
+	EndIf
+
+	//MONTA AS DIMENSOES DOS OBJETOS
+	oSize := FwDefSize():New()
+	oSize:AddObject( "CABECALHO",  580, 200, .F., .F. ) // Não dimensionavel
+
+	oSize:lProp 	:= .F. // Proporcional
+	oSize:aMargins 	:= { 3, 3, 3, 3 } // Espaco ao lado dos objetos 0, entre eles 3
+	oSize:Process() 	   // Dispara os calculos
+
+	//PARAMETROS PARA GENERACION DE VALORES FUTUROS
+	DEFINE FONT oFont NAME "Arial" SIZE 0,-11 BOLD
+
+	DEFINE MSDIALOG oMovDlg TITLE OemToAnsi( cCadastro ) From 0,0 To 200,580 OF oMainWnd PIXEL
+
+		@ oSize:GetDimension("CABECALHO","LININI") +5 , oSize:GetDimension("CABECALHO","COLINI")+10 SAY OemToAnsi(STR0056)	SIZE 146,10 OF oMovDlg PIXEL FONT oFont //"Roteiro:"
+		@ oSize:GetDimension("CABECALHO","LININI") +5 , oSize:GetDimension("CABECALHO","COLINI")+145 SAY OemToAnsi(STR0057)	SIZE 146,10 OF oMovDlg PIXEL FONT oFont //"Periodo:"
+		@ oSize:GetDimension("CABECALHO","LININI") +40 , oSize:GetDimension("CABECALHO","COLINI")+10 SAY OemToAnsi(STR0058)	SIZE 146,10 OF oMovDlg PIXEL FONT oFont //"Nro. Pagamento:"
+		@ oSize:GetDimension("CABECALHO","LININI") +40 , oSize:GetDimension("CABECALHO","COLINI")+145 SAY OemToAnsi(STR0059)	SIZE 146,10 OF oMovDlg PIXEL FONT oFont //"Valor:"
+
+		@ oSize:GetDimension("CABECALHO","LININI") +5 , oSize:GetDimension("CABECALHO","COLINI")+60 MSGET oRoteiro VAR cRot SIZE 050,10 OF oMovDlg PIXEL PICTURE "@!" F3 'SRY' VALID NaoVazio() .And. ExistCpo("SRY") .and. If( cSvRot <> cRot, (fGetLastPer(@cPer, @cNumPagto, cProcesso, cRot), cSvRot := cRot), .T.)
+        @ oSize:GetDimension("CABECALHO","LININI") +5 , oSize:GetDimension("CABECALHO","COLINI")+170 MSGET oPeriodo VAR cPer SIZE 050,10 OF oMovDlg PIXEL F3 'RCH' VALID NaoVazio()
+        @ oSize:GetDimension("CABECALHO","LININI") +40 , oSize:GetDimension("CABECALHO","COLINI")+60 MSGET oNumPag VAR cNumPagto SIZE 050,10 OF oMovDlg PIXEL F3 'RCH01'
+        @ oSize:GetDimension("CABECALHO","LININI") +40 , oSize:GetDimension("CABECALHO","COLINI")+170 MSGET oValor VAR nValor SIZE 050,10 OF oMovDlg PIXEL PICTURE "@R 999,999.99" VALID fValValor(nValor, nSaldo, @nSRCRecno, 1)
+
+		bSet15 := {|| If(fValValor(nValor, nSaldo, @nSRCRecno, 2), (nOpcA := 1, oMovDlg:End()), nOpcA := 2)}
+		bSet24 := {|| nOpcA := 2, oMovDlg:End()}
+
+	ACTIVATE MSDIALOG oMovDlg CENTERED ON INIT EnchoiceBar( oMovDlg , bSet15 , bSet24 )
+
+	If nOpcA = 1
+		PosSRV(GdFieldGet("RK_PD", oGet:nAt, NIL, oGet:aHeader), SRA->RA_FILIAL, "RV_LCTODIA")
+		DbSelectArea("RGB")
+	   	If nSRCRecno > 0
+   			RGB->(DbGoTo(nSRCRecno))
+	   	EndIf
+	   	If RecLock("RGB", !(nSRCRecno > 0))	//SE E MAIOR QUE ZERO ALTERAR
+   			RGB->RGB_FILIAL 	:= SRA->RA_FILIAL
+	   		RGB->RGB_MAT		:= SRA->RA_MAT
+	   		RGB->RGB_PD		:= SRV->RV_COD
+	   		RGB->RGB_TIPO1 	:= SRV->RV_TIPO
+	   		RGB->RGB_VALOR	:= nValor
+	   		RGB->RGB_DTREF	:= RCH->RCH_DTFIM
+	   		RGB->RGB_SEMANA 	:= cNumPagto
+	   		RGB->RGB_CC		:= SRK->RK_CC
+	   		RGB->RGB_TIPO2 	:= "I"
+	   		RGB->RGB_PROCES	:= SRA->RA_PROCES
+	   		RGB->RGB_NUMID 	:= cNumID
+	   		RGB->RGB_ROTEIR	:= cRot
+	   		If IItemCLVL
+		   		RGB->RGB_ITEM := SRK->RK_ITEM
+	   			RGB->RGB_CLVL := SRK->RK_CLVL
+	   		EndIf
+   			RGB->RGB_PERIOD	:= cPer
+		   		If RGB->(FieldPos("RGB_CODFUN")) > 0
+		   		   RGB->RGB_CODFUN := SRA->RA_CODFUNC
+	   			EndIf
+			RGB->(MsUnLock())
+		EndIf
+	EndIf
+End Sequence
+
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³fValValor		  ³ Autor ³ Mauricio Takakura     ³ Data ³15.09.2005³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Validar o campo do Valor para gerar em SRC                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ fValValor                                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GPEA110                                                          ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function fValValor(nValor, nSaldo, nSRCRecno, nTipo) // nTipo ==> 1->Campo 2->bSet15 (OK)
+Local cPD			:= GdFieldGet("RK_PD", oGet:nAt, NIL, oGet:aHeader)
+Local cInform		:= ""
+Local lRet			:= .T.
+Local nValSRC		:= 0
+Local nValReg		:= 0
+
+If nTipo == 2
+	If !fPosPeriodo( xFilial("RCH"), cProcesso, cPer, cNumPagto, cRot,,,1)
+		Help(' ',1,"GPVLDPER")  //"PERIODO INFORMADO NAO EXISTE!"
+		Return(.F.)
+	EndIf
+EndIf
+
+If nValor > 0 .and. nValor <= nSaldo
+	DbSelectArea("RGB")
+	DbSetOrder(RetOrdem( "RGB", "RGB_FILIAL+RGB_MAT+RGB_PD+RGB_PERIOD+RGB_SEMANA+RGB_SEQ"))
+	DbSeek(SRA->(RA_FILIAL + RA_MAT) + cPD)
+	While RGB->RGB_FILIAL + RGB_MAT + RGB_PD = SRA->(RA_FILIAL + RA_MAT + cPD)
+		If RGB->RGB_NUMID == cNumID
+			nValSRC += RGB->RGB_VALOR
+			//PARA ALTERAR
+			If RGB->RGB_FILIAL + RGB_MAT + RGB_PD + RGB_PERIOD + RGB_SEMANA + RGB_ROTEIR == (SRA->(RA_FILIAL + RA_MAT) + cPD + cPer + cNumPagto + cRot)
+				nValReg	  := RGB->RGB_VALOR
+				nSRCRecno := Recno()
+			EndIf
+		EndIf
+		DbSkip()
+	EndDo
+	If (nValor + nValSRC)-nValReg > nSaldo
+		MsgInfo(OemToAnsi(STR0061)) //"O VALOR TOTAL GERADO EM MOVIMENTOS E MAIOR QUE O SALDO A PAGAR!"
+		lRet := .F.
+	EndIf
+	If !Empty(nSRCRecno) .and. lRet .and. nTipo == 2
+		cInform := OemToAnsi(STR0062) + CRLF + 					; // "JA EXISTE LANCAMENTO DO VALOR FUTURO PARA O FUNCIONARIO "
+					OemToAnsi(STR0063) + Str(nValReg, 12, 2) +	; // "NO PERIODO INFORMADO COM O DE VALOR: $ "
+					CRLF + CRLF +									;
+					OemToAnsi(STR0064)							  // "DESEJA SUBSTITUIR O VALOR?"
+		IF !(lImpForm := MsgNoYes(cInform, OemToAnsi(STR0065)))	  // "ATENCAO!"
+			lRet := .F.
+		EndIf
+	EndIf
+Else
+	MsgInfo(OemToAnsi(STR0060)) //"VALOR INFORMADO E MAIOR QUE O SALDO A PAGAR O VALOR ZERADO!"
+	lRet := .F.
+EndIf
+
+Return(lRet)
+
+/*/{Protheus.doc} MenuDef
+Cria as opções do menu
+@author Luiz Gustavo
+@since 03/01/2007
+@return aRotina, Array com as opções disponíveis para a rotina
+/*/
+Static Function MenuDef()
+
+	Local aRotina := {}
+
+	Aadd(aRotina, { STR0004, 'PesqBrw', 0, 1, , .F. })	// Pesquisar
+	Aadd(aRotina, { STR0005, 'gp110Atu', 0, 2 })		// Visualizar
+	Aadd(aRotina, { STR0006, 'GP110Aux', 0, 3 })		// Incluir
+	Aadd(aRotina, { STR0007, 'gp110Atu', 0, 4 })		// Alterar
+	Aadd(aRotina, { STR0014, 'gper570', 0, 6 })			// Imprimir
+	Aadd(aRotina, { STR0039, "GpLegend", 0, 7, , .F. })	// Legenda
+
+Return aRotina
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ Gp110PerIni    ³Autor³  Kelly Soares     ³ Data ³20/06/2008³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³ Inicializador padrao do campo RK_PERINI.                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ X3_RELACAO - RK_PERINI                                     ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gp110PerIni()//
+Local xConteudo := .F.
+Local cRotBlank := Space(GetSx3Cache("RCH_ROTEIR", "X3_TAMANHO"))
+
+xConteudo := Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRot,"RCH_PER","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+If Empty(xConteudo)
+	xConteudo := Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRotBlank,"RCH_PER","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+Endif
+
+Return xConteudo
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ Gp110NumPago   ³Autor³ Kelly Soares      ³ Data ³20/06/2008³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³ Inicializador padrao do campo RK_NUMPAGO                   ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ X3_RELACAO - RK_NUMPAGO                                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function Gp110NumPago()
+Local xConteudo	:= .F.
+Local cRotBlank := Space(GetSx3Cache("RCH_ROTEIR", "X3_TAMANHO"))
+//GP240RetCont(cAlias, nIndex, cKey, cRetorno, cFiltro)
+xConteudo := GP240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRot,"RCH_NUMPAG","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+If Empty(xConteudo)
+	xConteudo := GP240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRotBlank,"RCH_NUMPAG","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+Endif
+
+Return xConteudo
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEA110   ºAutor  ³Valdeci Lira        º Data ³  10/08/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Verifica se a picture de um campo esta extourada ou nao     º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function PictureIsExploded(cCampo, nVal)
+Local cPicture
+Local lRet := .F. //PICTURE NAO EXTOURADA
+
+If cCampo != ""
+	cPicture := GetSx3Cache(cCampo, "X3_PICTURE")
+	If SubStr(TransForm(nVal , cPicture), 1,1) == "*"
+		lRet := .T.
+	EndIf
+EndIf
+
+Return lRet
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEA110   ºAutor  ³Valdeci Lira        º Data ³  10/08/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³So exibe verbas que contem o parametro RV_LEEPRE=='1'       º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function IsLeePrest(lPosiciona, cCodPd, lMsg)
+Local lRet 			:= .F.
+Local aArea			:= {}
+Local nSave			:= -1
+Default lPosiciona 	:= .F.
+Default cCodPd			:= SRV->RV_COD
+Default lMsg			:= .F.
+
+If lPosiciona .OR. (SRV->RV_COD != cCodPd)
+	aArea:= getArea()
+	dbSelectArea( "SRV" )
+	nSave := SRV->(recno()) //GUARDA O REGISTRO POSICIONADO ANTES DE ENTRAR NA FUNCTION
+	PosSRV(cCodPd, xFilial("SRV")) //POSICIONA O SRV
+	RestArea(aArea)
+EndIf
+
+lRet := SRV->RV_LEEPRE == "1"
+
+If !lPosiciona .AND. (nSave > 0)
+	SRV->(dbGoTo(nSave)) 	//RESTAURA O REGISTRO POSICIONADO ANTERIORMENTE
+EndIf
+
+If !lRet .AND. lMsg
+	Help("",1, "RK_PD")
+EndIf
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEA110   ºAutor  ³Valdeci Lira        º Data ³  10/08/08   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Inicia o campo RK_DTVENC com a data inicial do periodo      º±±
+±±º          ³posicionado                                                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Gp110Rk_DtVencInit()
+Local aArea		:= getArea()
+Local dDateRef		:= CToD("  /  /  " )
+Local cRotBlank	:= Space(GetSx3Cache("RCH_ROTEIR", "X3_TAMANHO"))
+
+dbSelectArea("RCH")
+
+dDateRef := Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRot,"RCH_DTINI","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+
+If Empty(dDateRef)
+	dDateRef := Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRotBlank,"RCH_DTINI","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso)")
+EndIf
+
+If Empty(dDateRef)
+	dDateRef := CToD("  /  /  " )
+Endif
+
+restArea(aArea)
+
+Return dDateRef
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³ValidParEsp³   Autor ³Igor Franzoi           ³ Data ³05/02/2009³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Valida o valor da parcela especial que o usuario informar      ³
+³		   ³Validacao para o campo RK_VALPARE nao pode ser maior que o    ³
+³		   ³saldo RK_QTDESDO											          ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³ValidParEsp                                                  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ 															          ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ ValidParEsp											 	          ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function ValidParEsp(o)
+
+Local lRet			:= .T.
+Local nPosSal		:= 0
+Local nPosPar		:= 0
+Local nPosPd		:= 0
+Local nPosRecno	:= 0
+
+If !lAuto
+
+	If (ValType("oGet") != "U")
+
+		nPosSal		:= GdFieldPos("RK_VLSALDO", oGet:aHeader)
+		nPosPar		:= GdFieldPos("RK_VALPARE", oGet:aHeader)
+		nPosPd		:= GdFieldPos("RK_PD", oGet:aHeader)
+		nPosRecno	:= GdFieldPos("RK_REC_WT", oGet:aHeader)
+
+		If ((nPosSal > 0) .and. (nPosPar > 0))
+			//CASO O VALOR INFORMADO PARA A PARCELA SEJA MAIOR QUE O SALDO EXISTENTE NAO DEIXA PROSSEGUIR
+			If (oGet:aCols[oGet:nAt, nPosPar] > oGet:aCols[oGet:nAt, nPosSal])
+				lRet := .F.
+				MsgInfo(OemToAnsi(STR0079), OemToAnsi(STR0024)) //"VALOR DA PARCELA NAO PODE SER MAIOR QUE O SALDO A PAGAR!" ### "ALERTA"
+			EndIf
+		EndIf
+
+		If ((nPosPd > 0) .and. !Empty(oGet:aCols[oGet:nAt, nPosRecno]))
+			If !(oGet:aCols[oGet:nAt, nPosPd] == aColsAnt[oGet:nAt, nPosPd])
+				lRet := .F.
+				MsgInfo(OemToAnsi(STR0086), OemToAnsi(STR0024)) //"A VERBA NAO PODE SER ALTERADA APOS SUA INCLUSAO!" ### "ALERTA"
+			EndIf
+		EndIf
+	EndIf
+
+Else
+
+	If (ValType("aCols") != "U")
+
+		nPosSal		:= aScan(aHeader, {|x| x[2] == "RK_VLSALDO"})
+		nPosPar		:= aScan(aHeader, {|x| x[2] == "RK_VALPARE"})
+		nPosPd		:= aScan(aHeader, {|x| x[2] == "RK_PD"})
+		nPosRecno	:= aScan(aHeader, {|x| x[2] == "RK_REC_WT"})
+
+		If ((nPosSal > 0) .and. (nPosPar > 0))
+			//CASO O VALOR INFORMADO PARA A PARCELA SEJA MAIOR QUE O SALDO EXISTENTE NAO DEIXA PROSSEGUIR
+			If (aCols[n, nPosPar] > aCols[n, nPosSal])
+				lRet := .F.
+				MsgInfo(OemToAnsi(STR0079), OemToAnsi(STR0024)) //"VALOR DA PARCELA NAO PODE SER MAIOR QUE O SALDO A PAGAR!" ### "ALERTA"
+			EndIf
+		EndIf
+
+		If ((nPosPd > 0) .and. !Empty(aCols[n, nPosRecno]))
+			If !(aCols[n, nPosPd] == aColsAnt[n, nPosPd])
+				lRet := .F.
+				MsgInfo(OemToAnsi(STR0086), OemToAnsi(STR0024)) //"A VERBA NAO PODE SER ALTERADA APOS SUA INCLUSAO!" ### "ALERTA"
+			EndIf
+		EndIf
+	EndIf
+
+Endif
+
+Return (lRet)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³fValStsSRK()³   Autor ³Igor Franzoi           ³ Data ³05/02/2009³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Validação (X3_VALID) do campo Status                            ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³fValStsSRK()												           ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ 															           ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ fValStsSRK()                                                 ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function fValStsSRK()
+
+	Local lRet			:= .T.
+	Local nPosRecno		:= 0
+	Local nRecnoSRK		:= 0
+
+	If IsInCallStack("GPEA110")
+		nPosRecno	:= GdFieldPos("RK_REC_WT", oGet:aHeader)
+		nRecnoSRK	:= oGet:aCols [n, nPosRecno]
+		If (nPosRecno > 0)
+			If (nRecnoSRK > 0)
+				lRet := .F.
+				If ! lAuto
+					MsgAlert(OemToAnsi(STR0084), OemToAnsi(STR0065)) //"NAO E PERMITIDO ALTERAR O STATUS!" ### ATENCAO
+				Else
+					AutoGRLog(STR0084)
+				EndIf
+			EndIf
+		EndIf
+	ElseIf Upper( AllTrim( FunName() ) ) == "GPEA415"
+		 nPSitRCK	:= GdFieldPos( "RCK_STATUS"		, aRCKHeader	)
+		 nLinhaRCK	:=  Len(oGetInfer:aCols) 
+		 oGetInfer:aCols[ nLinhaRCK, nPSitRCK ] := &(ReadVar())
+		 oGetInfer:oBrowse:nAt := nLinhaRCK
+		 oGetInfer:oBrowse:Refresh(.T.)
+	EndIf
+
+Return lRet
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o    ³fCposNoAlt()³   Autor ³Marcelo Silveira       ³ Data ³18/02/2010³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³Validacao (X3_VALID) de campos que nao podem ser alterados      ³
+³          ³apos a gravacao do lancamento.                                ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³fCposNoAlt()                                                  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³                                                              ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³ GPEA110()											 	           ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function fCposNoAlt()
+
+Local lRet		:= .T.
+Local nPosRecno	:= 0
+Local nRecnoSRK	:= 0
+Local cCpoAtu	:= ""
+Local lCpoNoAlt	:= .F.
+Local nPosPago	:= 0
+
+If !lAuto
+	nPosPago := GdFieldPos("RK_VLRPAGO", oGet:aHeader)
+Else
+	nPosPago := aScan(aHeader, {|x| x[2] == "RK_VLRPAGO"})
+Endif
+
+
+If IsInCallStack("GPEA110")
+	cCpoAtu		:= Readvar()
+
+	IF !lAuto
+		nPosRecno	:= GdFieldPos("RK_REC_WT", oGet:aHeader)
+		nRecnoSRK	:= oGet:aCols[n, nPosRecno]
+	Else
+		nPosRecno	:= aScan(aHeader, {|x| x[2] == "RK_REC_WT"})
+		nRecnoSRK	:= aCols[n, nPosRecno]
+	Endif
+
+	If cPaisLoc == "BRA" .AND.  IIF ( !lAuto , oGet:aCols[n, nPosPago] > 0 , aCols[n, nPosPago] > 0 )
+		lCpoNoAlt 	:= cCpoAtu $ "M->RK_VLSALDO#M->RK_VALORTO"
+	EndIf
+
+	If(nPosRecno > 0)
+		If (nRecnoSRK > 0) .And. lCpoNoAlt
+			If ! lAuto
+				MsgAlert(OemToAnsi(STR0087), OemToAnsi(STR0065)) //"ALTERACAO NAO PERMITIDA PORQUE ESTE LANCAMENTO JA ESTA GRAVADO."###"ATENCAO"
+			Else
+				AutoGRLog(STR0087)
+			EndIf
+			lRet := .F.
+		EndIf
+	EndIf
+EndIf
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gp110ValCpos ºAutor  ³Marcelo Silveira º Data ³  17/11/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Validacao dos campos digitados na GetDados.                 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA110                                                    º±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Gp110ValCpos()
+Local cRotBlank
+Local nPosVlPago 	:= 0
+Local nPosParcPg	:= 0
+Local nPosId		:= 0
+Local nPosNumDoc	:= 0
+Local nPosDtVenc	:= 0
+Local nPosNumPg		:= 0
+Local nPosPeriodo	:= 0
+Local nPosPd		:= 0
+Local aArea 		:= {}
+Local lRet			:= .T.
+
+If "RK_PD" == ReadVar() // NA ALTERACAO DO CAMPO VERBA
+	nPosPd := GdFieldPos("RK_PD", aHeader)
+	If (M->RK_PD # aCols[n,nPosPd])
+		nPosVlPago 	:= GdFieldPos("RK_VLRPAGO", aHeader)
+		nPosParcPg	:= GdFieldPos("RK_PARCPAG", aHeader)
+		nPosId		:= GdFieldPos("RK_NUMID", aHeader)
+		nPosNumDoc	:= GdFieldPos("RK_DOCUMEN", aHeader)
+
+		If aCols[n,nPosVlPago] > 0 .Or. aCols[n,nPosParcPg] > 0
+			If ! lAuto
+				MsgAlert(OemToAnsi(STR0085)) //"A VERBA NAO PODE SER ALTERADA PORQUE JA CONSTA PAGAMENTO NESTE LANCAMENTO"
+			Else
+				AutoGRLog(STR0085)
+			EndIf
+			lRet := .F.
+		EndIf
+	EndIf
+ElseIf "RK_PERINI" $ ReadVar() //NA ALTERACAO DO CAMPO PERIODO INICIAL
+
+	dbSelectArea("RCH")
+	dbSetOrder(1)
+	RCH->(DbSeek(xFilial("RCH",SRA->RA_FILIAL)+SRA->RA_PROCES+&(ReadVar())+aCols[n, GdFieldPos("RK_NUMPAGO", aHeader)]))
+
+	nPosDtVenc 	:= GdFieldPos("RK_DTVENC", aHeader)
+
+	nPosNumPg	:= GdFieldPos("RK_NUMPAGO", aHeader)
+	If  !(Empty(RCH->RCH_DTINI) .And. Empty(RCH->RCH_NUMPAG))
+		If nPosDtVenc > 0
+			aCols[n, nPosDtVenc]:= RCH->RCH_DTINI
+		Endif
+		aCols[n, nPosNumPg] := RCH->RCH_NUMPAG
+	EndIf
+ElseIf "RK_NUMPAGO" $ ReadVar() //NA ALTERACAO DO CAMPO NUMERO DE PAGAMENTO
+	nPosDtVenc 	:= GdFieldPos("RK_DTVENC", aHeader)
+	nPosPeriodo	:= GdFieldPos("RK_PERINI", aHeader)
+	nPosNumPg		:= GdFieldPos("RK_NUMPAGO", aHeader)
+	//QUANDO O NUMERO DO PAGAMENTO E CHAMADO PELA CONSULTA PADRAO A TABELA E POSICIONADA
+	If !( Empty(RCH->RCH_DTINI) .And. Empty(RCH->RCH_PER))
+		If nPosDtVenc > 0
+			aCols[n, nPosDtVenc] := RCH->RCH_DTINI
+			aCols[n, nPosPeriodo]:= IIf(!Empty(aCols[n, nPosPeriodo]), aCols[n, nPosPeriodo], RCH->RCH_PER)
+		Endif
+	EndIf
+	//SE O NUMERO DO PAGAMENTO FOI DIGITADO, E PRECISO FAZER A CONSISTENCIA DAS DATAS
+	If !(RCH->RCH_NUMPAG == M->RK_NUMPAGO)
+		aArea := getArea()
+		cRotBlank := Space(GetSx3Cache("RCH_ROTEIR", "X3_TAMANHO"))
+		dbSelectArea( "RCH" )
+		If nPosDtVenc > 0
+			aCols[n, nPosDtVenc] := Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRot,"RCH_DTINI","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso) .And. (RCH->RCH_NUMPAG == '" + M->RK_NUMPAGO + "')" )
+		Endif
+		aCols[n, nPosPeriodo]:= Gp240RetCont("RCH",4,xFilial("RCH")+cProcesso+cRot,"RCH_PER","Empty(RCH->RCH_DTFECH) .And. (RCH->RCH_PROCES == cProcesso) .And. (RCH->RCH_PER == '" + aCols[n, nPosPeriodo] + "')" )
+		restArea(aArea)
+	EndIf
+EndIf
+
+Return(lRet)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³gp110Filtro  ºAutor  ³Marcelo Silveira º Data ³  21/12/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Filtro da Consulta Padrao RCHA1.                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA110                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110Filtro()
+Local cFiltro := ""
+
+If Type( "cProcesso" ) == "U"
+	cProcesso := ""
+EndIf
+If Type( "cPeriodo" ) == "U"
+	cPeriodo := ""
+EndIf
+If Type( "cRot" ) == "U"
+	cRot := ""
+EndIf
+If Type( "lRotEmpty" ) == "U"
+	lRotEmpty := .F.
+EndIf
+
+cFiltro	+= "(RCH->RCH_FILIAL == '" + xFilial("RCH") + "') .AND. "
+cFiltro	+= "EMPTY(RCH->RCH_DTFECH)"
+
+If !Empty(cProcesso)
+	If !Empty(cFiltro)
+		cFiltro	+= " .AND. "
+	EndIf
+	cFiltro	+= " (RCH->RCH_PROCES == '" + cProcesso + "')"
+EndIf
+
+If !Empty(cRot)
+	If !Empty(cFiltro)
+		cFiltro	+= " .AND. "
+	EndIf
+	cFiltro	+= " (RCH->RCH_ROTEIR == '" + cRot + "'"
+	If lRotEmpty
+		cFiltro	+= " .OR. RCH->RCH_ROTEIR == '" + Space(3) + "'"
+	EndIf
+	cFiltro += ")"
+EndIf
+
+cFiltro := "@#" + cFiltro + "@#"
+
+Return (cFiltro)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³gp110Retorno ºAutor  ³Marcelo Silveira º Data ³  21/12/09   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Retorno da Consulta Padrao RCHA1.                           º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA110                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function gp110Retorno()
+Local cCpoRet	:= ""
+Local cNomeCpo	:= readvar()
+
+If "RK_PERINI" $ cNomeCpo
+	cCpoRet := "RCH->RCH_PER"
+ElseIf "RK_NUMPAGO" $ cNomeCpo
+	cCpoRet := "RCH->RCH_NUMPAG"
+ElseIf "RK_DTVENC" $ cNomeCpo
+	cCpoRet := "RCH->RCH_DTINI"
+EndIf
+
+cCpoRet := If (Empty(&(cCpoRet)), "",  &(cCpoRet))
+
+Return(cCpoRet)
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡„o    ³ GP110Aux       ³Autor³ Gustavo M.          ³ Data ³22/08/2012³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡„o ³Utilizada para identificar quando é selecionado a opçao de    ³
+³          ³incluir                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³< Vide Parametros Formais >									  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso      ³GPEA110                                                     ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Retorno  ³GP110Atu													         ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³< Vide Parametros Formais >									  ³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Function GP110Aux(cAlias,nReg,nOpcX)
+	lIncluir := .T.
+Return(GP110Atu(cAlias,nReg,nOpcX))
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEA020   ºAutor  ³Claudinei Soares    º Data ³  06/09/12   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Funcao para controle: campo RK_ValorPa devera ser           º±±
+±±º          ³desabilitado para edicao.                                   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Mexico                                                     º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function VALPA_WHEN()
+Local lRet := .F.
+
+If IsInCallStack("GPEA110") .And. !oGet:lEditLine
+	If ! lAuto
+		MsgAlert(OemToAnsi(STR0094), OemToAnsi(STR0065)) //"O VALOR DAS PARCELAS DEVE SER CALCULADO AUTOMATICAMENTE E NAO DIGITADO."."###"ATENCAO"
+	Else
+		AutoGRLog(STR0094)
+	EndIf
+EndIf
+
+Return lRet
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³Gp110Trig ºAutor  ³Mohanad Odeh        º Data ³  27/09/2013 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Funcao generica para gatilhos da rotina de Valores Futuros  º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA110                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Function Gp110Trig(cCampo)
+Local nPosPd := GdFieldPos("RK_PD", aHeader)
+Local uRet
+
+Do Case
+	Case cCampo == "RK_PD"
+		uRet:= PosSrv(aCols[n, nPosPd], SRA->RA_FILIAL, "RV_EMPCONS")
+EndCase
+
+Return uRet
+/*/{Protheus.doc} Gp110vld
+Função responsável por validação da obrigatoriedade do campo
+@type function
+@author Eduardo
+@since 27/10/2017
+@version 1.0
+@return lRet, boolean, Retorno se libera a edição do campo
+/*/
+Function Gp110Vld(nLinha)
+Local cEmpCons 	:= aCols[ nLinha ,GdFieldPos( "RK_EMPCONS"		, aHeader )]
+Local nConsPOS	:= GdFieldPos( "RK_CONSFGT "		, aHeader )
+Local nBcoPOS	:= GdFieldPos( "RK_BCOCONS "		, aHeader )
+Local nNrCPOS	:= GdFieldPos( "RK_NRCONTR "		, aHeader )
+Local nParcPag	:= GdFieldPos( "RK_PARCPAG" 		,aHeader )
+Local nParcela	:= GdFieldPos( "RK_PARCELA" 		,aHeader )
+Local nStatus	:= GdFieldPos( "RK_STATUS" 			,aHeader )
+Local nRecno	:= GdFieldPos( "RK_REC_WT"			, aHeader )
+Local nPdJuros	:= GdFieldPos( "RK_PDJUROS"			, aHeader )
+Local nJurosAno	:= GdFieldPos( "RK_JUROANO"			, aHeader )
+Local nJurosMes	:= GdFieldPos( "RK_JUROMES"			, aHeader )
+Local cConsFgt	:= aCols[nLinha,nConsPOS]
+Local cBcoCons  := aCols[nLinha,nBcoPOS]
+Local cNrContr  := aCols[nLinha,nNrCPOS]
+Local nDeleted  := Len(aCols[nLinha])
+Local lRet		:= .T.
+Local nReg		:= 1
+
+If cEmpCons == "1"
+	If cConsFgt == '1'
+		If (Empty(cBcoCons) .Or. Empty(cNrContr))
+			Help( ' ' , 1 , "HELP" , , OemToAnsi(STR0097) + aHeader[nConsPOS][1]+OemToAnsi(STR0098)+CRLF+ aHeader[nBcoPOS][1]+" e " + aHeader[nNrCPOS][1] + OemToAnsi(STR0099) , 1 , 0 )
+			lRet:= .F.
+		Else
+			If aCols[nLinha,nParcPag] < aCols[nLinha,nParcela] .AND. aCols[nLinha,nStatus] $ '1|2'
+				If aScan(aCols,{|x| If( nReg <> nLinha, (!x[nDeleted] .AND. x[nConsPOS] == '1' .AND. X[nParcPag] < X[nParcela],++nReg), (++nReg,.F.))}) > 0
+					Help( ' ' , 1 , "HELP" , , "Somente pode ser cadastrado um Empréstimo Consignado com garantia do FGTS." , 1 , 0 )
+					lRet:= .F.
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+EndIf
+
+If lRet .And. Empty(aCols[nLinha,nPdJuros]) .And. (aCols[nLinha,nJurosAno] > 0 .Or. aCols[nLinha,nJurosMes] > 0)
+	Help( ' ' , 1 , "HELP" , , OemToAnsi(STR0104) , 1 , 0 )
+	lRet:= .F.
+EndIf
+
+Return( lRet )
+
+/*/{Protheus.doc} Gp110When
+Função responsável por validação de when do campo RK_CONSFGT
+@type function
+@author Eduardo
+@since 27/10/2017
+@version 1.0
+@return lRet, boolean, Retorno se libera a edição do campo
+/*/
+Function Gp110When()
+
+Local cEmpCons 	:= aCols[ n	 ,GdFieldPos( "RK_EMPCONS"		, aHeader )]
+Local lRet		:= .F.
+
+if cEmpCons == "1"
+	lRet:= .T.
+Endif
+
+Return( lRet )
+
+/*/{Protheus.doc} fAtuDocumen
+Função responsável por validação de when do campo RK_CONSFGT
+@type static function
+@author Leandro Drumond
+@since 24/09/2018
+@version 1.0
+@return nil
+/*/
+Static Function fAtuDocumen()
+Local aArea 	 := GetArea()
+Local nTamRKDoc	 := GetSx3Cache("RK_DOCUMEN", "X3_TAMANHO")
+Local cDocumento := Space(nTamRKDoc)
+Local lDocVazio	 := .F.
+
+SRK->(DbSetOrder(3))
+
+If SRK->(DbSeek(SRA->RA_FILIAL + SRA->RA_MAT))
+	While SRK->(!Eof() .and. RK_FILIAL + RK_MAT == SRA->RA_FILIAL + SRA->RA_MAT)
+		If !Empty(SRK->RK_DOCUMEN)
+			If SRK->RK_DOCUMEN > cDocumento
+				cDocumento := SRK->RK_DOCUMEN
+			EndIf
+		Else
+			lDocVazio := .T.
+		EndIf
+		SRK->(DbSkip())
+	EndDo
+
+	If lDocVazio
+		SRK->(DbSeek(SRA->RA_FILIAL + SRA->RA_MAT))
+		While SRK->(!Eof() .and. RK_FILIAL + RK_MAT == SRA->RA_FILIAL + SRA->RA_MAT)
+			If cDocumento == "999999" .Or. cDocumento == REPLICATE("9",nTamRKDoc)
+				cDocumento := REPLICATE("0",nTamRKDoc)
+			EndIf
+			If Empty(SRK->RK_DOCUMEN)
+				cDocumento := Soma1(cDocumento)
+				RecLock("SRK",.F.)
+				SRK->RK_DOCUMEN := cDocumento
+				SRK->(MsUnLock())
+			EndIf
+			SRK->(DbSkip())
+		EndDo
+	EndIf
+EndIf
+
+RestArea(aArea)
+
+Return Nil
+
+/*/{Protheus.doc} fRetMaxDoc
+Função responsável por retornar o próximo código de Documento de determinada matrícula
+@type static function
+@author Felipe Alves
+@since 03/08/2020
+@version 1.0
+@return nil
+/*/
+
+Static Function fRetMaxDoc(cMat as Character)
+Local cRet as Character
+Local cQuery as Character
+Local cTab as Character
+
+cRet := StrZero(1, TamSX3("RK_DOCUMEN")[1])
+
+cQuery := "SELECT MAX(T0.RK_DOCUMEN) RK_DOCUMEN" + CRLF
+cQuery += "FROM " + RetSQLName("SRK") + " T0(NOLOCK)" + CRLF
+cQuery += "WHERE T0.RK_FILIAL = '" + xFilial("SRK") + "'" + CRLF
+cQuery += "	AND T0.RK_MAT = '" + cMat + "'" + CRLF
+cQuery += "	AND T0.D_E_L_E_T_ = ' '"
+
+cTab := MPSysOpenQuery(cQuery)
+
+DbSelectArea((cTab))
+(cTab)->(DbGoTop())
+
+If ((cTab)->(!Eof()))
+	cRet := Soma1((cTab)->RK_DOCUMEN)
+	
+	(cTab)->(DbSkip())
+Endif
+
+(cTab)->(DbCloseArea())
+Return(cRet)

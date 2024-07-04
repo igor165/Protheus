@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Prorrateo de IR progresivo"
+	#define STR0002 "Cuentas por pagar"
+	#define STR0003 "Prorrateo de CPFs IR progresivo"
+	#define STR0004 "Código"
+	#define STR0005 "Tienda"
+	#define STR0006 "Nombre"
+	#define STR0007 "Porcentaje"
+	#define STR0008 "Rendimiento total"
+	#define STR0009 "Impuesto por retener"
+	#define STR0010 "Impuesto retenido"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Progressive Income Tax Apportionment"
+		#define STR0002 "Accounts Payable"
+		#define STR0003 "Progressive Income Tax SSN Apportionment"
+		#define STR0004 "Code"
+		#define STR0005 "Store"
+		#define STR0006 "Name"
+		#define STR0007 "Percentage"
+		#define STR0008 "Total income"
+		#define STR0009 "Tax to be withheld"
+		#define STR0010 "Tax withheld"
+	#else
+		#define STR0001 "Rateio de IR progressivo"
+		#define STR0002 "Contas a Pagar"
+		#define STR0003 "Rateio de CPFs IR Progressivo"
+		#define STR0004 "Codigo"
+		#define STR0005 "Loja"
+		#define STR0006 "Nome"
+		#define STR0007 "Percentual"
+		#define STR0008 "Rendimento total"
+		#define STR0009 "Imposto a ser retido"
+		#define STR0010 "Imposto retido"
+	#endif
+#endif

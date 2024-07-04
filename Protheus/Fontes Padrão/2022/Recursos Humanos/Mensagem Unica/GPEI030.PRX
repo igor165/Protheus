@@ -1,0 +1,488 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"  
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "GPEI030.CH"
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³GPEI030   ºAutor  ³Microsiga           º Data ³  02/08/12   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Funcao de integracao com o adapter EAI para recebimento e  º±±
+±±º          ³ envio de informações do cadastro de função (SRJ) utilizandoº±±
+±±º          ³ o conceito de mensagem unica.                              º±±
+±±º          ³                                                            º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ GPEA030                                                    º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Function GPEI030(cXML, nTypeTrans, cTypeMessage, cVersion)
+
+Local aArea		:= GetArea()
+Local lRet     	:= .T.
+Local cXMLRet  	:= ""  
+Local oXmlFunc	:= Nil
+Local oModel	:= Nil
+Local oXmlBus	:= Nil
+Local cXmlErro	:= ""
+Local cXmlWarn	:= ""	
+Local cEvento	:= "Upsert"
+Local cValExt	:= ""
+Local cValInt 	:= ""
+Local cVersoesOk := "1.000|"
+Default cVersion := "1.000"
+
+if(Type("Inclui")== 'U')	
+	Private	Inclui := .F.
+endIf
+if(Type("Altera")== 'U')	
+	Private	Altera := .F.
+endIf
+
+If nTypeTrans == TRANS_RECEIVE
+
+	If cTypeMessage == EAI_MESSAGE_BUSINESS  
+
+		Inclui := .F.
+		Altera := .F.
+	
+		oXmlFunc := XmlParser( cXML, '_', @cXmlErro, @cXmlWarn)
+	      
+	    If oXmlFunc <> Nil .And. Empty(cXmlErro) .And. Empty(cXmlWarn)
+	    
+	    	cMarca := oXmlFunc:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+	    	
+	    	If ( cVersion $ cVersoesOk )
+		    	oModel		:= FwLoadModel("GPEA030")
+		    	oXmlBus 	:= oXMlFunc:_TotvsMessage:_BusinessMessage
+	        
+	        	If XmlChildEx(oXmlBus, '_BUSINESSEVENT') <> Nil .And. XmlChildEx(oXmlBus:_BusinessEvent, '_EVENT' ) <> Nil
+					
+					cEvento := oXmlBus:_BusinessEvent:_Event:Text
+					
+					cValExt	:= If( ( XmlChildEx(oXmlBus:_BusinessEvent, '_IDENTIFICATION') <> Nil .And. ;
+									XmlChildEx( oXmlBus:_BusinessEvent:_Identification, '_KEY') <> Nil ), ; 
+									oXmlBus:_BusinessEvent:_Identification:_Key:Text, "" )
+					
+					cValExt := If( ( Empty( cValExt ) .And. XmlChildEx( oXmlBus:_BusinessContent, "_INTERNALID" ) <> Nil ), ;
+									 oXmlBus:_BusinessContent:_InternalId:Text, ;
+									 cValExt )
+					
+					If !Empty(cValExt)
+					
+						DbSelectArea("SRJ")
+						DbSetOrder(1)
+						
+						cValInt := CFGA070INT( cMarca, 'SRJ', 'RJ_FUNCAO', cValExt )
+
+						If !Empty( cValInt ) 
+							cValInt := GPEI030Rcv( cValInt, { "RJ_FILIAL", "RJ_FUNCAO" } )
+						EndIf
+								   					
+					    If Empty(cValInt) .And. Upper(cEvento) == "UPSERT"
+					    
+					    	Inclui := .T.
+					    	oModel:SetOperation( MODEL_OPERATION_INSERT)
+					    	lRet := oModel:Activate()
+					    	
+					    ElseIf !Empty(cValInt) .And. Upper(cEvento) == "UPSERT" .And. SRJ->(DbSeek(cValInt))
+					    		
+				    		Altera	:= .T.
+				    		oModel:SetOperation( MODEL_OPERATION_UPDATE)
+				    		lRet := oModel:Activate()
+					    		
+					    ElseIf !Empty(cValInt) .And. Upper(cEvento) == "DELETE" .And. SRJ->(DbSeek(cValInt))
+					    		
+				    		oModel:SetOperation( MODEL_OPERATION_DELETE)
+				    		lRet := oModel:Activate()
+					    		
+					    Else
+					    
+					      lRet := .F.
+					      cXMLRet := STR0001 // "Operação de inserção, alteraçã, exclusao e chave interna são inexistentes"
+					    EndIf
+					    
+					    If lRet
+					    	PEI030( @lRet, @cXmlRet, @oModel, oXmlBus, cMarca, cValExt )
+					    ElseIf Empty( cXMLRet )
+					    	cXmlRet := ApErroMvc( oModel )					    
+					    EndIf
+					    
+					Else
+						lRet := .F.
+						cXMLRet := STR0002 // 'Chave do registro não enviada, é necessária para cadastrar o de-para'
+					EndIf 
+				
+	    		Else
+		        	lRet := .F.
+		        	cXMLRet := STR0003 // 'Tag de operação "Event" inexistente'
+		        EndIf
+	        
+	        Else
+	        
+	        	lRet := .F.
+	        	cXmlRet := STR0004 + cVersoesOk // "Versão da mensagem não tratada pelo Protheus, as possíveis são: "
+	        
+	        EndIf
+	        
+        Else
+        	lRet := .F.
+        	cXMLRet	:= STR0005 + cXmlErro + "|" + cXmlWarn // "Xml mal formatado "
+        EndIf
+    
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		
+		//-------------------------------------------------------
+		//  tratando a recepção da mensagem quando é realizado 
+		// envio
+		TrataResp( @lRet, @cXMLRet, cXml )
+	
+	ElseIf cTypeMessage == EAI_MESSAGE_WHOIS
+	
+		cXmlRet := cVersoesOk
+	
+	EndIf
+
+ElseIf nTypeTrans == TRANS_SEND
+
+    cValInt := GPEI030Snd( { cEmpAnt, xFilial("SRJ"), M->RJ_FUNCAO } )
+
+    If !Inclui .And. !Altera
+		cEvento := 'delete'
+       
+		CFGA070Mnt(    Nil, 'SRJ', 'RJ_FUNCAO',	Nil, cValInt, .T. ) // remove do de/para
+    EndIf
+    
+	cXMLRet += '<BusinessEvent>'
+	cXMLRet +=     '<Entity>Role</Entity>'
+	cXMLRet +=     '<Event>'+ cEvento +'</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="Code">' + cValInt + '</key>'
+	cXMLRet +=     '</Identification>'
+	cXMLRet += '</BusinessEvent>'
+	cXMLRet += '<BusinessContent>'
+    cXMLRet += 		'<CompanyId>'  + cEmpAnt + '</CompanyId>'
+	//cXMLRet += 		'<BranchId>'   + xFilial("SRJ") + '</BranchId>'
+	cXMLRet += 		'<BranchId>'   + cFilAnt + '</BranchId>'
+	cXMLRet += 		'<InternalId>' + cValInt + '</InternalId>'
+	cXMLRet += 		'<Code>'    + M->RJ_FUNCAO + '</Code>'
+	cXMLRet += 		'<Description>' + _NoTags(M->RJ_DESC) + '</Description>'
+	cXMLRet += '</BusinessContent>'
+
+EndIf  
+
+RestArea(aArea)
+
+cXmlRet := Encodeutf8(cXMLRet)
+
+Return { lRet, cXMLRet }      
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEA030
+Rotina para integração por EAI 
+
+@since 05/11/2012
+@version P11
+@params	lStatus    - indicação do status do processamento [Referencia]
+@params	cXmlStatus - conteúdo de retorno [Referencia]
+@params	oMdlOper   - modelo de dados para rotina automática [Referencia]
+@params	oXmlOper   - conteúdo para processamento
+@params	cMarca     - sistema com o qual a integração está sendo realizada
+@params	cValExtern - chave do registro na aplicação de origem da mensagem
+@return	Posicao 1  - LOGICAL - indica o status do processamento
+@return	Posicao 2  - CHAR    - Xml/Conteúdo de retorno do processamento
+/*/
+//-------------------------------------------------------------------
+Static Function PEI030( lStatus, cXmlStatus, oMdlOper, oXmlOper, cMarca, cValExtern ) 
+
+Local oMdlFc := oMdlOper:GetModel("GPEA030_SRJ")
+Local cVlInt := ""
+Local lDel	 := oMdlOper:GetOperation() == MODEL_OPERATION_DELETE
+Local lIniPad := ( !Empty( GetSX3Cache( "RJ_FUNCAO", "X3_RELACAO" ) ) )
+
+If Inclui
+   
+   If !lIniPad
+		cVlInt := GETSX8NUM("SRJ","RJ_FUNCAO")
+		While .T.
+			If SRJ->( DbSeek( xFilial("SRJ")+cVlInt ) )
+				ConfirmSX8()
+				cVlInt:=GetSXeNum("SRJ","SRJ_FUNCAO")
+			Else
+				Exit
+			Endif
+		Enddo
+	EndIf
+Else
+   cVlInt := CFGA070INT( cMarca, 'SRJ', 'RJ_FUNCAO', cValExtern )
+   cVlInt := GPEI030Rcv( cVlInt, { "RJ_FILIAL", "RJ_FUNCAO" } )
+EndIf
+
+If !lDel 
+
+	If XmlChildEx(oXmlOper, '_BUSINESSEVENT') <> Nil 
+		If lStatus .And. !lIniPad .And. Inclui
+		   oMdlFc:SetValue('RJ_FUNCAO', cVlInt)
+		EndIf                                              
+		
+		If lStatus .And. XmlChildEx(oXmlOper:_BusinessContent, '_DESCRIPTION') <> Nil
+			oMdlFc:SetValue('RJ_DESC', SubStr( oXmlOper:_BusinessContent:_Description:Text, 1, TamSX3("RJ_DESC")[1] ) )
+		EndIf
+	Else
+		lStatus := .F.
+		cXmlStatus := STR0006 + "BusinessContent" // 'Estrutura invalida, tag não existe' 
+	EndIf
+
+EndIf
+
+lStatus := lStatus .And. oMdlOper:VldData() .And. oMdlOper:CommitData()
+
+If lStatus
+
+	ConfirmSX8()
+	
+	//----------------------------------------------------------------
+	//De/Para
+	cVlInt := GPEI030Snd( { cEmpAnt, xFilial("SRJ"), M->RJ_FUNCAO } )
+		
+	If lDel
+	
+		CFGA070Mnt(    Nil, 'SRJ', 'RJ_FUNCAO',	Nil, cVlInt, .T. ) // remove do de/para
+	
+	Else
+	
+		CFGA070Mnt( cMarca, 'SRJ', 'RJ_FUNCAO', cValExtern, cVlInt )
+		
+		//----------------------------------------------------------------
+		//  Dados ok para gravação
+		cXmlStatus := '<ListOfInternalId>'
+		cXmlStatus += 	'<InternalId>'
+		cXmlStatus += 		'<Name>'+ "Role" +'</Name>'
+		cXmlStatus += 		'<Origin>'+ cValExtern +'</Origin>'
+		cXmlStatus += 		'<Destination>'+ cVlInt +'</Destination>'
+		cXmlStatus += 	'</InternalId>'
+		cXmlStatus += '</ListOfInternalId>'
+		
+	EndIf
+	
+Else
+	//----------------------------------------------------------------
+	//  Identificar erro do modelo para retorno
+	RollBackSx8()
+	cXmlStatus := ApErroMvc( oMdlOper )
+EndIf
+
+Return{ lStatus, cXmlStatus }
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI030Snd
+Rotina para integração por EAI 
+
+@since 26/06/2013
+@version P11
+@params	aTempDados - valor para realizar o tratamento, inserindo pipes 
+	na string de retorno
+@return	cTempKey   - chave interna do de/para dividida em pipes
+
+/*/
+//-------------------------------------------------------------------
+Function GPEI030Snd( aTempDados )
+
+Local nZ       := 1
+Local cTempKey := ""
+
+Default aTempDados := {}
+
+For nZ := 1 To Len( aTempDados )
+
+	cTempKey += RTrim( aTempDados[nZ] ) + "|"
+
+Next nZ
+
+cTempKey := SubStr( cTempKey, 1, Len( cTempKey ) -1 )
+	
+Return cTempKey
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI030Rcv
+Rotina para realizar a separação da chave da tabela do conteúdo gravado 
+no de/para, removendo os pipes e identificando o tamanho dos campos 
+
+@since 26/06/2013
+@version P11
+@params	cTmpKeyInt - valor para realizar o tratamento, array para inserir pipes e string
+	para remover pipes
+@params aCposChave - array contendo os campos para ajuste de tamanho
+@return	cTempKey   - chave interna do de/para dividida em pipes
+
+/*/
+//-------------------------------------------------------------------
+Function GPEI030Rcv( cTmpKeyInt, aCposChave )
+Local cTempKey  := ""
+Local xAuxKey   := {}
+Local nZ        := 0
+Default cTmpKeyInt := ""
+Default aCposChave := {}
+
+xAuxKey := Separa( cTmpKeyInt, "|" )
+
+If ( Len( xAuxKey ) - 1) == Len( aCposChave )
+	
+	For nZ := 2 To Len( xAuxKey )
+	
+		cTempKey += PadR( xAuxKey[nZ], TamSX3( aCposChave[nZ-1] )[1] )
+	
+	Next nZ
+EndIf
+
+xAuxKey := aSize( xAuxKey, 0 )
+
+Return cTempKey 
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ApErroMvc
+	Apura o erro do mvc retornando uma string 
+
+@since 26/06/2013
+@version P11
+@params	oModel     - modelo de dados para rotina automática
+@return	cErro      - erro apurado no modelo
+
+/*/
+//-------------------------------------------------------------------
+Static Function ApErroMvc( oModel )
+
+Local cErro  := ' '
+Local aErros := aClone( oModel:GetErrorMessage() )
+Local nX     := 0 
+
+For nX := 1 To Len(aErros)
+	If Valtype(aErros[nX])=='C'
+		cErro += StrTran(StrTran(StrTran(StrTran(aErros[nX],"<",""),"\",""),">",""),"/", "") + ("|")
+	ElseIf Valtype(aErros[nX])<>'U'
+		cErro += Alltrim( Str( aErros[nX] ) ) + "|"
+	EndIf
+Next nX
+
+aErros := aSize( aErros, 0 )
+
+Return cErro
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} TrataResp
+	Trata a resposta da aplicação destino para gravação do De/Para 
+
+@since 26/06/2013
+@version P11
+@params 	lProcOk 	Status do processamento (referência)
+@params 	cMsgRet 	Mensagem de retorno do processamento (referência)
+@params 	cXml    	Mensagem da response para tratamento
+
+/*/
+//-------------------------------------------------------------------
+Static Function TrataResp( lProcOk, cMsgRet, cXml )
+
+Local oObjXml 	:= Nil
+Local cXmlErro 	:= ""
+Local cXmlWarn 	:= ""
+Local nZ 		:= 0
+Local cMarca 	:= ""
+
+oObjXml := XmlParser( cXml, "_", @cXmlErro, @cXmlWarn )
+
+If oObjXml <> Nil .And. Empty( cXmlErro ) .And. Empty( cXmlWarn )
+
+	cMarca := oObjXml:_TotvsMessage:_MessageInformation:_Product:_Name:Text
+
+	If XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation, "_STATUS" ) <> Nil .And. ;
+		Upper( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation:_Status:Text ) == "OK"
+	
+		If Type("oObjXml:_TotvsMessage:_ResponseMessage:_ReturnContent:Text") <> "U"
+			oObjXml := XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ReturnContent, "_LISTOFINTERNALID" )  
+			
+			If oObjXml <> Nil
+				
+				If XmlChildEx( oObjXml, "_INTERNALID" ) <> Nil
+					
+					If Valtype( oObjXml:_InternalId ) <> "A"
+						XmlNode2Arr( oObjXml:_InternalId, "_InternalId" )
+					EndIf
+					
+					For nZ := 1 To Len( oObjXml:_InternalId )
+					
+						If XmlChildEx( oObjXml:_InternalId[nZ], "_NAME" ) <> Nil .And. ;
+							Upper( oObjXml:_InternalId[nZ]:_Name:Text ) == "ROLE" .And. ;
+							XmlChildEx( oObjXml:_InternalId[nZ], "_ORIGIN" ) <> Nil .And. ;
+							XmlChildEx( oObjXml:_InternalId[nZ], "_DESTINATION" ) <> Nil
+						
+							CFGA070Mnt( cMarca, 'SRJ', 'RJ_FUNCAO', ;
+								oObjXml:_InternalId[nZ]:_Destination:Text, ;
+								oObjXml:_InternalId[nZ]:_Origin:Text )
+							
+							Exit
+						EndIf
+					Next nZ
+				
+				Else
+				
+					lProcOk := .F.
+					cMsgRet := STR0007 // "Não enviado conteúdo de retorno para cadastro de de-para"
+				
+				EndIf
+				
+			Else
+				
+				lProcOk := .F.
+				cMsgRet := STR0008 // "Não é possível gravar de-para por causa de erro na leitura do retorno"
+			
+			EndIf
+		Else
+
+			lProcOk := .F.
+			cMsgRet := STR0008 // "Não é possível gravar de-para por causa de erro na leitura do retorno"
+
+		EndIf
+
+	Else
+	
+		lProcOk 	:= .F.
+		cMsgRet 	:= STR0009 + "|" // "Erro no processamento pela outra aplicação"
+		
+		If XmlChildEx( oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation, "_LISTOFMESSAGES" ) <> Nil
+			oObjXml := oObjXml:_TotvsMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages
+			
+			If XmlChildEx( oObjXml, "_MESSAGE" ) <> Nil 
+				
+				If Valtype( oObjXml:_Message ) <> "A"
+					XmlNode2Arr( oObjXml:_Message, "_Message" )
+				EndIf
+				
+				For nZ := 1 To Len( oObjXml:_Message )
+				
+					cMsgRet += Alltrim( oObjXml:_Message[nZ]:Text ) + "|"
+				
+				Next nZ
+			Else
+				
+				lProcOk := .F.
+				cMsgRet := STR0010 // "Erro no processamento, mas sem detalhes do erro pela outra aplicação"
+				
+			EndIf
+			
+		EndIf
+		
+	EndIf
+
+Else
+	lProcOk 	:= .F.
+	cMsgRet 	:=  + "|" + cXmlErro + "|" + cXmlWarn // "Falha na leitura da resposta, de-para não será gravado"
+EndIf
+
+oObjXml := Nil
+DelClassIntF()
+
+Return

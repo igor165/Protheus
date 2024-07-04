@@ -1,0 +1,395 @@
+<%Static __cSpecialKey := Upper(GetSrvProfString("SpecialKey", ""))%>
+
+var ERROR = 'Ocorreu um erro na comunicação com o serviço TOTVS Série T Manufatura. ';
+
+function beforeTaskSave(colleagueId,nextSequenceId,userList){
+var serviceMVC, serviceECM, ret, xml, FWMODEL, FWRETURN;
+var err = {message:''};
+var ecmValidate = hAPI.getCardValue('ecmvalidate');
+var ecmNumState = hAPI.getCardValue('ecmnumstate');
+var xmlStr;
+
+	log.info('Info 1 - Entrou no evento beforeTaskSave');
+
+	if (ecmValidate == '1'){
+
+		serviceMVC = getServiceMVC(err);
+		if (!serviceMVC){
+			throw err.message;
+			return;
+		}		
+	
+		FWMODEL  = hAPI.getAdvancedProperty('FWMODEL');
+		FWRETURN = hAPI.getAdvancedProperty('FWRETURN');
+		
+		log.info('Info 2 - Efetuada a carga do serviço MVC');
+		
+		try{
+			ret = serviceMVC.GETXMLDATAEX([],FWMODEL,true,true);
+			
+			log.info('Info 3 - Efetuada a carga do MODELO');
+	
+			// remove tag de enconding do XML e decodifica o UTF8 do XML para realizar o parser
+			xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+			
+			xml = new XML(xml);
+			
+			log.info('Info 4 - Gerado xml do MODELO: ' + xml);
+		} catch(e){
+			throw ERROR + 'Verifique os dados do formulário ('+e.message+')';
+			return;
+		}
+		
+		log.info('Info 5 - Validação do formulário');
+		
+		// atualiza XML do MODEL com os valores do Formulário
+		ret = updateXMLFields(xml,err,false);
+		
+		if (err.message.length > 0){
+			throw err.message;
+		}
+		else if (ret){
+			throw 'Preencha os dados do formulário';
+		}
+		else{
+			log.info('Info 6 - Inicio do processo de atualização');
+			if (ecmNumState == '0'){
+				// define XML com operação de inclusão
+				xml.@Operation = 3; 
+			}
+			else {
+				xml.@Operation = 4;
+			}
+			
+			cst1 = DatasetFactory.createConstraint("colleaguePK.colleagueId", colleagueId, colleagueId, ConstraintType.MUST);
+	     
+	    	constraints = new Array(cst1);
+	     
+	    	ds = DatasetFactory.getDataset("colleague", null, constraints, null);
+		
+			xml.@WKDef = getValue('WKDef');
+			xml.@WKVersDef = getValue('WKVersDef');
+			xml.@WKNumProces = getValue('WKNumProces');
+			xml.@WKNumState = numState;
+			xml.@WKCurrentState = getValue('WKCurrentState');
+			xml.@WKCompany = getValue('WKCompany');
+			xml.@WKUser = getValue('WKUser');
+			xml.@WKUserEmail = ds.getValue(0,'mail');
+			xml.@WKCompletTask = getValue('WKCompletTask');
+			xml.@WKNextState = nextSequenceId;
+			xml.@WKCardId = getValue('WKCardId');
+			xml.@WKFormId = getValue('WKFormId');
+			
+			try{
+				
+				// retorna tag de encoding e codifica string com UTF-8
+				xmlStr = '<?xml version="1.0" encoding="UTF-8"?>' + xml.toXMLString();
+				
+				log.info('Info 7 - Chamada do serviço de atualização - XML: ' + xmlStr);
+				
+				ret = serviceMVC.PUTXMLDATAEX([],FWMODEL,new java.lang.String(xmlStr).getBytes("UTF-8"),true,true);			
+				
+				log.info('Info 8 - MODELO atualizado');
+				
+				if (FWRETURN=='1'){
+									
+					xml = new String(new java.lang.String(ret,"UTF-8")).replace(/<\?.*\?>/g,'');
+					xml = new XML(xml);
+
+					log.info('Info 9 - Callback do serviço de atualização - XML: ' + xml);
+				
+					// atualiza XML do Formulário com valores do MODEL				
+					ret = updateXMLFields(xml,err,true);  
+					
+					log.info('Info 10 - Formulário atualizado');
+				}		
+				
+			} catch(e){
+				throw ERROR + 'Verifique os dados do formulário ('+e.message+')';
+			}
+		}
+	}
+}
+
+function updateXMLFields(node,err,upd){
+var list = node.children();
+var isEmpty = true;
+var isFieldsEmpty = true;
+var optional = (node.@optional == '1');
+var name,value,msg = '';
+var obrigat = {message:''};
+
+	for (var i=0;i<list.length();i++){
+		switch (Trim(list[i].@modeltype.toString())){
+			case 'FIELDS':
+				if (!updateXMLFields(list[i],err,upd))
+					isEmpty = false;
+				break;
+			case 'GRID':
+				if (!updateXMLGrid(list[i],err,upd))
+					isEmpty = false;
+				break;
+			default:
+				name = list[i].name().localName; // nome do campo
+				
+				if (upd){
+					hAPI.setCardValue(name, convertFluigValue(list[i],list[i].value));
+				} else {
+					value = hAPI.getCardValue(name);
+
+					// valida se campo é obrigatorio
+					if(checkObrigat(list[i],list[i],value,obrigat)){
+						if (optional || obrigat.message.length == 0){
+							msg = obrigat.message;
+							continue;				
+						}
+						else{
+							err.message = obrigat.message;
+							break;
+						}
+					}
+
+					isFieldsEmpty = false;
+					
+					// converte o valor para padrão ADVPL
+					list[i].value = convertValue(name,list[i],value,err); 
+				}
+				break;
+		}
+		if (err.message.length > 0)
+			break;
+	}
+	
+	if (optional && !isFieldsEmpty && msg.length > 0)
+		err.message = msg;
+		
+	return isEmpty && isFieldsEmpty;
+}
+
+function updateXMLGrid(node,err,upd){
+var i,j,it,name;
+var list = node.children();
+var data = hAPI.getCardValue(node.name().localName+'_DATA');
+var item = node.items.item.copy();
+var obrigat = {message:''};
+var optional = (node.@optional == '1');
+var isEmpty = true;
+var isGridEmpty = true;
+
+	delete node.items.item;
+
+	// verifica se o grid está vazio e se é opcional
+	if (!data || data.trim().isEmpty()){
+		if (!optional)
+			err.message = 'Preencha pelo menos uma linha das grades';
+		return true;
+	}
+
+	if (!upd){
+
+		// linhas do grid são guardadas no input hidden do formulário
+		data = JSON.parse(new String(data));
+		for (i=0;i<data.length;i++){
+		
+			// linha não deletada
+			if (data[i].deleted == '0'){ 
+				it = item.copy();
+				list = it.children();
+				
+				for (j=0;j<list.length();j++){
+					name = list[j].name().localName;
+					value = data[i][name];
+					
+					if (value)
+						value = new java.lang.String(value.toString());
+					
+					// valida se campo é obrigatório
+					obrigat.message = '';
+					if(checkObrigat(list[j],node.struct.child(name),value,obrigat)){
+						if (optional || obrigat.message.length == 0){
+							msg = obrigat.message;
+							continue;				
+						}
+						else{
+							err.message = obrigat.message;
+							break;
+						}
+					}
+					
+					isGridEmpty = false;
+					
+					// converte o valor para padrão ADVPL
+					it.replace(name,convertValue(name,node.struct.child(name),value,err)); 
+					
+					if (err.message.length > 0)
+						break;
+				}
+					
+				if (err.message.length > 0)
+					break;
+					
+				it.@id = i+1;
+				node.items.appendChild(it);
+			}
+		}
+			
+		if (optional && !isGridEmpty && msg.length > 0)
+			err.message = msg;
+
+	}
+	
+	if (err.message.length == 0){
+		list = node.children();
+		for (i=0;i<list.length();i++){
+			switch (Trim(list[i].@modeltype.toString())){
+				case 'FIELDS':
+					if (!updateXMLFields(list[i],err,upd))
+						isEmpty = false;
+					break;
+				case 'GRID':
+					if (!updateXMLGrid(list[i],err,upd))
+						isEmpty = false;
+					break;
+			}
+			if (err.message.length > 0)
+				break;
+		}
+	}
+	
+	return isEmpty && isGridEmpty;
+}
+
+function checkObrigat(child,struct,value,err){
+	err.message = '';
+	
+	if (!value || value.trim().isEmpty() || (child.@datatype.toString() == 'D' && value.replace('/','').trim().isEmpty())){
+		if(struct.@obrigat == '1')
+			err.message = 'O campo '+struct.@info+' ('+child.name().localName+') não foi preenchido';
+		return true;
+	}
+	
+	return false;
+}
+
+function convertFluigValue(struct,value){
+var day, month, year;
+
+	value = value.trim();
+
+	switch(struct.@datatype.toString()){
+	case 'C':
+		break;
+	case 'D':
+		year = value.substr(0, 4);
+		month = value.substr(4, 2);	
+		day = value.substr(6, 2);		
+		
+		value = (day.toString() + '/' +  month.toString() + '/' + year.toString());	
+		
+		break;
+	case 'N':
+		break;
+	}
+
+	return value;
+}
+
+var setYear, setDate, yCount;
+
+function convertValue(name,struct,value,err){
+var y,m,d,len,str,reg,hasErr;
+
+	if (!setDate){
+		setYear = new Date().getFullYear().toString().substring(0,2);
+		setDate = hAPI.getAdvancedProperty('FWSETDATE');
+		yCount = setDate.match(/yyyy/) ? 4 : 2;
+	}
+
+	value = value.trim();
+
+	switch (struct.@datatype.toString()){
+	case 'C':
+		break;
+	case 'D':
+		hasErr = false;
+		len = value.length();
+				
+		d = setDate.indexOf('d');
+		m = setDate.indexOf('m');
+		y = setDate.indexOf('y');
+
+		if (d + 2 > len || m + 2 > len || y + yCount > len){
+			hasErr = true;
+		}
+		else{
+			str = value.substr(m,2) + value.substr(d,2);
+			if (yCount == 4)
+				str = value.substr(y,4) + str;
+			else
+				str = setYear + value.substr(y,2) + str;
+
+			if (str.match(/((((19|20)(([02468][048])|([13579][26]))0229))|((19|20)[0-9][0-9])((((0[1-9])|(1[0-2]))((0[1-9])|(1\d)|(2[0-8])))|((((0[13578])|(1[02]))31)|(((0[1,3-9])|(1[0-2]))(29|30)))))/g))
+				value = new java.lang.String(str);
+			else
+				hasErr = true;
+		}
+				
+		if (hasErr)
+			err.message = 'O campo '+struct.@info+' ('+name+') contém uma data inválida';
+		break;
+	case 'N':
+		len = struct.@len.toString().split(',');
+		if (len[1] == '0'){
+			reg = new RegExp('^[0-9]{1,'+len[0]+'}$');
+			str = value.replace(',','');
+			if(!reg.test(str)){
+				str = value.replace('.','');
+				if(!reg.test(str)){
+					err.message = 'O campo '+struct.@info+' ('+name+') contém um número (valor ou tamanho) inválido';
+					break;
+				}
+			}
+			value = new java.lang.String(str);
+		}
+		else{
+			reg = new RegExp('^0$|^0\.[0-9]{1,'+len[1]+'}$|^[0-9]{0,'+len[0]+'}(\.[0-9]{1,'+len[1]+'})?$');
+			str = value.replace('.','').replace(',','.');
+			if(!reg.test(str)){
+				str = value.replace(',','');
+				if(!reg.test(str)){
+					err.message = 'O campo '+struct.@info+' ('+name+') contém um número (valor ou tamanho) inválido';
+					break;
+				}
+			}
+			value = new java.lang.String(str);
+		}
+		break;
+	}
+	return value;
+}
+
+function Trim(str){
+	return str.replace(/^\s+|\s+$/g,"");
+}
+
+function getServiceMVC(err){
+var fwService = ServiceManager.getService('TOTVS_FWMVC<%=If(Empty(__cSpecialKey), '', '_' + __cSpecialKey)%>');
+var serviceHelper, serviceLocator, service;
+
+	if (!fwService){
+		err.message = ERROR + 'Serviço do ECM não foi registrado.';
+		return null;
+	}
+	
+	try{
+		serviceHelper = fwService.getBean();
+		serviceLocator = serviceHelper.instantiate('br.com.totvs.webservices.fwwsmodel_apw.FWWSMODELLocator');
+		service = serviceLocator.getFWWSMODELSOAP();	
+	}
+	catch(e){
+		err.message = ERROR + 'Serviço do ECM não foi configurado corretamente - ('+e.message+')';
+		return null;
+	}
+	
+	return service;
+}

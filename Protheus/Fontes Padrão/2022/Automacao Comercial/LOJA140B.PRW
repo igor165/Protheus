@@ -1,0 +1,4 @@
+#INCLUDE "PROTHEUS.CH"
+
+Function LOJA140B()
+Return

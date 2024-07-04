@@ -1,0 +1,859 @@
+#Include "Protheus.ch"
+#Include "FwMvcDef.ch"
+#Include "mata908.ch"
+
+/*/{Protheus.doc} MATA908
+Cadastro de Saldos Iniciais
+
+@author Edstron E. Correia
+@since 25/11/2002
+
+@obs Programa refeito 27/09/2017 - Vitor Ribeiro (vitor.e@totvs.com.br)
+/*/
+Function Mata908()
+	
+	Local oBrowse := Nil
+	
+	If a908Inicia()
+		oBrowse := FWMBrowse():New()
+		oBrowse:SetAlias("SFO")
+		oBrowse:SetMenuDef("MATA908")
+		oBrowse:SetDescription(STR0001)
+		oBrowse:AddLegend("!Empty(SFO->FO_DTFECHA)","RED"	,"Fechado")
+		oBrowse:AddLegend(" Empty(SFO->FO_DTFECHA)","GREEN"	,"Aberto")
+		oBrowse:Activate()
+	Endif
+	
+Return
+
+/*/{Protheus.doc} a908Inicia
+Função para inicializar as informações necessárias ao longo do programa. 
+
+@author Vitor Ribeiro (vitor.e@totvs.com.br)
+@since 27/09/2017
+
+@return logico, se deve continuar ou não.
+/*/
+Static Function a908Inicia()
+
+	Local lContinua := .T.
+	
+	Local aRetCpo := {}
+	
+	dbSelectArea("SFO")		// Saldos Iniciais de Selo
+	SFO->(dbsetorder(1))	// FO_FILIAL+FO_CLASSE+DTOS(FO_DTFECHA)+FO_GUIA
+	
+	If FindFunction("a907Campos")
+		// Verifica se todos os campos necessarios ao cadastro de guias de selo existem
+		aRetCpo := a907Campos()
+		
+		// Se tiver campos que não existam na base, exibe mensagem.
+		If !Empty(aRetCpo)
+			lContinua := .F.
+			// Apresenta mensagem com os campos inexistentes na base e que sao necessarios ao processo
+			a907MsgCmp(aRetCpo)
+		EndIf
+	Else
+		cTitulo 	:= STR0006 //"Rotinas divergentes"
+		cProblema 	:= STR0007 //"As rotinas que envolvem o processo de manutenção dos selos de controle estão divergentes. "  
+		cProblema	+= STR0008 //"Algumas funções não foram localizadas e, portanto, não há como continuar o processamento."
+		cSolucao	:= STR0009 //"Solicite e aplique o último pacote que contenha os fontes referentes ao processo de selos de controle: "
+		cSolucao	+= STR0010 //"Mata907, Mata908 e Matr909 para prosseguir."
+		xMagHelpFis(cTitulo,cProblema,cSolucao)
+	EndIf
+	
+Return lContinua
+
+/*/{Protheus.doc} MenuDef
+Funcao generica MVC com as opcoes de menu
+
+@author Marco Bianchi
+@since 01/09/2006
+
+@return array, contem as opcoes de menu
+/*/
+
+Static Function MenuDef()
+
+	Private aRotina := {}
+	
+	ADD OPTION aRotina TITLE STR0012 ACTION "PesqBrw"			OPERATION 1 ACCESS 0	// "Pesquisar"
+	ADD OPTION aRotina TITLE STR0013 ACTION "VIEWDEF.MATA908"	OPERATION 2 ACCESS 0	// "Visualizar"
+	
+	// Fechamento está comentado porque foi incluido no relatório matr909!
+	//ADD OPTION aRotina TITLE STR0014 ACTION "A908Invent"		OPERATION 3 ACCESS 0	// "Fechamento"
+	
+	If ExistBlock("MT908MNU")
+		ExecBlock("MT908MNU",.F.,.F.)
+	EndIf
+	
+Return aRotina
+
+/*/{Protheus.doc} ModelDef
+Funcao generica MVC do model
+
+@author Vitor Ribeiro (vitor.e@totvs.com.br)
+@since 02/10/2016
+
+@return objeto, Modelo definido MVC
+/*/
+Static Function ModelDef()
+
+	Local oModel    := Nil
+	Local oStruSFO  := FWFormStruct(1,"SFO")
+	
+	oModel := MpFormModel():New("MATA907")
+	oModel:AddFields("MODEL_SFO",/*cOwner*/,oStruSFO, /*bPreValidacao*/, /*bPosValidacao*/, /*bCarga*/ )
+	oModel:SetDescription(STR0001)
+	oModel:SetPrimaryKey({"FO_FILIAL","FO_CLASSE","DTOS(FO_DATA)","FO_GUIA"})
+	
+Return oModel
+
+/*/{Protheus.doc} ViewDef
+Funcao generica MVC do View
+
+@author Vitor Ribeiro (vitor.e@totvs.com.br)
+@since 02/10/2016
+
+@return objeto, View definida MVC
+/*/
+Static Function ViewDef()
+
+	Local oModel   := FwLoadModel("MATA908")
+	Local oView    := FWFormView():New()
+	Local oStruSFN := FWFormStruct(2, "SFO")
+	
+	oView:SetModel(oModel)
+	
+	oView:AddField("VIEW_SFO",oStruSFN,"MODEL_SFO")
+	
+Return oView
+
+/*/{Protheus.doc} a908Invent
+Cadastro de Saldos Iniciais
+
+@author Edstron E. Correia
+@since 25/11/2002
+
+@return objeto, View definida MVC
+/*/
+Function a908Invent()
+
+	Local aStruSD2  := {}
+	Local aStruSF4  := {}
+	Local aStruSB1  := {}
+	Local aStruSFN  := {}
+	Local aStruSFO  := {}
+	Local aCampos	:= {}
+	Local aSaidas	:= {}
+	Local aSaldos	:= {}
+	Local aPerda	:= {}
+	Local aProduto	:= {}
+	
+	Local cAliasSF4	:= "SF4"
+	Local cAliasSB1	:= "SB1"
+	Local cAliasSD2	:= "SD2"
+	Local cAliasSFN	:= "SFN"
+	Local cAliasSFO	:= "SFO"
+	Local cArqSelo	:= ""
+	Local cAlias	:= Alias()
+	Local cQuery	:= ""
+	Local cGuia		:= ""
+	Local cClasse	:= ""
+	Local cClasse2	:= ""
+	Local cIndexSFO	:= ""
+	Local cKey		:= ""
+	Local cFilter	:= ""
+	Local cCor		:= ""
+	Local cSerie	:= ""
+	Local cAliasSD1	:= "SD1"
+	Local cIndexSD1	:= ""
+	
+	Local dDatCad	:= CTOD("//")
+	
+	Local nSaldo	:= 0
+	Local nOpcA		:= 0  
+	Local nPos		:= 0
+	Local nX		:= 0
+	Local nY		:= 0
+	Local nZ		:= 0    
+	Local nPerda	:= 0
+	Local nIndex    := 0
+	
+	Local lInclui	:= .F.
+	Local lQuery	:= .F.
+	Local lM908SUni	:= ExistBlock("M908SUni")
+	Local lEstoque	:= dDataBase >= GetNewPar("MV_ESTSELO",cToD("/")) .And. !Empty(GetNewPar("MV_ESTSELO",cToD("/")))
+	
+	// Carrega as perguntas selecionadas
+	Pergunte("MTA908",.F.)
+	FormBatch(OemtoAnsi(STR0002),{OemToAnsi(STR0003),OemToAnsi(STR0004) },;
+	{ { 5,.T.,{|o| Pergunte("MTA908",.T.)}},;
+	{ 1,.T.,{|o| nOpcA := 1, o:oWnd:End()}},;
+	{ 2,.T.,{|o| o:oWnd:End()}}})
+	
+	dDatCad := CTOD('01'+"/"+Substr(DTOS(MV_PAR01), 5, 2)+"/"+Substr( DTOS(MV_PAR01), 1, 4))
+	
+	If (nOpcA == 1)
+		AADD(aCampos,{"DATREG"		,"D",008,0})
+		AADD(aCampos,{"NUMGUIA"		,"C",012,0})
+		AADD(aCampos,{"DATGUIA"		,"D",008,0})
+		AADD(aCampos,{"QUANTIDADE"	,"N",012,2})
+		AADD(aCampos,{"NUMEROS"		,"C",015,0})
+		AADD(aCampos,{"SERIE"		,"C",003,0})
+		AADD(aCampos,{"NOTAFISCAL"	,"C",TamSX3("F2_DOC")[1],0})
+		AADD(aCampos,{"QTDENOTA"	,"N",012,2})
+		AADD(aCampos,{"OUTRQTDE"	,"N",012,2})
+		AADD(aCampos,{"TES"			,"C",003,0})
+		AADD(aCampos,{"CLASSE"		,"C",TamSX3("FN_CLASSE")[01],0})
+		AADD(aCampos,{"OBSERVACAO"	,"C",020,0})
+		AADD(aCampos,{"COR"			,"C",015,0})
+		AADD(aCampos,{"SERIEGUIA"	,"C",010,0})
+		
+		cArqSelo	:=	CriaTrab(aCampos)
+		dbUseArea(.T.,__LocalDriver,cArqSelo,cArqSelo,.T.,.F.)
+		IndRegua(cArqSelo,cArqSelo,"CLASSE+DTOS(DATREG)+SERIE+NOTAFISCAL+NUMGUIA+TES",,,STR0005) 
+		DbSelectArea(cArqSelo)
+		DbClearIndex()
+		DbSetIndex(cArqSelo+OrdBagExt())
+		dbSetOrder(1)
+		dbSelectArea(cAlias)
+		
+		cIndexSD1  	:= CriaTrab(nil,.f.)
+		cFilter 		:= 'SD1->D1_FILIAL == "' + xFilial("SD1") + '" .And. SD1->D1_TIPO == "D" .And. DToS(SD1->D1_DTDIGIT) >= "' + DToS(dDatCad) + '" .And. DToS(SD1->D1_DTDIGIT) <= "' + DToS(MV_PAR01) + '"'
+		IndRegua("SD1",cIndexSD1,"D1_NFORI+D1_SERIORI+D1_LOJA",,cFilter,STR0012) // Selecionando Registros
+		nIndex := RetIndex("SD1")
+		#IFNDEF TOP
+			DbSetIndex(cIndexSD1+OrdBagExt())
+		#ENDIF
+		DbSelectArea("SD1")
+		DbSetOrder(nIndex+1)
+		
+		dBSelectArea("SD2")
+		SD2->(dbSetOrder(5))
+		#IfDEF TOP
+			lQuery := .T.
+			cAliasSD2 := "a996AMontSD2"
+			cAliasSF4 := "a996AMontSD2"
+			cAliasSB1 := "a996AMontSD2"
+			
+			cQuery	:= " SELECT "
+			cQuery	+= "	D2_FILIAL, D2_EMISSAO, D2_TES, D2_COD, D2_SERIE, D2_DOC, D2_TES, D2_QUANT, D2_CLIENTE, D2_LOJA, "
+			cQuery	+= "	F4_FILIAL, F4_SELO, F4_CODIGO, B1_FILIAL, B1_SELO, B1_COD, B1_CONV, B1_TIPCONV, B1_CLASSE "
+			cQuery	+= " FROM " + RetSqlName("SD2") + " SD2 "
+			
+			cQuery	+= " INNER JOIN " + RetSqlName("SF4") + " SF4 ON "
+			cQuery	+= "	SF4.D_E_L_E_T_ <> '*' "
+			cQuery	+= "	AND SF4.F4_FILIAL = '"+xFilial("SF4")+"' "
+			cQuery	+= "	AND SF4.F4_CODIGO = SD2.D2_TES "
+			cQuery	+= "	AND SF4.F4_SELO IN ('1','2','3') "
+			 
+			cQuery	+= " INNER JOIN " + RetSqlName("SB1") + " SB1 ON "
+			cQuery	+= "	SB1.D_E_L_E_T_ <> '*' "
+			cQuery	+= "	AND SB1.B1_FILIAL = '" + xFilial("SB1") + "' "
+			cQuery	+= "	AND SB1.B1_COD = D2_COD "
+			cQuery	+= "	AND SB1.B1_SELO = '1' "
+			
+			cQuery	+= " WHERE "
+			cQuery	+= "	SD2.D_E_L_E_T_ <> '*' "
+			cQuery	+= "	AND SD2.D2_FILIAL = '" + xFilial("SD2") + "' "
+			cQuery	+= "	AND SD2.D2_EMISSAO>= '" + Dtos(dDatCad) + "' "
+	  		cQuery	+= "	AND SD2.D2_EMISSAO<= '" + Dtos(MV_PAR01) + "' "
+	  		
+	  		cQuery	+= " ORDER BY "+SqlOrder(SD2->(IndexKey()))
+		
+			cQuery 		:= ChangeQuery(cQuery)
+			dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSD2,.T.,.T.)
+			
+			aStruSD2 := SD2->(dbStruct())
+			For nX := 1 To len(aStruSD2)
+				If aStruSD2[nX][2] <> "C" .And. FieldPos(aStruSD2[nX][1])<>0
+					TcSetField(cAliasSD2,aStruSD2[nX][1],aStruSD2[nX][2],aStruSD2[nX][3],aStruSD2[nX][4])
+				EndIf
+			Next nX
+			
+			aStruSF4 := SF4->(dbStruct())
+			For nX := 1 To len(aStruSF4)
+				If aStruSF4[nX][2] <> "C" .And. FieldPos(aStruSF4[nX][1])<>0
+					TcSetField(cAliasSF4,aStruSF4[nX][1],aStruSF4[nX][2],aStruSF4[nX][3],aStruSF4[nX][4])
+				EndIf
+			Next nX
+			
+			aStruSB1 := SB1->(dbStruct())
+			For nX := 1 To len(aStruSB1)
+				If aStruSB1[nX][2] <> "C" .And. FieldPos(aStruSB1[nX][1])<>0
+					TcSetField(cAliasSB1,aStruSB1[nX][1],aStruSB1[nX][2],aStruSB1[nX][3],aStruSB1[nX][4])
+				EndIf
+			Next nX
+			
+			dbSelectArea(cAliasSD2)	
+		#ELSE
+			(cAliasSD2)->(dbSeek(xFilial("SD2")+DtoS(dDatCad),.T.) )
+		#EndIf
+		
+		If !lQuery
+			(cAliasSF4)->(dbSetOrder(1))
+			(cAliasSB1)->(dbSetOrder(1))
+		EndIf
+		
+		While (cAliasSD2)->(!eof()) .and. xFilial("SD2") == (cAliasSD2)->D2_FILIAL .and. (cAliasSD2)->D2_EMISSAO <= MV_PAR01
+			If !lQuery
+				If (cAliasSF4)->(dbSeek(xFilial("SF4")+(cAliasSD2)->D2_TES))
+					If (cAliasSF4)->F4_SELO$"123"
+						If (cAliasSB1)->(dbSeek(xFilial("SB1")+(cAliasSD2)->D2_COD))
+							If (cAliasSB1)->B1_SELO == "1"
+								lInclui := !((cArqSelo)->(dbseek((cAliasSB1)->B1_CLASSE+DTOS((cAliasSD2)->D2_EMISSAO)+(cAliasSD2)->D2_SERIE+(cAliasSD2)->D2_DOC+PADR(SPACE(12),12)+(cAliasSD2)->D2_TES)))
+								
+								RecLock(cArqSelo,lInclui)
+									If lInclui
+										(cArqSelo)->CLASSE := (cAliasSB1)->B1_CLASSE
+										(cArqSelo)->DATREG := (cAliasSD2)->D2_EMISSAO
+										(cArqSelo)->SERIE := (cAliasSD2)->D2_SERIE
+										(cArqSelo)->NOTAFISCAL := (cAliasSD2)->D2_DOC
+										(cArqSelo)->TES := (cAliasSD2)->D2_TES
+									EndIf
+									
+									If (cAliasSF4)->F4_SELO<>"3"
+										(cArqSelo)->QTDENOTA	+=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+									Else
+										(cArqSelo)->OUTRQTDE	+=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+									EndIf
+								(cArqSelo)->(MsUnLock())
+								
+								nPos := Ascan(aSaidas,{|x| x[1]==(cArqSelo)->CLASSE })
+								
+								If nPos == 0
+									Aadd(aSaidas,{(cArqSelo)->CLASSE,A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)})
+								Else
+									aSaidas[nPos,2] +=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+								EndIf
+							EndIf
+						EndIf
+					EndIf
+				EndIf      
+			Else
+				lInclui := !((cArqSelo)->(dbseek((cAliasSB1)->B1_CLASSE+DTOS((cAliasSD2)->D2_EMISSAO)+(cAliasSD2)->D2_SERIE+(cAliasSD2)->D2_DOC+PADR(SPACE(12),12)+(cAliasSD2)->D2_TES)))
+				
+				RecLock(cArqSelo,lInclui)
+					If lInclui
+						(cArqSelo)->CLASSE := (cAliasSB1)->B1_CLASSE
+						(cArqSelo)->DATREG := (cAliasSD2)->D2_EMISSAO
+						(cArqSelo)->SERIE := (cAliasSD2)->D2_SERIE
+						(cArqSelo)->NOTAFISCAL := (cAliasSD2)->D2_DOC
+						(cArqSelo)->TES := (cAliasSD2)->D2_TES
+					EndIf
+					
+					If (cAliasSF4)->F4_SELO<>"3"
+						(cArqSelo)->QTDENOTA	+=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+					Else
+						(cArqSelo)->OUTRQTDE	+=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+					EndIf
+				(cArqSelo)->(MsUnLock())
+				
+				nPos := Ascan(aSaidas,{|x| x[1]==(cArqSelo)->CLASSE })
+				
+				If nPos==0
+					Aadd(aSaidas,{(cArqSelo)->CLASSE,A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)})
+				Else
+					aSaidas[nPos,2] +=A909Conv((cAliasSD2)->D2_COD,(cAliasSD2)->D2_QUANT,MV_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)
+				EndIf         
+			EndIf   	         
+			(cAliasSD2)->( dbSkip())
+		EndDo
+		
+		ProcDev(cAliasSB1,cAliasSF4,cArqSelo,@aSaidas,lM908SUni,dDatCad)
+
+		// Contabiliza as guias de devolucao e transferencia de selos de controle
+		#IfDEF TOP
+			lQuery := .T.
+			cAliasSFN := "cSFN"
+			
+			
+			cQuery	:= " SELECT SFN.FN_FILIAL, SFN.FN_GUIA, SFN.FN_CLASSE, FN_GUIAORI, SFN.FN_QTDE, SFN.FN_DATA "
+			cQuery	+= " FROM " + RetSqlName("SFN") + " SFN "
+			
+			cQuery	+= " WHERE "
+			cQuery	+= "	SFN.D_E_L_E_T_ <> '*' "
+			cQuery	+= "	AND SFN.FN_FILIAL= '" + xFilial("SFN") + "' "
+			cQuery	+= "	AND SFN.FN_DATA>= '" + Dtos(dDatCad) + "' "
+			cQuery	+= "	AND SFN.FN_DATA<= '" + Dtos(MV_PAR01) + "' "
+			cQuery	+= "	AND SFN.FN_TIPO <> 'N' "
+			                   	
+			cQuery	+= " ORDER BY SFN.FN_FILIAL, SFN.FN_CLASSE, FN_GUIAORI, SFN.FN_DATA"
+			
+			cQuery := ChangeQuery(cQuery)
+			dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSFN,.T.,.T.)
+			
+			aStruSFN := SFN->(dbStruct())
+			For nX := 1 To len(aStruSFN)
+				If aStruSFN[nX][2] <> "C" .And. FieldPos(aStruSFN[nX][1])<>0
+					TcSetField(cAliasSFN,aStruSFN[nX][1],aStruSFN[nX][2],aStruSFN[nX][3],aStruSFN[nX][4])
+				EndIf
+			Next nX
+			
+			DbSelectArea(cAliasSFN)	
+		#ELSE
+			cIndexSFN := CriaTrab(nil,.f.)
+			
+			cFilter := 'SFN->FN_FILIAL == "' + xFilial("SFN") + '" .And. '
+			cFilter += 'DTOS(SFN->FN_DATA) >= "' + DTOS(dDatCad) + '" .And. '
+			cFilter += 'DTOS(SFN->FN_DATA) <= "' + DTOS(MV_PAR01) + '"'
+			cFilter += " .And. FN_TIPO <> 'N'"
+			
+			IndRegua("SFN",cIndexSFN,"FN_FILIAL+FN_CLASSE+FN_GUIAORI+DTOS(FN_DATA)",,cFilter,STR0012) // Selecionando Registros
+			DbSetIndex(cIndexSFN+OrdBagExt())
+			SFN->(DbGoTop())
+		#EndIf
+		
+		While (cAliasSFN)->(!eof())
+			nPos := Ascan(aSaidas,{|x|x[1]==(cAliasSFN)->FN_CLASSE})
+			
+			If nPos == 0
+				Aadd(aSaidas,{(cAliasSFN)->FN_CLASSE,(cAliasSFN)->FN_QTDE})
+		    Else
+			   aSaidas[nPos,2] += (cAliasSFN)->FN_QTDE
+			EndIf
+			(cAliasSFN)->(dbSkip())
+		EndDo
+		
+		dbSelectArea(cAliasSFN)
+		(cAliasSFN)->(RetIndex("SFN"))
+		(cAliasSFN)->(dbClearFilter())
+		If lQuery
+			dbCloseArea()
+		ELSE
+			Ferase(cIndexSFN+OrdBagExt())
+			SFN->(dbSelectArea("SFN"))
+		EndIf
+	
+		dBSelectArea("SFN")
+		SFN->(dbSetOrder(2))
+		#IfDEF TOP
+			lQuery := .T.
+			cAliasSFN := "cSFN"
+			
+			cQuery	:= " SELECT SFN.* "
+			cQuery	+= " FROM " + RetSqlName("SFN") + " SFN "
+			
+			cQuery	+= " WHERE " 
+			cQuery	+= "	SFN.D_E_L_E_T_ <> '*' "
+			cQuery	+= "	AND SFN.FN_FILIAL='" + xFilial("SFN") + "' "
+			cQuery	+= "	AND SFN.FN_DATA>='" + Dtos(dDatCad) + "' "
+			cQuery	+= "	AND SFN.FN_DATA<='" + Dtos(MV_PAR01) + "' 
+			cQuery	+= "	AND SFN.FN_TIPO = 'N' "
+			
+			cQuery	+= " ORDER BY " + SqlOrder(SFN->(IndexKey()))
+			
+			cQuery := ChangeQuery(cQuery)
+			dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSFN,.T.,.T.)
+			
+			aStruSFN := SFN->(dbStruct())
+			For nX := 1 To len(aStruSFN)
+				If aStruSFN[nX][2] <> "C" .And. FieldPos(aStruSFN[nX][1])<>0
+					TcSetField(cAliasSFN,aStruSFN[nX][1],aStruSFN[nX][2],aStruSFN[nX][3],aStruSFN[nX][4])
+				EndIf
+			Next nX
+			
+			DbSelectArea(cAliasSFN)	
+		#ELSE
+			cIndexSFN := CriaTrab(nil,.f.)
+			
+			cFilter := 'SFN->FN_FILIAL == "' + xFilial("SFN") + '" .And. '
+			cFilter += 'DTOS(SFN->FN_DATA) >= "' + DTOS(dDatCad) + '" .And. '
+			cFilter += 'DTOS(SFN->FN_DATA) <= "' + DTOS(MV_PAR01) + '"'
+			cFilter += " .And. FN_TIPO == 'N'"
+			
+			IndRegua("SFN",cIndexSFN,"FN_FILIAL+FN_CLASSE+FN_GUIAORI+DTOS(FN_DATA)",,cFilter,STR0012) // Selecionando Registros
+			DbSetIndex(cIndexSFN+OrdBagExt())
+			SFN->(DbGoTop())
+		#EndIf
+	
+		While (cAliasSFN)->(!eof()) .and. xFilial("SFN") == (cAliasSFN)->FN_FILIAL .and. (cAliasSFN)->FN_DATA <=MV_PAR01
+			If lQuery .Or. !(cArqSelo)->(dbseek((cAliasSFN)->FN_CLASSE+DTOS((cAliasSFN)->FN_DATA)+PADR(SPACE(09),9)+(cAliasSFN)->FN_GUIA+PADR(SPACE(03),3)))
+				RecLock(cArqSelo,.T.)
+					(cArqSelo)->CLASSE := (cAliasSFN)->FN_CLASSE
+					(cArqSelo)->DATREG := (cAliasSFN)->FN_DATA
+					(cArqSelo)->NUMGUIA := (cAliasSFN)->FN_GUIA
+					(cArqSelo)->DATGUIA := (cAliasSFN)->FN_DATA
+					(cArqSelo)->QUANTIDADE := (cAliasSFN)->FN_QTDE
+					(cArqSelo)->NUMEROS := (cAliasSFN)->FN_NUMERO + " a " + (cAliasSFN)->FN_NRFINAL
+					(cArqSelo)->COR := (cAliasSFN)->FN_COR
+					(cArqSelo)->SERIEGUIA := (cAliasSFN)->FN_SERIE
+				(cArqSelo)->(MsUnLock())
+			EndIf
+			
+			// Adiciona o array com as guias que deverao verIficar o controle de perdas de estoque
+			If lEstoque .And. (cAliasSFN)->FN_ESTOQUE == "1" .And. !Empty((cAliasSFN)->FN_LOTECTL)
+				If Ascan(aProduto,{|x| 	x[1] == (cAliasSFN)->FN_CODIGO .And. x[3] == (cAliasSFN)->FN_CLASSE}) == 0
+					aAdd(aProduto,{(cAliasSFN)->FN_CODIGO,(cAliasSFN)->FN_LOTECTL,(cAliasSFN)->FN_CLASSE})
+				Endif
+			EndIf
+			
+			(cAliasSFN)->(dbSkip())
+		EndDo
+		
+		DbSelectArea(cAliasSFN)
+		(cAliasSFN)->(RetIndex("SFN"))
+		(cAliasSFN)->(dbClearFilter())
+		
+		If !lQuery
+			Ferase(cIndexSFN+OrdBagExt())
+			SFN->(dbSelectArea("SFN"))
+		EndIf 
+	
+		// VerIfica se ocorreram perdas de estoque para as guias processadas.
+		// Somente quando ha o controle fisico do estoque.
+		If lEstoque
+			a907Perda(aProduto,@aPerda,dDatCad,mv_par01)
+			
+			// Adiciona as perdas encontradas as saidas processadas
+			/* Posicoes do array aPerdas:
+				[01] = Codigo do produto selo
+				[02] = Motivo da perda (codigo)
+				[03] = Motivo da perda (descricao)
+				[04] = Quantidade perdida
+				[05] = Data em que ocorreu a perda
+				[06] = Classe		
+			*/
+			For nPerda := 1 to Len(aPerda)
+				If aPerda[nPerda][04] > 0
+					nPos := Ascan(aSaidas,{|x| x[1] == aPerda[nPerda][06]})
+					
+					If nPos > 0
+						aSaidas[nPos,2] += aPerda[nPerda][04]
+					Else
+						AADD(aSaidas,{aPerda[nPerda][06],aPerda[nPerda][04]})			
+					EndIf 
+				Endif
+			Next
+			
+		EndIf
+	
+		dbSelectArea(cAliasSFO)	
+	
+		If !lQuery
+			cIndexSFO := CriaTrab(nil,.f.)
+			
+			cFilter := 'SFO->FO_FILIAL == "'+xFilial("SFO")+'" .And. '
+			cFilter += 'Empty(SFO->FO_DTFECHA) .AND. '
+			cFilter += 'SFO->FO_SALDATU > 0'
+			
+			cKey := IndexKey()
+			IndRegua(cAliasSFO,cIndexSFO,"FO_FILIAL+FO_CLASSE",,cFilter,STR0012) // Selecionando Registros
+			DbSetIndex(cIndexSFO+OrdBagExt())
+			(cAliasSFO)->(DbGoTop())
+		EndIf
+		
+		ASort(aSaidas,,,{|x,y|x[1]<y[1]})
+		
+		For nY :=1 TO Len(aSaidas)
+			cClasse2	:=aSaidas[nY,1]
+
+			#IfDEF TOP
+				lQuery     := .T.
+				cAliasSFO  := "cSFO"
+				
+				cQuery	:= " SELECT SFO.*, R_E_C_N_O_ SFORECNO "
+				cQuery	+= " FROM "+RetSqlName("SFO")+" SFO "
+				
+				cQuery	+= " WHERE "
+				cQuery	+= "	SFO.D_E_L_E_T_ <> '*' "
+				cQuery	+= "	AND SFO.FO_FILIAL = '" + xFilial("SFO") + "' "
+				cQuery	+= "	AND SFO.FO_DATA< = '" + Dtos(MV_PAR01) + "' "
+				cQuery	+= "	AND SFO.FO_CLASSE = '" + cClasse2 + "' "
+				cQuery	+= "	AND SFO.FO_DTFECHA = '' "
+				cQuery	+= "	AND SFO.FO_SALDATU > 0 "
+				
+				cQuery	+= " ORDER BY FO_FILIAL,FO_CLASSE,FO_DATA,FO_GUIA "
+
+				cQuery := ChangeQuery(cQuery)
+				dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSFO,.T.,.T.)
+				
+				aStruSFO := SFO->(dbStruct())
+				For nX := 1 To len(aStruSFO)
+					If aStruSFO[nX][2] <> "C" .And. FieldPos(aStruSFO[nX][1])<>0
+						TcSetField(cAliasSFO,aStruSFO[nX][1],aStruSFO[nX][2],aStruSFO[nX][3],aStruSFO[nX][4])
+					EndIf
+				Next nX
+
+				TcSetField(cAliasSFO, "SFORECNO", "N", 10, 0 )
+			#EndIf
+
+			If !lQuery
+				(cAliasSFO)->(dbSeek(xFilial("SFO")+If(Empty(aSaidas),SPACE(03),aSaidas[nY,1]),.T.))
+			EndIf   
+
+			While xFilial("SFO")==(cAliasSFO)->FO_FILIAL .And. aSaidas[nY,1]==(cAliasSFO)->FO_CLASSE
+				If !lQuery 
+					lEof 	:= .F. 	         
+					nRecOld := SFO->(Recno())
+					(cAliasSFO)->(dbskip())
+					If !(cAliasSFO)->(Eof())
+						nNewRec := (cAliasSFO)->(Recno())
+					Else
+						lEof := .T. 
+					EndIf 	                             				     
+					(cAliasSFO)->(dbGoto(nRecOld))
+				Else
+					SFO->(dbGoto((cAliasSFO)->SFORECNO))
+				EndIf
+				
+				Begin Transaction
+					RecLock("SFO",.F.,.T.)
+						If lM908SUni
+							aSaidas[nY,2] := ExecBlock("M908SUni",.F.,.F.,{aSaidas[nY,2]})
+						EndIf
+						
+						If aSaidas[nY,2] >= (cAliasSFO)->FO_SALDATU
+							aSaidas[nY,2] -= (cAliasSFO)->FO_SALDATU
+							SFO->FO_SALDATU -= (cAliasSFO)->FO_SALDATU
+							nSaldo := aSaidas[nY,2]
+						Else
+							SFO->FO_SALDATU -= aSaidas[nY,2]
+							aSaidas[nY,2] -= aSaidas[nY,2]
+							nSaldo := Max(aSaidas[nY,2],SFO->FO_SALDATU)
+						EndIf
+						
+						cGuia := (cAliasSFO)->FO_GUIA
+						cClasse := (cAliasSFO)->FO_CLASSE
+						cCor := (cAliasSFO)->FO_COR
+						cSerie := (cAliasSFO)->FO_SERIE
+						
+						nPos := Ascan(aSaldos,{|x| x[1] == cClasse .And. x[2] == cGuia })
+						If nPos == 0
+							Aadd(aSaldos,{cClasse,cGuia,nSaldo,cCor,cSerie})
+						Else
+							aSaldos[nPos,3] := nSaldo
+						EndIf
+						
+						SFO->FO_DTFECHA := MV_PAR01
+					SFO->(MsUnLock())
+				End Transaction
+
+				If lQuery
+					(cAliasSFO)->(dbskip())
+				Else
+					If lEof
+						Exit
+					Else		
+						SFO->(dbGoto(nNewRec))    
+					EndIf
+				EndIf 	  				 
+			EndDo
+
+			For nZ :=1 TO Len(aSaldos)
+				If aSaldos[nZ,3] > 0	  	     
+					Begin Transaction	         
+						RecLock("SFO",.T.)
+							SFO->FO_FILIAL := xFilial("SFO")
+							SFO->FO_DATA := MV_PAR01
+							SFO->FO_GUIA := aSaldos[nZ,2]
+							SFO->FO_SALDO := aSaldos[nZ,3]
+							SFO->FO_SALDATU := aSaldos[nZ,3]
+							SFO->FO_CLASSE := aSaldos[nZ,1]
+							SFO->FO_COR := aSaldos[nZ,4]
+							SFO->FO_SERIE := aSaldos[nZ,5]
+						SFO->(MsUnLock())
+					End Transaction
+				EndIf
+			Next                                   
+
+			aSaldos :={}
+
+			#IfDEF TOP
+				dbSelectArea(cAliasSFO)
+				dbCloseArea()
+			#EndIf    
+		Next
+
+		SFO->(DBGOTOP())
+		DBSELECTAREA("SFO")
+		While SFO->(!eof())
+			If SFO->FO_DATA<MV_PAR01 .AND. EMPTY(SFO->FO_DTFECHA)
+				Begin Transaction	         
+					RecLock("SFO",.F.)
+						SFO->FO_DATA := MV_PAR01
+					SFO->(MsUnLock())	  	     
+				End Transaction
+			EndIf
+			SFO->(DBSKIP())
+		EndDo
+
+		If !lQuery
+			RetIndex(cAliasSFO)   
+			Ferase(cIndexSFO+OrdBagExt())
+			dbSelectArea(cAliasSFO)
+			dbClearFilter()
+		EndIf
+		
+		dbSelectArea(cArqSelo)
+		dbCloseArea()
+		Ferase(cArqSelo+".DBF")
+		Ferase(cArqSelo+OrdBagExt())
+		
+		#IfDEF TOP
+			dbSelectArea(cAliasSD2)
+			dbCloseArea()
+			dbSelectArea(cAliasSFN)
+			dbCloseArea()
+		#EndIf
+	EndIf
+	
+Return
+
+/*/{Protheus.doc} RetDatGuia
+Pesquisa guia em aberto para iniciar fechamento de saldos
+
+@author Edstron E. Correia
+@since 03/12/2002
+/*/
+Function RetDatGuia(dDatCad)
+
+	Local cAlias := Alias()
+	Local lRet := .F.
+	
+	SFO->(dbsetorder(1))
+	SFO->(dbGoTop())
+	SFN->(dbsetorder(1))
+	SFN->(dbGoTop())
+	
+	dDatCad	:= SFO->FO_DATA
+	
+	While !SFO->(Eof())
+		If Empty(SFO->FO_DTFECHA)
+			dDatCad	:=Min(dDatCad,SFO->FO_DATA)
+			SFN->(dbseek(xFilial("SFN")+SFO->(FO_CLASSE+FO_GUIA)))
+			If SFN->FN_DATA<SFO->FO_DATA .Or. SFO->(DBSEEK(xFilial("SFO")+FO_CLASSE+DTOS(SFN->FN_DATA)+FO_GUIA))
+				dDatCad++
+				lRet := .T.
+			EndIf
+		EndIf 	 
+		SFO->(dbskip())
+	EndDo
+
+	DbSelectArea(cAlias)
+	
+Return lRet
+
+/*/{Protheus.doc} ProcDev
+
+@author Desconhecido
+@since ??/??/????
+/*/
+Static Function ProcDev(cAliasSB1,cAliasSF4,cArqSelo,aSaidas,lM908SUni,dDatCad)
+
+	Local	cAliasSD1	:=	"SD1"
+	Local	cSelect		:=	""
+	Local	cFrom		:=	""
+	Local	cWhere		:=	""
+	local	cIndex		:=	""
+	Local	cFiltro		:=	""
+	Local	lProcessa	:=	.F.
+	Local	lQuery		:=	.F.
+	Local	nIndex		:=	0
+	Local	nPos		:=	0   
+
+	#IFDEF TOP
+		If (TcSrvType ()<>"AS/400")
+			lQuery		:= .T.
+			lProcessa	:= .T.
+			cAliasSD1	:= GetNextAlias()
+			cAliasSB1	:= cAliasSD1
+			
+			cSelect	:= "%SD1.D1_COD, SD1.D1_DTDIGIT, SD1.D1_SERIE, SD1.D1_DOC, SD1.D1_ITEM, SD1.D1_TES, SD1.D1_QUANT, SD1.D1_TIPO, "
+			cSelect	+= "SB1.B1_CLASSE, SB1.B1_CONV, SB1.B1_TIPCONV, SB1.B1_SELO, SF4.F4_SELO%"
+			
+			cFrom 	+= "%"+RetSqlName("SD1")+" SD1 "
+			cFrom 	+= "LEFT JOIN "+RetSqlName("SF4")+" SF4 ON SF4.F4_FILIAL='"+xFilial("SF4")+"' AND SF4.F4_CODIGO=SD1.D1_TES AND SF4.D_E_L_E_T_ <> '*' "
+			cFrom 	+= "LEFT JOIN "+RetSqlName("SB1")+" SB1 ON SB1.B1_FILIAL='"+xFilial("SB1")+"' AND SB1.B1_COD=SD1.D1_COD AND SB1.D_E_L_E_T_ <> '*' %"
+			
+			cWhere 	+= "%SD1.D1_FILIAL = '"+xFilial("SD1")+"' AND "   
+			cWhere 	+= "D1_DTDIGIT>='"+DToS(dDatCad)+"' AND "
+			cWhere 	+= "D1_DTDIGIT<='"+DTOS(MV_PAR01)+"' AND "
+			cWhere	+= "(D1_TIPO = 'D' OR D1_CF ='2208' OR D1_CF ='1208') AND "
+			cWhere 	+= "SD1.D_E_L_E_T_ <> '*' AND "
+			cWhere 	+= "F4_FILIAL = '"+xFilial("SF4")+"' AND "
+			cWhere 	+= "F4_SELO = '2' AND " 
+			cWhere 	+= "B1_FILIAL = '"+xFilial("SB1")+"' AND "
+			cWhere 	+= "B1_SELO = '1' AND "
+			cWhere 	+= "SB1.D_E_L_E_T_ <> '*' %"
+			
+			BeginSql Alias cAliasSD1
+			
+			SELECT 
+			%Exp:cSelect%
+			
+			FROM 
+			%Exp:cFrom%
+			
+			WHERE 
+			%Exp:cWhere%
+			
+			EndSql
+		Else
+	#ENDIF
+			cIndex := CriaTrab(Nil,.F.)
+
+			cFiltro := 'SD1->D1_FILIAL=="'+xFilial("SD1")+'" .And. '
+			cFiltro += 'SD1->D1_TIPO=="D" .And. '
+			cFiltro += 'SD1->D1_DTDIGIT>="'+DTOS(MV_PAR01)+'" .And. ' 
+			cFiltro += 'SD1->D1_DTDIGIT<="'+DTOS(MV_PAR02)+'" '
+
+			nIndex := RetIndex("SD1")
+			
+			#IFNDEF TOP
+		
+				DbSetIndex(cIndex+OrdBagExt())
+			#ENDIF
+
+			DbSelectArea("SD1")
+			DbSetOrder(nIndex+1)
+	#IFDEF TOP
+		EndIf
+	#ENDIF
+
+	While !(cAliasSD1)->(Eof())
+		If !lQuery
+			(cAliasSF4)->(dbSetOrder(1))
+			(cAliasSF4)->(dbSeek(xFilial("SF4")+(cAliasSD1)->D1_TES))
+			(cAliasSB1)->(dbSetOrder(1))
+			(cAliasSB1)->(dbSeek(xFilial("SB1")+(cAliasSD1)->D1_COD))
+			
+			If (cAliasSB1)->B1_SELO == "1" .And. (cAliasSF4)->F4_SELO == "2"
+				lProcessa := .T.
+			Endif
+		Endif
+		
+		If lProcessa
+			nQtdeNf		:=	A909Conv((cAliasSD1)->D1_COD,Iif(lM908SUni,ExecBlock("M908SUni",.T.,.T.,{(cAliasSD1)->D1_QUANT}),(cAliasSD1)->D1_QUANT),Mv_PAR02,(cAliasSB1)->B1_CONV,(cAliasSB1)->B1_TIPCONV)         
+
+			cCodProd	:=	(cAliasSD1)->D1_COD
+			nFatConv	:=	(cAliasSB1)->B1_CONV
+			cTipConv	:=	(cAliasSB1)->B1_TIPCONV
+
+			If (cArqSelo)->(dbseek((cAliasSB1)->B1_CLASSE+(cAliasSD1)->D1_DTDIGIT+(cAliasSD1)->D1_SERIE+(cAliasSD1)->D1_DOC+PADR(SPACE(12),12)+(cAliasSD1)->D1_TES))
+				RecLock(cArqSelo,.F.)
+			Else
+				RecLock(cArqSelo,.T.)
+				(cArqSelo)->CLASSE		:=	(cAliasSB1)->B1_CLASSE
+				(cArqSelo)->DATREG		:=	STOD((cAliasSD1)->D1_DTDIGIT)
+				(cArqSelo)->SERIE		:=	(cAliasSD1)->D1_SERIE
+				(cArqSelo)->NOTAFISCAL	:=	(cAliasSD1)->D1_DOC
+				(cArqSelo)->TES			:=	(cAliasSD1)->D1_TES
+			EndIf
+			
+			(cArqSelo)->QTDENOTA		-=	nQtdeNf
+			(cArqSelo)->(MsUnLock())
+			
+			nPos :=Ascan(aSaidas,{|x|x[1]==(cArqSelo)->CLASSE})
+			If nPos==0                            		
+				Aadd(aSaidas,{(cArqSelo)->CLASSE,nQtdeNf})
+			Else
+				aSaidas[nPos,2]	-=	nQtdeNf
+			Endif
+		Endif
+		
+		(cAliasSD1)->(DbSkip())
+	EndDo
+	
+Return		

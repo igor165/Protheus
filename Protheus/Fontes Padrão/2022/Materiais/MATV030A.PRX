@@ -1,0 +1,330 @@
+#INCLUDE "MATA030.CH"   
+#INCLUDE "PROTHEUS.CH" 
+#INCLUDE "FWEVENTVIEWCONSTS.CH"                              
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "FWMVCDEF.CH"     
+#INCLUDE "XMLXFUN.CH"
+#INCLUDE "TBICONN.CH"
+#INCLUDE "CRMDEF.CH"
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030ValDoc
+
+Validacao do campo NIT. Nao permitir cadastrar dois clientes com o mesmo NIT  
+
+@sample	A030ValDoc()
+
+@return	lRet
+
+@author	Fernando Machima      
+@since		07/06/2004
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030ValDoc()
+
+Local lRet     := .T.      
+Local lFound   := .F.
+Local cCodClie := Space(TamSX3("A1_COD")[1])
+Local cLojClie := Space(TamSX3("A1_LOJA")[1])
+Local aArea    := GetArea()
+
+DbSelectArea("SA1")
+DbSetOrder(3)
+If !Empty(M->A1_CGC) .AND. DbSeek(xFilial("SA1")+M->A1_CGC)
+   While !Eof() .AND. xFilial("SA1")+M->A1_CGC == SA1->A1_FILIAL+SA1->A1_CGC .AND. !lFound
+      //Desconsiderar se for o proprio cliente ou uma de suas filiais
+      If M->A1_COD == SA1->A1_COD
+         DbSkip()
+	     Loop
+      EndIf
+      lFound   := .T.
+      lRet     := .F.
+      cCodClie := SA1->A1_COD
+      cLojClie := SA1->A1_LOJA			
+   End
+EndIf
+
+If !lRet
+   Help(,,"A030VALDOC",,STR0026+cCodClie+"/"+cLojClie,1,0)      	     
+EndIf
+
+RestArea(aArea)
+
+Return (lRet)
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030RUC
+
+Valida o RUC (A1_CGC).
+
+@sample	A030RUC(cVldRuc)
+
+@param		ExpC1 = RUC
+
+@return	lRet
+
+@author	Marcio Menon     
+@since		26/03/2009
+@version	12
+/*/
+//------------------------------------------------------------------------------ 
+Function A030RUC(cVldRuc)
+
+Local aArea  := GetArea()
+Local lRet   := .T.
+Local cDvRuc := ""
+
+DEFAULT cVldRuc := ""
+
+//Faço a comparação dos dígitos
+If cPaisLoc == "EQU"
+	If Type("M->A1_TIPDOC") <> "U"
+		If Empty(M->A1_TIPDOC)
+			If (!DvRucEqu(cVldRuc)) 
+				If !ChkDocEQU(cVldRuc, .F.)
+					Help(" ",1,"RUC")		//Digito verificador incorreto.          
+					lRet := .F.					
+				EndIf
+			EndIf
+		ElseIf AllTrim(M->A1_TIPDOC) == "01"
+			If !DvRucEqu(cVldRuc)
+				Help(" ",1,"RUC")		//Digito verificador incorreto.          
+				lRet := .F.
+			EndIf
+		ElseIf AllTrim(M->A1_TIPDOC) == "02"
+			lRet := ChkDocEQU(cVldRuc, .T.)
+		EndIf
+	Else
+		If (!DvRucEqu(cVldRuc)) 
+			If !ChkDocEQU(cVldRuc, .F.)
+				Help(" ",1,"RUC")		//Digito verificador incorreto.          
+				lRet := .F.					
+			EndIf
+		EndIf
+	EndIf
+Else
+
+	cVldRuc := AllTrim(Replace(cVldRuc,"-",""))
+	
+	//Guardo o digito verificador
+	cDvRuc := SubStr(cVldRuc,Len(cVldRuc),Len(cVldRuc))
+	
+	//Guardo o RUC digitado sem o digito verificador
+	cVldRuc := SubStr(cVldRuc,1,Len(cVldRuc)-1)
+	
+	If cPaisLoc == "PER"	
+		If  AllTrim(DvRucPer(cVldRuc)) != cDvRuc 
+			Help(" ",1,"RUC")		//Digito verificador incorreto.          
+			lRet := .F.
+		Endif
+	Else
+		If DvRucPar(cVldRuc) != cDvRuc
+			Help(" ",1,"RUC")		//Digito verificador incorreto.
+			lRet := .F.
+		Endif
+	EndIf
+EndIf
+
+RestArea(aArea)
+
+Return lRet
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030RIF
+
+Funcao para validação do RIF (A1_CGC).
+
+@sample	A030RIF(cVldRif)
+
+@param		ExpC1 = RIF 
+			
+@return	lRet
+
+@author	Marcio Menon      
+@since		26/03/2009
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030RIF(cVldRif)
+
+Local aArea  := GetArea()
+Local lRet   := .T.
+
+DEFAULT cVldRif := ""
+
+If (!DvRifVen(cVldRif)) 
+	Help(" ",1,"RIF")		//Digito verificador incorreto.          
+	lRet := .F.					
+EndIf
+
+RestArea(aArea)
+
+Return lRet
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A030RNC
+
+Funcao para validação do RNC (A1_CGC).	
+
+@sample	A030RNC(cRnc)
+
+@param		ExpC1 = RNC 
+			
+@return	lRet
+
+@author	Vendas CRM    
+@since		16/02/2011
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A030RNC(cRnc)
+
+Local lRet     := .T.
+Local aPeso    := {7,9,8,6,5,4,3,2}
+Local nSoma    := 0                                             
+Local nCnt     := 0
+Local nDivisao := 0
+Local nResto   := 0
+Local cDigito 
+Local nDigito  := 0
+
+If (Type("M->A1_TIPO") == "C" .AND. (M->A1_TIPO == "1"))
+	Return .T.	
+EndIf
+
+If (Len(Trim(cRnc)) != 9)
+	lRet := .F.
+Else 
+	For nCnt:=1 To 8
+		cDigito = Substr(cRnc,nCnt,1)
+		If ( Asc(cDigito) < 48 .OR. Asc(cDigito) > 57 )
+			lRet := .F.
+			Exit
+		Else
+			nSoma += ( Val(cDigito)	 * aPeso[nCnt] )
+		EndIf
+	Next
+	If lRet		
+		nDivisao := int(nSoma / 11)			
+		nResto  := int(nSoma - (nDivisao * 11))
+		If (nResto == 0)
+			nDigito := 2
+		ElseIf (nResto == 1)
+			nDigito := 1
+		Else
+			nDigito := 11 - nResto
+		EndIf
+		
+		If (nDigito != Val(Substr(cRnc,9)))
+			lRet := .F.            
+		EndIf		
+	EndIf
+EndIf                 
+
+If !lRet
+	Aviso(STR0023,STR0061,{"Ok"})//"Atenção"###"O RNC Informado é Inválido"
+EndIf
+
+Return lRet	
+
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30ValJUR
+
+Verifica se o cliente pode ser excluido no modulo Juridico
+
+@sample	A30ValJUR()
+
+@return	lRet
+
+@author	Vendas CRM    
+@since		06/06/2013
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function	A30ValJUR()
+
+Local aArea := GetArea()
+Local oModel
+Local lRet  := .T.
+
+NUH->( dbSetOrder( 1 ) )
+
+If NUH->( dbSeek( xFilial( 'NUH' ) + SA1->A1_COD + SA1->A1_LOJA ) )
+	oModel := FWLoadModel( 'JURA148' )
+	oModel:SetOperation( MODEL_OPERATION_DELETE )
+	oModel:Activate()
+	
+	If !oModel:VldData()
+		lRet := .F.
+		JurMsgErro()
+	EndIf
+	
+	oModel:Deactivate()
+EndIf
+
+RestArea( aArea )
+
+Return lRet
+
+//------------------------------------------------------------------------------
+/*/	{Protheus.doc} A30VldCnae
+Validacao do Campo CNAE para verificar se esta Vazio ou com Conteudo
+Utilizado nos Campos A1_CNAE | US_CNAE
+@sample	A30VldCnae()
+@return	lRet
+
+@author	Paulo V. Beraldo
+@since		Mar/2021
+@version	12
+/*/
+//------------------------------------------------------------------------------
+Function A30VldCnae()
+
+Local lRet	:= .T.
+Local oModel	:= Nil
+Local aCaract	:= {'-', '/' }
+Local cCampo	:= ""
+Local cValue	:= ""
+Local cAuxVal	:= ""
+Local cCpoRead 	:= ""
+
+If IsInCallStack("M030ApiCgc")
+	//--- Se estiver sendo executada a integração API CAROL, o campo ativo no ReadVar é o CGC e não o CNAE.
+	//    Por isso, está sendo redirecionado o campo para que realize o teste do CNAE e não o CNPJ...
+	cCampo		:= "M->A1_CNAE"
+	cValue		:= AllTrim( &(cCampo) )
+Else
+	cCampo		:= ReadVar()
+	cValue		:= AllTrim( &( ReadVar() ) )
+EndIf
+cAuxVal		:= cValue
+cCpoRead 	:= AllTrim( SubStr( cCampo, At( '>', AllTrim( cCampo ) ) + 1 ) )
+
+AEval( aCaract,{ | x | cAuxVal := StrTran( cAuxVal, x ,'' ) } )
+lRet := Empty( AllTrim( cAuxVal ) )
+
+If !( lRet )
+	lRet := ExistCpo( 'CC3', cValue ,1 )
+Else
+	Do Case
+		Case cCpoRead == 'A1_CNAE'
+			If MA030IsMVC()
+				oModel := FWModelActive()
+				If oModel:IsActive()
+					lRet := oModel:SetValue('SA1MASTER', cCpoRead, Space( TamSx3( cCpoRead )[1] ) )
+				EndIf
+			Else
+				SetMemVar( cCpoRead, Space( TamSx3( cCpoRead )[1] ) )
+				lRet := Empty( GetMemVar( cCpoRead ) )
+			EndIf
+		Case cCpoRead == 'US_CNAE'
+			oModel := FWModelActive()
+			If oModel:IsActive()
+				lRet := oModel:SetValue('SUSMASTER', cCpoRead, Space( TamSx3( cCpoRead )[1] ) )
+			EndIf
+	EndCase
+EndIf
+
+Return lRet

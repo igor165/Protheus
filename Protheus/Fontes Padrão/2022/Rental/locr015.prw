@@ -1,0 +1,882 @@
+#INCLUDE "locr015.ch" 
+/*/{PROTHEUS.DOC} LOCR015.PRW
+ITUP BUSINESS - TOTVS RENTAL
+AUTORIZACAO DE SERVICO DE PLATAFORMA
+@TYPE FUNCTION
+@AUTHOR FRANK ZWARG FUGA
+@SINCE 03/12/2020
+@VERSION P12
+@HISTORY 03/12/2020, FRANK ZWARG FUGA, FONTE PRODUTIZADO.
+/*/
+
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "TOPCONN.CH"
+
+FUNCTION LOCR015(_CNRAS)
+LOCAL AAREASA1
+LOCAL XALIAS 	 := GETAREA()
+LOCAL AAREAZA0   := FP0->(GETAREA())
+LOCAL AAREADTQ   := FQ5->(GETAREA())
+LOCAL AITENS	 := {}
+LOCAL OFONTX     := TFONT():NEW("ARIAL",12,16,,.T.,,,,.T.,.F.)
+
+PRIVATE LACE     := .F.
+PRIVATE CTEXTOAUX:= ""
+PRIVATE CCABEC   := ""
+PRIVATE CPERG    := "LOCP015" 					// CRIAR PERGUNTA
+PRIVATE AESCOPO  := {}
+PRIVATE NVALOR   := 0
+PRIVATE CINCR    :=""
+PRIVATE CGC      :=""
+PRIVATE CENDERE  :=""
+PRIVATE	CBAIRRO  :=""
+PRIVATE CMUNICI  :=""
+PRIVATE	CESTADO  :=""
+PRIVATE	CCEP     :=""
+PRIVATE CTEL     :=""
+PRIVATE CCONTATO :=""
+PRIVATE CENDCOB  :=""
+PRIVATE CBAICOB  :=""
+PRIVATE CMUNCOB  :=""
+PRIVATE CESTCOB  :=""
+PRIVATE CCEPCOB  :=""
+PRIVATE CTPLOC1  := CTPLOC2  := CTPLOC3  := ""
+PRIVATE _cTipo   := ""
+
+DEFAULT _CNRAS	 := ""
+
+IF EMPTY(_CNRAS)
+	FQ5->(DBSETORDER(8)) 						// --> INDICE 08: FQ5_FILIAL + FQ5_SOT + FQ5_OBRA + FQ5_AS     NICKNAME: ITUPDTQ008 
+	FQ5->(DBSEEK(XFILIAL("FQ5")+FP0->FP0_PROJET))
+	AADD(AITENS , {STR0001}) //"TODAS"
+	WHILE FQ5->(!EOF()) .AND. FQ5->FQ5_SOT = FP0->FP0_PROJET
+
+		AADD(AITENS, {FQ5->FQ5_AS})
+
+		FQ5->(DBSKIP())
+	ENDDO 
+	
+	LCANCEL := .F.
+	ODLG3   := NIL
+	CRET    := ""
+	DEFINE MSDIALOG ODLG3 TITLE STR0002 FROM 000,000 TO 450,735     OF ODLG3 PIXEL //"GPO - LOCI086.PRW"
+		@ 010,005 SAY     STR0003+FP0->FP0_PROJET      FONT OFONTX  OF ODLG3 PIXEL  //"AS'S DO PROJETO: "
+		@ 025,005 SAY     STR0004 OF ODLG3 PIXEL  //"SELECIONE NA AS E APERTE <ENTER> OU <DUPLO CLIQUE> "
+		@ 040,005 LISTBOX OLBXITENS FIELDS HEADER STR0005 SIZE 360,170 OF ODLG3 PIXEL ON DBLCLICK ((CRET := AITENS[OLBXITENS:NAT][01],ODLG3:END())) //"SELECIONE A AS"
+		OLBXITENS:SETARRAY(AITENS)
+		OLBXITENS:BLINE := {|| {AITENS[OLBXITENS:NAT][01]}}
+		OLBXITENS:REFRESH()
+		ODLG3:REFRESH()
+	ACTIVATE MSDIALOG ODLG3 CENTERED
+ELSE
+	CRET := _CNRAS
+ENDIF
+
+IF EMPTY(CRET)
+	RESTAREA(AAREAZA0)
+	RESTAREA(AAREADTQ)
+	RESTAREA(XALIAS)
+	RETURN(NIL)
+ENDIF
+
+// --> PREENCHE COM OS DADOS DA PROPOSTA
+CCODCLI  := FP0->FP0_CLI
+CLJCLIE  := FP0->FP0_LOJA
+CINCR    := FP0->FP0_CLIINS
+CGC      := FP0->FP0_CLICGC
+CENDERE  := FP0->FP0_CLIEND
+CBAIRRO  := FP0->FP0_CLIBAI
+CMUNICI  := FP0->FP0_CLIMUN
+CESTADO  := FP0->FP0_CLIEST
+CCEP     := FP0->FP0_CLICEP
+CCONTATO := ALLTRIM(FP0->FP0_NOMECO)
+CTEL     := "( "+FP0->FP0_CLIDDD+" )" + " "+ FP0->FP0_CLITEL
+CENDCOB  := FP0->FP0_CLIEND
+CBAICOB  := FP0->FP0_CLIBAI
+CMUNCOB  := FP0->FP0_CLIMUN
+CESTCOB  := FP0->FP0_CLIEST
+CCEPCOB  := FP0->FP0_CLICEP
+
+IF !EMPTY(FP0->FP0_CLI) .AND. !EMPTY(FP0->FP0_LOJA)
+	AAREASA1:=SA1->(GETAREA())
+	DBSELECTAREA("SA1")
+	DBSETORDER(1)
+	IF MSSEEK(XFILIAL("SA1") + FP0->FP0_CLI + FP0->FP0_LOJA )
+		// DADOS CADASTRAIS
+		CCODCLI := SA1->A1_COD
+		CLJCLIE := SA1->A1_LOJA
+		CINCR   := FP0->FP0_CLIINS
+
+		If empty(cIncr)
+			cIncr := SA1->A1_INSCR  
+		EndIf
+
+		CGC     := FP0->FP0_CLICGC
+
+		If empty(CGC)
+			CGC := SA1->A1_CGC
+		EndIf
+
+
+		CENDERE := FP0->FP0_CLIEND
+		CBAIRRO := FP0->FP0_CLIBAI
+		CMUNICI := FP0->FP0_CLIMUN
+		CESTADO := FP0->FP0_CLIEST
+		CCEP    := FP0->FP0_CLICEP
+		
+		IF !EMPTY(SA1->A1_ENDCOB)
+			CENDCOB := SA1->A1_ENDCOB
+			CBAICOB := SA1->A1_BAIRROC
+			CMUNCOB := SA1->A1_MUNC
+			CESTCOB := SA1->A1_ESTC
+			CCEPCOB := SA1->A1_CEPC
+		ELSE
+			CENDCOB := SA1->A1_END
+			CBAICOB := SA1->A1_BAIRRO
+			CMUNCOB := SA1->A1_MUN
+			CESTCOB := SA1->A1_EST
+			CCEPCOB := SA1->A1_CEP
+		ENDIF
+		CTEL     := "( "+SA1->A1_DDD+" )" + " "+ SA1->A1_TEL
+		CCONTATO := SA1->A1_CONTATO
+		
+		IF EMPTY(CCONTATO)
+			CCONTATO := ALLTRIM(FP0->FP0_NOMECO)
+		ENDIF
+	ENDIF
+	RESTAREA(AAREASA1)
+ENDIF
+
+FQ5->(DBSETORDER(8))
+FQ5->(DBSEEK(XFILIAL("FQ5")+FP0->FP0_PROJET))
+
+// --> SELECAO DA IMPRESSORA. 
+OOBJPRINT:= TMSPRINTER():NEW(CCABEC)
+OOBJPRINT:SETSIZE( 210, 297 )
+OOBJPRINT:SETUP()
+
+LJMSGRUN(STR0006,,{|| IMP_GRUA() }) //"POR FAVOR AGUARDE, AUTORIZAÇÃO DE SERVIÇO..."
+
+// --> MOSTRA RELATORIO PARA IMPRIMIR.
+OOBJPRINT:SETSIZE( 210, 297 )
+OOBJPRINT:PREVIEW()
+
+RESTAREA(XALIAS)
+
+RETURN(NIL)
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³FUNÇÃO    ³ IMP_GRUA  ³ AUTOR ³ IT UP BUSINESS     ³ DATA ³ 27/10/2007 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±ºDESCRICAO ³ IMPRESSAO DA AUTORIZACAO DE SERVICO DE PLATAFORMA          º±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄ-ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³USO       ³ ESPECIFICO GPO                                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+STATIC FUNCTION IMP_GRUA()
+
+PRIVATE OFONTE01	:= NIL
+PRIVATE OFONTE02	:= NIL
+PRIVATE OFONTE03	:= NIL
+PRIVATE OFONTE04	:= NIL
+PRIVATE OFONTE05	:= NIL
+PRIVATE OFONTE06	:= NIL
+PRIVATE OFONTE07	:= NIL
+PRIVATE OFONTE08    := NIL
+
+// --> INICIALIZA OBJETOS DA CLASSE TMSPRINTER.
+OFONT1     := TFONT():NEW("ARIAL"     ,11,11,,.F.,,,,,.F.)   // NORMAL
+OFONT2     := TFONT():NEW("ARIAL"     ,18,18,,.T.,,,,,.F.)   // NEGRITO
+OFONT3     := TFONT():NEW("ARIAL"     ,11,11,,.T.,,,,,.T.)   // NEGRITO / SUBLINHADO
+OFONT4     := TFONT():NEW("ARIAL"     ,10,10,,.F.,,,,,.F.)   // NORMAL
+OFONT5     := TFONT():NEW("ARIAL"     ,10,10,,.T.,,,,,.F.)   // NEGRITO
+OFONT6     := TFONT():NEW("ARIAL"     ,10,10,,.T.,,,,,.T.)   // NEGRITO / SUBLINHADO
+OFONT7     := TFONT():NEW("VENDANA"   ,07,07,,.F.,,,,,.F.)   // NORMAL
+OFONT8     := TFONT():NEW("VENDANA"   ,07,07,,.F.,,,,,.T.)   // SUBLINHADO
+OFONT9     := TFONT():NEW("ARIAL"     ,08,08,,.F.,,,,,.F.)   // NORMAL
+OFONT10    := TFONT():NEW("ARIAL"     ,08,08,,.T.,,,,,.F.)   // NEGRITO
+OFONT11    := TFONT():NEW("ARIAL"     ,07,07,,.F.,,,,,.F.)   // NORMAL
+OFONT12    := TFONT():NEW("ARIAL"     ,07,07,,.T.,,,,,.F.)   // NORMAL
+
+// --> CRIA AS TABELAS TEMPORARIA PARA GERACAO DO RELATORIO.     ³
+AAREAZA0 := FP0->(GETAREA())
+AAREAZA1 := FP1->(GETAREA())
+AAREAZA5 := FP4->(GETAREA())
+//AAREAZA6 := ZA6->(GETAREA())
+AAREASE4 := SE4->(GETAREA())
+
+IMPREL()
+
+OOBJPRINT:ENDPAGE()
+
+RESTAREA(AAREAZA0)
+RESTAREA(AAREAZA1)
+RESTAREA(AAREAZA5)
+//RESTAREA(AAREAZA6)
+RESTAREA(AAREASE4)
+
+RETURN(NIL)
+
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPROGRAMA  ³ IMPREL    º AUTOR ³ IT UP BUSINESS     º DATA ³ 27/10/2007 º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUSO       ³ ESPECIFICO GPO                                             º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+STATIC FUNCTION IMPREL()
+
+LOCAL NLIN     := 400
+LOCAL NAUX     := 0
+LOCAL NCOL1    := 0
+LOCAL NCOL2    := 0
+LOCAL NCALC	   := 0
+LOCAL NCALCT   := 0
+LOCAL NLINHA   := 1710
+LOCAL LCHEK    := .T.
+LOCAL CTPLOC1  := ""
+LOCAL CTPLOC2  := ""
+//LOCAL CDESCACE:=""
+//LOCAL COBSACE :=""
+LOCAL LOBS     := .F.
+LOCAL XY       := 0 
+LOCAL I        := 0 
+
+WHILE FQ5->(!EOF()) .AND. FQ5->FQ5_SOT = FP0->FP0_PROJET
+	
+	IF CRET <> "TODAS" .AND. ALLTRIM(CRET)<>ALLTRIM(FQ5->FQ5_AS)
+		FQ5->(DBSKIP())
+		LOOP
+	ENDIF
+	
+	DBSELECTAREA("FP1")
+	DBSETORDER(1)
+	MSSEEK(XFILIAL("FP1") + FQ5->FQ5_SOT  )
+	AESCOPO := {}
+	WHILE !EOF() .AND. FP1->FP1_PROJET ==  FQ5->FQ5_SOT
+		IF !EMPTY(FP1->FP1_ESCOPO)
+			AADD(AESCOPO ,ALLTRIM(FP1->FP1_ESCOPO) )
+		ENDIF
+		DBSELECTAREA("FP1")
+		DBSKIP()
+	ENDDO 
+	
+	DBSELECTAREA("FP1")
+	DBSETORDER(1)
+	MSSEEK(XFILIAL("FP1") + FQ5->FQ5_SOT + FQ5->FQ5_OBRA )
+	
+	DO CASE
+		CASE FQ5->FQ5_TPAS == "L"
+			_CDESC := STR0007 //"LOCAÇÃO"
+			_cTipo := "L"
+		CASE FQ5->FQ5_TPAS == "F"
+		 	_CDESC := STR0008 //"FRETE"
+			 _cTipo := "F"
+		OTHERWISE                
+			_CDESC := FP0->FP0_TIPOSE
+	ENDCASE
+
+
+	If _cTipo == "L"
+		DBSELECTAREA("FPA")
+		DBSETORDER(2)
+		MSSEEK(XFILIAL("FPA") +  FQ5->FQ5_SOT + FQ5->FQ5_OBRA + FQ5->FQ5_AS +FQ5->FQ5_VIAGEM )
+	Else
+		FQ7->(dbSetOrder(3))
+		FQ7->(dbSeek(xFilial("FQ7")+FQ5->FQ5_VIAGEM))
+		FPA->(dbSetOrder(1))
+		FPA->(dbSeek(xFilial("FPA")+FQ7->FQ7_PROJET+FQ7->FQ7_OBRA+FQ7->FQ7_SEQGUI))
+	EndIF
+	
+	OOBJPRINT:STARTPAGE()
+	
+	NLIN   := 400
+	NLINHA := 1710
+	NCOL1  := 0
+	NCOL2  := 0
+	
+	IF CEMPANT == "07"
+		OOBJPRINT:SAYBITMAP( 0055, 020,"LOGO.BMP"   , 790, 0380 ) //553 X 224
+	ELSE
+		OOBJPRINT:SAYBITMAP( 0055, 020,"LOGO.BMP"   , 790, 0380 ) //553 X 224
+	ENDIF
+	
+	
+	OOBJPRINT:SAY( 0050 , 0850 ,  STR0009 + _CDESC                    , OFONT2   , 100 ) //"AUTORIZAÇÃO DE SERVIÇO: "
+	OOBJPRINT:SAY( 0150 , 0850 ,  STR0010 +FQ5->FQ5_AS                               , OFONT2   , 100 ) //"NO. AS :"
+	
+	OOBJPRINT:SAY( 0250 , 0850 ,  STR0011+ALLTRIM(FQ5->FQ5_SOT)+; //"NO. PROJETO: "
+	STR0012 +FP0->FP0_REVISA                        , OFONT2   , 100 ) //" - REVISÃO: "
+	
+	OOBJPRINT:SAY( 0350 , 0850 ,  STR0013   +ALLTRIM(FQ5->FQ5_OBRA)+; //"NO. OBRA: "
+	STR0014 +STRZERO(FPA->FPA_REVNAS,2)		 , OFONT2   , 100 ) //" - REVISÃO DA AS: "
+	
+	OOBJPRINT:BOX( 0030 + NLIN , 0050, 150 + NLIN, 2370)
+	OOBJPRINT:SAY( 0050 + NLIN , 0060 ,  STR0015                                   , OFONT10   , 100 ) //"EMITIDA EM:"
+	OOBJPRINT:SAY( 0050 + NLIN , 0240 ,  DTOC(FP0->FP0_DATINC) + STR0016 + TIME()         , OFONT10   , 100 ) //" AS "
+	
+	OOBJPRINT:SAY( 0050 + NLIN , 0800 ,  STR0017                                     , OFONT10   , 100 ) //"SERVIÇO: "
+	OOBJPRINT:SAY( 0050 + NLIN , 0940 ,  FQ5->FQ5_VIAGEM                                 , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0050 + NLIN , 1600 ,  STR0018                                  , OFONT10   , 100 ) //"IMPRESSA EM:"
+	OOBJPRINT:SAY( 0050 + NLIN , 1850 ,  DTOC(DDATABASE)                                 , OFONT10   , 100 )
+	
+	OOBJPRINT:BOX( 0150 + NLIN , 0050, 0210 + NLIN, 2370)
+	OOBJPRINT:SAY( 0160 + NLIN , 0950 ,  STR0019                                 , OFONT5   , 100 ) //"INFORMAÇÕES DO CLIENTE"
+	OOBJPRINT:BOX( 0210 + NLIN , 0050, 0610 + NLIN, 2370)
+	OOBJPRINT:SAY( 0230 + NLIN , 0060 ,  STR0020+ALLTRIM(FP0->FP0_CLINOM)                     , OFONT10   , 100 ) //"CLIENTE: "
+	OOBJPRINT:SAY( 0230 + NLIN , 1200 ,  STR0021                                                  , OFONT10   , 100 ) //"I.E: "
+	OOBJPRINT:SAY( 0230 + NLIN , 1300 , CINCR									                  , OFONT10   , 100 )
+	OOBJPRINT:SAY( 0260 + NLIN , 0060 ,  STR0022                                               , OFONT10   , 100 ) //"C.N.P.J:"
+	OOBJPRINT:SAY( 0260 + NLIN , 0185 , TRANSFORM(CGC,"@R 99.999.999/9999-99")                    , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0290 + NLIN , 0060 ,  STR0023                                        , OFONT10   , 100 ) //"END. COMERCIAL:"
+	OOBJPRINT:SAY( 0330 + NLIN , 0060 ,  ALLTRIM(CENDERE)                                         , OFONT10   , 100 )
+	OOBJPRINT:SAY( 0380 + NLIN , 0060 ,  ALLTRIM(CBAIRRO) +" - "+ ALLTRIM(CMUNICI) +" - " +ALLTRIM(CESTADO)+" - "+ALLTRIM(CCEP)    , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0290 + NLIN , 1200 ,  STR0024                                         , OFONT10   , 100 ) //"END. COBRANÇA:"
+	OOBJPRINT:SAY( 0330 + NLIN , 1200 ,  ALLTRIM(CENDCOB)                                         , OFONT10   , 100 )
+	OOBJPRINT:SAY( 0380 + NLIN , 1200 ,  ALLTRIM(CBAICOB) +" - "+ALLTRIM(CMUNCOB) +" - "+ALLTRIM(CESTCOB) +" - "+ALLTRIM(CCEPCOB)  , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0420 + NLIN , 0060 ,  STR0025                                             , OFONT10   , 100 ) //"TELEFONE: "
+	OOBJPRINT:SAY( 0470 + NLIN , 0060 ,  STR0026                                             , OFONT10   , 100 ) //"CONTATO : "
+	
+	OOBJPRINT:SAY( 0420 + NLIN , 0185 ,  CTEL                                                     , OFONT10   , 100 )
+	OOBJPRINT:SAY( 0470 + NLIN , 0185 ,  CCONTATO                                                 , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0420 + NLIN , 1200 ,  STR0025                                             , OFONT10   , 100 ) //"TELEFONE: "
+	OOBJPRINT:SAY( 0470 + NLIN , 1200 ,  STR0026                                             , OFONT10   , 100 ) //"CONTATO : "
+	
+	OOBJPRINT:SAY( 0420 + NLIN , 1330 ,  CTEL                                                     , OFONT10   , 100 )
+	OOBJPRINT:SAY( 0470 + NLIN , 1330 ,  CCONTATO                                                 , OFONT10   , 100 )
+	
+	OOBJPRINT:BOX( 0610 + NLIN , 0050, 0670 + NLIN, 2370)
+	OOBJPRINT:SAY( 0630 + NLIN , 1000 ,  STR0027                                    , OFONT5    , 100 ) //"SERVIÇOS A EXECUTAR"
+	
+	NQLIN := ( 20 * LEN(AESCOPO) )
+	
+	OOBJPRINT:BOX( 0670 + 400 , 0050, 0800 +  NLIN + NQLIN , 2370)
+	OOBJPRINT:SAY( 0690 + 400 , 0060 ,  STR0028                                              , OFONT10   , 100 ) //"DESCRIÇÃO:"
+	
+	FOR XY := 1 TO LEN(AESCOPO)
+		IF LEN(AESCOPO) > 130
+			OOBJPRINT:SAY( 0690 + NLIN , 0220 ,   SUBS(AESCOPO[XY],1,130)                         , OFONT10   , 100 )
+			NLIN := NLIN + 50
+			OOBJPRINT:SAY( 0690 + NLIN , 0220 ,   SUBS(AESCOPO[XY],131,130)                       , OFONT10   , 100 )
+		ELSE
+			OOBJPRINT:SAY( 0690 + NLIN , 0220 ,   SUBS(AESCOPO[XY],1,130)                         , OFONT10   , 100 )
+			NLIN := NLIN + 50
+		ENDIF
+	NEXT XY
+	
+	OOBJPRINT:BOX( 0850 + NLIN , 0050, 0910 + NLIN, 2370)
+	OOBJPRINT:SAY( 0870 + NLIN , 0060 ,  STR0029                                                , OFONT10   , 100 ) //"INICIO:"
+	//OOBJPRINT:SAY( 0870 + NLIN , 0180 ,  DTOC(FPA->FPA_DTINI)                                     , OFONT10   , 100 )
+	If _cTipo == "L"
+		OOBJPRINT:SAY( 0870 + NLIN , 0180 ,  DTOC(FQ5->FQ5_DATINI)                                     , OFONT10   , 100 )
+	Else
+		OOBJPRINT:SAY( 0870 + NLIN , 0180 ,  DTOC(FQ5->FQ5_DTINI)                                     , OFONT10   , 100 )
+	EndIf
+	
+	OOBJPRINT:SAY( 0870 + NLIN , 1450 ,  STR0030                                               , OFONT10   , 100 ) //"TERMINO:"
+	//OOBJPRINT:SAY( 0870 + NLIN , 1600 ,  DTOC(FPA->FPA_DTFIM)                                     , OFONT10   , 100 )
+	If _cTipo == "L"
+		OOBJPRINT:SAY( 0870 + NLIN , 1600 ,  DTOC(FQ5->FQ5_DATFIM)                                     , OFONT10   , 100 )
+	Else
+		OOBJPRINT:SAY( 0870 + NLIN , 1600 ,  DTOC(FQ5->FQ5_DTFIM)                                     , OFONT10   , 100 )
+	EndIf
+
+	
+	OOBJPRINT:BOX( 0910 + NLIN , 0050, 0970 + NLIN, 2370)
+	OOBJPRINT:SAY( 0930 + NLIN , 1050 ,  STR0031                                       , OFONT5   , 100  ) //"LOCAL DO SERVIÇO"
+	OOBJPRINT:BOX( 0970 + NLIN , 0050, 1150 + NLIN, 2370)
+	
+	OOBJPRINT:SAY( 0995 + NLIN , 0060 ,  STR0032                                                  , OFONT10   , 100 ) //"OBRA:"
+	OOBJPRINT:SAY( 0995 + NLIN , 0180 ,  FP1->FP1_NOMORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 0995 + NLIN , 0850 ,  STR0033                                              , OFONT10   , 100 ) //"ENDEREÇO:"
+	OOBJPRINT:SAY( 0995 + NLIN , 1080 ,  FP1->FP1_ENDORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 1025 + NLIN , 0060 ,  STR0034                                                , OFONT10   , 100 ) //"BAIRRO:"
+	OOBJPRINT:SAY( 1025 + NLIN , 0180 ,  FP1->FP1_BAIORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 1025 + NLIN , 0750 ,  STR0035                                                , OFONT10   , 100 ) //"CIDADE:"
+	OOBJPRINT:SAY( 1025 + NLIN , 0900 ,  FP1->FP1_MUNORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 1025 + NLIN , 1800 ,  STR0036                                                , OFONT10   , 100 ) //"ESTADO:"
+	OOBJPRINT:SAY( 1025 + NLIN , 1980 ,  FP1->FP1_ESTORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 1065 + NLIN , 0060 ,  STR0037                                               , OFONT10   , 100 ) //"CONTATO:"
+	OOBJPRINT:SAY( 1065 + NLIN , 0180 ,  FP1->FP1_CONORI                                          , OFONT10   , 100 )
+	
+	OOBJPRINT:SAY( 1065 + NLIN , 1600 ,  STR0038                                              , OFONT10   , 100 ) //"TELEFONE:"
+	OOBJPRINT:SAY( 1065 + NLIN , 1880 ,  CTEL                                                     , OFONT10   , 100 )
+	
+	OOBJPRINT:BOX( 1150 + NLIN , 0050, 1210 + NLIN, 2370)
+	OOBJPRINT:SAY( 1170 + NLIN , 1000 ,  STR0039                                 , OFONT5   , 100 ) //"EQUIPAMENTOS / VALORES"
+	OOBJPRINT:BOX( 1210 + NLIN , 0050, 1480 + NLIN, 2370)
+	
+	If _cTipo == "L"
+		OOBJPRINT:SAY( 1220 + NLIN , 0060 ,  STR0040                                    , OFONT10   , 100 ) //"DESCRIÇÃO PRODUTO: "
+		CDESPRO := POSICIONE("SB1",1,XFILIAL("SB1")+FPA->FPA_PRODUT,"B1_DESC")
+		OOBJPRINT:SAY( 1220 + NLIN , 0320 ,  ALLTRIM(CDESPRO)										  , OFONT10   , 100 )
+	
+		OOBJPRINT:SAY( 1250 + NLIN , 0060 ,  STR0041                                            , OFONT10   , 100 ) //"DESCRIÇÃO EQUIPAMENTO\MÃO DE OBRA:  "
+		//OOBJPRINT:SAY( 1250 + NLIN , 0580 ,  ALLTRIM(FPA->FPA_DESGRU) + " SÉRIE: "+POSICIONE("ST9",1, XFILIAL("ST9") + FPA->FPA_GRUA ,"T9_SERIE"), OFONT10   , 100 )
+		OOBJPRINT:SAY( 1250 + NLIN , 0580 ,  ALLTRIM(FPA->FPA_DESGRU) + STR0042+FPA->FPA_GRUA, OFONT10   , 100 ) //" SÉRIE: "
+	
+		OOBJPRINT:SAY( 1300 + NLIN , 0060 ,  STR0043                                           , OFONT10   , 100 ) //"BASE CÁLCULO"
+		OOBJPRINT:SAY( 1350 + NLIN , 0060 ,  IIF(FPA->FPA_TPBASE=='M' , STR0044 , IIF(FPA->FPA_TPBASE=='S',STR0045 , IIF(FPA->FPA_TPBASE=='Q',STR0046 ,""))) , OFONT10   , 100 ) //'MENSAL'###'SEMANAL'###'QUIZENAL'
+			
+		OOBJPRINT:SAY( 1300 + NLIN , 0350 ,  STR0047                                       , OFONT10   , 100 ) //"QTD.BASE"
+		OOBJPRINT:SAY( 1350 + NLIN , 0400 ,  STR(FPA->FPA_PREDIA,3)                           , OFONT10   , 100 )
+	
+		OOBJPRINT:SAY( 1300 + NLIN , 0690 ,  STR0048                                        , OFONT10   , 100 ) //"VR.BASE"
+			
+		IF FPA->FPA_TIPOSE $ "U/G/R/T/O/P"
+			NVALBASE := FPA->FPA_VRHOR + FPA->FPA_OPERAD
+			OOBJPRINT:SAY( 1350 + NLIN , 0630 ,  TRANSFORM(NVALBASE,"@E 999,999,999.99")      , OFONT10   , 100 )
+		
+			NCALC:= FPA->FPA_PREDIA   * NVALBASE + ( FPA->FPA_VRISS  + ;
+			FPA->FPA_VRSEGU + ;
+			FPA->FPA_VRMOB  + ;
+			FPA->FPA_VRDES  )
+		ELSE
+			OOBJPRINT:SAY( 1350 + NLIN , 0630 ,  TRANSFORM(FPA->FPA_VRHOR ,"@E 999,999,999.99")            , OFONT10   , 100 )
+			NCALC:= FPA->FPA_VRHOR + ( FPA->FPA_VRISS  + ;
+			FPA->FPA_VRSEGU + ;
+			FPA->FPA_VRMOB  + ;
+			FPA->FPA_VRDES  )
+		ENDIF
+			
+		NVALOR := FPA->FPA_VRMOB + FPA->FPA_VRDES
+		OOBJPRINT:SAY( 1300 + NLIN , 1000 ,  STR0049                                                 , OFONT10   , 100 ) //"MOBILIZAÇÃO"
+		OOBJPRINT:SAY( 1350 + NLIN , 1000 ,  TRANSFORM(FPA->FPA_GUIMON,"@E 999,999,999.99")                 , OFONT10   , 100 )
+	
+		OOBJPRINT:SAY( 1300 + NLIN , 1320 ,  STR0050                                              , OFONT10   , 100 ) //"DESMOBILIZAÇÃO"
+		OOBJPRINT:SAY( 1350 + NLIN , 1370 ,  TRANSFORM(FPA->FPA_GUIDES,"@E 999,999,999.99")                 , OFONT10   , 100 )
+	
+		OOBJPRINT:SAY( 1300 + NLIN , 1810 ,  STR0051                                                      , OFONT10   , 100 ) //"SEGURO"
+		OOBJPRINT:SAY( 1350 + NLIN , 1750 ,  TRANSFORM(FPA->FPA_VRSEGU,"@E 999,999,999.99")                , OFONT10   , 100 )
+	
+		OOBJPRINT:SAY( 1300 + NLIN , 2220 ,  STR0052                                                         , OFONT10   , 100 ) //"ISS"
+		OOBJPRINT:SAY( 1350 + NLIN , 2120 ,  TRANSFORM(FPA->FPA_VRISS,"@E 999,999,999.99")                 , OFONT10   , 100 )
+			
+/*	IF FPA->FPA_TIPOSE $ "U/G/R/T/O/P"
+		DBSELECTAREA("ZAK")
+		DBSETORDER(1)
+		MSSEEK(XFILIAL("ZAK") + FQ5->FQ5_SOT + FQ5->FQ5_OBRA + FQ5->FQ5_SEQVIA )
+		WHILE !EOF() .AND. FQ5->FQ5_SOT + FQ5->FQ5_OBRA + FQ5->FQ5_SEQVIA == ZAK->ZAK_PROJET + ZAK->ZAK_OBRA + ZAK->ZAK_SEQGRU
+			NCALC+=ZAK->ZAK_VRDIA
+			CDESCACE := ALLTRIM(CAPITAL(ZAK->ZAK_DESACE))
+			COBSACE  := ZAK->ZAK_OBSVIA
+			IF LEN(ALLTRIM(CDESCACE))>0
+				OOBJPRINT:SAY( 1290 + NLIN , 2130 ,  CDESCACE                 , OFONT10   , 100  )
+				OOBJPRINT:SAY( 1340 + NLIN , 2130 ,  TRANSFORM(ZAK->ZAK_VRDIA,"@E 999,999,999.99" )    , OFONT10   , 100  )
+			ENDIF
+			LACE := .T.
+			DBSELECTAREA("ZAK")
+			DBSKIP()
+		ENDDO 
+		NLIN+=50
+	ENDIF */
+	
+	EndIF
+
+	NLIN+=50
+
+	If _cTipo == "F"
+		//OOBJPRINT:SAY( 1390 + NLIN , 0060 ,  "FROTAS: "   + POSICIONE("ST9",1, XFILIAL("ST9") + FPA->FPA_GRUA ,"T9_CODFA"), OFONT10   , 100  )
+		OOBJPRINT:SAY( 1390 + NLIN , 0060 ,  STR0053   + alltrim(FQ7->FQ7_DESCRI), OFONT10   , 100  ) //"FROTAS: "
+		OOBJPRINT:SAY( 1390 + NLIN , 0890 ,  "VR.BASE"                                        , OFONT10   , 100 )
+			
+		//IF FPA->FPA_TIPOSE $ "U/G/R/T/O/P"
+			NVALBASE := FPA->FPA_VRHOR + FPA->FPA_OPERAD
+			OOBJPRINT:SAY( 1390 + NLIN , 0970 ,  TRANSFORM(NVALBASE,"@E 999,999,999.99")      , OFONT10   , 100 )
+		//EndIf
+	EndIF
+
+	If _cTipo == "L"	
+		IF FPA->FPA_TPISS == "I"
+			NCALC-=FPA->FPA_VRISS
+		ENDIF
+	
+		//OOBJPRINT:SAY( 1390 + NLIN , 0060 ,  "FROTAS: "   + POSICIONE("ST9",1, XFILIAL("ST9") + FPA->FPA_GRUA ,"T9_CODFA"), OFONT10   , 100  )
+		OOBJPRINT:SAY( 1390 + NLIN , 1000 ,  STR0054                                                             , OFONT10   , 100  ) //"SUB-TOTAL ==> "
+		OOBJPRINT:SAY( 1390 + NLIN , 1370 ,  TRANSFORM(NCALC,"@E 999,999,999.99")                                         , OFONT10   , 100  )
+	
+		NCALCT:=0
+		IF FP4->FP4_TPISS <> "I"
+			NCALC:=NCALC+FP4->FP4_VRISS
+		ENDIF
+	
+		NCALCT := NCALC
+		OOBJPRINT:SAY( 1390 + NLIN , 1810 ,  STR0055                                                                 , OFONT10   , 100  ) //"TOTAL ==> "
+		OOBJPRINT:SAY( 1390 + NLIN , 2120 ,  TRANSFORM(NCALCT,"@E 999,999,999.99")                                        , OFONT10   , 100  )
+	
+	EndIF
+
+	If _cTipo == "F"
+		NCALCT := 0
+		FQ7->( DBSETORDER(3) )	// FILIAL + VIAGEM
+		IF FQ7->( DBSEEK( XFILIAL("FQ7") + FQ5->FQ5_VIAGEM ) )
+			NCALCT := FQ7->FQ7_PRECUS
+		EndIF
+		OOBJPRINT:SAY( 1390 + NLIN , 1810 ,  STR0055                                                                 , OFONT10   , 100  ) //"TOTAL ==> "
+		OOBJPRINT:SAY( 1390 + NLIN , 2120 ,  TRANSFORM(NCALCT,"@E 999,999,999.99")                                        , OFONT10   , 100  )
+	EndIF
+
+	NLIN+=100
+	
+	If _cTipo == "L"
+		OOBJPRINT:BOX( 1390 + NLIN , 0050, 1450 + NLIN, 2370)
+		OOBJPRINT:SAY( 1410 + NLIN , 0060 ,  STR0056                                    , OFONT10   , 100 ) //"TIPO ISS:"
+		OOBJPRINT:SAY( 1410 + NLIN , 0195 ,  IIF(FPA->FPA_TPISS == "I",STR0057,IIF(FPA->FPA_TPISS == "N",STR0058,IIF(FPA->FPA_TPISS == "M",STR0059,STR0060)) ) , OFONT10   , 100 ) //"INCLUSO"###"NAO INCLUSO"###"MAO-DE-OBRA"###"N/A"
+	
+		OOBJPRINT:SAY( 1410 + NLIN , 0640 ,  STR0061 + TRANSFORM(FPA->FPA_PERISS,"@E 99.99")    , OFONT10   , 100 ) //"% ISS: "
+	
+	// Removido por Frank a pedido do Lui em 19/02/21
+	//OOBJPRINT:SAY( 1410 + NLIN , 1150 ,  "TIPO DE SEGURO:"                              , OFONT10   , 100 )
+	//OOBJPRINT:SAY( 1410 + NLIN , 1380 ,  IIF(FPA->FPA_TPSEGU == "I","INCLUSO",IIF(FPA->FPA_TPSEGU == "N","NAO INCLUSO","CLIENTE") ) , OFONT10   , 100 )
+	
+	//OOBJPRINT:SAY( 1410 + NLIN , 1650 ,  "% DE SEGURO: " + TRANSFORM(FPA->FPA_PERSEG,"@E 999.99")    , OFONT10   , 100 )
+	
+	//OOBJPRINT:SAY( 1410 + NLIN , 1970 ,  "% DE M.O: " + TRANSFORM(FPA->FPA_PERMAO,"@E 999.99")        , OFONT10   , 100 )
+	
+		OOBJPRINT:BOX( 1450 + NLIN , 0050, 1510 + NLIN, 2370)
+		OOBJPRINT:SAY( 1470 + NLIN , 1080 ,  STR0062                                     , OFONT5   , 100 ) //"MEDIÇÕES"
+		OOBJPRINT:BOX( 1510 + NLIN , 0050, 1780 + NLIN, 2370)
+		
+		IF FPA->FPA_TIPOSE # "M"
+			IF     TRIM(FPA->FPA_TPMEDI) == "S"
+				CTPLOCACAO:= STR0063 //"SEMANAL"
+			ELSEIF TRIM(FPA->FPA_TPMEDI) == "Q"
+				CTPLOCACAO:= STR0064 //"QUINZENAL"
+			ELSEIF TRIM(FPA->FPA_TPMEDI) == "M"
+				CTPLOCACAO:= STR0065 //"MENSAL"
+			ELSEIF TRIM(FPA->FPA_TPMEDI) == "E"
+				CTPLOCACAO:= STR0066 //"ENCERRAMENTO"
+			ELSE
+				CTPLOCACAO:= ""
+			ENDIF
+		ELSE
+			IF     TRIM(FPA->FPA_TPMED7) == "S"
+				CTPLOCACAO:= STR0063 //"SEMANAL"
+			ELSEIF TRIM(FPA->FPA_TPMED7) == "Q"
+				CTPLOCACAO:= STR0064 //"QUINZENAL"
+			ELSEIF TRIM(FPA->FPA_TPMED7) == "M"
+				CTPLOCACAO:= STR0065 //"MENSAL"
+			ELSEIF TRIM(FPA->FPA_TPMED7) == "E"
+				CTPLOCACAO:= STR0066 //"ENCERRAMENTO"
+			ELSE
+				CTPLOCACAO:= ""
+			ENDIF
+		ENDIF
+
+		//OOBJPRINT:SAY( 1530 + NLIN , 0060 ,  "LOCAÇÃO:"                                     , OFONT10   , 100 )
+		//OOBJPRINT:SAY( 1530 + NLIN , 0280 ,  CTPLOCACAO		                                , OFONT10   , 100 )
+		OOBJPRINT:SAY( 1530 + NLIN , 1100 ,  STR0067                          , OFONT10   , 100 ) //"FORMA DE PAGAMENTO:"
+		IF FPA->FPA_TIPPAG == "1"
+			CTEXTOAUX := STR0068 //"DO PAGAMENTO DA NOTA FISCAL."
+		ELSEIF FPA->FPA_TIPPAG == "2"
+			CTEXTOAUX := STR0069 //"DO FECHAMENTO DA MEDIÇÃO."
+		ELSEIF FPA->FPA_TIPPAG == "3"
+			CTEXTOAUX := STR0070 //"DO ENCERRAMENTO DO SERVIÇO."
+		ELSE
+			CTEXTOAUX := STR0071 //"DO INICIO DO SERVIÇO."
+		ENDIF
+	
+		DBSELECTAREA("SE4")
+		DBSETORDER(1)
+		MSSEEK(XFILIAL("SE4") + FPA->FPA_CONPAG )
+	
+		OOBJPRINT:SAY( 1530 + NLIN , 1450 ,  ALLTRIM(SE4->E4_DESCRI) +" "+CTEXTOAUX            , OFONT10   , 100 )
+	
+		IF FPA->FPA_TPMED1 == "1"
+			CTPLOC1:= STR0072 //"NO ATO"
+		ELSEIF FPA->FPA_TPMED1 == "2"
+			CTPLOC1:= STR0073 //"JUNTO COM A PRIMEIRA MEDIÇÃO"
+		ELSEIF FPA->FPA_TPMED1 == "3"
+			CTPLOC1:= STR0074 //"NA CHEGADA DO EQUIPAMENTO À OBRA"
+		ELSE
+			CTPLOC1:= ""
+		ENDIF
+		
+		IF FPA->FPA_TPMED2 == "1"
+			CTPLOC2:= STR0072 //"NO ATO"
+		ELSEIF FPA->FPA_TPMED2 == "2"
+			CTPLOC2:= STR0075 //"JUNTO COM A ULTIMA MEDIÇÃO"
+		ELSEIF FPA->FPA_TPMED2 == "3"
+			CTPLOC2:= STR0076 //"JUNTO COM A MONTAGEM"
+		ELSEIF FPA->FPA_TPMED2 == "4"
+			CTPLOC2:= STR0077 //"NA SAIDA DO EQUIPAMENTO DA OBRA"
+		ELSE
+			CTPLOC2:= ""
+		ENDIF
+		
+		//    TPMED2 PODERÁ SER  ------>    1=NO ATO;2=JUNTO COM A ULTIMA MEDICAO;3=JUNTO COM A MONTAGEM;4=DA SAIDA DO EQUIPAMENTO DA OBRA
+		IF     FPA->FPA_TPMOBI == "1"
+			CTPMOB:= STR0072 //"NO ATO"
+		ELSEIF FPA->FPA_TPMOBI == "2"
+			CTPMOB:= STR0073 //"JUNTO COM A PRIMEIRA MEDIÇÃO"
+		ELSEIF FPA->FPA_TPMOBI == "3"
+			CTPMOB:= STR0074 //"NA CHEGADA DO EQUIPAMENTO À OBRA"
+		ELSE
+			CTPMOB:= ""
+		ENDIF
+			
+		IF     FPA->FPA_TPDESM == "1"
+			CTPDESM:= STR0072 //"NO ATO"
+		ELSEIF FPA->FPA_TPDESM == "2"
+			CTPDESM:= STR0078 //"JUNTO COM A ULTIMA MEDICAO"
+		ELSEIF FPA->FPA_TPDESM == "3"
+			CTPDESM:= STR0079 //"JUNTO COM A MOBILIZAÇÃO"
+		ELSEIF FPA->FPA_TPDESM == "4"
+			CTPDESM:= STR0077 //"NA SAIDA DO EQUIPAMENTO DA OBRA"
+		ELSE
+			CTPDESM:= ""
+		ENDIF
+		
+		// TPDESM PODERÁ SER ---->   1=NO ATO;2=JUNTO COM A ULTIMA MEDICAO;3=JUNTO COM MOBILIZACAO;4=DA SAIDA DO EQUIPAMENTO DA OBRA
+		//OOBJPRINT:SAY( 1580 + NLIN , 0060 , "MOBILIZACAO: "             , OFONT10   , 100 )
+		//OOBJPRINT:SAY( 1580 + NLIN , 0280 , CTPMOB                      , OFONT10   , 100 )
+		
+		//OOBJPRINT:SAY( 1580 + NLIN , 1100 , "DESMOBILIZAÇÃO: "          , OFONT10   , 100 )
+		//OOBJPRINT:SAY( 1580 + NLIN , 1450 , CTPDESM                     , OFONT10   , 100 )
+
+	
+		NLIN+=50
+	
+		NLIN+=50
+
+	EndIF
+
+	If _cTipo = "F"
+		nLin -= 100
+	EndIf
+	
+	OOBJPRINT:BOX( 1580 + NLIN , 0050, 1640 + NLIN, 2370)
+	OOBJPRINT:SAY( 1600 + NLIN , 1000 ,  STR0080                            , OFONT5   , 100 ) //"RESPONSABILIDADES"
+	OOBJPRINT:BOX( 1640 + NLIN , 0050, 2250 + NLIN, 2370)
+	
+	AAREAZAA := FP6->(GETAREA())
+	DBSELECTAREA("FP6")
+	DBSETORDER(1)
+	DBGOTOP()
+	MSSEEK(XFILIAL("FP6") + FQ5->FQ5_SOT + FQ5->FQ5_OBRA )
+		
+	OOBJPRINT:SAY( 1652 + NLIN , 0060 ,  STR0028                                   , OFONT10   , 100 ) //"DESCRIÇÃO:"
+	OOBJPRINT:SAY( 1652 + NLIN , 0750 ,  STR0081                                       , OFONT10   , 100 ) //"RESP."
+	
+	NQUANTZAA := 0
+	CQUERY:="SELECT COUNT(*) AS TOTAL FROM "+RETSQLNAME("FP6")+" WHERE "
+	CQUERY+="FP6_PROJET = '"+FQ5->FQ5_SOT+"' AND FP6_OBRA = '"+FQ5->FQ5_OBRA+"' AND D_E_L_E_T_ = ' ' AND FP6_FILIAL = '"+xFilial("FP6")+"' "
+	
+	TCQUERY CQUERY NEW ALIAS "TRB"
+	DBSELECTAREA("TRB")
+	NTOTRESP := TRB->TOTAL
+	NQTDCOL  := NTOTRESP / 2
+	DBSELECTAREA("TRB")
+	DBCLOSEAREA()
+	
+	AAREAZAA := FP6->(GETAREA())
+	DBSELECTAREA("FP6")
+	DBSETORDER(1)
+	DBGOTOP()
+	MSSEEK(XFILIAL("FP6") + FQ5->FQ5_SOT + FQ5->FQ5_OBRA )
+	NLINBKP := NLIN
+		
+	WHILE !EOF() .AND. FP6->FP6_PROJET + FP6->FP6_OBRA == FQ5->FQ5_SOT + FQ5->FQ5_OBRA
+		
+		OOBJPRINT:SAY( NLINHA + NLIN  , 0060 + NCOL1 ,  FP6->FP6_DESCRI              , OFONT10   , 100 )
+		OOBJPRINT:SAY( NLINHA + NLIN  , 0760 + NCOL2 ,  IIF(UPPER(ALLTRIM(FP6->FP6_RESPON))=="C",STR0082,STR0083 ) , OFONT10   , 100 ) //"CLIENTE"###"PRÓPRIA"
+		
+		NQUANTZAA++
+		
+		IF ( NLINHA + NLIN >= 3300 .OR. NQUANTZAA >= NQTDCOL ) .AND. LCHEK
+			NAUX      := NLINHA + NLIN
+			NQUANTZAA := 0
+			NCOL1     := 1060
+			NCOL2     := 1150
+			NLINHA    := 1710
+			NLIN      := NLINBKP
+			LCHEK     := .F.
+			LOBS      := .T.
+			//OOBJPRINT:SAY( NLINHA + NLIN , 0060 + NCOL1 ,  "DESCRIÇÃO"                                   , OFONT10   , 100 )
+			//OOBJPRINT:SAY( NLINHA + NLIN , 0760 + NCOL2 ,  "RESP."                                       , OFONT10   , 100 )
+		ELSEIF NLINHA + NLIN >= 3300 .AND. !LCHEK
+			OOBJPRINT:ENDPAGE()
+			OOBJPRINT:STARTPAGE()
+			NLIN   := 200
+			NLINHA := 000
+			NCOL1  := 0
+			NCOL2  := 0
+			//OOBJPRINT:SAY( NLINHA + NLIN , 0060 ,  "DESCRIÇÃO"                                   , OFONT10   , 100 )
+			//OOBJPRINT:SAY( NLINHA + NLIN , 0750 ,  "RESP."                                       , OFONT10   , 100 )
+		ENDIF
+			
+		DBSELECTAREA("FP6")
+		DBSKIP()
+		
+		NLINHA := NLINHA + 50
+		
+	ENDDO 
+		
+	RESTAREA(AAREAZAA)
+	
+	IF LOBS
+		NLINHA := NAUX + 100
+	ELSE
+		NLINHA := NLINHA + NLIN + 100
+	ENDIF
+	
+	IF NLINHA > 3350
+		OOBJPRINT:ENDPAGE()
+		OOBJPRINT:STARTPAGE()
+		NLIN   := 200
+		NLINHA := 000
+	ENDIF
+		
+	RESTAREA(AAREAZAA)
+	
+	OOBJPRINT:SAY( NLINHA , 1050 ,  STR0084                                  , OFONT5   , 100 ) //"OBSERVAÇÕES"
+	OOBJPRINT:BOX( NLINHA , 0050, 3350, 2370)
+	
+	XT := MLCOUNT(FP1->FP1_OBSVIS,130)
+	
+	NLINOBS := NLINHA + 50
+	IF !EMPTY(FP1->FP1_OBSVIS)
+		OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0085        , OFONT10   , 100 ) //"OBSERVAÇÃO VISTORIA"
+		NLINOBS := NLINOBS + 50
+		FOR I:=1 TO XT
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FP1->FP1_OBSVIS ,130, I )       , OFONT10   , 100 )
+			IF NLINOBS > 3200
+				OOBJPRINT:ENDPAGE()
+				OOBJPRINT:STARTPAGE()
+				OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+				NLINOBS := 150
+			ENDIF
+			NLINOBS := NLINOBS + 50
+		NEXT I 
+	ENDIF
+		
+	IF !EMPTY(FPA->FPA_OBS)
+		XT := MLCOUNT(FPA->FPA_OBS,130)
+		NLINOBS += 50
+		OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0086        , OFONT10   , 100 ) //"OBSERVAÇÃO LOCAÇÃO"
+		NLINOBS := NLINOBS + 50
+		FOR I:=1 TO XT
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FPA->FPA_OBS ,130, I )       , OFONT10   , 100 )
+			IF NLINOBS > 3200
+				OOBJPRINT:ENDPAGE()
+				OOBJPRINT:STARTPAGE()
+				OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+				NLINOBS := 150
+			ENDIF
+			NLINOBS := NLINOBS + 50
+		NEXT
+	ENDIF
+
+	IF !EMPTY(FPA->FPA_OBSSER)
+		XT := MLCOUNT(FPA->FPA_OBSSER,130)
+		NLINOBS += 50
+		OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0087        , OFONT10   , 100 ) //"DESCRIÇÃO SERVIÇOS"
+		NLINOBS := NLINOBS + 50
+		FOR I:=1 TO XT
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FPA->FPA_OBSSER ,130, I )       , OFONT10   , 100 )
+			IF NLINOBS > 3200
+				OOBJPRINT:ENDPAGE()
+				OOBJPRINT:STARTPAGE()
+				OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+				NLINOBS := 150
+			ENDIF
+			NLINOBS := NLINOBS + 50
+		NEXT
+	ENDIF
+		
+	FP5->(DBCLOSEAREA())
+	DBSELECTAREA("FP5")
+	FP5->(DBCLEARFILTER())
+	FP5->(DBSETFILTER({|| ALLTRIM(FP5->FP5_PROJET) == ALLTRIM(FPA->FPA_PROJET) .AND. ALLTRIM(FP5->FP5_OBRA) == ALLTRIM(FPA->FPA_OBRA)},"ALLTRIM(FP5->FP5_PROJET) == ALLTRIM(FPA->FPA_PROJET) .AND. ALLTRIM(FP5->FP5_OBRA) == ALLTRIM(FPA->FPA_OBRA)"))
+	FP5->(DBGOTOP())
+	
+	IF !EMPTY(FP5->FP5_OBSACE)
+		XT := MLCOUNT(FP5->FP5_OBSACE,130)
+		NLINOBS += 50
+		OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0088       , OFONT10   , 100 ) //"OBSERVAÇÃO IÇAMENTO"
+		NLINOBS := NLINOBS + 50
+		FOR I:=1 TO XT
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FP5->FP5_OBSACE ,130, I )       , OFONT10   , 100 )
+			IF NLINOBS > 3200
+				OOBJPRINT:ENDPAGE()
+				OOBJPRINT:STARTPAGE()
+				OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+				NLINOBS := 150
+			ENDIF
+			NLINOBS := NLINOBS + 50
+		NEXT
+	ENDIF
+
+	IF !EMPTY(FP5->FP5_OBS)
+		XT := MLCOUNT(FP5->FP5_OBS,130)
+		NLINOBS += 50
+		OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0089        , OFONT10   , 100 ) //"OBSERVAÇÃO"
+		NLINOBS := NLINOBS + 50
+		FOR I:=1 TO XT
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FP5->FP5_OBS ,130, I )       , OFONT10   , 100 )
+			IF NLINOBS > 3200
+				OOBJPRINT:ENDPAGE()
+				OOBJPRINT:STARTPAGE()
+				OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+				NLINOBS := 150
+			ENDIF
+			NLINOBS := NLINOBS + 50
+		NEXT
+	ENDIF
+
+	IF FQ5->FQ5_TPAS == "F"		// AS DE FRETE - IMPRIMIR OBS SE HOUVER - CRISTIAM ROSSI EM 14/09/2016
+		AAREAZUC := FQ7->( GETAREA() )
+		FQ7->( DBSETORDER(3) )	// FILIAL + VIAGEM
+		IF FQ7->( DBSEEK( XFILIAL("FQ7") + FQ5->FQ5_VIAGEM ) ) .AND. ! EMPTY( FQ7->FQ7_OBS )
+			XT := MLCOUNT(FQ7->FQ7_OBS,130)
+			NLINOBS += 50
+			OOBJPRINT:SAY( NLINOBS , 0060 ,  STR0090        , OFONT10   , 100 ) //"OBSERVAÇÃO TRANSPORTE"
+			NLINOBS := NLINOBS + 50
+			FOR I:=1 TO XT
+				OOBJPRINT:SAY( NLINOBS , 0060 ,  MEMOLINE(FQ7->FQ7_OBS ,130, I )       , OFONT10   , 100 )
+				IF NLINOBS > 3200
+					OOBJPRINT:ENDPAGE()
+					OOBJPRINT:STARTPAGE()
+					OOBJPRINT:BOX( 0100 , 0050 , 3350 , 2370)
+					NLINOBS := 150
+				ENDIF
+				NLINOBS := NLINOBS + 50
+			NEXT
+            ENDIF
+		FQ7->( RESTAREA( AAREAZUC ) )
+	ENDIF
+
+	OOBJPRINT:ENDPAGE()
+	
+	DBSELECTAREA("FQ5")
+	DBSKIP()
+	
+	LCHEK := .T.
+	LACE  := .F.
+	
+ENDDO 
+	
+RETURN

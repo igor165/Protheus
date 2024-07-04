@@ -1,0 +1,33 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "QUICKSEARCH.CH"
+#INCLUDE "TECQ002.CH"
+
+QSSTRUCT TECQ002 DESCRIPTION STR0001 MODULE 28 // "Alocação por Contrato" 
+
+QSMETHOD INIT QSSTRUCT TECQ002
+Local cWhere := ""
+	
+	QSTABLE "CN9" JOIN "ABQ" ON "ABQ.ABQ_CONTRT = CN9.CN9_NUMERO"
+	QSTABLE "CN9" JOIN "ABB" ON "ABB.ABB_IDCFAL = CN9.CN9_NUMERO || ABQ.ABQ_ITEM || 'CN9' AND ABB.ABB_ATIVO = '1'"
+	QSTABLE "ABB" LEFT JOIN "ABS" ON "ABS.ABS_LOCAL = ABB.ABB_LOCAL"
+	QSTABLE "ABB" LEFT JOIN "AA1" ON "AA1.AA1_CODTEC = ABB.ABB_CODTEC"
+	
+	// campos do SX3 e indices do SIX
+	QSPARENTFIELD "CN9_NUMERO" INDEX ORDER 1 
+	QSPARENTFIELD "ABB_CODTEC" INDEX ORDER 1 
+	
+	// campos do SX3
+	QSFIELD "ABB_DTINI","ABB_CODTEC","AA1_NOMTEC","CN9_NUMERO","ABS_DESCRI"
+	
+	QSACTION MENUDEF "TECA020" OPERATION 1 LABEL STR0002 // "Visualizar Atendente"
+	
+	cWhere := "CN9.CN9_SITUAC = '05' AND ABB.ABB_DTINI BETWEEN '{1}' AND '{2}'"
+	
+	QSFILTER STR0003 WHERE StrTran( StrTran(cWhere, "{1}", DTOS(Date())), "{2}", DTOS(Date()) ) // "Hoje" 
+	
+	QSFILTER STR0004 WHERE StrTran( StrTran(cWhere, "{1}", DTOS(Date() - 7)), "{2}", DTOS(Date()) ) // "Últimos 7 dias" 
+	QSFILTER STR0005 WHERE StrTran( StrTran(cWhere, "{1}", DTOS(Date() - 15)), "{2}", DTOS(Date()) ) // "Últimos 15 dias" 
+	
+	QSFILTER STR0006 WHERE StrTran( StrTran(cWhere, "{1}", DTOS(Date())), "{2}", DTOS(Date() + 7) ) // "Próximos 7 dias"
+	QSFILTER STR0007 WHERE StrTran( StrTran(cWhere, "{1}", DTOS(Date())), "{2}", DTOS(Date() + 15) ) // "Próximos 15 dias" 
+Return

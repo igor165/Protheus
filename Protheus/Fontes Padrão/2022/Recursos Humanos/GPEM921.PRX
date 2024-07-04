@@ -1,0 +1,589 @@
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "GPEM921.CH"
+#INCLUDE "RESTFUL.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWAdapterEAI.ch"
+#INCLUDE "APWEBSRV.CH"
+#INCLUDE "TBICONN.CH"
+
+
+/*/{Protheus.doc} function GPEM921
+Função principal que chamada todas as demais funções de processamento dos dados.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Function GPEM921()
+    Local nCount	:= 1
+	Local lRet 		:= .T.
+	Local cAliasRJ9 := "RJ9"
+	Local aArea		:= GetArea()
+	Local cRegNumb  := SuperGetMv( "MV_APIMI04",, .F. ) // Propriedade registrationNumber. Número de Inscrição da Entidade
+
+	Static oBrowse
+	Static cSrcBra 	:= ""
+	Static aMarkRJE	:= {}
+	Static _Mark 	:= {}
+	Static aParam	:= {}
+
+	// Pega a entidade do cadastro do trabalhador
+	DbSelectArea( cAliasRJ9 )
+	( cAliasRJ9 )->( DbSetOrder( 5 ) ) // RJ9_NRINSC, RJ9_INI
+	( cAliasRJ9 )->( DbGoTop() )
+
+	If ( cAliasRJ9 )->( DbSeek( cRegNumb ) ) .Or. ( cAliasRJ9 )->( DbSeek( SubStr( cRegNumb, 1, 8 ) ) )
+		If ( cAliasRJ9 )->( ColumnPos( "RJ9_IDENT" ) ) > 0
+			cSrcBra := ( cAliasRJ9 )->RJ9_IDENT
+		EndIf
+	EndIf
+
+	// Montagem dos parâmetros que controlam a API
+	For nCount := 1 To 9
+		aAdd( aParam, ALLTRIM( SuperGetMv( "MV_APIMI0" + cValToChar(nCount) ,, "" ) ) )
+	Next nCount
+
+	aAdd( aParam, SuperGetMv( "MV_MID",, .F. ) )				// aParam[10] Parâmetro de ativação do Middleware
+	aAdd( aParam, ALLTRIM( SuperGetMv( "MV_GPEMURL" ,, "" ) ) ) // aParam[11]
+	aAdd( aParam, SuperGetMv( "MV_GPEAMBE",, "" )  ) 			// aParam[12] Parâmetro que retorna o tipo do Ambiente
+
+	// Realiza as Pré-Validações
+	If lRet := fPreValid( aParam )
+
+		// Trata espaços vazios nas propriedades companyName e branchName
+		aParam[6] = REPLACE(aParam[6]," ","%20")
+		aParam[7] = REPLACE(aParam[7]," ","%20")
+
+		// Realiza o processamento
+		DbSelectArea( "RJE" )
+		DbSetOrder( 1 )
+
+		oBrowse := FWMarkBrowse():New()
+		oBrowse:SetAlias( "RJE" )
+		oBrowse:SetFieldMark( "RJE_OKTRAN" )
+		oBrowse:SetDescription( STR0003 ) // "Monitor de Eventos"
+		oBrowse:SetmenuDef( "GPEM921" )
+		oBrowse:SetAfterMark( { || Mark() } )
+		oBrowse:SetAllMark( { || MarkAll() } )
+
+		//Legendas
+		oBrowse:AddLegend( "RJE->RJE_STATUS == '1' ", "GREEN",  STR0017 )  // "Registro validado pelo Middleware - Aguardando transmissão ao Governo."
+		oBrowse:AddLegend( "RJE->RJE_STATUS == '2' ", "YELLOW",	STR0018 )  // "Registro já transmitido ao Governo, aguardando retorno."
+		oBrowse:AddLegend( "RJE->RJE_STATUS == '3' ", "RED",	STR0019 )  // "Registro com inconsistências retornadas pelo Governo."
+		oBrowse:AddLegend( "RJE->RJE_STATUS == '4' ", "BLUE",	STR0020 )  // "Registro transmitido ao Governo com retorno consistente."
+		oBrowse:Activate()
+
+		RestArea( aArea )
+	EndIf
+Return lRet
+
+
+/*/{Protheus.doc} function MenuDef
+Função que monta o menu da rotina.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Static Function MenuDef()
+	Local aRotina :=  {}
+
+	ADD OPTION aRotina TITLE OemToAnsi( STR0004 ) ACTION "VIEWDEF.GPEM921" 	OPERATION 2 ACCESS 0 // "Visualizar"
+	ADD OPTION aRotina TITLE OemToAnsi( STR0005 ) ACTION "fSendEvt()" 		OPERATION 8 ACCESS 0 // "Transmitir"
+	ADD OPTION aRotina TITLE OemToAnsi( STR0014 ) ACTION "fGetEvt()" 		OPERATION 9 ACCESS 0 // "Consultar Envio"
+	ADD OPTION aRotina TITLE OemToAnsi( STR0021 ) ACTION "fGetError()" 		OPERATION 10 ACCESS 0 // "Consultar Inconsistências"
+Return aRotina
+
+
+/*/{Protheus.doc} function ModelDef
+Função que processa os dados da rotina.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Static Function ModelDef()
+	Local oStructRJE
+	Local oModel
+
+	oStructRJE	:= FWFormStruct( 1, "RJE" )
+	oModel 		:= MpFormModel():New("GPEM921",/*Pre-Validacao*/, /*Pos-Validacao*/, /*Commit*/, /*Cancel*/)
+
+	oModel:AddFields("GPEM921RJE", /*cOwner*/, oStructRJE ,/*Pre-Validacao*/, /*Pos-Validacao*/, /*Carga*/)
+	oModel:GetModel("GPEM921RJE"):SetOnlyView(.T.)
+	oModel:GetModel('GPEM921RJE'):SetOnlyQuery(.T.)
+
+	oModel:SetPrimaryKey( {} )
+Return oModel
+
+
+/*/{Protheus.doc} function ViewDef
+Função que apresenta os dados da rotina na tela.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Static Function ViewDef()
+	Local oModel
+	Local oStructRJE
+	Local oView
+
+	oView  := FWFormView():New()
+	oModel := FwLoadModel( "GPEM921" )
+
+	oView:SetModel( oModel )
+	oStructRJE	:= FWFormStruct( 2, "RJE" )
+	oStructRJE:SetNoFolder()
+
+	oView:AddField( "GPEM921RJE" , oStructRJE )
+	oView:SetViewProperty("GPEM921RJE", "OnlyView")
+	oView:createHorizontalBox("FORMFIELD", 100)
+	oView:SetOwnerView( "GPEM921RJE", "FORMFIELD")
+Return oView
+
+
+/*/{Protheus.doc} function fGetEvt
+Realiza a consulta do retorno do processamento do Middleware.
+@author  hugo.de.oliveira
+@since   01/10/2019
+@version 1.0
+/*/
+Function fGetEvt()
+	Local oMID
+	Local oRet
+	Local oItem
+	Local oBody
+	Local nX 		:= 1
+	Local lRet	 	:= .F.
+	Local lRetResp	:= .T.
+	Local aHeader   := {}
+	Local aLote 	:= {}
+	Local cBody		:= ""
+	Local cEvtRJE 	:= ""
+	Local cRetKey 	:= ""
+	Local cMsg 		:= ""
+	Local cAlias	:= "RJE"
+	Local nQtdeReg 	:= Len(aMarkRJE)
+
+	If nQtdeReg < 1
+		Help(" ", 1, OemToAnsi( STR0001 ),, OemToAnsi( STR0012 ), 1, 0) // "Erro" e "Nenhum evento selecionado."
+		Return
+	EndIf
+
+	// Montagem do Header
+	aadd(aHeader, "Content-Type: application/json; charset=UTF-8")
+
+	// Montagem do Body
+	oBody := JsonObject():new()
+	oBody['sourceBranch']	:= cSrcBra		// Código Identificador da entidade TSS ( retornado na configuração do certificado)
+	oBody['tpAmb']			:= aParam[12] 	// Parâmetro contendo o Tipo do Ambiente
+	oBody['urlTSS']			:= aParam[11]		// Parâmetro contendo a URL do Ambiente
+
+	// Processamento dos registros marcados
+	For nX := 1 to nQtdeReg
+		cEvtRJE		:= ALLTRIM( aMarkRJE[nX][2] )
+		cRetKey		:= ALLTRIM( aMarkRJE[nX][3] )
+
+		// Montagem dos dados do array de propriedades 'Lote'
+		oItem	:= JsonObject():new()
+		oItem["registryType"]		:= SUBSTR(cEvtRJE, 1, 1) + "-" + SUBSTR(cEvtRJE, 2)
+
+		dbSelectArea( cAlias )
+		( cAlias )->( DbSetOrder( 3 ) ) // RJE_EVENTO, RJE_RETKEY
+		( cAlias )->( DbGoTop() )
+
+		If ( cAlias )->( DbSeek( cEvtRJE + cRetKey ) )
+			oItem['ticketCode']		:= ALLTRIM( ( cAlias )->RJE_TCK )
+		EndIf
+
+		oItem["registryKey"]		:= cRetKey
+		oItem["returnRetResponse"]	:= lRetResp
+
+		// Adiciona os items no array de Lote
+		AAdd( aLote, oItem )
+
+		FreeObj( oItem )
+
+	Next nX
+	// Adiciona o Array de Itens no 'Body'
+	oBody["lote"] := aLote
+
+	// Compress String And Set Response
+	cBody := fCompress( @oBody )
+
+	// Chamada da API
+	oMID := FwRest():New( aParam[1] )
+
+	oMID:setPath( "/" + aParam[9] + "/get/" )
+	oMID:SetPostParams( cBody )
+
+	// Verificação de Retorno
+	FreeObj( oRet )
+	oRet	:= JsonObject():New()
+	lHeader := oMID:Post( aHeader )
+
+	oRet := JsonObject():new()
+	lRet := FWJsonDeserialize( oMID:GetResult(), @oRet )
+
+	If lHeader .And. lRet .And. LEN(oRet:ITEMS) > 0
+		For nX := 1 To LEN(oRet:ITEMS)
+			dbSelectArea( cAlias )
+			( cAlias )->( DbSetOrder( 3 ) ) // RJE_EVENTO, RJE_RETKEY
+			( cAlias )->( DbGoTop() )
+
+			If ( cAlias )->( DbSeek( cEvtRJE + cRetKey ) )
+				Begin Transaction
+					Reclock( cAlias, .F.)
+						( cAlias )->RJE_STATUS	:= oRet:ITEMS[nX]:STATUSCODE
+						( cAlias )->RJE_RTN 	:= Decode64( oRet:items[nX]:XMLRETRESPONSE )
+						( cAlias )->RJE_RECIB	:= ALLTRIM( oRet:ITEMS[nX]:RECEIPTNUMBER )
+					MsUnlock()
+				End Transaction
+			EndIf
+		Next nX
+
+		cMsg := STR0015 // "Registro(s) Consultado(s) com sucesso."
+
+	Else
+		cMsg := oRet:MESSAGE
+	EndIf
+
+	Aviso( OemToAnsi( STR0007 ), OemToAnsi( cMsg ) , { OemToAnsi( STR0009) }, 3 ) // STR0007: "Integração" e STR0009: "Ok"
+
+	// Limpeza dos Objetos utilizados
+	FreeObj( oBody )
+	FreeObj( oItem )
+	FreeObj( oRet )
+	FreeObj( oMID )
+Return
+
+
+/*/{Protheus.doc} function fSendEvt
+Através da API(WSESOCIAL) do TSS, realiza o envio de dados do trabalhador.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Function fSendEvt()
+	Local oMID
+	Local oRet
+	Local oItem
+	Local oBody
+	Local nX 		:= 1
+	Local nIni 		:= 0
+	Local aHeader   := {}
+	Local aLote 	:= {}
+	Local lRet	 	:= .F.
+	Local lHeader	:= .T.
+	Local cRetCode 	:= ""
+	Local cExp		:= ""
+	Local cBody		:= ""
+	Local cRet 		:= ""
+	Local cEvtRJE 	:= ""
+	Local cRetKey 	:= ""
+	Local cTCK 		:= ""
+	Local cMsg 		:= ""
+	Local cXML 		:= ""
+	Local cAlias	:= "RJE"
+	Local dDtEnv 	:= DATE()
+	Local cHEnv 	:= TIME()
+	Local nQtdeReg 	:= Len( aMarkRJE )
+
+	If nQtdeReg < 1
+		Help(" ", 1, OemToAnsi( STR0001 ),, OemToAnsi( STR0012 ), 1, 0) // "Erro" e "Nenhum evento selecionado."
+		Return
+	EndIf
+
+	// Montagem do Header
+	aadd(aHeader, "Content-Type: application/json; charset=UTF-8")
+
+	// Processamento dos registros marcados
+	For nX := 1 to nQtdeReg
+		cEvtRJE		:= aMarkRJE[nX][2]
+		cRetKey		:= aMarkRJE[nX][3]
+		nIni 		:= AT("<tpAmb>", aMarkRJE[nX][5]) // Procura no XML a TAG <tpAmb>
+		cExp		:= SUBSTR(aMarkRJE[nX][5], nIni, 16 )
+		cXML 		:= STRTRAN( aMarkRJE[nX][5], cExp, "<tpAmb>" + aParam[12] + "</tpAmb>" )
+
+		// Montagem do Tickect
+		If Empty( cTCK )
+			cTCK := Substr( FWUUId( cRetKey ), 1, 36 ) // Formato Retornado: "b9ce64c5-094b-4c95-9b29-c22b5cbf94f3"
+		EndIf
+
+		// Montagem dos dados do array de propriedades 'Lote'
+		oItem 						:= JsonObject():new()
+		oItem["registryType"]		:= SUBSTR( cEvtRJE, 1, 1) + "-" + SUBSTR( cEvtRJE, 2)
+		oItem["registryKey"]		:= ALLTRIM(cRetKey)
+		oItem["integrationMessage"]	:= Encode64( cXML )
+		oItem["schemaVersion"]		:= fGetVers( cEvtRJE ) // Retorna a versão de Layout do evento enviado
+
+		// Adiciona os items no array de lotes
+		AAdd( aLote, oItem )
+
+
+		FreeObj( oItem )
+	Next nX
+
+	// Montagem dos demais campos do Body
+	oBody := JsonObject():new()
+	oBody['ticketCode']		:= cTCK 		// Atributo raiz usado para ajudar na identificação do Bloco de dados
+	oBody['sourceBranch']	:= cSrcBra		// Código Identificador da entidade TSS ( retornado na configuração do certificado)
+	oBody['tpAmb']			:= aParam[12]			// Parâmetro contendo o Tipo do Ambiente
+	oBody['urlTSS']			:= aParam[11]	// Parâmetro contendo a URL do Ambiente
+
+	// Adiciona o Array de Lotes no Body
+	oBody["lote"] := aLote
+
+	// Compress String And Set Response
+	cBody := fCompress( @oBody )
+
+	// Chamada da API
+	oMID := FwRest():New( aParam[1] )
+	oMID:setPath( "/" + aParam[9] + "/send/" )
+	oMID:SetPostParams( cBody )
+
+	lHeader := oMID:Post( aHeader )
+
+	// Verificação de Retorno
+	oRet := JsonObject():new()
+	lRet := FWJsonDeserialize( oMID:GetResult(), @oRet )
+
+	If lRet .And. lHeader .And. !Empty( oRet )
+		cRet 	 	:= oMID:GetResult()
+		cRetCode 	:= oMID:GetHTTPCode()
+
+		For nX := 1 To nQtdeReg
+			DbSelectArea( cAlias )
+			( cAlias )->( DbSetOrder( 3 ) ) // RJE_EVENTO, RJE_RETKEY
+			( cAlias )->( DbGoTop() )
+
+			If ( cAlias )->( DbSeek( aMarkRJE[nX][2] + aMarkRJE[nX][3] ) )
+				Begin Transaction
+					Reclock( cAlias, .F.)
+
+					If cRetCode $ ("|200|201")
+						cMsg := STR0013 // "Registro(s) Transmitido(s) ao Middleware"
+						( cAlias )->RJE_STATUS	:= "2" // Pendente de Processamento
+					Else
+						cMsg := cRet
+						( cAlias )->RJE_STATUS	:= "3" // Erro
+					EndIf
+
+					( cAlias )->RJE_XML 	:= cXML
+					( cAlias )->RJE_DTENV 	:= dDtEnv
+					( cAlias )->RJE_HENV  	:= cHEnv
+					( cAlias )->RJE_TCK 	:= oRet:TICKETCODE
+
+					MsUnlock()
+				End Transaction
+			EndIf
+		Next nX
+	Else
+		cMsg := oRet:MESSAGE
+	EndIf
+
+	Aviso( OemToAnsi( STR0007 ), OemToAnsi( cMsg ) , { OemToAnsi( STR0009) }, 3 ) // STR0007: "Integração" e STR0009: "Ok"
+
+	// Limpeza dos Objetos utilizados
+	FreeObj( oBody )
+	FreeObj( oItem )
+	FreeObj( oRet )
+	FreeObj( oMID )
+Return
+
+
+/*/{Protheus.doc} function fGetError
+Retorna inconsistência retornada pelo Middleware
+@author  hugo.de.oliveira
+@since   16/10/2019
+@version 1.0
+/*/
+Function fGetError()
+	Local cAlias 	:= "RJE"
+	Local cRet 		:= ""
+	Local cMsg		:= ""
+	Local nIni		:= 0
+	Local nFim		:= 0
+
+	If Empty( aMarkRJE )
+		cMsg := STR0012 // STR0012: "Nenhum evento selecionado."
+
+	ElseIf LEN( aMarkRJE ) != 1
+		cMsg := STR0023 // STR0023: "Consulta permitida para somente 1 registro por vez."
+
+	Else
+		dbSelectArea( cAlias )
+		( cAlias )->( DbSetOrder( 3 ) ) // RJE_EVENTO, RJE_RETKEY
+		( cAlias )->( DbGoTop() )
+
+		If ( cAlias )->( DbSeek( aMarkRJE[1][2] + aMarkRJE[1][3] ) )
+			cRet :=	( cAlias )->RJE_RTN
+
+			If Empty(cRet) .OR. ( cAlias )->RJE_STATUS == "4"
+				cMsg := STR0026 // STR0026: "Não foram encontradas inconsistências."
+
+			Else
+				// Código de Erro
+				If AT("<cdResposta>", cRet) != 0
+					nIni 	 := AT("<cdResposta>", cRet) +12
+					nFim 	 := AT("</cdResposta>", cRet)
+					cRetDesc := SUBSTR( cRet, nIni, nFim-nIni )
+					cMsg := OemToAnsi( STR0024 ) + cRetDesc + Chr(13) + Chr(10) // STR0024: "Código do Erro: "
+				EndIf
+
+				// Descrição do Erro
+				If AT("<descResposta>", cRet) != 0
+					nIni 	 := AT("<descResposta>", cRet) +14
+					nFim 	 := AT("</descResposta>", cRet)
+					cRetDesc := SUBSTR( cRet, nIni, nFim-nIni )
+					cMsg 	 += OemToAnsi( STR0025 ) + cRetDesc + Chr(13) + Chr(10) + Chr(13) + Chr(10) // STR0025: "Descriçao: "
+				EndIf
+
+				// Ocorrencias
+				If AT("<ocorrencias>", cRet) != 0
+					nIni 	 := AT("<ocorrencias>", cRet)
+					nFim 	 := AT("</ocorrencias>", cRet) + 14
+					cRetDesc := SUBSTR( cRet, nIni, nFim-nIni )
+					cRetDesc := StrTran( cRetDesc, "<ocorrencia>", + Chr(13) + Chr(10) + "<ocorrencia>" )
+					cRetDesc := StrTran( cRetDesc, "</ocorrencias>", + Chr(13) + Chr(10) + "</ocorrencias>" )
+					cMsg 	 += OemToAnsi( cRetDesc ) + Chr(13) + Chr(10) + Chr(13) + Chr(10)
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+	Aviso( OemToAnsi( STR0022 ), OemToAnsi( cMsg ) , { OemToAnsi( STR0009) }, 3 ) // STR0022: "Inconsistências" e STR0009: "Ok"
+Return
+
+
+/*/{Protheus.doc} function fPreValid
+Função que realiza as pré-validações antes do processamento dos dados.
+@author  hugo.de.oliveira
+@since   23/09/2019
+@version 1.0
+/*/
+Static Function fPreValid( aParam )
+	Local nCount	:= 1
+	Local lret		:= .T.
+
+	// Valida Preenchimento dos Parâmetros
+	If !aParam[10]
+		lRet := .F.
+	Else
+		For nCount := 1 To Len( aParam )
+			If Empty( aParam[nCount] )
+				lret := .F.
+				Exit
+			EndIf
+		Next nCount
+	EndIf
+
+	// Caso exista problema com algum dos parâmetros
+	If !lret
+		Help(" ", 1, OemToAnsi( STR0001 ),, OemToAnsi( STR0006 ), 1, 0) // "Erro", "Por favor preencha corretamente os parâmetros conforme descritos na documentação."
+	elseIf aParam[4] == "53113791000122" .And. aParam[12] <> "2"
+		Help(" ", 1, OemToAnsi(STR0027),, OemToAnsi(STR0028), 1, 0)
+		//"Inconsistência na configuração do ambiente de homologação. Verifique o conteúdo do parâmetro MV_GPEAMBE e configure o ambiente eSocial como pré-produção."
+		lRet := .F.
+	EndIf
+
+Return lret
+
+
+/*/{Protheus.doc} function fGetVers
+Retorna a versão de Layout do evento enviado
+@author  Hugo de Oliveira
+@since   30/09/2019
+@version 1.0
+/*/
+Static Function fGetVers( cEvento )
+	Local cVersao := ""
+
+	If FindFunction("fVersEsoc")
+		fVersEsoc( cEvento, .F., /*aRetGPE*/, /*aRetTAF*/, @cVersao )
+	EndIf
+
+	// "02_05_00"
+	If Len(REPLACE(cVersao,".","")) == 4
+		cVersao := "0" + SUBSTR(REPLACE(cVersao,".",""), 1, 1) + "_" +  "0" + SUBSTR(REPLACE(cVersao,".",""), 2, 1) + "_" +SUBSTR(REPLACE(cVersao,".",""), 3, 2)
+	Else
+		cVersao := SUBSTR(REPLACE(cVersao,".",""), 1, 2) + "_0" +  SUBSTR(REPLACE(cVersao,".",""), 3, 1) + "_"+ SUBSTR(REPLACE(cVersao,".",""), 4, 2)
+	EndIf
+
+Return cVersao
+
+
+/*/{Protheus.doc} function fCompress
+Compress String Object
+@author  Hugo de Oliveira
+@since   30/09/2019
+@version 1.0
+/*/
+Static Function fCompress(oObj)
+	Local cJson    := ""
+	Local cComp    := ""
+	Local lCompact := .F.
+
+	// Set gzip format to Json Object
+	cJson := oObj:toJSON()
+
+	If Type("::GetHeader('Accept-Encoding')") != "U"  .and. 'GZIP' $ Upper(::GetHeader('Accept-Encoding') )
+		lCompact := .T.
+	EndIf
+
+	If(lCompact)
+		::SetHeader('Content-Encoding','gzip')
+		GzStrComp(cJson, @cComp, @nLenComp )
+	Else
+		cComp := cJson
+	Endif
+Return cComp
+
+
+/*/{Protheus.doc} Mark
+Realiza a marcação de um registro no browse
+@author Hugo de Oliveira
+@since 30/09/2019
+@version 1.0
+/*/
+Static Function Mark()
+	Local cKey := RJE->( RJE_EVENTO + RJE_RETKEY )
+	Local nPos := aScan( aMarkRJE, { |x| ( x[1] == cKey ) } )
+
+	If oBrowse:IsMark()
+		Aadd( aMarkRJE, { RJE_EVENTO + RJE_RETKEY, RJE_EVENTO, RJE_RETKEY, RJE_TCK, RJE_XML } )
+		Aadd( _Mark, oBrowse:At() )
+	Else
+		If ( nPos > 0 )
+			nLastSize := Len( aMarkRJE )
+
+			aDel( aMarkRJE, nPos )
+			aDel( _Mark, nPos )
+
+			aSize( aMarkRJE, ( nLastSize - 1 ) )
+			aSize( _Mark, ( nLastSize - 1 ) )
+		EndIF
+	EndIf
+Return
+
+
+/*/{Protheus.doc} MarkAll
+Faz a marcação de todos os registros do browse
+@author Hugo de Oliveira
+@since 30/09/2019
+@version 1.0
+/*/
+Static Function MarkAll()
+	Local nLast
+
+	oBrowse:GoBottom(.F.)
+	nLast := oBrowse:At()
+	oBrowse:GoTop()
+
+	While .T.
+		oBrowse:MarkRec()
+		If nLast == oBrowse:At() // Posição Atual do Browse
+			oBrowse:GoTop()
+			Exit
+		EndIf
+		oBrowse:GoDown()
+	EndDo
+Return

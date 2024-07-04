@@ -1,0 +1,2 @@
+Function PLSUTipTra(Linha)
+Return

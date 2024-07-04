@@ -1,0 +1,228 @@
+#include "totvs.ch"
+#include "fwmvcdef.ch"
+#include "AGRPA090.ch"
+
+/*/{Protheus.doc} AGRPA090
+Rotina de manutenção de classificação toxicológica.
+
+@author  Felipe Raposo
+@version Protheus 12
+@since   07/08/2018
+/*/
+Function AGRPA090
+
+Local cAlias  := "NCF"
+Local oBrowse := FwMBrowse():New()
+
+// Ativa browser.
+oBrowse:SetAlias(cAlias)
+oBrowse:SetDescripton(FwX2Nome(cAlias))
+oBrowse:Activate()
+
+Return
+
+
+/*/{Protheus.doc} MenuDef
+Definição do menu da rotina.
+
+@author  Felipe Raposo
+@version Protheus 12
+@since   07/08/2018
+/*/
+Static Function MenuDef
+Return FWMVCMenu('AGRPA090')  // Retorna as opções padrões de menu.
+
+
+/*/{Protheus.doc} ViewDef
+Definição da visão (view) da rotina.
+
+@author  Felipe Raposo
+@version Protheus 12
+@since   07/08/2018
+/*/
+Static Function ViewDef
+
+// Cria um objeto de modelo de dados baseado no ModelDef do fonte informado.
+Local oModel     := FWLoadModel('AGRPA090')
+
+// Cria as estruturas a serem usadas na View
+Local oStruNCF   := FWFormStruct(2, 'NCF')
+
+// Cria o objeto de View
+Local oView      := FWFormView():New()
+
+// Define qual Modelo de dados será utilizado
+oView:SetModel(oModel)
+
+// Define que a view será fechada após a gravação dos dados no OK.
+oView:bCloseOnOk := {|| .T.}
+
+// Não exibe mensagem de registro gravado.
+oView:ShowUpdateMsg(.F.)
+
+// Adiciona no nosso view um controle do tipo formulário (antiga enchoice).
+oView:AddField('VIEW_NCF', oStruNCF, 'NCFMASTER')
+
+// Cria um "box" horizontal para receber o elemento da view.
+oView:CreateHorizontalBox('DIV_CAB', 100)  // 100% da tela para o formulário.
+
+// Relaciona o identificador (ID) da view com o "box" para exibição.
+oView:SetOwnerView('VIEW_NCF', 'DIV_CAB')
+
+// Adiciona botão.
+oView:AddUserButton(STR0001, "", {|oModel| SelCor(oModel, oView)})  // "Seleciona cor"
+
+Return oView
+
+
+/*/{Protheus.doc} ModelDef
+Definição do modelo (model) da rotina.
+
+@author  Felipe Raposo
+@version Protheus 12
+@since   07/08/2018
+/*/
+Static Function ModelDef
+
+// Cria as estruturas a serem usadas no modelo de dados.
+Local oStruNCF   := FWFormStruct(1, 'NCF')
+Local oModel
+
+// Valida a cor digitada manualmente pelo usuário.
+oStruNCF:SetProperty("NCF_COR", MODEL_FIELD_VALID, {|| VldCor(oModel)})
+
+// Cria o objeto do modelo de dados.
+oModel := MPFormModel():New('AGRPA090', /*bPreValid*/, /*bPosValid*/, /*bCommitPos*/, /*bCancel*/)
+oModel:SetVldActivate({|oModel| ValidPre(oModel)})
+
+// Adiciona a descrição do modelo de dados.
+oModel:SetDescription(FwX2Nome("NCF"))
+
+// Adiciona ao modelo um componente de formulário.
+oModel:AddFields('NCFMASTER', /*cOwner*/, oStruNCF, /*bPreValid*/, /*bPosValid*/, /*bLoad*/)
+oModel:GetModel('NCFMASTER'):SetDescription(FwX2Nome("NCF"))
+
+// Configura chave primária.
+oModel:SetPrimaryKey({"NCF_FILIAL", "NCF_CODIGO"})
+
+// Retorna o Modelo de dados.
+Return oModel
+
+
+/*/{Protheus.doc} ValidPre
+
+@author  Felipe Raposo
+@version P12.1.17
+@since   04/10/2018
+/*/
+Static Function ValidPre(oModel)
+
+Local lRet       := .T.
+Local nOper      := oModel:getOperation()
+Local cQuery     := ""
+Local cAliasSQL  := ""
+
+// Se for exclusão de registro, verifica se não está em uso por outra tabela.
+If nOper == MODEL_OPERATION_DELETE
+	// Valida se o registro não foi usado.
+	cQuery := "select min(NCR.R_E_C_N_O_) NCRRecNo " + CRLF
+	cQuery += "from " + RetSqlName('NCR') + " NCR " + CRLF
+	cQuery += "where NCR.D_E_L_E_T_ = '' " + CRLF
+	cQuery += "and NCR.NCR_FILIAL = '" + xFilial("NCR") + "' " + CRLF
+	cQuery += "and NCR.NCR_CLATOX = '" + NCF->NCF_CODIGO + "' " + CRLF
+	cAliasSQL := MPSysOpenQuery(cQuery)
+
+	// Verifica se encontrou algum registro.
+	If (cAliasSQL)->NCRRecNo > 0
+		Help(" ", 1, "REGUSADO")
+		lRet := .F.
+	Endif
+	(cAliasSQL)->(dbCloseArea())
+EndIf
+
+Return lRet
+
+
+/*/{Protheus.doc} SelCor
+Abre tela para usuário selecionar cor.
+
+@author  Felipe Raposo
+@version P12
+@since   29/08/2018
+/*/
+Static Function SelCor(oModel, oView)
+
+Local nOperation := oModel:GetOperation()
+Local aColor     := NGHEXRGB(oModel:GetModel('NCFMASTER'):GetValue("NCF_COR"))
+Local oDialog, oTColor, oGrBut, bOK, bCancel
+
+// Monta tela de contatos para o usuário selecionar.
+DEFINE MSDIALOG oDialog TITLE STR0001 FROM 0, 0 TO 300, 580 PIXEL Style DS_MODALFRAME  // "Seleciona cor"
+
+// Objeto para usuário selecionar a cor.
+oTColor := tColorTriangle():Create(oDialog)
+oTColor:SetColorIni(RGB(aColor[1], aColor[2], aColor[3]))
+oTColor:Align := CONTROL_ALIGN_ALLCLIENT
+
+// Grupo dos botões.
+oGrBut := TScrollBox():New(oDialog, 0, 0, 15, 0, .F., .F., .T.)
+oGrBut:Align := CONTROL_ALIGN_BOTTOM
+
+bCancel := {|| oDialog:End()}
+If nOperation == MODEL_OPERATION_INSERT .or. nOperation == MODEL_OPERATION_UPDATE
+	bOK := {|| aColor := ColorToRGB(oTColor:RetColor()), oDialog:End()}
+	tButton():New(2, 216, STR0002, oGrBut, bOK,     35, 10,,,, .T.)  // "Ok"
+	tButton():New(2, 253, STR0003, oGrBut, bCancel, 35, 10,,,, .T.)  // "Cancelar"
+Else
+	oTColor:lReadOnly := .T.
+	tButton():New(2, 253, STR0004, oGrBut, bCancel, 35, 10,,,, .T.)  // "Fechar"
+Endif
+
+aColor := {}
+ACTIVATE MSDIALOG oDialog centered
+
+If !empty(aColor)
+	oModel:GetModel('NCFMASTER'):SetValue("NCF_COR", DecToHex(aColor[1], 2) + DecToHex(aColor[2], 2) + DecToHex(aColor[3], 2))
+	oView:SetModified(.T.)
+Endif
+
+Return
+
+
+/*/{Protheus.doc} VldCor
+Valida se a cor digitada pelo usuário é válida.
+
+@author  Felipe Raposo
+@version P12
+@since   29/08/2018
+/*/
+Static Function VldCor(oModel)
+
+Local lRet       := .F.
+Local cCor       := AllTrim(upper(oModel:GetModel('NCFMASTER'):GetValue('NCF_COR')))
+Local cChar      := ""
+Local nX
+
+If len(cCor) = 6
+	lRet := .T.
+	For nX := 1 to len(cCor)
+		cChar := SubStr(cCor, nX, 1)
+		If cChar < "0" .or. cChar > "F"
+			lRet := .F.
+			Exit
+		Endif
+	Next nX
+Endif
+
+Return lRet
+
+
+/*/{Protheus.doc} IntegDef
+Função para integração via Mensagem Única Totvs.
+
+@author  Felipe Raposo
+@version P12
+@since   29/08/2018
+/*/
+Static Function IntegDef(cXml, cTypeTrans, cTypeMsg, cVersion, cTransac)
+Return AGRPI090(cXml, cTypeTrans, cTypeMsg, cVersion, cTransac)

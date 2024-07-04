@@ -1,0 +1,707 @@
+#INCLUDE "FINA040.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "ACADEF.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+
+Static lPmsInt := IsIntegTop(,.T.)
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o	 ³Fa040GetCC³ Autor ³ Lucas			 	    ³ Data ³ 18/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Obter os dados do Cartão de Credito.						  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Fa040GetCC()					 							  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa040GetCC(lSE1)
+	Local aArea  	 := GetArea()
+	Local nOpca  	 := 0
+	Local aSize  	 := MSADVSIZE()
+	Local cCodAdm 	 := CriaVar("FRB_CODADM")
+	Local cNumCartao := CriaVar("FRB_NUMCAR")
+	Local cNomeAdm   := CriaVar("AE_DESC")
+	Local cValidade  := Space(4)
+	Local cCodSeg 	 := CriaVar("FRB_CODSEG")
+	Local aParcelas  := {"01"}	//"02","03","04","05","06","07","08","09","10","11","12"}
+	Local cParcela   := "01"
+	Local aPicture   := Array(4)
+	Local oCbxParc
+	Local oDlgCC
+	Local aTitulos   := {}
+	
+	If Type("aTitulo2CC") != "A"
+		PRIVATE aTitulo2CC  := {} 
+	EndIf
+
+	aPicture[1] := PesqPict("FRB","FRB_CODADM", TamSX3("FRB_CODADM"))
+	aPicture[2] := PesqPict("FRB","FRB_NUMCAR", TamSX3("FRB_NUMCAR"))
+	aPicture[3] := PesqPict("SAE","AE_DESC"   , TamSX3("AE_DESC"))
+	aPicture[4] := PesqPict("FRB","FRB_CODSEG", TamSX3("FRB_CODSEG"))
+
+	dbSelectArea("FRB")
+
+	DEFINE MSDIALOG oDlgCC TITLE STR0109 From aSize[7],0 To aSize[6],aSize[5] OF oMainWnd PIXEL // "Informe Dados do Cartão de Credito"
+
+		@ 027,010 SAY STR0110	PIXEL OF oDlgCC COLOR CLR_HBLUE // "Administradora"
+		@ 025,060 MSGET cCodAdm F3 "SAE" Picture aPicture[1] SIZE 40,08		Valid Fa040CodAdm(cCodAdm,@cNomeAdm)		PIXEL OF oDlgCC
+		@ 025,120 MSGET cNomeAdm         Picture aPicture[3] SIZE 170,08		PIXEL OF oDlgCC WHEN .F.
+
+		@ 042,010 SAY STR0111	PIXEL OF oDlgCC COLOR CLR_HBLUE // "Num. Cartão"
+		@ 040,060 MSGET cNumCartao		 Picture aPicture[2] SIZE 120,08 	Valid Fa040NumCart(cNumCartao)	PIXEL OF oDlgCC
+
+		@ 057,010 SAY STR0112   PIXEL OF oDlgCC COLOR CLR_HBLUE // "Validade"
+		@ 055,060 MSGET cValidade		 Picture "@R 99/99"	 SIZE 30,08 	Valid Fa040Valid(cValidade)		PIXEL OF oDlgCC
+
+		@ 072,010 SAY STR0113	PIXEL OF oDlgCC
+		@ 070,060 MSGET cCodSeg			 Picture aPicture[4] SIZE 30,08 Valid Fa040CodSeg()					PIXEL OF oDlgCC
+		@ 070,100 SAY STR0114	PIXEL OF oDlgCC
+
+		@ 087,010 SAY STR0115	PIXEL OF oDlgCC
+		@ 085,060 MSCOMBOBOX oCbxParc  VAR cParcela		ITEMS aParcelas SIZE 60, 54 WHEN !lSE1	PIXEL OF oDlgCC	//ON CHANGE (nMoedSubs := Val(Substr(cMoeda,1,2)))
+
+	ACTIVATE MSDIALOG oDlgCC ON INIT EnchoiceBar(oDlgCC,{|| If(fa040Ok(),(nOpca := 1,oDlgCC:End()),NIL)},{|| nOpca := 2,oDlgCC:End()})
+
+	//Gravar titulos em um array para posterior substituição.
+	If nOpca == 1
+		If lSE1
+			nPosicao := Ascan(aTitulos, { |x| x[1]+x[2]+x[3]+[4] == SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_PARCELA+SE1->E1_TIPO })
+			If nPosicao == 0
+				AADD(aTitulos,{SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,cCodAdm,cNumCartao,cValidade,cCodSeg,cParcela})
+			Else
+				aTitulos[nPosicao][1]:= SE1->E1_PREFIXO
+				aTitulos[nPosicao][2]:= SE1->E1_NUM
+				aTitulos[nPosicao][3]:= SE1->E1_PARCELA
+				aTitulos[nPosicao][4]:= SE1->E1_TIPO
+				aTitulos[nPosicao][5]:= cCodAdm
+				aTitulos[nPosicao][6]:= cNumCartao
+				aTitulos[nPosicao][7]:= cValidade
+				aTitulos[nPosicao][8]:= cCodSeg
+				aTitulos[nPosicao][9]:= cParcela
+			EndIf
+		Else
+			nPosicao := Ascan(aTitulo2CC, { |x| x[1]+x[2]+x[3]+[4] == __SUBS->E1_PREFIXO+__SUBS->E1_NUM+__SUBS->E1_PARCELA+__SUBS->E1_TIPO })
+			If nPosicao == 0
+				AADD(aTitulo2CC,{__SUBS->E1_PREFIXO,__SUBS->E1_NUM,__SUBS->E1_PARCELA,__SUBS->E1_TIPO,cCodAdm,cNumCartao,cValidade,cCodSeg,cParcela})
+			Else
+				aTitulo2CC[nPosicao][1]:= __SUBS->E1_PREFIXO
+				aTitulo2CC[nPosicao][2]:= __SUBS->E1_NUM
+				aTitulo2CC[nPosicao][3]:= __SUBS->E1_PARCELA
+				aTitulo2CC[nPosicao][4]:= __SUBS->E1_TIPO
+				aTitulo2CC[nPosicao][5]:= cCodAdm
+				aTitulo2CC[nPosicao][6]:= cNumCartao
+				aTitulo2CC[nPosicao][7]:= cValidade
+				aTitulo2CC[nPosicao][8]:= cCodSeg
+				aTitulo2CC[nPosicao][9]:= cParcela
+			EndIf
+		EndIf
+	Else
+		aTitulo2CC := {}
+	EndIf
+
+	RestArea(aArea)
+Return( If(lSE1,aTitulos,) )
+
+Function Fa040dValid()
+Return .T.
+
+Function Fa040Ok()
+Return .T.
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040CodAdm()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Validar Codigo da Administradora de Cartão de Credito.     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ ExpL1 := Fa040CodAdm(cCodAdm)	  			              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ ExpL1 -> transação efetuada com sucesso ou não			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA050	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040CodAdm( cCodAdm, cNomeAdm )
+	Local lResult := .T.
+
+	If Empty(cCodAdm)
+		MsgAlert(STR0116,STR0039)		//Informe o Codigo da Administradora !" ### Atenção
+		lResult := .F.
+	EndIf
+	If lResult
+		SAE->(dbSetOrder(1))
+		If ! SAE->(dbSeek(xFilial("SAE")+cCodAdm))
+			MsgAlert(STR0117,STR0039)	//Administradora de Cartões Invalida !" ### Atenção
+			lResult := .F.
+		Else
+			cNomeAdm := SAE->AE_DESC
+		EndIf
+	EndIf
+Return (lResult)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040NumCart()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Verifica se o número do cartão digitado é válido.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ ExpL1 := Fa040NumCart(cNumCartao)  			              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ ExpL1 -> transação efetuada com sucesso ou não			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040NumCart( cNumCartao )
+	Local lResult := .T.
+	If Empty(cNumCartao)
+		MsgAlert(STR0118,STR0039)	//"É obrigatório o preenchimento do número do cartão !" ### Atenção
+		lResult := .F.
+	ElseIf Len(AllTrim(cNumCartao))>19
+		MsgAlert(STR0119,STR0039)	//"Número do Cartão maior que 19 dígitos !" ### Atenção
+		lResult := .F.
+	EndIf
+Return (lResult)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040dValid()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Verifica se o número do cartão digitado é válido.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ ExpL1 := Fa040dValid(cValid)		  			              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ ExpL1 -> transação efetuada com sucesso ou não			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040Valid( cValid )
+	Local lResult := .T.
+	Local dValid  := CTOD("")
+
+	//LastDay(dDataBase)+"/"+Subs(cValid,1,2)+"/"+Subs(cValid,3,2)
+
+	If Empty(cValid)
+		MsgAlert(STR0120,STR0039)	//"É obrigatório o preenchimento do validade do cartão !"  ### Atenção
+		lResult := .F.
+	EndIf
+	If lResult
+		//Consistir mes e ano de validade do cartão.
+		If Subs(cValid,1,2) < "01" .or. Subs(cValid,1,2) > "12"
+			MsgAlert(STR0121,STR0039)	//"Mes Informado invalido !"  ### Atenção
+			lResult := .F.
+		EndIf
+		If "20"+Subs(cValid,3,2) < StrZero(Year(dDataBase),4)
+			MsgAlert(STR0122,STR0039)	//"Ano Informado invalido !" ### Atenção
+			lResult := .F.
+		EndIf
+	EndIf
+	If lResult
+		//Consitir mes no mesmo ano da dDataBase.
+		If Subs(cValid,1,2) < StrZero(Month(dDatabase),2) .and. "20"+Subs(cValid,3,2) == StrZero(Year(dDataBase),4)
+			MsgAlert(STR0123,STR0039)	//"Cartão com validade vencida !" ### Atenção
+			lResult := .F.
+		EndIf
+		//Consitir último dia de validade do cartão, quando mes igual a dDataBase.
+		If Subs(cValid,1,2) == StrZero(Month(dDatabase),2)
+			dValid := Subs(DTOC(LastDay(dDataBase)),1,2)
+			dValid += "/"+Subs(cValid,1,2)+"/"+Subs(cValid,3,2)
+			dValid := CTOD(dValid)
+			If dValid < dDataBase
+				MsgAlert(STR0124,STR0039)	//"Cartão com validade vencida !" ### Atenção
+				lResult := .F.
+			EndIf
+		EndIf
+	EndIf
+Return (lResult)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040CodSeg()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Verifica se o número do cartão digitado é válido.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ ExpL1 := Fa040CodSeg(cCodSeg)	  			              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ ExpL1 -> transação efetuada com sucesso ou não			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040CodSeg( cCodSeg )
+	Local lResult := .T.
+
+	If Empty(cCodSeg)
+		lResult := .T.
+	EndIf
+Return (lResult)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040Tit2CC()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Substituir títulos por títulos contra a Administradora de  ³±±
+±±³          ³ Cartão de Credito, mantendo o titulo original baixado.     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Fa040Tit2CC()          						              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ Null                                          			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA050	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040Tit2CC()
+	Local aArea 	:= GetArea()
+	Local lDivide   := GetNewPar("MV_DIVTCC","1") == "1"
+	Local lEdita    := GetNewPar("MV_EDITCC","1") == "2"
+	LOCAL cIndex    := ""
+	LOCAL cChave    := ""
+	Local lPadrao   := .F.
+	Local cPadrao   := "503"
+	Local cArquivo  := ""
+	Local nHdlPrv   := 0
+	Local nTotal    := 0
+	Local lDigita
+	Local nRecSubs  := 0
+	Local nRecSE1 := SE1->(RECNO())
+	Local nTotalParc := 0.00
+	Local nValTotal  := SE1->E1_VALOR
+	Local nParcela   := 1
+	Local nValorSE1  := 0.00
+	Local nCount     := 0
+	Local nReg       := SE1->(RecNo())
+	Local lSubsSuces := .F.
+	Local nC         := 0
+	Local aCampos    := {}
+	Local aChaveLbn  := {}
+	Local cParcela 	 := GetMV("MV_1DUP")
+	Local lF040Prov  := ExistBlock("F040PROV")
+
+	VALOR 		:= 0
+	VLRINSTR 	:= 0
+
+	If Len(aTitulo2CC) > 0
+
+		For nCount := 1 To Len(aTitulo2CC)
+
+			dbSelectArea("SE1")
+			dbSetOrder(1)
+			dbSeek(xFilial("SE1")+aTitulo2CC[nCount][1]+aTitulo2CC[nCount][2]+aTitulo2CC[nCount][3]+aTitulo2CC[nCount][4])
+
+			If lDivide .and. aTitulo2CC[nCount][09] <> "01"
+				nTotalParc := Val(aTitulo2CC[nCount][09])
+			Else
+				nTotalParc := 1
+			EndIf
+
+			nValTotal  := SE1->E1_VALOR
+			nValorSE1  := nValTotal/nTotalParc
+
+			For nParcela := 1 To nTotalParc
+				nOpc:=3			 //Inclusao
+				lSubst:=.T.
+				lSubsSuces := .F.
+				If lEdita    	//Abre Enchoice para editar os títulos a Substituir...
+					lSubsSuces := FA040Inclu("SE1",nReg,nOpc,,,lSubst) == 1
+					//Ajustar Tipo do Título.
+					RecLock("SE1",.F.)
+					E1_TIPO    := "CC"
+					MsUnLock()
+				Else
+					aCampos := {}
+					For nC := 1 To SE2->(FCount())
+						If SE1->(FieldName(nC)) == "E1_PARCELA"
+							AADD(aCampos,{SE1->(FieldName(nC)),cParcela})
+						ElseIf SE1->(FieldName(nC)) == "E1_TIPO"
+							AADD(aCampos,{SE1->(FieldName(nC)),"CC"})
+						Else
+							AADD(aCampos,{SE1->(FieldName(nC)),SE1->(FieldGet(nC))})
+						EndIf
+					Next nC
+					RecLock("SE1",.T.)
+					For nC := 1 To Len(aCampos)
+						FieldPut(nC,aCampos[nC,2])
+					Next nC
+					E1_VALOR 	:= nValorSe1
+					E1_SALDO 	:= E1_VALOR
+					E1_VALLIQ   := E1_VALOR
+					If nParcela > 1
+						E1_PARCELA := Soma1(cParcela)
+					EndIf
+					If nParcela == nTotalParc
+						E1_VALOR  += (nValTotal-(E1_VALOR*nTotalParc))
+						E1_SALDO  := E1_VALOR
+						E1_VALLIQ := E1_VALOR
+					EndIf
+					MsUnLock()
+					lSubsSuces := .T.
+				EndIf
+				If lSubsSuces
+					//Incluir registros na tabela de Controle de Títulos a pagar por Cartão de Credito
+					dbSelectArea("FRB")
+					RecLock("FRB",.T.)
+					FRB_FILIAL := xFilial("FRB")
+					FRB_DATTEF := dDataBase
+					FRB_HORTEF := Subs(Time(),1,5)
+					FRB_DOCTEF := "" //Reservado para implementação futura quando localizar e integrar o SigaLoja no Equador
+					FRB_AUTORI := "" //Idem.
+					FRB_NSUTEF := "" //Idem.
+					FRB_STATUS := "01"
+					FRB_MOTIVO := ""
+					FRB_TIPCAR := "CC"
+					FRB_PREFIX := SE1->E1_PREFIXO
+					FRB_NUM	   := SE1->E1_NUM
+					FRB_PARCEL := SE1->E1_PARCELA
+					FRB_TIPO   := SE1->E1_TIPO
+					FRB_CODADM := aTitulo2CC[nCount][5]
+					FRB_NUMCAR := aTitulo2CC[nCount][6]
+					FRB_DATVAL := aTitulo2CC[nCount][7]
+					FRB_CODSEG := aTitulo2CC[nCount][8]
+					FRB_NUMPAR := nParcela
+					FRB_SEQOPE := "1"
+					FRB_FORMA  := "CC"	//Substituir por SE4->E4_FORMA
+					FRB_VALOR  := SE1->E1_VALOR
+					FRB_CLIENT := SE1->E1_CLIENTE
+					FRB_LOJA   := SE1->E1_LOJA
+					If cPaisLoc == "EQU"
+						FRB->FRB_PREORI := aTitulo2CC[nCount][1]
+						FRB->FRB_NUMORI := aTitulo2CC[nCount][2]
+						FRB->FRB_PARORI := aTitulo2CC[nCount][3]
+						FRB->FRB_TIPORI := aTitulo2CC[nCount][4]
+					EndIf
+					MsUnLock()
+				EndIf
+				lSubst:=.F.
+				//Só contabilizar após a gravação da última parcela do Cartão de Credito.
+				If nParcela <> nTotalParc
+					Loop
+				EndIf
+				If ( lPadrao )
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Inicializa Lancamento Contabil                                   ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					nHdlPrv := HeadProva( cLote,;
+										"FINA040" /*cPrograma*/,;
+										Substr(cUsuario,7,6),;
+										@cArquivo )
+				EndIf
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Inicializa a gravacao dos lancamentos do SIGAPCO          ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				PcoIniLan("000001")
+
+				If ! lF040Auto
+					dbSelectArea("__SUBS")
+					dbGoTop()
+					While !Eof()
+						If E1_OK == cMarca
+							nRecSubs := RecNo()
+							dbSelectArea("SE1")
+							dbGoto(nRecSubs)
+							If ( lPadrao )
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Prepara Lancamento Contabil                                      ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil
+									aAdd( aFlagCTB, {"E1_LA", "S", "SE1", SE1->( Recno() ), 0, 0, 0} )
+								Endif
+								nTotal += DetProva( nHdlPrv,;
+													cPadrao,;
+													"FINA040" /*cPrograma*/,;
+													cLote,;
+													/*nLinha*/,;
+													/*lExecuta*/,;
+													/*cCriterio*/,;
+													/*lRateio*/,;
+													/*cChaveBusca*/,;
+													/*aCT5*/,;
+													/*lPosiciona*/,;
+													@aFlagCTB,;
+													/*aTabRecOri*/,;
+													/*aDadosProva*/ )
+							EndIf
+
+							dbSelectArea("SE1")
+							dbSetOrder(1)
+							If dbSeek(xFilial("SE1")+aTitulo2CC[nCount][1]+aTitulo2CC[nCount][2]+aTitulo2CC[nCount][3]+aTitulo2CC[nCount][4])
+
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualizacao dos dados do Modulo SIGAPMS    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								If IntePms().AND. !lPmsInt
+									PmsWriteFI(2,"SE1")	//Estorno
+									PmsWriteFI(3,"SE1")	//Exclusao
+								EndIF
+
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Chama a integracao com o SIGAPCO antes de apagar o titulo ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								PcoDetLan("000001","01","FINA040",.T.)
+
+								If lF040Prov
+									ExecBlock("F040PROV",.F.,.F.)
+								Endif
+								If  SE1->E1_FLUXO == 'S'
+									AtuSldNat(SE1->E1_NATUREZ, SE1->E1_VENCREA, SE1->E1_MOEDA, "2", "R", SE1->E1_VALOR, SE1->E1_VLCRUZ, "-",,FunName(),"SE1",SE1->(Recno()),0)
+								Endif
+								cChave := xFilial("SE1")+"|"+SE1->E1_PREFIXO+"|"+SE1->E1_NUM+"|"+SE1->E1_PARCELA+"|"+;
+											SE1->E1_TIPO+"|"+SE1->E1_CLIENTE+"|"+SE1->E1_LOJA
+								FINDELFKs(cChave,"SE1")
+
+								Reclock("SE1",.F.,.T.)
+								dbDelete()
+								MsUnlock()
+							EndIf
+						Endif
+						dbSelectArea("__SUBS")
+						dbSkip()
+					Enddo
+				Else
+					dbSelectArea("__SUBS")
+					dbGoTop()
+					While !Eof()
+						If E1_OK == cMarca
+							BEGIN TRANSACTION
+								If ( lPadrao )
+									nTotal+=DetProva(nHdlPrv,cPadrao,"FINA040",cLote)
+								EndIf
+								// Caso tenha integracao com PMS para alimentar tabela AFT
+								If IntePms().AND. !lPmsInt
+									IF PmsVerAFT()
+										aGravaAFT := PmsIncAFT()
+									Endif
+								Endif
+
+								nRecSubs := __SUBS->(Recno())
+								dbSelectArea("SE1")
+								dbGoto(nRecSubs)
+								dbSelectArea("SE1")
+								dbSetOrder(1)
+								If dbSeek(xFilial("SE1")+aTitulo2CC[nCount][1]+aTitulo2CC[nCount][2]+aTitulo2CC[nCount][3]+aTitulo2CC[nCount][4])
+
+									//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									//³ Apaga o lacamento gerado para a conta orcamentaria - SIGAPCO ³
+									//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+									PcoDetLan("000001","01","FINA040",.T.)
+
+									If SE1->E1_FLUXO == 'S'
+										AtuSldNat(SE1->E1_NATUREZ, SE1->E1_VENCREA, SE1->E1_MOEDA, "2", "R", SE1->E1_VALOR, SE1->E1_VLCRUZ, "-",,FunName(),"SE1",SE1->(Recno()),0)
+									Endif
+									cChave := xFilial("SE1")+"|"+SE1->E1_PREFIXO+"|"+SE1->E1_NUM+"|"+SE1->E1_PARCELA+"|"+;
+												SE1->E1_TIPO+"|"+SE1->E1_CLIENTE+"|"+SE1->E1_LOJA
+									FINDELFKs(cChave,"SE1")
+
+									RecLock("SE1",.F.,.T.)
+									SE1->(dbDelete())
+									MsUnlock()
+								EndIf
+							END TRANSACTION
+							//Se o registro não foi gerado através do botão de integração do PMS na tela de titulos a receber do financeiro
+							//Grava o registro na AFT com os dados obtidos na rotina PMSIncAFT()
+							If Len(aGravaAFT) > 0 .And. (!AFT->(dbSeek(aGravaAFT[1]+aGravaAFT[6]+aGravaAFT[7]+aGravaAFT[8]+aGravaAFT[9]+aGravaAFT[10]+aGravaAFT[11]+aGravaAFT[2]+aGravaAFT[3]+aGravaAFT[5])))
+								RecLock("AFT",.T.)
+								AFT->AFT_FILIAL	:= aGravaAFT[1]
+								AFT->AFT_PROJET	:= aGravaAFT[2]
+								AFT->AFT_REVISA	:= aGravaAFT[3]
+								AFT->AFT_EDT		:= aGravaAFT[4]
+								AFT->AFT_TAREFA	:= aGravaAFT[5]
+								AFT->AFT_PREFIX	:= aGravaAFT[6]
+								AFT->AFT_NUM		:= aGravaAFT[7]
+								AFT->AFT_PARCEL	:= aGravaAFT[8]
+								AFT->AFT_TIPO		:= aGravaAFT[9]
+								AFT->AFT_CLIENT	:= aGravaAFT[10]
+								AFT->AFT_LOJA		:= aGravaAFT[11]
+								AFT->AFT_VENREA	:= aGravaAFT[12]
+								AFT->AFT_EVENTO 	:= aGravaAFT[13]
+								AFT->AFT_VALOR1	:= aGravaAFT[14]
+								AFT->AFT_VALOR2	:= aGravaAFT[15]
+								AFT->AFT_VALOR3	:= aGravaAFT[16]
+								AFT->AFT_VALOR4	:= aGravaAFT[17]
+								AFT->AFT_VALOR5	:= aGravaAFT[18]
+								MsUnLock()
+							EndIf
+						Endif
+						dbSelectArea("__SUBS")
+						dbSkip()
+					Enddo
+				Endif
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Finaliza a gravacao dos lancamentos do SIGAPCO          ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				PcoFinLan("000001")
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Contabiliza a diferenca               			    ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SE1")
+				nRecSE1 := Recno()
+				dbGoBottom()
+				dbSkip()
+
+				VALOR := (nValorS - nValorSe1)
+				VLRINSTR := VALOR
+				If nTotal > 0
+					nTotal+=DetProva(nHdlPrv,cPadrao,"FINA040",cLote)
+				Endif
+				dbSelectArea("SE1")
+				dbGoTo(nRecSE1)
+				If ( lPadrao )
+					RodaProva(nHdlPrv,nTotal)
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Envia para Lancamento Contabil					    ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					lDigita := (mv_par01 == 1)
+					If UsaSeqCor()
+						aDiario := {}
+						aDiario := {{"SE1",SE1->(recno()),SE1->E1_DIACTB,"E1_NODIA","E1_DIACTB"}}
+					Else
+						aDiario := {}
+					EndIf
+					cA100Incl(cArquivo,nHdlPrv,3,cLote,lDigita,.F.,,,,,,aDiario)
+				EndIf
+			Next nParcela
+		Next nCount
+
+		If !Empty(aChaveLbn)
+			aEval(aChaveLbn, {|e| UnLockByName(e,.T.,.F.) } ) // Libera Lock
+		Endif
+
+		VALOR    := 0
+		VLSINSTR := 0
+		If Select("__SUBS") > 0
+			dbSelectArea("__SUBS")
+			dbCloseArea()
+			Ferase(cIndex+OrdBagExt())
+		Endif
+		dbSelectArea("SE1")
+		If ! lF040Auto
+			RetIndex("SE1")
+			dbGoto(nReg)
+		EndIf
+	EndIf
+
+	RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040GrvFRB()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Gravar titulos do Tipo "CC" na tabela FRB para controle das³±±
+±±³          ³ das operações a receber através de Cartão de Credito.      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Fa040GrvFRB()          						              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ Null                                          			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040GrvFRB(aTituloCC)
+	Local aArea   := GetArea()
+	Local lAppend := .F.
+
+	If Len(aTituloCC) > 0
+		//Incluir ou alterar registros na tabela de Controle de Títulos a pagar por Cartão de Credito
+		dbSelectArea("FRB")
+		dbSetOrder(1)
+		If !dbSeek(xFilial("FRB")+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_PARCELA+SE1->E1_TIPO+SE1->E1_CLIENTE+SE1->E1_LOJA)
+			lAppend := .T.
+		Else
+			lAppend := .F.
+		EndIf
+		RecLock("FRB",lAppend)
+		FRB_FILIAL := xFilial("FRB")
+		FRB_DATTEF := dDataBase
+		FRB_HORTEF := Subs(Time(),1,5)
+		FRB_DOCTEF := "" //Reservado para implementação futura quando localizar e integrar o SigaLoja no Equador
+		FRB_AUTORI := "" //Idem.
+		FRB_NSUTEF := "" //Idem.
+		FRB_STATUS := "01"
+		FRB_MOTIVO := ""
+		FRB_TIPCAR := "CC"
+		FRB_PREFIX := SE1->E1_PREFIXO
+		FRB_NUM	   := SE1->E1_NUM
+		FRB_PARCEL := SE1->E1_PARCELA
+		FRB_TIPO   := SE1->E1_TIPO
+		FRB_CODADM := aTituloCC[Len(aTituloCC)][5]
+		FRB_NUMCAR := aTituloCC[Len(aTituloCC)][6]
+		FRB_DATVAL := aTituloCC[Len(aTituloCC)][7]
+		FRB_CODSEG := aTituloCC[Len(aTituloCC)][8]
+		FRB_NUMPAR := 1
+		FRB_SEQOPE := "1"
+		FRB_FORMA  := "CC"	//Substituir por SE4->E4_FORMA
+		FRB_VALOR  := SE1->E1_VALOR
+		FRB_CLIENT := SE1->E1_CLIENTE
+		FRB_LOJA   := SE1->E1_LOJA
+		If cPaisLoc == "EQU"
+		FRB->FRB_PREORI := aTituloCC[Len(aTituloCC)][1]
+		FRB->FRB_NUMORI := aTituloCC[Len(aTituloCC)][2]
+		FRB->FRB_TIPORI := aTituloCC[Len(aTituloCC)][3]
+		FRB->FRB_PARORI := aTituloCC[Len(aTituloCC)][4]
+		EndIf
+		MsUnLock()
+	EndIf
+
+	RestArea(aArea)
+Return
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Função    ³ Fa040DelFRB()³ Autor ³ José Lucas  	    ³ Data ³ 20/08/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descrição ³ Apagar titulos do Tipo "CC" na tabela FRB para controle    ³±±
+±±³          ³ das operações a receber através de Cartão de Credito.      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe	 ³ Fa040DelFRB()          						              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorna	 ³ Null                                          			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ FINA040	 												  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+*/
+Function Fa040DelFRB(aTituloCC)
+	Local aArea   := GetArea()
+
+	//Excluir registros na tabela de Controle de Títulos a pagar por Cartão de Credito
+	FRB->(dbSetOrder(1))
+	If FRB->(dbSeek(xFilial("FRB")+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_PARCELA+SE1->E1_TIPO+SE1->E1_CLIENTE+SE1->E1_LOJA))
+		If FRB->FRB_STATUS == "01"	//Em analise
+			RecLock("FRB",.F.)
+			dbDelete()
+			MsUnLock()
+		EndIf
+	EndIf
+
+	RestArea(aArea)
+Return

@@ -1,0 +1,3989 @@
+#INCLUDE "FINA250.ch"
+#INCLUDE "PROTHEUS.CH"
+#include "Topconn.ch"
+#INCLUDE "Dbstruct.ch"
+
+#DEFINE CKEYPAI 1 
+#DEFINE CPRFPAI 2 
+#DEFINE CNUMPAI 3 
+#DEFINE CPARPAI 4 
+#DEFINE CTIPPAI 5 
+#DEFINE CFORCLI 6 
+#DEFINE CLOJPAI 7
+#DEFINE NMAXRELIQ 240000 
+
+STATIC __lBlind	 	:= IsBlind()
+STATIC __oHRsted	:= NIL
+STATIC __oTHsh		:= NIL
+STATIC __oTmpFI		:= NIL
+STATIC __oFITMP		:= NIL
+STATIC __oFIAXTMP	:= NIL
+STATIC __oQryTmp	:= NIL
+STATIC __oQryTmpA	:= NIL
+STATIC __oQryTmpB	:= NIL
+STATIC __oQryTmpC	:= NIL
+STATIC __oQryTmpD	:= NIL
+STATIC __oTmpRoot	:= NIL
+STATIC __oQryProc	:= NIL
+STATIC __oQryPrcL	:= NIL
+STATIC __nQtdeMax	:= 0
+STATIC __nAuxParc	:= 0
+STATIC __nTamPar	:= NIL
+STATIC __cIdProc 	:= '000000'
+STATIC __cIdAnt		:= ''
+STATIC __cParc		:= ''
+STATIC __cRetAls	:= ''
+STATIC __cParcPai	:= ""
+STATIC __lPLSFN250 	:= .F.
+STATIC __lMNivel	:= .F.
+STATIC __lContinue	:= .T.
+STATIC __lProcess	:= .F.
+STATIC __nRecPai	:= 0
+STATIC __nQtdeProc	:= 0
+STATIC __cNivel		:= "0"
+STATIC __aFatImpr	:= {}
+STATIC __cAliaTmp	:= ""
+STATIC __cAlsNxt	:= ""
+STATIC __cCpoIns	:= ""
+STATIC __cCampos	:= ""
+STATIC __lTmpCls	:= .F.
+STATIC __lBorE		:= .F.
+STATIC __cCposAux   := ""
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FinA250
+Programa de Consulta a Rastreamento Financeiro
+
+@param nPosArotina - Processo a ser executado (posição da aRotina)
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FinA250(nPosArotina)
+
+Local lPanelFin := IsPanelFin()
+Local oDlg
+Local oPanel
+Local oFont1
+Local oSay1
+Local oSay2
+Local oBtn1
+Local oBtn2
+Local oBtn3
+Local oBtn4
+Local nOpca		:= 0
+
+PRIVATE nRadio
+
+DEFAULT nPosArotina := 0
+
+While .T.
+
+	__lProcess	:= .F.
+	nOpca := 0
+	IF !lPanelFin
+		Define MsDialog oDlg TITLE (STR0010 + " - " + STR0044) From 0, 0 TO 180,480 PIXEL
+		oFont1 	:= TFont():New("Arial",, -12, .T., .T.,,,,, )
+		oPanel  := TPanel():New(0,0,,oDlg,,,,,,240,90,.F.,.F.)
+
+		oSay1 := TSay():New( 10, 15, { || STR0051 }, oPanel,, oFont1 ,,,, .T., , ) 
+		oBtn1 := TButton():New( 25,  30, STR0042, oPanel,{|| nOpca := 1, nRadio := 1, oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+		oBtn2 := TButton():New( 25, 130, STR0043, oPanel,{|| nOpca := 1, nRadio := 2, oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+
+		oSay2 := TSay():New( 50, 15, { || STR0052 }, oPanel,, oFont1 ,,,, .T., , ) 
+		oBtn3 := TButton():New( 65,  30, STR0042, oPanel,{|| nOpca := 1, nRadio := 3, oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+		oBtn4 := TButton():New( 65, 130, STR0043, oPanel,{|| nOpca := 1, nRadio := 4, oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+
+		ACTIVATE MSDIALOG oDlg CENTERED
+	Endif
+
+	If nOpca == 1
+		If nRadio == 1 .or. nRadio == 2
+			Fin250Rec(nPosArotina, nRadio == 2) 
+			If lPanelFin
+				Exit
+			EndIf
+		ElseIf nRadio == 3 .or. nRadio == 4
+			Fin250Pag(nPosArotina, nRadio == 4)
+			If lPanelFin
+				Exit
+			Endif
+		Endif
+	Else
+		Exit
+	EndIf
+EndDo
+
+Return
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}Fin250Rec
+Programa de Consulta a Rastreamento Financeiro - Receber
+
+@param nPosArotina - Processo a ser executado (posição da aRotina)
+@param lProcess    - Rastreio por processo
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function Fin250Rec(nPosArotina, lProcess)
+
+PRIVATE aRotina := MenuDef()
+PRIVATE cCadastro := STR0004 //"Consulta Rastreamento Financeiro - C.Receber"
+
+DEFAULT lProcess	:= .F.
+
+__lProcess	:= lProcess
+
+If FwIsInCallStack("FA280VISUA")
+	PergProcs("FIN040", "MV_PAR06")
+EndIf
+
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+	dbSelectArea("SE1")
+	bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+	Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+Else
+	mBrowse( 6, 1,22,75,"SE1",,,,,, Fa040Legenda("SE1"))
+Endif
+
+Return
+
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}Fin250Pag
+Programa de Consulta a Rastreamento Financeiro - Pagar
+
+@param nPosArotina - Processo a ser executado (posição da aRotina)
+@param lProcess    - Rastreio por processo
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function Fin250Pag(nPosArotina, lProcess)
+
+PRIVATE aRotina := MenuDef()
+PRIVATE cCadastro := STR0005 //"Consulta Rastreamento Financeiro - C.Pagar"
+
+DEFAULT lProcess	:= .F.
+
+__lProcess	:= lProcess
+
+If FwIsInCallStack("FA050VISUA")
+	PergProcs("FIN050", "MV_PAR12")
+EndIf
+
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+	dbSelectArea("SE2")
+	bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+	Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+Else
+	mBrowse( 6, 1,22,75,"SE2",,,,,, Fa040Legenda("SE2"))
+Endif
+
+Return
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}F250Cons
+Rotina de Consulta a Rastreamentos Financeiros
+
+@param cAlias - Alias inicial para o processo de consulta de rastreamento (SE1 ou SE2)
+@param nReg	  - Registro posicionado na SE1 ou SE2
+@param nOpc	  - Opção de processamento
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function F250Cons( cAlias, nReg, nOpc )
+
+Local cAliasRst	:= If( cAlias == "SE1", "FI7", "FI8" )
+Local aArea		:= GetArea()
+Local aButtons	:= {}
+Local aPosEnch	:= {}
+Local aTitPai[7]
+Local oDlg
+Local oSplitter
+Local oSize
+Local nTop
+Local nLeft
+Local nBottom
+Local nRight
+Local oTree 	As object
+Local cLabTit	:= STR0035 // "Filial | Prefixo | Número | Parcela | Tipo" 
+Local cLabFil	:= STR0036 // "Nome da Filial"
+Local cLabClFo	:= If( cAlias == "SE1", STR0039, STR0040 ) // "Cliente|Loja|Nome" # "Fornecedor|Loja|Nome"
+Local bAbreTit	:= { || FWMsgRun(, { || F250Click( oTree:GetCargo(), oTree:GetPrompt(.T.) ) }, STR0053, STR0054) } //"Aguarde... Carregando dados do processo..."
+Local lRet		:= .T.
+Local lMainFunc	:= FwIsInCallStack("FINA740") .OR. FwIsInCallStack("FINA750")
+
+Private aGets	:= {}
+Private aTela	:= {}
+
+FiniStatic(lMainFunc)
+
+If lMainFunc
+	lRet := F250Tela(cAlias)
+Endif
+
+If lRet
+	AAdd( aButtons, { "PMSCOLOR", { || FA250Legen( cAlias, nReg ) }, STR0006, STR0006 } ) //"Legenda"###"Legenda"
+
+	DbSelectArea(cAlias)
+	If cAlias == "SE1"
+		aTitPai[CPRFPAI] := SE1->E1_PREFIXO
+		aTitPai[CNUMPAI] := SE1->E1_NUM
+		aTitPai[CPARPAI] := SE1->E1_PARCELA
+		aTitPai[CTIPPAI] := SE1->E1_TIPO
+		aTitPai[CFORCLI] := SE1->E1_CLIENTE
+		aTitPai[CLOJPAI] := SE1->E1_LOJA
+		aTitPai[CKEYPAI] := xFilial(cAlias) + aTitPai[CPRFPAI] + aTitPai[CNUMPAI] + aTitPai[CPARPAI] + aTitPai[CTIPPAI] + aTitPai[CFORCLI] + aTitPai[CLOJPAI]
+	Else
+		aTitPai[CPRFPAI] := SE2->E2_PREFIXO
+		aTitPai[CNUMPAI] := SE2->E2_NUM
+		aTitPai[CPARPAI] := SE2->E2_PARCELA
+		aTitPai[CTIPPAI] := SE2->E2_TIPO
+		aTitPai[CFORCLI] := SE2->E2_FORNECE
+		aTitPai[CLOJPAI] := SE2->E2_LOJA    
+		aTitPai[CKEYPAI] := xFilial(cAlias) + aTitPai[CPRFPAI] + aTitPai[CNUMPAI] + aTitPai[CPARPAI] + aTitPai[CTIPPAI] + aTitPai[CFORCLI] + aTitPai[CLOJPAI]
+	EndIf
+
+	__cParcPai := aTitPai[CPARPAI]
+
+	RegToMemory(cAlias, .F., .F.)
+
+	// Calcula as dimensoes dos objetos
+	oSize := FwDefSize():New( .T. ) // Com enchoicebar
+	oSize:lLateral := .F.  // Calculo vertical
+	oSize:AddObject( "ENCHOICE", 100, 130, .T., .T. ) // Adiciona enchoice
+	oSize:AddObject( "GETDADOS", 100, 320, .T., .T. ) // Adiciona GetDados
+	oSize:Process()
+
+	nTop    := oSize:aWindSize[1]
+	nLeft   := oSize:aWindSize[2]
+	nBottom := oSize:aWindSize[3]
+	nRight  := oSize:aWindSize[4]
+
+	DEFINE MSDIALOG oDlg TITLE STR0010 From nTop,nLeft To nBottom,nRight OF oMainWnd PIXEL //"Rastreamento"
+	oDlg:lMaximized := .T.
+	oSplitter := tSplitter():New(0, 0, oDlg, 0, 0, 1)
+	oSplitter:Align := CONTROL_ALIGN_ALLCLIENT
+
+	// MSMGET - Dados do titulo gerador do desdobramento
+	aPosEnch := {	oSize:GetDimension("ENCHOICE", "LININI"),;
+					oSize:GetDimension("ENCHOICE", "COLINI"),;
+					oSize:GetDimension("ENCHOICE", "LINEND"),;
+					oSize:GetDimension("ENCHOICE", "COLEND")}
+	oEnch := MsMGet():New(cAlias, nReg, nOpc,, "AC",,, aPosEnch,,,,,, oSplitter)
+
+	oTree:= dbTree():New(oSize:GetDimension("GETDADOS", "LININI"), oSize:GetDimension("GETDADOS", "COLINI"),;
+						oSize:GetDimension("GETDADOS", "LINEND"), oSize:GetDimension("GETDADOS", "COLEND"),;
+						oSplitter,, bAbreTit, .T.,,,;
+						cLabTit + ";" + FWX3Titulo(PrefixoCpo(cAliasRst) + "_VALOR") + ";" + FWX3Titulo(PrefixoCpo(cAliasRst) + "_DATA") + ";" +  cLabClFo + ";" + cLabFil )
+	oTree:blDblClick := bAbreTit
+	oTree:lShowHint  := .F.
+
+	// Monta tree de rastreamento.
+	F250Tree(oTree, cAliasRst, aTitPai)
+
+	ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar(oDlg, {||oDlg:End()}, {||oDlg:End()},, aButtons,,,,, .F. ) CENTERED
+
+	RestArea(aArea)
+	If (__oFITMP <> Nil)
+		__oFITMP:Delete()
+		__oFITMP := Nil
+	EndIf
+
+	If (__oTmpFI <> Nil)
+		__oTmpFI:Destroy()
+		__oTmpFI := Nil
+	EndIf
+
+	If (__oQryTmp <> Nil)
+		__oQryTmp:Destroy()
+		__oQryTmp := Nil
+	EndIf
+
+	If (__oTmpRoot <> Nil)
+		__oTmpRoot:Destroy()
+		__oTmpRoot := Nil
+	EndIf
+
+	If (__oQryProc <> Nil)
+		__oQryProc:Destroy()
+		__oQryProc := Nil
+	EndIf
+
+	If (__oQryPrcL <> Nil)
+		__oQryPrcL:Destroy()
+		__oQryPrcL := Nil
+	EndIf
+
+EndIf
+
+Return
+
+//-------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250Tree
+Função para montar árvore com o rastreamento do título.
+
+@param   oTree         Objeto dbTree que receberá o rastreamento.
+@param   cAliasRst     Alias da tabela que será usada no rastreamento (FI7 ou FI8).
+@param   aTitPai       Chave e campos do registro que será rastreado.
+
+@return  Nenhum.
+
+@author	    Felipe Raposo
+@since		18/04/2019
+/*/
+//------------------------------------------------------------------------------------
+Static Function F250Tree(oTree, cAliasRst, aTitPai)
+
+Local lRet		:= .T.
+Local aArea		:= GetArea()
+Local aRstArea	:= (cAliasRst)->(GetArea())
+Local cAliasTit	:= If(cAliasRst == "FI7", "SE1", "SE2")
+Local aTitArea	:= (cAliasTit)->(GetArea())
+Local cVlrPict	:= ""
+Local cTamRoot	:= ""
+Local cTamFinals := ""
+Local bTitulo	:= NIL
+Local bFlag		:= NIL
+Local bOrdemOri	:= NIL
+Local bOrdemDes	:= NIL
+Local bRegOri	:= NIL
+Local bRegDes	:= NIL
+Local bTitOri	:= NIL
+Local bTitDes	:= NIL
+Local bTitRecNo	:= NIL
+Local aFinals	:= {}
+Local aRoots	:= {}
+Local nX		:= 0
+Local lChkOri	:= (FI7->(ColumnPos("FI7_CHKORI")) > 0) .and. (FI8->(ColumnPos("FI8_CHKORI")) > 0)
+
+If cAliasRst == "FI7"
+	cVlrPict  := PesqPict("FI7", "FI7_VALOR")
+	
+	If RetGlbLGPD("E1_NOMCLI")
+		bTitulo   := {|| Alltrim(SE1->E1_FILORIG) + "-" +  SE1->E1_PREFIXO + "-" + SE1->E1_NUM + "-" + SE1->E1_PARCELA + "-" + SE1->E1_TIPO + ";" + Alltrim(Transform(SE1->E1_VALOR, cVlrPict)) + ";" + dtoc(SE1->E1_EMISSAO) + ";" + SE1->E1_CLIENTE + "-" + SE1->E1_LOJA + "-" + Replicate("*", TamSX3("E1_NOMCLI")[1] ) + ";" + Alltrim(FWFilialName(cEmpAnt,SE1->E1_FILORIG,1)) }	
+	Else
+		bTitulo   := {|| Alltrim(SE1->E1_FILORIG) + "-" +  SE1->E1_PREFIXO + "-" + SE1->E1_NUM + "-" + SE1->E1_PARCELA + "-" + SE1->E1_TIPO + ";" + Alltrim(Transform(SE1->E1_VALOR, cVlrPict)) + ";" + dtoc(SE1->E1_EMISSAO) + ";" + SE1->E1_CLIENTE + "-" + SE1->E1_LOJA + "-" + Alltrim(SE1->E1_NOMCLI) + ";" + Alltrim(FWFilialName(cEmpAnt,SE1->E1_FILORIG,1)) }	
+	Endif
+	
+	bFlag     := {|lPai| If(!lPai .and. FI7->FI7_STATUS = '0', 'ENABLE',  'DISABLE')}
+	bFlagPai  := {|lPai| If(!lPai .and. FI7->FI7_STATUS = '0', 'PMSEDT3', 'PMSEDT1')}
+	bOrdemOri := {|| FI7->(dbSetOrder(1))}  // FI7_FILIAL, FI7_PRFORI, FI7_NUMORI, FI7_PARORI, FI7_TIPORI, FI7_CLIORI, FI7_LOJORI.
+	bOrdemDes := {|| FI7->(dbSetOrder(2))}  // FI7_FILIAL, FI7_PRFDES, FI7_NUMDES, FI7_PARDES, FI7_TIPDES, FI7_CLIDES, FI7_LOJDES.
+	bRegOri   := {|| FI7->(FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI)}
+	bRegDes   := {|| FI7->(FI7_FILIAL + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES)}
+	bTitOri   := {|| SE1->(dbSetOrder(1), dbSeek( FI7->( FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI ), .F.))}
+	bTitDes   := {|| SE1->(dbSetOrder(1), dbSeek( FI7->( FI7_FILDES + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES ), .F.))}
+	bTitRecNo := {|| "SE1" + StrZero(SE1->(RecNo()), 10)}
+
+ElseIf cAliasRst == "FI8"
+	cVlrPict  := PesqPict("FI8", "FI8_VALOR")
+	
+	If RetGlbLGPD("E2_NOMFOR")
+		bTitulo   := {|| Alltrim(SE2->E2_FILORIG) + "-" +  SE2->E2_PREFIXO + "-" + SE2->E2_NUM + "-" + SE2->E2_PARCELA + "-" + SE2->E2_TIPO + ";" + Alltrim(Transform(SE2->E2_VALOR, cVlrPict)) + ";" + dtoc(SE2->E2_EMISSAO) + ";" + SE2->E2_FORNECE + "-" + SE2->E2_LOJA + "-" + Replicate("*", TamSX3("E2_NOMFOR")[1]) + ";" + Alltrim(FWFilialName(cEmpAnt,SE2->E2_FILORIG,1)) }
+	Else
+		bTitulo   := {|| Alltrim(SE2->E2_FILORIG) + "-" +  SE2->E2_PREFIXO + "-" + SE2->E2_NUM + "-" + SE2->E2_PARCELA + "-" + SE2->E2_TIPO + ";" + Alltrim(Transform(SE2->E2_VALOR, cVlrPict)) + ";" + dtoc(SE2->E2_EMISSAO) + ";" + SE2->E2_FORNECE + "-" + SE2->E2_LOJA + "-" + Alltrim(SE2->E2_NOMFOR) + ";" + Alltrim(FWFilialName(cEmpAnt,SE2->E2_FILORIG,1)) }
+	Endif
+
+	bFlag     := {|lPai| If(!lPai .and. FI8->FI8_STATUS = '0', 'ENABLE',  'DISABLE')}
+	bFlagPai  := {|lPai| If(!lPai .and. FI8->FI8_STATUS = '0', 'PMSEDT3', 'PMSEDT1')}
+	bOrdemOri := {|| FI8->(dbSetOrder(1))}  // FI8_FILIAL, FI8_PRFORI, FI8_NUMORI, FI8_PARORI, FI8_TIPORI, FI8_FORORI, FI8_LOJORI.
+	bOrdemDes := {|| FI8->(dbSetOrder(2))}  // FI8_FILIAL, FI8_PRFDES, FI8_NUMDES, FI8_PARDES, FI8_TIPDES, FI8_FORDES, FI8_LOJDES.
+	bRegOri   := {|| FI8->(FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI)}
+	bRegDes   := {|| FI8->(FI8_FILIAL + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES)}
+	bTitOri   := {|| SE2->(dbSetOrder(1), dbSeek( FI8->( FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI ), .F.) ) }
+	bTitDes   := {|| SE2->(dbSetOrder(1), dbSeek( FI8->( FI8_FILDES + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES ), .F.) ) }
+	bTitRecNo := {|| "SE2" + StrZero(SE2->(RecNo()), 10)} 
+Endif
+
+// Posiciona o título.
+Eval(bOrdemOri)
+If !(cAliasRst)->(dbSeek(aTitPai[CKEYPAI], .F.))
+	Eval(bOrdemDes)
+	lRet := F250ExiDes(cAliasRst, aTitPai)
+EndIf
+
+__lMNivel	:= .F.
+__lContinue	:= .T.
+__nQtdeMax	:= 1
+__cRetAls	:= Nil
+__cIdProc	:= "000000"
+FwFreeArray(__aFatImpr)
+__aFatImpr	:= {}
+
+If __oTHsh <> Nil
+	__oTHsh:Clean()
+	__oTHsh := Nil
+EndIf
+__oTHsh := tHashMap():New()
+
+// Vefirica se o título tem rastreamento.
+If lRet
+	If !__lProcess .Or. (__lProcess .And. cAliasRst == 'FI7' )
+		// Busca todos os finais possíveis da árvore.
+		If __oHRsted <> Nil
+			__oHRsted:Clean()
+			__oHRsted := Nil
+		EndIf
+		__oHRsted := tHashMap():New()
+		
+		MsAguarde({||aFinals := F250TreeF(cAliasRst, bOrdemOri, bRegOri, bRegDes, Eval(bRegOri), aFinals, aTitPai[CKEYPAI])},;
+				STR0055, Alltrim(aTitPai[CKEYPAI]), .F. ) // "Executando etapa 1 de 3"
+
+		// Busca os itens raíz da árvore.
+		If __oHRsted <> Nil
+			__oHRsted:Clean()
+			__oHRsted := Nil
+		EndIf
+		__oHRsted := tHashMap():New()
+		
+		If __oTmpFI <> Nil
+			__oTmpFI:Destroy()
+			__oTmpFI := Nil
+		EndIf
+
+		__cIdAnt	:= __cIdProc	:= Soma1(__cIdProc)
+		cTamFinals	:= AllTrim(STR(Len(aFinals) ))
+		For nX := 1 To len(aFinals)
+			__nQtdeMax	:= 1
+			MsAguarde({||aRoots := F250TreeR( cAliasRst, bOrdemDes, bRegOri, bRegDes, aFinals[nX], aRoots, lChkOri, aTitPai[CKEYPAI] )},;
+				STR0056,STR0058 + AllTrim(STR(nX)) + STR0059 + cTamFinals, .F. ) // "Executando etapa 2 de 3"
+		Next nX
+
+		// Adiciona todos os branchs da árvore.
+		If len(aRoots) > 0	
+			oTree:BeginUpdate()
+			If __lMNivel .Or. __lProcess
+				If cAliasRst == "FI7"
+					bRegOri		:= {|| __FI7->(FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI)}
+					bRegDes   	:= {|| __FI7->(FI7_FILIAL + FI7_PRFDES + FI7_NUMDES + FParDes( "__FI7") /*FI7_PARDES*/ + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES)}
+					bTitOri   	:= {|| SE1->(dbSetOrder(1), dbSeek( __FI7->( FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI ), .F.))}
+					bTitDes   	:= {|| SE1->(dbSetOrder(1), dbSeek( __FI7->( FI7_FILDES + FI7_PRFDES + FI7_NUMDES + FParDes( "__FI7") /*FI7_PARDES*/ + FI7_TIPDES ), .F.))}
+				Else
+					bRegOri   	:= {|| __FI8->(FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI)}
+					bRegDes   	:= {|| __FI8->(FI8_FILIAL + FI8_PRFDES + FI8_NUMDES + FParDes( "__FI8") /*FI8_PARDES*/ + FI8_TIPDES + FI8_FORDES + FI8_LOJDES)}
+					bTitOri   	:= {|| SE2->(dbSetOrder(1), dbSeek( __FI8->( FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI ), .F.) ) }
+					bTitDes   	:= {|| SE2->(dbSetOrder(1), dbSeek( __FI8->( FI8_FILDES + FI8_PRFDES + FI8_NUMDES + FParDes( "__FI8") /*FI8_PARDES*/ + FI8_TIPDES + FI8_FORDES + FI8_LOJDES ), .F.) ) }
+				EndIf
+				If !__lProcess
+					Help(,,"QTDERELIQ",, STR0041,1,1) // "Devido à grande quantidade de reliquidações, serão apresentados apenas alguns níveis acima e abaixo do título selecionado da árvore."
+					cAliasRst := FIReduz(aTitPai[CKEYPAI], aTitPai, cAliasRst)
+				EndIf
+			EndIf
+			cTamRoot	:= AllTrim(STR(Len(aRoots) ))
+			For nX := 1 to len(aRoots)
+				// Busca os itens raíz da árvore.
+				If __oHRsted <> Nil
+					__oHRsted:Clean()
+					__oHRsted := Nil
+				EndIf
+				__oHRsted := tHashMap():New()
+				If __lProcess
+					cAliasRst := FProcess(cAliasRst,, aRoots)
+					F250TreeP(cAliasRst, oTree, aRoots[nX], aTitPai[CKEYPAI], bTitulo, bFlag,;
+					bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+				Else
+					MsAguarde({||F250TreeB(cAliasRst, oTree, aRoots[nX], aTitPai[CKEYPAI], bTitulo, bFlag,;
+						bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)},;
+						STR0057, STR0046 + AllTrim(STR(nX)) + " / " + cTamRoot) // "Executando etapa 3 de 3" || "Aguarde...", "Tít. originador: "
+				EndIf
+			Next
+		EndIf
+	Else
+		bRegOri   	:= {|| FI8->(FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI)}
+		bRegDes   	:= {|| FI8->(FI8_FILIAL + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES)}
+		bTitOri   	:= {|| SE2->(DbGoTo(__FI8->RECORI)), FI8->(DbGoTo(__FI8->FIREC))}
+		bTitDes   	:= {|| SE2->(DbGoTo(__FI8->RECDES)), FI8->(DbGoTo(__FI8->FIREC))}
+	
+		cAliasRst := FProcessA(cAliasRst,aTitPai[CKEYPAI])
+		
+		F250TreP2(cAliasRst, oTree, aTitPai[CKEYPAI], bTitulo, bFlag,;
+		bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+	
+	EndIf
+
+	//Posiciona no registro que está sendo rastreado.
+	RestArea(aTitArea)
+	oTree:TreeSeek(Eval(bTitRecNo))
+
+	oTree:EndUpdate()
+EndIf
+
+RestArea(aTitArea)
+RestArea(aRstArea)
+RestArea(aArea)
+
+Return
+
+//-------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250TreeF
+Função para retornar os últimos itens da árvore.
+
+@author	    Felipe Raposo
+@since		30/04/2019
+/*/
+//-------------------------------------------------------------------------------------
+Static Function F250TreeF(cAliasRst, bOrdemOri, bRegOri, bRegDes, cBranch, aFinals, cTitPai)
+
+Local aArea    	:= (cAliasRst)->(GetArea())
+Local aVal		:= {}
+
+If !__lMNivel
+	// Verifica se existe nível mais baixo do item posicionado.
+	Eval(bOrdemOri)
+	If (cAliasRst)->(dbSeek(cBranch, .F.))
+		FARoot(cAliasRst)
+		If !__lProcess .And. __nQtdeMax > 1700 
+			__lMNivel := .T.
+			If Len(aFinals) == 0
+				aAdd(aFinals, cBranch)
+			EndIf
+		EndIf
+		
+		If !__oHRsted:Get(cBranch, aVal)
+			__oHRsted:Set(cBranch, aVal)
+			Do While (cAliasRst)->(!eof() .and. Eval(bRegOri) == cBranch)
+				F250TreeF(cAliasRst, bOrdemOri, bRegOri, bRegDes, Eval(bRegDes), aFinals)
+				(cAliasRst)->(dbSkip())
+			EndDo
+		EndIf
+	ElseIf aScan(aFinals, cBranch) = 0
+		aAdd(aFinals, cBranch)
+	EndIf
+EndIf
+
+RestArea(aArea)
+
+Return aFinals
+
+//-------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250TreeR
+Função para retornar os primeiros itens (raízes) da árvore.
+
+@author	    Felipe Raposo
+@since		30/04/2019
+/*/
+//-------------------------------------------------------------------------------------
+Static Function F250TreeR(cAliasRst, bOrdemDes, bRegOri, bRegDes, cBranch, aRoots, lChkOri, cTitPai )
+
+	Local aArea		:= (cAliasRst)->(GetArea())
+	Local cQuery	:= ""
+	Local cCampos	:= ""
+	Local cWhere	:= ""
+	Local cChvAnt	:= ""
+	Local cChvAux	:= ""
+	Local nRegBkp	:= 0
+	Local aVal		:= {}
+	
+	Default cAliasRst	:= ""
+	Default bOrdemDes	:= {||}
+	Default bRegOri		:= {||}
+	Default bRegDes		:= {||}
+	Default cBranch		:= ""
+	Default aRoots 		:= {}
+	Default lChkOri		:= .F.
+
+	// Verifica se existe nível acima do item posicionado.
+	If __lContinue
+		Eval(bOrdemDes)
+		__nAuxParc	:= 0
+		If (cAliasRst)->( DbSeek( cBranch, .F. ) )
+			If !__lProcess .And. __nQtdeMax > NMAXRELIQ
+				__lMNivel 	:= .T.
+				__lContinue := .F.
+				If Len(aRoots) == 0
+					aRoots := FARoot(cAliasRst, lChkOri)
+				EndIf
+			EndIf
+			If !__oHRsted:Get(cBranch, aVal)
+				While (cAliasRst)->(!eof() .and. Eval(bRegDes) == cBranch)
+					__oHRsted:Set(cBranch, aVal)
+					If __oTmpFI == Nil
+						If cAliasRst == "FI8"
+							cCampos	:= " FI8_FILIAL FILIAL, FI8_PRFORI PRFORI, FI8_NUMORI NUMORI, FI8_PARORI PARORI, FI8_TIPORI TIPORI, FI8_FORORI CFORI, FI8_LOJORI LOJORI, "
+							cCampos	+= " FI8_FILDES, FI8_PRFDES, FI8_NUMDES, FI8_PARDES, FI8_TIPDES, FI8_FORDES, FI8_LOJDES, FI8_VALOR, FI8_STATUS, FI8_DATA "
+													
+							If lChkOri
+								cCampos	+= ", FI8_CHKORI "
+							EndIf
+
+							cWhere	:= " FI8_FILDES = ? AND "
+							cWhere	+= " FI8_PRFDES = ? AND "
+							cWhere	+= " FI8_NUMDES = ? AND "
+							cWhere	+= " FI8_PARDES = ? AND "
+							cWhere	+= " FI8_TIPDES = ? AND "
+							cWhere	+= " FI8_FORDES = ? AND "
+							cWhere	+= " FI8_LOJDES = ? AND "
+							cWhere	+= " D_E_L_E_T_ = ' ' "
+						Else
+							cCampos	:= " FI7_FILIAL FILIAL, FI7_PRFORI PRFORI, FI7_NUMORI NUMORI, FI7_PARORI PARORI, FI7_TIPORI TIPORI, FI7_CLIORI CFORI, FI7_LOJORI LOJORI, "
+							cCampos	+= " FI7_FILDES, FI7_PRFDES, FI7_NUMDES, FI7_PARDES, FI7_TIPDES, FI7_CLIDES, FI7_LOJDES, FI7_VALOR, FI7_STATUS, FI7_DATA "
+
+							If lChkOri
+								cCampos	+= ", FI7_CHKORI "
+							EndIf
+
+							cWhere	:= " FI7_FILDES = ? AND "
+							cWhere	+= " FI7_PRFDES = ? AND "
+							cWhere	+= " FI7_NUMDES = ? AND "
+							cWhere	+= " FI7_PARDES = ? AND "
+							cWhere	+= " FI7_TIPDES = ? AND "
+							cWhere	+= " FI7_CLIDES = ? AND "
+							cWhere	+= " FI7_LOJDES = ? AND "
+							cWhere	+= " D_E_L_E_T_ = ' ' "
+
+						EndIf
+
+						cQuery 	:= " SELECT "
+						cQuery 	+= cCampos
+						cQuery	+= " FROM " + RetSQLName(cAliasRst)
+						
+						cQuery 	+= " WHERE "
+						cQuery 	+= cWhere
+						
+						cQuery 	:= ChangeQuery(cQuery)
+						__oTmpFI := FWPreparedStatement():New(cQuery)
+					EndIf
+
+					If cAliasRst == "FI7"
+						__oTmpFI:SetString(1, FI7->FI7_FILDES)
+						__oTmpFI:SetString(2, FI7->FI7_PRFDES)
+						__oTmpFI:SetString(3, FI7->FI7_NUMDES)
+						__oTmpFI:SetString(4, FI7->FI7_PARDES)
+						__oTmpFI:SetString(5, FI7->FI7_TIPDES)
+						__oTmpFI:SetString(6, FI7->FI7_CLIDES)
+						__oTmpFI:SetString(7, FI7->FI7_LOJDES)
+
+						cChvAux := FI7->(FI7_FILDES + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES)
+					Else
+						__oTmpFI:SetString(1, FI8->FI8_FILDES)
+						__oTmpFI:SetString(2, FI8->FI8_PRFDES)
+						__oTmpFI:SetString(3, FI8->FI8_NUMDES)
+						__oTmpFI:SetString(4, FI8->FI8_PARDES)
+						__oTmpFI:SetString(5, FI8->FI8_TIPDES)
+						__oTmpFI:SetString(6, FI8->FI8_FORDES)
+						__oTmpFI:SetString(7, FI8->FI8_LOJDES)
+
+						cChvAux := FI8->(FI8_FILDES + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES)
+					EndIf
+
+					cQuery  	:= __oTmpFI:GetFixQuery()
+					If cChvAnt != cChvAux
+						If __lTmpCls
+							(__cAliaTmp)->( DbCloseArea() )
+						EndIf
+						__cAliaTmp	:= GetNextAlias()
+						__cAliaTmp 	:= MPSysOpenQuery(cQuery)
+						cChvAnt := cChvAux
+						__lTmpCls	:= .F.
+					EndIf
+
+					If __lProcess
+						FProcess(cAliasRst, cTitPai, aRoots)
+					EndIf
+					While (__cAliaTmp)->( !EoF() )
+						
+						nRegBkp:= (cAliasRst)->(Recno())
+						If (cAliasRst)->(dbSeek((__cAliaTmp)->(FILIAL + PRFORI + NUMORI + PARORI + TIPORI + CFORI + LOJORI) )) .And. ;
+							(caliasrst)->&((caliasrst)+"_STATUS") == "1"
+								(__cAliaTmp)->( dbSkip() )
+								(cAliasRst)->(dbGoto(nRegBkp))
+								__nAuxParc++
+								Loop
+						EndIf
+						(cAliasRst)->(dbGoto(nRegBkp))
+						
+						If aScan(aRoots, (__cAliaTmp)->(FILIAL + PRFORI + NUMORI + PARORI + TIPORI + CFORI + LOJORI) ) == 0
+							AAdd( aRoots, (__cAliaTmp)->(FILIAL + PRFORI + NUMORI + PARORI + TIPORI + CFORI + LOJORI) )
+							__cIdAnt	:= __cIdProc
+							__cIdProc	:= Soma1(__cIdProc)
+						EndIf
+						__nQtdeMax	:= 1
+						(__cAliaTmp)->( DbSkip() )
+
+					EndDo
+					__nQtdeMax	:= __nQtdeMax * Max(__nAuxParc, 1)
+					__lTmpCls := .T.
+
+					F250TreeR(cAliasRst, bOrdemDes, bRegOri, bRegDes, Eval(bRegOri), aRoots,, cTitPai)
+					(cAliasRst)->(dbSkip())
+				EndDo
+			EndIf		
+		ElseIf aScan(aRoots, cBranch) == 0
+			aAdd(aRoots, cBranch)
+			__nQtdeMax	:= 1
+			__cIdAnt	:= __cIdProc
+			__cIdProc	:= Soma1(__cIdProc)
+		EndIf
+	EndIf
+
+	RestArea(aArea)
+
+Return aRoots
+
+//-------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250TreeB
+Função para inserir todas as ramificações (branchs) na árvore.
+
+@author	    Felipe Raposo
+@since		02/05/2019
+/*/
+//-------------------------------------------------------------------------------------
+Static Function F250TreeB(cAliasRst, oTree, cBranch, cKeyPai, bTitulo, bFlag, bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+
+Local aArea    	:= (cAliasRst)->(GetArea())
+Local cFlag    	:= ""
+
+// Verifica se existe nível mais baixo do item posicionado.
+Eval(bOrdemOri)
+If (cAliasRst)->(dbSeek(cBranch, .F.))
+	// Adiciona o item na árvore.
+	Eval(bTitOri)  // Posiciona o título.
+	cFlag := If(cKeyPai == Eval(bRegOri), Eval(bFlagPai, .T.), Eval(bFlag, .T.))
+	oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+			
+	// Adiciona os filhos na árvore.
+	Do While (cAliasRst)->(!eof() .and. Eval(bRegOri) == cBranch)
+		F250TreeB(cAliasRst, oTree, Eval(bRegDes), cKeyPai, bTitulo, bFlag, bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+		(cAliasRst)->(dbSkip())
+	EndDo
+
+	RestArea(aArea)
+Else 
+	RestArea(aArea)
+
+	Eval(bTitDes)  // Posiciona o título.
+	cFlag := If(cKeyPai == Eval(bRegDes), Eval(bFlagPai, .F.), Eval(bFlag, .F.))
+	oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+
+EndIf
+
+oTree:EndTree()
+
+RestArea(aArea)
+
+Return
+
+//-------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250TreP2
+Função para inserir todas as ramificações (branchs) na árvore.
+
+@author	    Felipe Raposo
+@since		02/05/2019
+/*/
+//-------------------------------------------------------------------------------------
+Static Function F250TreP2(cAliasRst, oTree, cKeyPai, bTitulo, bFlag, bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+
+Local aArea    	:= (cAliasRst)->(GetArea())
+Local cFlag    	:= ""
+Local cIdProc	:= (cAliasRst)->IDPROC
+Local nI		:= 0
+Local nOrdem	:= 2
+Local nTotReg	:= 0
+// Local cVlrPict 	:= PesqPict("FI7", "FI7_VALOR")
+Local lTree		:= .F.
+
+DEFAULT cBranch	:= ""
+
+ProcRegua((cAliasRst)->(Reccount()))
+
+If cAliasRst == "__FI8"
+	cAliasTit	:= "SE2"
+
+	nOrdem  := 3		
+
+	bProcL	:= {|| STR0047 + Alltrim((cAliasRst)->NLIQORI)+";" + FITotal(.F., (cAliasRst)->NLIQORI) + ";" + DTOC(STOD((cAliasRst)->DTPROC)) /*DTOC((cAliasRst)->DTPROC)*/ + ";" + (cAliasRst)->CFORI + "-" + (cAliasRst)->LOJAORI + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FILIAL,1)) } //"Liquidação: "
+	bProcDL	:= {|| STR0047 + Alltrim((cAliasRst)->NLIQDES)+";" + FITotal(.F., (cAliasRst)->NLIQDES) + ";" + DTOC(STOD((cAliasRst)->DTPROC)) /*DTOC((cAliasRst)->DTPROC)*/ + ";" + (cAliasRst)->CFDES + "-" + (cAliasRst)->LOJADES + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FILDES,1)) } //"Liquidação: "
+	bProc	:= {|| STR0048 + Alltrim((cAliasRst)->NFATORI)+";" + FITotal(.T.,, (cAliasRst)->NFATORI, (cAliasRst)->NPRFFATORI ) + ";" + DTOC(STOD((cAliasRst)->DTPROC)) /*DTOC((cAliasRst)->DTPROC)*/ + ";" + (cAliasRst)->CFORI + "-" + (cAliasRst)->LOJAORI + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FILIAL,1)) } 
+	bProcD	:= {|| STR0048 + Alltrim((cAliasRst)->NFATDES)+";" + FITotal(.T.,, (cAliasRst)->NFATDES, (cAliasRst)->NPRFFATDES) + ";" + DTOC(STOD((cAliasRst)->DTPROC)) /*DTOC((cAliasRst)->DTPROC)*/ + ";" + (cAliasRst)->CFDES + "-" + (cAliasRst)->LOJADES + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FILDES,1)) }
+
+	bFProc		:= {|| 'PMSTASK3' }
+	bFlagPai  	:= {|| If(__FI8->FI8_STATUSORI = '0', 'PMSEDT3', 'PMSEDT1')}
+
+	(cAliasRst)->(DbSetOrder(nOrdem))
+	
+	nTotReg := Contar(cAliasRst,"!Eof()")
+
+	For nI := 1 to __nQtdeProc
+		(cAliasRst)->(DbGoTop())
+		Do While (cAliasRst)->(!eof())
+			If (cAliasRst)->IDPROC == cIdProc .Or. AllTrim((cAliasRst)->IDPROC) == "0"
+				
+				//-- LIQUIDACAO
+				If !Empty((cAliasRst)->NLIQORI) .Or. ((Empty((cAliasRst)->NFATORI) .Or. Alltrim((cAliasRst)->NFATORI) == 'NOTFAT') .And. !Empty((cAliasRst)->NLIQDES))
+					// Adiciona o item na árvore.
+					If (cAliasRst)->FI_STATUS != '0'
+						cFlag := Eval({|| 'PMSEDT1'}, .T.)
+						If !Empty((cAliasRst)->NLIQORI)
+							lTree	:= .T.
+							oTree:AddTree(PadR(Eval(bProcL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+						Else
+							lTree	:= .T.
+							oTree:AddTree(PadR(Eval(bProcDL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+						EndIf
+					Else
+						cRecLiq := Eval(bTitRecNo)
+						cFlag := Eval({|| 'PMSEDT3'}, .T.)
+						If !Empty((cAliasRst)->NFATORI) .And. Alltrim((cAliasRst)->NFATORI) != 'NOTFAT'
+							lTree	:= .T.
+							oTree:AddTree(PadR(Eval(bProc), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+						Else
+							If !Empty((cAliasRst)->NLIQORI)
+								lTree	:= .T.
+								oTree:AddTree(PadR(Eval(bProcL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+							Else
+								lTree	:= .T.
+								oTree:AddTree(PadR(Eval(bProcDL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+							EndIf
+						EndIf
+						If cKeyPai == Eval(bRegDes)
+							lTree	:= .T.
+							oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+						EndIf
+					EndIf
+					(cAliasRst)->(dbSkip())
+					Loop
+
+				//-- FATURAS
+				ElseIf !Empty((cAliasRst)->NFATORI)
+					
+					cFlag := Eval({|| 'PMSEDT1'}, .T.)
+					If !( "NOTFAT" $ (cAliasRst)->NFATDES ) .Or. nTotReg == 1
+						oTree:AddTree(PadR(Eval(bProc), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+						lTree	:= .T.
+					Else					
+						lTree	:= .T.
+						oTree:AddTree(PadR(Eval(bProc), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					EndIf
+						
+					If (cAliasRst)->FI_STATUS == '0'
+						If cKeyPai == Eval(bRegDes)
+							lTree	:= .T.
+							oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+						EndIf
+					EndIf
+					(cAliasRst)->(dbSkip())
+					Loop
+				Else
+					(cAliasRst)->(dbSkip())
+					Loop
+				EndIf
+			Else
+				(cAliasRst)->(dbSkip())
+				Loop
+			EndIf
+		EndDo
+		cIdProc	:= Soma1(cIdProc)
+	Next
+
+EndIf
+
+If lTree
+	oTree:EndTree()
+EndIf
+
+RestArea(aArea)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F250TreeP
+Faz a montagem da árvore por processo
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function F250TreeP(cAliasRst, oTree, cBranch, cKeyPai, bTitulo, bFlag, bFlagPai, bOrdemOri, bOrdemDes, bRegOri, bRegDes, bTitOri, bTitDes, bTitRecNo)
+
+Local cFlag    	As Character
+Local cAliasTit As Character
+Local bProc		As Block
+Local bProcL	As Block
+Local bProcD    As Block
+Local bProcDL	As Block
+Local bFProc	As Block
+Local cIdProc	As Character
+Local cIdDoc	As Character
+Local cChave	As Character
+Local cRecLiq	As Character
+Local lTree		As Logical
+Local nOrdem    As Numeric
+
+cFlag    	:= ""
+cIdProc		:= ''
+lTree		:= .F.
+cVlrPict  	:= PesqPict("FI7", "FI7_VALOR")
+
+ProcRegua((cAliasRst)->(Reccount()))
+
+If cAliasRst == "__FI7"
+	cAliasTit	:= "SE1"
+	bProc		:= {|| STR0047 + Alltrim((cAliasRst)->NLIQORI)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI7_VALOR /*FO1TOTAL()*/, CVLRPICT)) + ";" + DTOC(FO0->FO0_DATA) + ";" + FO0->FO0_CLIENT + "-" + FO0->FO0_LOJA + "-" + ALLTRIM(SE1->E1_NOMCLI) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FO1->FO1_FILORI,1)) } //"Liquidação: "
+	bProcD		:= {|| STR0047 + Alltrim((cAliasRst)->NLIQDES)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI7_VALOR, CVLRPICT)) + ";" + DTOC(FO0->FO0_DATA) + ";" + FO0->FO0_CLIENT + "-" + FO0->FO0_LOJA + "-" + ALLTRIM(SE1->E1_NOMCLI) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FO1->FO1_FILORI,1)) }
+	bFProc		:= {|| 'PMSTASK2' }
+	bFlagPai  	:= {|| If(__FI7->FI7_STATUS = '0', 'PMSEDT3', 'PMSEDT1')}
+	DbSelectArea("FO0")
+	DbSetOrder(2)
+	DbSelectArea("FO1")
+	DbSetOrder(1)
+	DbSelectArea("FO2")
+	DbSetOrder(1)
+
+	(cAliasRst)->(DbSetOrder(1))
+	If (cAliasRst)->(dbSeek(cBranch, .F.))
+		(cAliasRst)->(DbSetOrder(3))
+		cIdProc := (cAliasRst)->IDPROC
+		Do While (cAliasRst)->(!eof()) .And. (cAliasRst)->IDPROC == cIdProc
+			cChave 	:= (cAliasRst)->FI7_FILIAL + "|" + (cAliasRst)->FI7_PRFORI + "|" + (cAliasRst)->FI7_NUMORI + "|" + (cAliasRst)->FI7_PARORI + "|" + (cAliasRst)->FI7_TIPORI + "|" + (cAliasRst)->FI7_CLIORI + "|" + (cAliasRst)->FI7_LOJORI
+			cIdDoc	:= FINBuscaFK7(cChave, "SE1")
+
+			If !Empty((cAliasRst)->NLIQORI)
+
+				FO0->(DbSeek(xFilial('FO0', (cAliasTit)->E1_FILORIG) + (cAliasTit)->E1_NUMLIQ + (cAliasTit)->E1_CLIENTE + (cAliasTit)->E1_LOJA))
+				FO1->(DbSeek(FO0->FO0_FILIAL + FO0->FO0_PROCES + FO0->FO0_VERSAO ))
+			
+				// Adiciona o item na árvore.
+				lTree	:= .T.
+				Eval(bTitOri)  // Posiciona o título.
+				cFlag := Eval({|| 'PMSEDT1'}, .T.)
+				oTree:AddTree(PadR(Eval(bProc), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+				If cKeyPai == Eval(bRegOri)
+					oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+					__nRecPai	:= SE1->(RECNO())
+				EndIf
+				If (cAliasRst)->FI7_STATUS == '0'
+				
+					FO0->(DbSeek(xFilial('FO0', (cAliasTit)->E1_FILORIG) + (cAliasRst)->NLIQDES + (cAliasRst)->FI7_CLIDES + (cAliasRst)->FI7_LOJDES))
+					FO1->(DbSeek(FO0->FO0_FILIAL + FO0->FO0_PROCES + FO0->FO0_VERSAO + cIdDoc))
+
+					// Adiciona o item na árvore.
+					lTree	:= .T.
+					Eval(bTitDes)  // Posiciona o título.
+					cFlag := Eval({|| 'PMSEDT3'}, .T.) //cFlag := Eval(bFlagPai, .T.)
+					oTree:AddTree(PadR(Eval(bProcD), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					If cKeyPai == Eval(bRegDes)
+						oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+					EndIf
+				EndIf
+				(cAliasRst)->(dbSkip())
+				
+			ElseIf (cAliasRst)->FI7_STATUS == '0'
+
+				If !oTree:cTreeAtu $ "0000000000"
+					oTree:cTreeAtu := PadR("0000000000", Len(oTree:cTreeAtu))
+				EndIf
+
+				FO0->(DbSeek(xFilial('FO0', (cAliasTit)->E1_FILORIG) + (cAliasRst)->NLIQDES + (cAliasRst)->FI7_CLIDES + (cAliasRst)->FI7_LOJDES))
+				FO1->(DbSeek(FO0->FO0_FILIAL + FO0->FO0_PROCES + FO0->FO0_VERSAO + cIdDoc))
+				FO2->(DbSeek(FO0->FO0_FILIAL + FO0->FO0_PROCES + FO0->FO0_VERSAO ))
+
+				bProcD		:= {|| STR0047 + Alltrim((cAliasRst)->NLIQDES)+";" + ALLTRIM(TRANSFORM(FO2->FO2_VALOR, CVLRPICT)) + ";" + DTOC(FO0->FO0_DATA) + ";" + FO0->FO0_CLIENT + "-" + FO0->FO0_LOJA + "-" + ALLTRIM(SE1->E1_NOMCLI) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FO1->FO1_FILORI,1)) }
+	
+				// Adiciona o item na árvore.
+				lTree	:= .T.
+				Eval(bTitOri)  // Posiciona o título.
+				cFlag := Eval({|| 'PMSEDT1'}, .T.)
+				If cKeyPai == Eval(bRegOri) .And. Empty((cAliasRst)->NLIQDES)
+					oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+					__nRecPai	:= SE1->(RECNO())
+				EndIf
+				If aScan(__aFatImpr, (cAliasRst)->NLIQDES) == 0
+					oTree:AddTree(PadR(Eval(bProcD), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					aAdd(__aFatImpr, (cAliasRst)->NLIQDES)
+				Else
+					(cAliasRst)->(dbSkip())
+					Loop
+				EndIf		
+				If cKeyPai == Eval(bRegDes)
+					Eval(bTitDes)  // Posiciona o título.
+					cFlag := Eval({|| 'PMSEDT3'}, .T.) 
+					oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+				EndIf
+						
+				(cAliasRst)->(dbSkip())
+			Else
+				If !oTree:cTreeAtu $ "0000000000"
+					oTree:cTreeAtu := PadR("0000000000", Len(oTree:cTreeAtu))
+				EndIf
+				(cAliasRst)->(dbSkip())
+			EndIf
+
+		EndDo
+	EndIf
+
+Else
+	cAliasTit	:= "SE2"
+
+	nOrdem  := 4
+
+	bProcL	:= {|| STR0047 + Alltrim((cAliasRst)->NLIQORI)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI8_VALOR, CVLRPICT)) + ";" + DTOC(FI8->FI8_DATA) + ";" + FI8->FI8_FORORI + "-" + FI8->FI8_LOJORI + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FI8->FI8_FILIAL,1)) } //"Liquidação: "
+	bProcDL	:= {|| STR0047 + Alltrim((cAliasRst)->NLIQDES)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI8_VALOR, CVLRPICT)) + ";" + DTOC(FI8->FI8_DATA) + ";" + FI8->FI8_FORDES + "-" + FI8->FI8_LOJDES + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FI8->FI8_FILDES,1)) } //"Liquidação: "
+	bProc	:= {|| STR0048 + Alltrim((cAliasRst)->NFATORI)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI8_VALOR, CVLRPICT)) + ";" + DTOC(FI8->FI8_DATA) + ";" + FI8->FI8_FORORI + "-" + FI8->FI8_LOJORI + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FI8->FI8_FILIAL,1)) } 
+	bProcD	:= {|| STR0048 + Alltrim((cAliasRst)->NFATDES)+";" + ALLTRIM(TRANSFORM((cAliasRst)->FI8_VALOR, CVLRPICT)) + ";" + DTOC(FI8->FI8_DATA) + ";" + FI8->FI8_FORDES + "-" + FI8->FI8_LOJDES + "-" + ALLTRIM(SE2->E2_NOMFOR) + ";" + ALLTRIM(FWFILIALNAME(CEMPANT,FI8->FI8_FILDES,1)) }
+
+	bFProc		:= {|| 'PMSTASK3' }
+	bFlagPai  	:= {|| If(__FI8->FI8_STATUS = '0', 'PMSEDT3', 'PMSEDT1')}
+
+	(cAliasRst)->(DbSetOrder(1))
+	If (cAliasRst)->(dbSeek(cBranch, .F.))
+		(cAliasRst)->(DbSetOrder(nOrdem))
+		cIdProc := (cAliasRst)->IDPROC
+		While (cAliasRst)->(!eof()) .And. (cAliasRst)->IDPROC == cIdProc
+
+			cChave 	:= (cAliasRst)->FI8_FILIAL + "|" + (cAliasRst)->FI8_PRFORI + "|" + (cAliasRst)->FI8_NUMORI + "|" + (cAliasRst)->FI8_PARORI + "|" + (cAliasRst)->FI8_TIPORI + "|" + (cAliasRst)->FI8_FORORI + "|" + (cAliasRst)->FI8_LOJORI
+			cIdDoc	:= FINBuscaFK7(cChave, "SE2")
+
+			//-- LIQUIDACAO
+			If !Empty((cAliasRst)->NLIQORI) .Or. (Empty((cAliasRst)->NFATORI) .And. !Empty((cAliasRst)->NLIQDES) )
+				// Adiciona o item na árvore.
+				lTree	:= .T.
+				Eval(bTitOri)  // Posiciona o título.
+				If (cAliasRst)->FI8_STATUS != '0'
+					cFlag := Eval({|| 'PMSEDT1'}, .T.)
+					If !Empty((cAliasRst)->NLIQORI)
+						oTree:AddTree(PadR(Eval(bProcL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					Else
+						oTree:AddTree(PadR(Eval(bProcDL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					EndIf
+					If cKeyPai == Eval(bRegOri)
+						oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+						__nRecPai	:= SE2->(RECNO())
+					EndIf
+				Else
+					cRecLiq := Eval(bTitRecNo)
+					Eval(bTitDes)  // Posiciona o título.
+					cFlag := Eval({|| 'PMSEDT3'}, .T.) //cFlag := Eval(bFlagPai, .T.)
+					oTree:AddTree(PadR(Eval(bProcDL), 100), .T., Eval(bFProc), Eval(bFProc),,, cRecLiq)
+					If cKeyPai == Eval(bRegDes)
+						oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+					EndIf
+				EndIf
+				(cAliasRst)->(dbSkip())
+
+			//-- FATURAS
+			ElseIf !Empty((cAliasRst)->NFATORI)
+				If !Empty((cAliasRst)->IDPROC)
+					// Adiciona o item na árvore.
+					lTree	:= .T.
+					Eval(bTitOri)  // Posiciona o título.
+					cFlag := Eval({|| 'PMSEDT1'}, .T.)
+					If Alltrim((cAliasRst)->NFATORI) != 'NOTFAT'
+						If aScan(__aFatImpr, (cAliasRst)->NFATORI) == 0
+							oTree:AddTree(PadR(Eval(bProc), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+							aAdd(__aFatImpr, (cAliasRst)->NFATORI )
+						Else
+							(cAliasRst)->(dbSkip())
+							Loop
+						EndIf
+					ElseIf !Empty((cAliasRst)->NLIQDES)
+						oTree:AddTree(PadR(Eval(bProcDL), 100), .T., Eval(bFProc), Eval(bFProc),,, Eval(bTitRecNo))
+					EndIf
+					If (cAliasRst)->FI8_STATUS == '0'
+						// Adiciona o item na árvore.
+						lTree	:= .T.
+						Eval(bTitDes)  // Posiciona o título.
+						cFlag := Eval({|| 'PMSEDT3'}, .T.) //cFlag := Eval(bFlagPai, .T.)
+						If cKeyPai == Eval(bRegDes)
+							oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+						EndIf
+					EndIf
+					(cAliasRst)->(dbSkip())
+				Else
+					(cAliasRst)->(dbSkip())
+				EndIf	
+			ElseIf (cAliasRst)->FI8_STATUS == '0'
+
+				// Adiciona o item na árvore.
+				lTree	:= .T.
+				Eval(bTitOri)  // Posiciona o título.
+				cFlag := Eval({|| 'PMSEDT1'}, .T.)
+				If cKeyPai == Eval(bRegOri)
+					oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+					__nRecPai	:= SE2->(RECNO())
+				EndIf		
+				If cKeyPai == Eval(bRegDes)
+					Eval(bTitDes)  // Posiciona o título.
+					cFlag := Eval({|| 'PMSEDT3'}, .T.) 
+					oTree:AddTree(PadR(Eval(bTitulo), 100), .T., cFlag, cFlag,,, Eval(bTitRecNo))
+				EndIf
+						
+				(cAliasRst)->(dbSkip())
+			
+			Else
+				(cAliasRst)->(dbSkip())
+			EndIf
+		EndDo
+	EndIf
+
+EndIf
+
+If lTree
+	oTree:EndTree()
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MenuDef
+Utilizacao de menu Funcional
+
+Parametros do array aRotina
+1. Nome a aparecer no cabecalho
+2. Nome da Rotina associada
+3. Reservado
+4. Tipo de Transação a ser efetuada:
+	1 - Pesquisa e Posiciona em um Banco de Dados
+	2 - Simplesmente Mostra os Campos
+	3 - Inclui registros no Bancos de Dados
+	4 - Altera o registro corrente
+	5 - Remove o registro corrente do Banco de Dados
+5. Nivel de acesso
+6. Habilita Menu Funcional
+
+@author Ana Paula N. Silva
+@version P12
+@since   29/11/2006
+@return  Array com opcoes da rotina.
+/*/
+//-------------------------------------------------------------------
+Static Function MenuDef()
+
+Local aRotina := {{STR0013, "AxPesqui"  , 0 , 1,,.F.},;  //"Pesquisar"
+				  {STR0014, "F250Cons"  , 0 , 2},;       //"Pos.Atual"
+			   	  {STR0006, "FA250Legen", 0 , 4, ,.F.} } //"Legenda"
+
+Return(aRotina)
+
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FA250Legen
+Cria uma janela contendo a legenda da mBrowse
+
+@param cAlias - Alias inicial para o processo de consulta de rastreamento (SE1 ou SE2)
+@param nReg	  - Registro posicionado na SE1 ou SE2
+
+@author Marcelo Celi Marques
+@since  13/05/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FA250Legen(cAlias,nReg)
+Local uRetorno := .T.
+Local aLegenda := {}
+
+aLegenda := {	{"ENABLE"	, 	STR0015	},; //"Ativo"
+		   		{"DISABLE"	, 	STR0016	}}  //"Renegociado"
+
+If IsInCallStack("F250Cons")
+	aAdd(aLegenda, {"PMSEDT3" , STR0037 })  //"Posicionado Ativo"
+	aAdd(aLegenda, {"PMSEDT1" , STR0038 })  //"Posicionado Renegociado"
+	aAdd(aLegenda, {"PMSTASK2", STR0049 })  //"Liquidado"
+	aAdd(aLegenda, {"PMSTASK3", STR0050 })  //"Faturado"	
+EndIf
+
+If nReg = Nil	// Chamada direta da funcao onde nao passa, via menu Recno eh passado
+	dbSelectArea(cAlias)
+	If cAlias == "FI7"
+		uRetorno := {}
+		Aadd(uRetorno,{ 'FI7_STATUS == "0"' , 'ENABLE' }) // Em Carteira
+		Aadd(uRetorno,{ 'FI7_STATUS == "1"' , 'DISABLE' })	// Transferido
+
+	Else
+		uRetorno := {}
+		Aadd(uRetorno,{ 'FI8_STATUS == "0"' , 'ENABLE' }) // Em Carteira
+		Aadd(uRetorno,{ 'FI8_STATUS == "1"' , 'DISABLE'})	// Transferido
+	EndIf
+Else
+	BrwLegenda(cCadastro,STR0006,aLegenda) //"Legenda"
+Endif
+
+Return uRetorno
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FVerRstFin
+Verificacao da existencia do controle de rastro financeiro
+
+Mantida por compatibilidade visto que é chamada de outros fontes (FINA040/FINA050 por exemplo)
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FVerRstFin()
+
+Local lRastro	:= .T.
+
+Return lRastro
+
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FINRSTGRV
+Programa de cancelamento de desdobramentos
+
+@param nProcesso	- Processo em Execucao
+@param cAlias 	 	- Alias 
+@param aRastroOri	- array contendo dados do(s) titulo(s) Geradores
+@param aRastroDes	- array contendo dados do(s) titulo(s) Gerados
+@param nValProc 	- Valor total do processo
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FINRSTGRV(nProcesso,cAlias,aRastroOri,aRastroDes,nValProc)
+
+Local nX := 0
+Local nY := 0
+Local nIndice := 0
+local cFindTIT 	:= ""
+
+DEFAULT nProcesso := 0
+DEFAULT cAlias		:= "SEA"
+DEFAULT aRastroOri:= {}
+DEFAULT aRastroDes:= {}
+DEFAULT nValProc	:= 0
+
+If nProcesso > 0 .and. nValProc > 0 .and. Len(aRastroOri) > 0 .and. Len(aRastroDes) > 0 .and.;
+	cAlias $ "SE1#SE2"
+
+	If cAlias == "SE1"
+		For nX := 1 to Len(aRastroOri)
+			If nProcesso > 1
+				//Verifica se o titulo gerador foi gerado a partir de outra negociacao
+				//Neste caso devo alterar o status dele para negociado (1)
+				dbSelectArea("FI7")
+				dbSetOrder(2)
+				If MsSeek(aRastroOri[nX,1]+aRastroOri[nX,2]+aRastroOri[nX,3]+aRastroOri[nX,4]+aRastroOri[nX,5]+;
+								aRastroOri[nX,6]+aRastroOri[nX,7])
+					While !EOF() .and. (FI7_FILIAL+FI7_PRFDES+FI7_NUMDES+FI7_PARDES+FI7_TIPDES+FI7_CLIDES+FI7_LOJDES) == ;
+								(aRastroOri[nX,1]+aRastroOri[nX,2]+aRastroOri[nX,3]+aRastroOri[nX,4]+aRastroOri[nX,5]+;
+																aRastroOri[nX,6]+aRastroOri[nX,7])
+						RecLock("FI7",.F.)
+						FI7_STATUS	:= "1"
+						MsUnlock()
+						dbSkip()
+					Enddo
+				Endif
+			Endif
+
+			//Valor do titulo para verificacao de diferencas de centavos
+			nSobra := aRastroOri[nX,8]
+
+			//Gravacao dos Rastreamentos
+			For nY := 1 to Len(aRastroDes)
+				If nProcesso == 1 //Desdobramento
+					nIndice := 1
+				Else
+					nIndice := aRastroOri[nX,8] / nValProc
+				Endif
+
+				//Grava registro de rastreamento
+				RecLock("FI7",.T.)
+				FI7_FILIAL	:= aRastroOri[nX,1]
+				FI7_DATA	:= dDataBase
+				FI7_PRFORI	:= aRastroOri[nX,2]
+				FI7_NUMORI	:= aRastroOri[nX,3]
+				FI7_PARORI	:= aRastroOri[nX,4]
+				FI7_TIPORI	:= aRastroOri[nX,5]
+				FI7_CLIORI	:= aRastroOri[nX,6]
+				FI7_LOJORI	:= aRastroOri[nX,7]
+				FI7_FILDES	:= aRastroDes[nY,1]
+				FI7_PRFDES	:= aRastroDes[nY,2]
+				FI7_NUMDES	:= aRastroDes[nY,3]
+				FI7_PARDES	:= aRastroDes[nY,4]
+				FI7_TIPDES	:= aRastroDes[nY,5]
+				FI7_CLIDES	:= aRastroDes[nY,6]
+				FI7_LOJDES	:= aRastroDes[nY,7]
+				FI7_VALOR	:= Round(NoRound((aRastroDes[nY,8] * nIndice),3),2)
+				FI7_STATUS	:= "0"
+
+				//Controle de diferenca de centavos
+				nSobra -= Round(NoRound((aRastroDes[nY,8] * nIndice),3),2)
+				If nY == Len(aRastroDes) .and. nSobra > 0
+					FI7_VALOR	+= nSobra
+				Endif
+
+				MsUnlock()
+
+                //verificacao SIGAPLS
+                if __lPLSFN250
+                    PLSFN250( "SE1", aRastroOri[nX], @cFindTIT )
+                endIf
+
+			Next
+		Next
+	Else
+		For nX := 1 to Len(aRastroOri)
+			If nProcesso > 1
+				//Verifica se o titulo foi gerado a partir de outra negociacao
+				//Neste caso devo alterar o status dele para negociado (1)
+				dbSelectArea("FI8")
+				dbSetOrder(2)
+				If MsSeek(aRastroOri[nX,1]+aRastroOri[nX,2]+aRastroOri[nX,3]+aRastroOri[nX,4]+aRastroOri[nX,5]+;
+								aRastroOri[nX,6]+aRastroOri[nX,7])
+					While !EOF() .and. (FI8_FILIAL+FI8_PRFDES+FI8_NUMDES+FI8_PARDES+FI8_TIPDES+FI8_FORDES+FI8_LOJDES) == ;
+								(aRastroOri[nX,1]+aRastroOri[nX,2]+aRastroOri[nX,3]+aRastroOri[nX,4]+aRastroOri[nX,5]+;
+																aRastroOri[nX,6]+aRastroOri[nX,7])
+						RecLock("FI8",.F.)
+						FI8_STATUS	:= "1"
+						MsUnlock()
+						dbSkip()
+					Enddo
+				Endif
+			Endif
+
+			//Valor do titulo para verificacao de diferencas de centavos
+			nSobra := aRastroOri[nX,8]
+
+			For nY := 1 to Len(aRastroDes)
+				If nProcesso == 1 //Desdobramento
+					nIndice := 1
+				Else 					//Fatura ou Liquidacao
+					nIndice := aRastroOri[nX,8] / nValProc
+				Endif
+
+				//Grava registro de rastreamento
+				RecLock("FI8",.T.)
+				FI8_FILIAL	:= aRastroOri[nX,1]
+				FI8_DATA	:= dDataBase
+				FI8_PRFORI	:= aRastroOri[nX,2]
+				FI8_NUMORI	:= aRastroOri[nX,3]
+				FI8_PARORI	:= aRastroOri[nX,4]
+				FI8_TIPORI	:= aRastroOri[nX,5]
+				FI8_FORORI	:= aRastroOri[nX,6]
+				FI8_LOJORI	:= aRastroOri[nX,7]
+				FI8_FILDES	:= aRastroDes[nY,1]
+				FI8_PRFDES	:= aRastroDes[nY,2]
+				FI8_NUMDES	:= aRastroDes[nY,3]
+				FI8_PARDES	:= aRastroDes[nY,4]
+				FI8_TIPDES	:= aRastroDes[nY,5]
+				FI8_FORDES	:= aRastroDes[nY,6]
+				FI8_LOJDES	:= aRastroDes[nY,7]
+				FI8_VALOR	:= Round(NoRound((aRastroDes[nY,8] * nIndice),3),2)
+				FI8_STATUS	:= "0"
+
+				//Controle de diferenca de centavos
+				nSobra -= Round(NoRound(( (aRastroDes[nY,8]+IIf(Len(aRastroDes[nY])>8,aRastroDes[nY,9],0)) * nIndice),3),2)
+				If nY == Len(aRastroDes) .and. nSobra > 0
+					FI8_VALOR	+= nSobra
+				Endif
+
+				MsUnlock()
+
+                //verificacao SIGAPLS
+                if __lPLSFN250
+                    PLSFN250( "SE2", aRastroOri[nX], @cFindTIT )
+                endIf
+				
+			Next
+		Next
+	Endif
+Endif
+
+Return
+
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FaCanDsd
+Programa de cancelamento de desdobramentos
+
+@param cAlias - Alias inicial para o processo de consulta de rastreamento (SE1 ou SE2)
+@param nReg	  - Registro posicionado na SE1 ou SE2
+@param nOpc	  - Opção de processamento
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FaCanDsd(cAlias,nReg,nOpc)
+
+Local cArea			:= Iif(cAlias == "SE1","E1","E2")
+Local nOpcA			:= 0
+Local nSavRec		:= (cAlias)->(RecNo())
+Local nTotal		:=0
+Local nHdlPrv		:=0
+Local lDigita		:= .F.
+Local lPadrao		:= .F.
+Local cPadrao		:= ""
+Local oDlg
+Local cArquivo
+Local lHead			:= .F.
+Local nValSaldo		:= 0
+Local cTitKey		:= ""
+Local aTitulos		:= {}
+Local aDeletar		:= {}
+Local nX			:= 0
+Local cAliasDsd		:= Iif(cAlias == "SE1","FI7","FI8")
+Local nOrdem		:= Iif(cAlias == "SE1",2,6)
+Local _aTit			:= {}
+Local aDelRastro  	:= {}
+Local lEstProv		:= .F.
+Local lRet			:= .T.
+
+//REESTRUTURACAO SE5
+Local oModel	:= NIL
+Local oSubFKA	:= NIL
+Local aAreaAnt	:= {}
+Local cLog		:= ""
+Local aColsCpy	:= {}
+
+Private aHeader := {}
+Private aCols  	:= {}
+
+dbSelectArea(cAlias)
+
+//Verifica se o arquivo nao esta vazio
+If (cAlias)->( EOF()) .or. xFilial(cAlias) # &cArea._FILIAL
+	Help(" ",1,"ARQVAZIO")
+	Return .T.
+EndIf
+
+//Verificar se titulo foi gerado por desdobramento de inclusao
+If ALLTRIM(UPPER(&cArea._ORIGEM)) $ "FINA040#FINA050" .and. !(&cArea._DESDOBR $ "1#S")
+	Help(,,"NO_CANDSD",,STR0020,1,1) //"Este título não sofreu desdobramento"
+	Return
+Endif
+
+//Verificar se titulo foi gerado por rotina de inclusao financeira
+If !(ALLTRIM(UPPER(&cArea._ORIGEM)) $ "FINA040#FINA050")
+	Help(" ",1,"NO_DELETE",,&cArea._ORIGEM,3,1) //Este titulo nao podera ser excluido pois foi gerado pelo modulo
+	Return
+Endif
+
+//Verifica se cancelamentos sao permitidos nesta data
+If !DtMovFin(,,IIF(IsInCallStack("FINA050"),"1",IIF(IsInCallStack("FINA040"),"2","")))
+   Return
+Endif
+
+//Verifica se os titulos filhos nao possuem restricao para cancelamento
+//1- Estao ativo (STATUS = 0 no FI7/FI8)
+//2- Nao sofreram Baixas
+//3- Nao estao em bordero ou em banco (carteira <> 0)
+If !(FINRSTVRF(cAlias))
+	Return
+Endif
+
+// Validação Documento Hábil - SIAFI
+If FinTemDH()
+	Return .T.
+Endif
+
+// Cria Arquivo Temporario para exibir os dados do desdobramento na Getdados
+FINRSTTRB(cAliasDsd)
+
+// Limpa aGet e aTela
+aGets := { }
+aTela := { }
+
+// Envia para processamento dos Gets
+If cAlias == "SE1"
+	dbSelectArea("SA1")
+	dbSeek(xFilial("SA1")+SE1->E1_CLIENTE+SE1->E1_LOJA)
+	cFonte := "FINA040"
+Else
+	dbSelectArea("SA2")
+	dbSeek(xFilial("SA2")+SE2->E2_FORNECE+SE2->E2_LOJA)
+	cFonte := "FINA050"
+Endif
+
+dbSelectArea(cAlias)
+If !SoftLock(cAlias)
+	Return
+EndIf
+
+bCampo := {|nCPO| Field(nCPO) }
+FOR nX := 1 TO FCount()
+	M->&(EVAL(bCampo,nX)) := FieldGet(nX)
+NEXT
+
+If !Type("lF040Auto") == "L" .or. !lF040Auto
+	aSize := MsAdvSize()
+	DEFINE MSDIALOG oDlg TITLE STR0021 From aSize[7],0 To aSize[6],aSize[5] OF oMainWnd PIXEL //"Desdobramento"
+	oDlg:lMaximized := .T.
+
+	/////////////////
+	// painel 1 - MSMGET - Dados do titulo gerador do desdobramento
+	oPanel1 := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,130,130,.F.,.F.)
+	oPanel1:Align := CONTROL_ALIGN_TOP
+
+	oEnch := MsMGet():New( cAlias, nReg, nOpc,,"AC",,,,,,,,,oPanel1)
+	oEnch:oBox:Align := CONTROL_ALIGN_ALLCLIENT
+
+	/////////////////
+	// painel 2 - MsGetDados - Dados dos titulos gerados pelo desdobramento
+	oPanel2 := TPanel():New(0,0,STR0011,oDlg,, .T., .T.,, ,25,25,.F.,.F.)  //'Dados do Rastreamento'
+	oPanel2:Align := CONTROL_ALIGN_ALLCLIENT
+
+	oGetDados:= MsGetDados():New(0,0,200,315,2,,,,,.F.,,.T.,,,,,,oPanel2)
+	oGetDados:oBrowse:Align := CONTROL_ALIGN_ALLCLIENT
+
+	nOpca := 1
+
+	ACTIVATE MSDIALOG oDlg ON INIT EnchoiceBar(oDlg,{|| nOpca := 2,oDlg:End()},{|| nOpca := 1,oDlg:End()}) CENTER
+
+EndIf
+
+If nOpcA == 2
+
+	BEGIN TRANSACTION
+
+		If cAlias == "SE1"
+			cTitKey := SE1->(E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO+E1_CLIENTE+E1_LOJA)
+			dbselectarea("FIH")
+			dbsetorder(2)
+			If dbseek(xFilial("FIH")+"SE1"+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_PARCELA+SE1->E1_TIPO+SE1->E1_CLIENTE+SE1->E1_LOJA)
+				If (!Type("lF040Auto") == "L" .or. !lF040Auto)
+					if msgyesno(STR0034)  //"Titulo Efetivo originado de Título(s) Provisório(s), deseja excluir o Efetivo e retornar o(s) Provisório(s) para o Status 'Em aberto'?"
+						lEstProv := .T.
+					else
+						DisarmTransaction()
+						lRet := .F.
+					endif
+				Else
+					lEstProv := .T.
+				EndIf
+			EndIf
+		Else
+			cTitKey := SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)			
+		Endif
+
+		If lRet
+			// Exclui baixa do titulo gerador do desdobramento
+			dbSelectArea("SE5")
+			SE5->(dbSetOrder(7))
+			If MsSeek(xfilial("SE5")+cTitKey)
+				While !EOF() .and. xFilial("SE5")+cTitKey == SE5->(E5_FILIAL+E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA)
+					If SE5->E5_MOTBX == "DSD"
+					
+						If cAlias == "SE1"
+							oModel := FWLoadModel("FINM010")
+						Else
+							oModel := FWLoadModel("FINM020")
+						Endif
+						
+						// Verifica movimentacao de AVP
+						FAVPValTit( cAlias, SE5->( RecNo() ) )
+
+						//Reestruturacao SE5
+						//Posiciona a FK5 para mandar a operação de alteração com base no registro posicionado da SE5
+						aAreaAnt := GetArea()
+						aColsCpy := aClone(aCols)
+						aCols	 := {}
+
+						oModel:SetOperation( 4 ) //Alteração
+						oModel:Activate()
+						oSubFKA := oModel:GetModel( "FKADETAIL" )
+						If oSubFKA:SeekLine( { {"FKA_IDORIG", SE5->E5_IDORIG } } )
+
+							//E5_OPERACAO 1 = Altera E5_SITUACA da SE5 para 'C' e gera estorno na FK5
+							//E5_OPERACAO 2 = Altera E5_TIPODOC da SE5 para 'ES' e gera estorno na FK5
+							//E5_OPERACAO 3 = Deleta da SE5 e gera estorno na FK5
+							oModel:SetValue( "MASTER", "E5_OPERACAO", 3 )
+
+							If oModel:VldData()
+								oModel:CommitData()
+								oModel:DeActivate()
+							Else
+								cLog := cValToChar(oModel:GetErrorMessage()[4]) + ' - '
+								cLog += cValToChar(oModel:GetErrorMessage()[5]) + ' - '
+								cLog += cValToChar(oModel:GetErrorMessage()[6])
+								Help( ,,"M250VLDEL",,cLog, 1, 0 )
+								DisarmTransaction()
+								Exit
+							Endif
+						Endif
+						aCols := aClone(aColsCpy)
+						RestArea(aAreaAnt)
+
+						//Volto saldo do titulo gerador para permitir sua exclusao via rotina automatica
+						RecLock(cAlias)
+						(cAlias)->&(cArea+"_SALDO") := (cAlias)->&(cArea+"_VALOR")
+						(cAlias)->&(cArea+"_BAIXA") := CTOD("//")
+						MsUnlock()
+
+						Exit
+
+					Endif
+					dbSelectArea("SE5")
+					SE5->(dbSkip())
+				Enddo
+			Endif
+
+			//Guarda registro do titulo gerador para posterior exclusao
+			aadd(aDeletar,(cAlias)->(Recno()))
+
+			// Guarda os dados de rastreamento (FI7/FI8) para posterior exclusao
+			FINRSTDEL(cAlias,cTitKey,aTitulos, aDelRastro)
+
+			// Dados para a contabilização
+			cPadrao		:= IF(cAlias == "SE1","529","578")
+			lPadrao		:= VerPadrao(cPadrao)
+			nValSaldo	:= 0
+			VALOR			:= 0
+			lHead			:= .F.
+
+			If UsaSeqCor()
+				aDiario := {}
+				If cAlias == "SE1"
+					aDiario := {{"SE1",SE1->(recno()),SE1->E1_DIACTB,"E1_NODIA","E1_DIACTB"}}
+				Else
+					aDiario := {{"SE2",SE2->(recno()),SE2->E2_DIACTB,"E2_NODIA","E2_DIACTB"}}
+				Endif
+			Else
+				aDiario := {}
+			Endif
+
+			dbSelectArea(cAlias)
+			dbSetOrder(nOrdem)
+			For nX := 1 to Len(aTitulos)
+				If MsSeek(aTitulos[nX])
+
+					aadd(aDeletar,(cAlias)->(Recno()))
+
+				// Gera o lancamento contabil para delecao de titulos gerados via desdobramento.
+					IF lPadrao .and. &cArea._LA == "S"
+
+						If !lHead
+							nHdlPrv:=HeadProva(cLote,cFonte,Substr(cUsuario,7,6),@cArquivo)
+							lHead := .T.
+						Endif
+						nTotal+=DetProva(nHdlPrv,cPadrao,cFonte,cLote)
+						nValSaldo += &cArea._VALOR
+
+					// Desmarca o flag de contabilizacao do titulo de desdobramento para evitar duplicidade.
+						RecLock( cAlias, .F. )
+						(cAlias)->&( cArea + "_LA" ) := "N"
+						(cAlias)->( MsUnLock() )
+
+					Endif
+				Endif
+			Next
+
+			If nTotal > 0
+				dbSelectArea (cAlias)
+				dbGoBottom()
+				dbSkip()
+				VALOR := nValSaldo
+				nTotal+=DetProva(nHdlPrv,cPadrao,cFonte,cLote)
+			EndIf
+
+			IF lPadrao .and. nTotal > 0
+				RodaProva(nHdlPrv,nTotal)
+
+			// Envia para Lançamento Contábil - desdobramentos
+				lDigita:=IIF(mv_par01==1,.T.,.F.)
+				cA100Incl(cArquivo,nHdlPrv,3,cLote,lDigita,.F.,,,,,,aDiario)
+			EndIf
+
+			// Deleta os titulos de Desdobramento em aberto
+			If Len(aDeletar) > 0
+
+				SaveInter()
+				lMsErroAuto := .F.
+
+				For nX := 1 to Len(aDeletar)
+					(cAlias)->(dbGoto(aDeletar[nX]))
+					// O Saldo da Natureza sera atualizado na rotina automatica
+					//Exclui possiveis titulos acessorios (TX, Abatimentos etc)
+					If cAlias == "SE1"
+						_aTit := {}
+						AADD(_aTit , {"E1_PREFIXO",SE1->E1_PREFIXO	,NIL})
+						AADD(_aTit , {"E1_NUM"    ,SE1->E1_NUM			,NIL})
+						AADD(_aTit , {"E1_PARCELA",SE1->E1_PARCELA	,NIL})
+						AADD(_aTit , {"E1_TIPO"   ,SE1->E1_TIPO		,NIL})
+						AADD(_aTit , {"E1_NATUREZ",SE1->E1_NATUREZ	,NIL})
+						AADD(_aTit , {"E1_CLIENTE",SE1->E1_CLIENTE	,NIL})
+						AADD(_aTit , {"E1_LOJA"   ,SE1->E1_LOJA		,NIL})
+
+						If nX == 1 // titulo gerador
+							If lEstProv //Executa rotina para estorno de título provisório
+								F040RetPR()
+								(cAlias)->(dbGoto(aDeletar[nX]))  //posicionar novamente
+							EndIF
+						EndIF
+
+						//Chamada da rotina automatica
+						//5 = Exclusao
+						MSExecAuto({|x, y| FINA040(x, y)}, _aTit, 5)
+
+					Else
+
+						_aTit := {}
+						AADD(_aTit , {"E2_PREFIXO",SE2->E2_PREFIXO	,NIL})
+						AADD(_aTit , {"E2_NUM"    ,SE2->E2_NUM			,NIL})
+						AADD(_aTit , {"E2_PARCELA",SE2->E2_PARCELA	,NIL})
+						AADD(_aTit , {"E2_TIPO"   ,SE2->E2_TIPO		,NIL})
+						AADD(_aTit , {"E2_NATUREZ",SE2->E2_NATUREZ	,NIL})
+						AADD(_aTit , {"E2_FORNECE",SE2->E2_FORNECE	,NIL})
+						AADD(_aTit , {"E2_LOJA"   ,SE2->E2_LOJA		,NIL})
+
+						//Chamada da rotina automatica
+						//5 = Exclusao
+						MSExecAuto({|x, y, z| FINA050(x, y, z)}, _aTit, 5, 5)
+
+					Endif
+
+					If lMsErroAuto
+						MOSTRAERRO()
+						DisarmTransaction()
+						Exit
+					Endif
+
+				Next
+				RestInter()
+				// Se nao deu erro na exclusao do titulo, exclui o rastro, pois a exclusao do titulo precisa do rastro
+				// para identificar se atualiza o saldo da natureza ou nao
+				IF !lMsErroAuto
+					For nX := 1 To Len(aDelRastro)
+						(cAliasDsd)->(MsGoto(aDelRastro[nX]))
+						RecLock(cAliasDsd,.F.,.T.)
+						dbDelete()
+						MsUnlock()
+					Next
+				Endif
+			Endif
+
+			(cAlias)->(dbGoTo(nSavRec))
+		Endif
+	END TRANSACTION
+Endif
+MsUnlock()
+
+dbSelectArea(cAlias)
+(cAlias)->(dbGoTo(nSavRec))
+
+Return
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}F250Cons
+Verificacao da permissao de cancelamento do destobramento rastreado
+
+@param cAlias - Alias inicial para o processo de consulta de rastreamento (SE1 ou SE2)
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FINRSTVRF(cAlias)
+
+Local aAreaAtu	:= (cAlias)->(GetArea())
+Local cChave	:= ""
+Local lRet		:= .T.
+Local nRegAtu	:= (cAlias)->(Recno())
+
+If cAlias == "SE1"
+	cChave := SE1->(E1_PREFIXO+E1_NUM+E1_PARCELA+E1_TIPO+E1_CLIENTE+E1_LOJA)
+	dbSelectArea("FI7")
+	dbSetOrder(1)
+	If MsSeek(xFilial("FI7")+cChave)
+		While !Eof() .and. xFilial("FI7")+cChave == ;
+				FI7->(FI7_FILIAL+FI7_PRFORI+FI7_NUMORI+FI7_PARORI+FI7_TIPORI+FI7_CLIORI+FI7_LOJORI)
+			//Se algum dos filhos foi renegociado não cancela processo
+			If FI7->FI7_STATUS == "1"
+				Help( " ", 1, "FRSTREN",,STR0022+Chr(13)+; //"Não é possivel o cancelamento do desdobramento pois uma das parcelas do desdobramento sofreu renegociação"
+						FI7->FI7_PRFDES+"-"+FI7->FI7_NUMDES+"-"+FI7->FI7_PARDES+"-"+FI7->FI7_TIPDES+"-"+;
+						FI7->FI7_CLIDES+"-"+FI7->FI7_LOJDES,1)
+				lRet := .F.
+			Else
+   			SE1->(DBSETORDER(2))
+				If SE1->(MsSeek(FI7->(FI7_FILDES+FI7_CLIDES+FI7_LOJDES+FI7_PRFDES+FI7_NUMDES+FI7_PARDES+FI7_TIPDES)))
+					If STR(SE1->E1_VALOR,17,2) != STR(SE1->E1_SALDO,17,2) .OR. ;
+						!Empty(SE1->E1_NUMBOR) .OR.;
+						SE1->E1_SITUACA != "0"
+
+						Help( " ", 1, "FRSTBXD",,STR0023+Chr(13)+; //"Não é possivel o cancelamento do desdobramento pois uma das parcelas do desdobramento sofreu baixa ou não está em carteira."
+								FI7->FI7_PRFORI+"-"+FI7->FI7_NUMORI+"-"+FI7->FI7_PARORI+"-"+;
+								FI7->FI7_TIPORI+"-"+FI7->FI7_CLIORI+"-"+FI7->FI7_LOJORI,1)
+
+						lRet := .F.
+					Endif
+				Endif
+
+			Endif
+			FI7->(dbSkip())
+		EndDo
+	Else
+		lRet := .F.
+		Help(,,"NO_CANDSD",,STR0020,1,1) //"Este título não sofreu desdobramento"
+	Endif
+
+ElseIf cAlias == "SE2"
+	cChave := SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
+	dbSelectArea("FI8")
+	dbSetOrder(1)
+	If MsSeek(xFilial("FI8")+cChave)
+		While !Eof() .and. xFilial("FI8")+cChave == ;
+				FI8->(FI8_FILIAL+FI8_PRFORI+FI8_NUMORI+FI8_PARORI+FI8_TIPORI+FI8_FORORI+FI8_LOJORI)
+			//Se algum dos filhos foi renegociado não cancela processo
+			If FI8->FI8_STATUS == "1"
+				Help( " ", 1, "FRSTREN",,STR0022+Chr(13)+; //"Não é possivel o cancelamento do desdobramento pois uma das parcelas do desdobramento sofreu renegociação"
+						FI8->FI8_PRFDES+"-"+FI8->FI8_NUMDES+"-"+FI8->FI8_PARDES+"-"+FI8->FI8_TIPDES+"-"+;
+						FI8->FI8_FORDES+"-"+FI8->FI8_LOJDES,1)
+				lRet := .F.
+			Else
+   			SE2->(DBSETORDER(6))
+				If SE2->(MsSeek(FI8->(FI8_FILDES+FI8_FORDES+FI8_LOJDES+FI8_PRFDES+FI8_NUMDES+FI8_PARDES+FI8_TIPDES)))
+					If STR(SE2->E2_VALOR,17,2) != STR(SE2->E2_SALDO,17,2) .OR. ;
+						!Empty(SE2->E2_NUMBOR) .or. !Fa050Filho(.T.) .or. !Fa050FDarf()
+
+						Help( " ", 1, "FRSTBXD",,STR0024+Chr(13)+; //"Não é possivel o cancelamento do desdobramento pois uma das parcelas do desdobramento sofreu baixa ou foi enviada a banco."
+								FI8->FI8_PRFDES+"-"+FI8->FI8_NUMDES+"-"+FI8->FI8_PARDES+"-"+FI8->FI8_TIPDES+"-"+;
+								FI8->FI8_FORDES+"-"+FI8->FI8_LOJDES,1)
+						lRet := .F.
+					Endif
+				Endif
+			Endif
+			FI8->(dbSkip())
+		EndDo
+	Else
+		lRet := .F.
+		Help(,,"NO_CANDSD",,STR0020,1,1) //"Este título não sofreu desdobramento"
+	Endif
+Endif
+
+RestArea(aAreaAtu)
+(cAlias)->(dbGoto(nRegAtu))
+
+Return lRet
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FINRSTDEL
+Exclusao dor registros de rastro
+
+Utilizado por FINA040/FINA050 
+
+@param cAlias	 	- Alias do arquivo
+@param cTitKey	 	- Chave do titulo
+@param aTitulos	 	- Array contendo os registros de gerados pelo desdobramento
+@param aDelRastro 	- Array contendo os registros de rastreio a serem deletados
+@param cFilOrig  	- Filial de Origem
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FINRSTDEL(cAlias,cTitKey,aTitulos, aDelRastro, cFilOrig)
+
+Local aAreaDel := GetArea()
+Local cAliasRst:= ""
+Local cKeyFI	:= ""
+
+DEFAULT cAlias := "SEA"
+DEFAULT cTitKey := ""
+DEFAULT aTitulos := {}
+DEFAULT cFilOrig := cFilAnt
+
+If cAlias $ "SE1#SE2" .and. !Empty(cTitKey)
+	cAliasRst:= If(cAlias == "SE1","FI7","FI8")
+	cKeyFI	:= If(cAlias == "SE1","FI7->(FI7_FILIAL+FI7_PRFORI+FI7_NUMORI+FI7_PARORI+FI7_TIPORI+FI7_CLIORI+FI7_LOJORI)",;
+								  "FI8->(FI8_FILIAL+FI8_PRFORI+FI8_NUMORI+FI8_PARORI+FI8_TIPORI+FI8_FORORI+FI8_LOJORI)")
+
+	//Verifica se o titulo gerador foi gerado a partir de outra negociacao
+	//Neste caso devo alterar o status dele para normal (0)
+	dbSelectArea(cAliasRst)
+	dbSetOrder(2)
+	If MsSeek(xFilial(cAliasRst,cFilOrig)+cTitKey)
+		If cAlias == "SE1"
+			RecLock("FI7",.F.)
+			FI7_STATUS	:= "0"
+			MsUnlock()
+		Else
+			RecLock("FI8",.F.)
+			FI8_STATUS	:= "0"
+			MsUnlock()
+		EndIf
+	Endif
+
+	dbSelectArea(cAliasRst)
+	dbSetOrder(1)
+	If MsSeek(xFilial(cAliasRst,cFilOrig)+cTitKey)
+
+   		While !(cAliasRst)->(EOF()).and. xFilial(cAliasRst,cFilOrig)+cTiTKey == &(cKeyFI)
+			If cAliasRst == "FI7"
+				aadd(aTitulos,FI7->(FI7_FILDES+FI7_CLIDES+FI7_LOJDES+FI7_PRFDES+FI7_NUMDES+FI7_PARDES+FI7_TIPDES))
+			Else
+				aadd(aTitulos,FI8->(FI8_FILDES+FI8_FORDES+FI8_LOJDES+FI8_PRFDES+FI8_NUMDES+FI8_PARDES+FI8_TIPDES))
+			Endif
+			If aDelRastro # Nil
+				Aadd(aDelRastro, (cAliasRst)->(Recno()))
+			Else
+				RecLock(cAliasRst,.F.,.T.)
+				dbDelete()
+				MsUnlock()
+			Endif
+			(cAliasRst)->(dbSkip())
+		Enddo
+	Endif
+Endif
+
+RestArea(aAreaDel)
+
+Return
+
+//------------------------------------------------------------------------------------------------
+/*/{Protheus.doc}FINRSTTRB
+Montagem do TRB utilizado no cancelamento do destobramento
+
+Utilizado por FINA040/FINA050 
+
+@param cAliasDsd - Alias do Desdobramento
+
+@author Mauricio Pequim Jr
+@since  27/04/2009
+@version 12
+/*/
+//------------------------------------------------------------------------------------------------
+Function FINRSTTRB(cAliasDsd)
+
+	Local aArea		:= GetArea()
+	Local cQuery	:= ""
+	Local aStruDsd	:= (cAliasDsd)->(dbStruct())
+	Local nCt		:= 0
+	Local nI		:= 0
+	Local nY		:= 0
+	Local cAliasTrb := "QRYDSD"
+	Local nUsado	:= 0
+
+	For nY := 1 to Len(aStruDsd)
+		If cNivel >= GetSx3Cache(aStruDsd[nY,1], "X3_NIVEL")
+			nUsado++
+			aAdd(aHeader, {	Trim(GetSx3Cache(aStruDsd[nY,1], "X3_TITULO")),;
+							aStruDsd[nY,1],; 
+							GetSx3Cache(aStruDsd[nY,1], "X3_PICTURE"),;
+							GetSx3Cache(aStruDsd[nY,1], "X3_TAMANHO"),;
+							GetSx3Cache(aStruDsd[nY,1], "X3_DECIMAL"),;
+							GetSx3Cache(aStruDsd[nY,1], "X3_VALID"  ),;
+							"",;
+							GetSx3Cache(aStruDsd[nY,1], "X3_TIPO"   ),;
+							"",;
+							"" ;
+						   } )			
+		Endif
+	Next	
+
+	For nCt := 1 To Len(aStruDsd)
+		cQuery+= ","+Alltrim(aStruDsd[nCt,1])
+	Next nCt
+
+	cQuery:= "SELECT "+SubStr(cQuery,2)+ " "
+	cQuery+= "FROM "+RetSqlName(cAliasDsd)+ " "+cAliasDsd+" "
+	cQuery+= "WHERE "
+
+	If cAliasDsd == "FI7"
+		cQuery+= "FI7_FILIAL ='"+ xFilial("SE1")	+ "' AND "
+		cQuery+= "FI7_PRFORI ='"+ SE1->E1_PREFIXO	+ "' AND "
+		cQuery+= "FI7_NUMORI ='"+ SE1->E1_NUM		+ "' AND "
+		cQuery+= "FI7_PARORI ='"+ SE1->E1_PARCELA	+ "' AND "
+		cQuery+= "FI7_TIPORI ='"+ SE1->E1_TIPO		+ "' AND "
+		cQuery+= "FI7_CLIORI ='"+ SE1->E1_CLIENTE	+ "' AND "
+		cQuery+= "FI7_LOJORI ='"+ SE1->E1_LOJA		+ "' AND "
+	Else
+		cQuery+= "FI8_FILDES ='"+ xFilial("SE2")	+ "' AND "
+		cQuery+= "FI8_PRFORI ='"+ SE2->E2_PREFIXO	+ "' AND "
+		cQuery+= "FI8_NUMORI ='"+ SE2->E2_NUM		+ "' AND "
+		cQuery+= "FI8_PARORI ='"+ SE2->E2_PARCELA	+ "' AND "
+		cQuery+= "FI8_TIPORI ='"+ SE2->E2_TIPO		+ "' AND "
+		cQuery+= "FI8_FORORI ='"+ SE2->E2_FORNECE	+ "' AND "
+		cQuery+= "FI8_LOJORI ='"+ SE2->E2_LOJA		+ "' AND "
+	Endif
+	cQuery+= " D_E_L_E_T_ = ' '"
+
+	cQuery := ChangeQuery(cQuery)
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTrb,.T.,.T.)
+	aEval(aStruDsd,{|x| If(x[2]!="C",TcSetField(cAliasTrb,x[1],x[2],x[3],x[4]),Nil)})
+
+	//Monta Acols
+	While !(cAliasTrb)->(EOF())
+		AADD(aCols,Array(nUsado+1))
+		For nI := 1 To nUsado
+			aCols[Len(aCols)][nI] := (cAliasTrb)->(FieldGet(FieldPos(aHeader[nI][2])))
+		Next nI
+		aCols[Len(aCols)][nUsado+1] := .F.
+		(cAliasTrb)->(dbSkip())
+	Enddo
+
+	//apaga o arquivo temporario
+	dbSelectArea(cAliasTrb)
+	dbCloseArea()
+
+	RestArea(aArea)
+
+	FWFreeArray(aArea)
+	FWFreeArray(aStruDsd)
+
+Return
+
+Function F250Help()
+	MSGINFO(STR0025+CHR(13)+; //"Tipos de Rastro: "
+				" "+CHR(13)+;
+				STR0026+CHR(13)+; //"GERADOS - Rastreia titulos ativos, gerados a partir do titulo atual"
+				STR0027+CHR(13)+; //"GERADORES - Rastreia titulos geradoes do titulo atual"
+				STR0028,STR0029) //"TODOS - Rastreia titulos geradores e gerados referentes ao titulo atual"###"RASTRO"
+Return
+
+
+//----------------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F250Click
+Função que exibe o título ao executar duplo clique ou clicar com o botão direito na linha da árvore
+
+@param   cCargo     Cargo do item posicionado no dbTree.
+@return  Nenhum.
+
+@author	    Luis Felipe Geraldo
+@since		22/04/2019
+/*/
+//----------------------------------------------------------------------------------------------------------
+Static Function F250Click(cCargo, cPrmt)
+
+Local aAreaAnt  := GetArea()
+Local cAliasTit := left(cCargo, 3)
+Local nRecNo    := val(SubStr(cCargo, 4))
+Local aAreaTit  := {}
+Local aAux		:= {}
+Local cCli		:= ''
+Local cLoj		:= ''
+Local cNumLiq	:= ''
+Local cNumFat	:= ''
+Local cPrompt	:= SubStr(cPrmt, 1, At(";", cPrmt) )
+
+If !Empty(cCargo)
+ 	aAreaTit := (cAliasTit)->(GetArea())
+
+	If nRecNo > 0
+		(cAliasTit)->(dbGoTo(nRecNo))
+		If (STR0047 $ cPrompt) .And. __lProcess .And. cAliasTit == "SE1"
+			If Empty((cAliasTit)->E1_NUMLIQ)
+				aAux	:= FGetNLiq(cAliasTit)
+				cNumLiq	:= aAux[1]
+				cCli	:= aAux[2]
+				cLoj	:= aAux[3]
+			Else
+				cNumLiq	:= (cAliasTit)->E1_NUMLIQ
+				cCli	:= (cAliasTit)->E1_CLIENTE
+				cLoj	:= (cAliasTit)->E1_LOJA
+			EndIf
+			DbSelectArea("FO0")
+			DbSetOrder(2)
+			FO0->(DbSeek(xFilial('FO0', (cAliasTit)->E1_FILORIG) + cNumLiq + cCli + cLoj))
+			F460VerSim()
+		ElseIf cAliasTit == "SE2" .and. ((STR0047 $ cPrompt) .or. (STR0048 $ cPrompt))	//Liquidação###Fatura
+			If (STR0047 $ cPrompt) .And. __lProcess			//Liquidação
+				If Empty((cAliasTit)->E2_NUMLIQ) .Or. (!Empty((cAliasTit)->E2_NUMLIQ) .And. !((cAliasTit)->E2_NUMLIQ $ cPrompt) )
+					aAux	:= FGetNLiq(cAliasTit)
+					cNumLiq	:= aAux[1]
+					cCli	:= aAux[2]
+					cLoj	:= aAux[3]
+				Else
+					cNumLiq	:= (cAliasTit)->E2_NUMLIQ
+					cCli	:= (cAliasTit)->E2_FORNECE
+					cLoj	:= (cAliasTit)->E2_LOJA
+				EndIf
+			ElseIf (STR0048 $ cPrompt) .And. __lProcess		//"Fatura: "
+				If EMPTY((cAliasTit)->E2_FATURA )
+					aAux :=	FGetNLiq(cAliasTit,.T.)
+					cNumfat := aAux[1]
+					cCli	:= aAux[2]
+					cLoj	:= aAux[3]
+				Else				
+					cNumFat	:= If("NOTFAT" $ (cAliasTit)->E2_FATURA, (cAliasTit)->E2_NUM, (cAliasTit)->E2_FATURA)
+					cCli	:= (cAliasTit)->E2_FORNECE
+					cLoj	:= (cAliasTit)->E2_LOJA
+				EndIf
+			EndIf
+			F250VerSim(cPrompt,nRecNo, cNumLiq,If(!Empty(cNumFat), cNumFat, (__cRetAls)->NFATDES ) )			
+		Else
+			AxVisual(cAliasTit, nRecNo, 2)
+		EndIf
+	EndIf
+
+	RestArea(aAreaTit)
+	RestArea(aAreaAnt)
+Endif	
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F250ExiDes
+Verifica a existencia de rastreio para o titulo destino.
+
+@author  Vinicius do Prado	
+@since   19/03/2020
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function F250ExiDes(cAliaFI as Character, aTitPai as Array) as Logical
+
+	Local lRet	     as Logical
+	Local cDBMS    	 as Character
+	Local cFilDest 	 as Character
+	Local cCampoFil	 as Character
+	Local cQueryPart as Character
+	Local cQuery     as Character
+	Local cAliasRas  as Character
+	Local cCliFor	 as Character
+
+	DEFAULT cAliaFI := "FI8"
+	DEFAULT aTitPai := {} 
+
+	lRet       := .F.
+	cDBMS  	   := UPPER(TcGetDb())
+	cAliasRas  := cAliaFI
+	cAliasPai  := If( cAliasRas == "FI7", "SE1", "SE2" )
+	cFilDest   := xFilial(cAliasPai)
+	cCampoFil  := cAliasRas+"_FILIAL"
+	cQueryPart := ""
+	cQuery 	   := ""
+	cCliFor	   := IIF(cAliasRas == "FI7", "CLIDES", "FORDES")
+
+	If !Empty(aTitPai)
+		cQueryPart := " FROM "+ RetSqlName(cAliasRas)
+		cQueryPart += " WHERE "+cAliasRas+"_FILDES = 	'" + xFilial(cAliasPai) + "' "
+		cQueryPart += " AND "+cAliasRas+"_PRFDES = 		'"+ aTitPai[CPRFPAI] + "' "
+		cQueryPart += " AND "+cAliasRas+"_NUMDES = 		'"+ aTitPai[CNUMPAI] + "' "
+		cQueryPart += " AND "+cAliasRas+"_PARDES = 		'"+ aTitPai[CPARPAI] + "' "
+		cQueryPart += " AND "+cAliasRas+"_TIPDES = 		'"+ aTitPai[CTIPPAI] + "' "
+		cQueryPart += " AND "+cAliasRas+"_"+cCliFor+" = '"+ aTitPai[CFORCLI] + "' "
+		cQueryPart += " AND "+cAliasRas+"_LOJDES = 		'"+ aTitPai[CLOJPAI] + "' "
+
+		If cDBMS == 'DB2'
+			cQuery := "SELECT "+ cCampoFil + cQueryPart + " FETCH FIRST 1 ROWS ONLY"
+		ElseIf cDBMS == 'INFORMIX'
+			cQuery := "SELECT FIRST 1 " + cCampoFil + cQueryPart
+		ElseIf cDBMS == 'ORACLE'
+			cQuery := "SELECT "+ cCampoFil + cQueryPart + " AND ROWNUM < 2"
+		ElseIf cDBMS == 'MYSQL'
+			cQuery := "SELECT "+ cCampoFil + cQueryPart + " AND LIMIT 1"
+		ElseIf cDBMS == 'POSTGRES'
+			cQuery := "SELECT "+ cCampoFil + cQueryPart + " LIMIT 1"
+		Else
+			cQuery := "SELECT TOP 1 " + cCampoFil + cQueryPart
+		EndIf
+
+		cQuery := ChangeQuery(cQuery)
+		cFilDest := MpSysExecScalar(cQuery,cCampoFil)
+
+		aTitPai[CKEYPAI] := cFilDest + aTitPai[CPRFPAI] + aTitPai[CNUMPAI] + aTitPai[CPARPAI] + aTitPai[CTIPPAI] + aTitPai[CFORCLI] + aTitPai[CLOJPAI]
+
+		If (cAliasRas)->(dbSeek(aTitPai[CKEYPAI], .F.))
+			lRet := .T.
+		EndIf
+	EndIf
+	
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FIReduz
+Monta o temporário reduzida por título
+
+@author  Rodrigo Oliveira	
+@since   12/01/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FIReduz(cPai, aTitPai, cAliasRst)
+
+	Local cRetAls	:= "__" + cAliasRst
+	Local cQry		:= ""
+	Local cCond		:= ""
+	Local aStructFI	:= (cAliasRst)->(DbStruct())
+	Local cCampos	:= ""
+	Local nJ		:= 0
+	Local aIndex	:= {}
+
+	If(__oFITMP <> NIL)
+		__oFITMP:Delete()
+		__oFITMP := NIL
+	EndIf
+    For nJ := 1 To Len(aStructFI)
+        If aStructFI[nJ][DBS_TYPE] <> "M"
+            If nJ > 1
+				cCampos += ', '
+			EndIf
+			cCampos += aStructFI[nJ][DBS_NAME]
+        EndIf
+    Next nJ
+    
+	If cAliasRst == "FI7"
+		// posicionado
+		cQry 	:= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI7 "
+		cCond 	:= " WHERE FI7.FI7_FILIAL = '" + xFilial(cAliasRst) + "' "
+		cCond	+= " AND FI7.FI7_PRFORI = '" + aTitPai[CPRFPAI] + "' "
+		cCond 	+= " AND FI7.FI7_NUMORI = '" + aTitPai[CNUMPAI] + "' "
+		cCond 	+= " AND FI7.FI7_PARORI = '" + aTitPai[CPARPAI] + "' "
+		cCond 	+= " AND FI7.FI7_TIPORI = '" + aTitPai[CTIPPAI] + "' "
+		cCond 	+= " AND FI7.FI7_CLIORI = '" + aTitPai[CFORCLI] + "' "
+		cCond 	+= " AND FI7.FI7_LOJORI = '" + aTitPai[CLOJPAI] + "' "
+		cQry	+= cCond
+		cQry 	+= " Union"
+		// pai
+		cQry 	+= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI7 "
+		cQry	+= " WHERE FI7.FI7_FILIAL = '" + xFilial(cAliasRst) + "' "
+		cQry	+= " AND FI7.FI7_PRFDES = '" + aTitPai[CPRFPAI] + "' "
+		cQry 	+= " AND FI7.FI7_NUMDES = '" + aTitPai[CNUMPAI] + "' "
+		cQry 	+= " AND FI7.FI7_PARDES = '" + aTitPai[CPARPAI] + "' "
+		cQry 	+= " AND FI7.FI7_TIPDES = '" + aTitPai[CTIPPAI] + "' "
+		cQry 	+= " AND FI7.FI7_CLIDES = '" + aTitPai[CFORCLI] + "' "
+		cQry 	+= " AND FI7.FI7_LOJDES = '" + aTitPai[CLOJPAI] + "' "
+		
+		// avô
+		cQry 	+= " UNION "
+		cQry 	+= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI7"
+
+		cQry 	+= " WHERE FI7.FI7_FILIAL + FI7.FI7_PRFDES + FI7.FI7_NUMDES + FI7.FI7_PARDES + FI7.FI7_TIPDES + FI7.FI7_CLIDES + FI7.FI7_LOJDES in "
+		cQry 	+= " (Select FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI from " + RetSqlName(cAliasRst) + " FI7SON "
+		cQry 	+= " Where FI7_FILIAL + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES = '" + cPai + "')"
+
+		// Neto
+		cQry += " UNION "
+		cQry += " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI7 "
+
+		cQry += " WHERE FI7.FI7_FILIAL + FI7.FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7.FI7_TIPORI + FI7_CLIORI + FI7_LOJORI in "
+		cQry 	+= " (Select FI7_FILIAL + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES from " + RetSqlName(cAliasRst) + " FI7SON "
+		cQry 	+= " Where FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + FI7_PARORI + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI = '" + cPai + "')"
+	Else
+		// posicionado
+		cQry 	:= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI8 "
+		cCond 	:= " WHERE FI8.FI8_FILIAL = '" + xFilial(cAliasRst) + "' "
+		cCond	+= " AND FI8.FI8_PRFORI = '" + aTitPai[CPRFPAI] + "' "
+		cCond 	+= " AND FI8.FI8_NUMORI = '" + aTitPai[CNUMPAI] + "' "
+		cCond 	+= " AND FI8.FI8_PARORI = '" + aTitPai[CPARPAI] + "' "
+		cCond 	+= " AND FI8.FI8_TIPORI = '" + aTitPai[CTIPPAI] + "' "
+		cCond 	+= " AND FI8.FI8_FORORI = '" + aTitPai[CFORCLI] + "' "
+		cCond 	+= " AND FI8.FI8_LOJORI = '" + aTitPai[CLOJPAI] + "' "
+		cQry	+= cCond
+		cQry 	+= " Union"
+		// pai
+		cQry 	+= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI8 "
+		cQry	+= " WHERE FI8.FI8_FILIAL = '" + xFilial(cAliasRst) + "' "
+		cQry	+= " AND FI8.FI8_PRFDES = '" + aTitPai[CPRFPAI] + "' "
+		cQry 	+= " AND FI8.FI8_NUMDES = '" + aTitPai[CNUMPAI] + "' "
+		cQry 	+= " AND FI8.FI8_PARDES = '" + aTitPai[CPARPAI] + "' "
+		cQry 	+= " AND FI8.FI8_TIPDES = '" + aTitPai[CTIPPAI] + "' "
+		cQry 	+= " AND FI8.FI8_FORDES = '" + aTitPai[CFORCLI] + "' "
+		cQry 	+= " AND FI8.FI8_LOJDES = '" + aTitPai[CLOJPAI] + "' "
+		
+		// avô
+		cQry 	+= " UNION "
+		cQry 	+= " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI8"
+
+		cQry 	+= " WHERE FI8.FI8_FILIAL + FI8.FI8_PRFDES + FI8.FI8_NUMDES + FI8.FI8_PARDES + FI8.FI8_TIPDES + FI8.FI8_FORDES + FI8.FI8_LOJDES in "
+		cQry 	+= " (Select FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI from " + RetSqlName(cAliasRst) + " FI8SON "
+		cQry 	+= " Where FI8_FILIAL + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES = '" + cPai + "')"
+
+		// Neto
+		cQry += " UNION "
+		cQry += " SELECT " + cCampos + " FROM " + RetSqlName(cAliasRst) + " FI8 "
+
+		cQry += " WHERE FI8.FI8_FILIAL + FI8.FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8.FI8_TIPORI + FI8_FORORI + FI8_LOJORI in "
+		cQry 	+= " (Select FI8_FILIAL + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES from " + RetSqlName(cAliasRst) + " FI8SON "
+		cQry 	+= " Where FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + FI8_PARORI + FI8_TIPORI + FI8_FORORI + FI8_LOJORI = '" + cPai + "')"
+	EndIf
+
+	cQry	:= ChangeQuery(cQry)
+	aIndex	:= StrToKArr((cAliasRst)->(IndexKey(1)),"+")
+	
+	__oFITMP	:= FwTemporaryTable():New(cRetAls)
+	__oFITMP:SetFields(aStructFI)
+	__oFITMP:AddIndex("1", aIndex)
+	__oFITMP:Create()
+
+	DbSetOrder(0)
+	SqlToTrb(cQry, aStructFI, cRetAls)
+	(cRetAls)->(DbSetOrder(1))
+	(cRetAls)->(DbGoTop())
+	ASize(aStructFI,0)
+
+Return cRetAls
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FProcess
+Monta a tabela temporaria para liquidação ou fatura quando
+a consulta é "por processo".
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FProcess(cAliasRst, cTitPai, aRoots) As Character
+
+	Local aStructFI	As Array
+	Local cCampos	As Character
+	Local cQuery	As Character
+	Local cWhere	As Character
+	Local nJ		As Numeric
+	Local aIndex	As Array
+	Local aIndex2	As Array
+	Local aHsh		As Array
+	Local aAuxHsh	As Array
+	Local cAliasNxt	As Character
+	Local aArea		As Array
+	Local nI		As Numeric
+	Local lIncSim	As Logical
+	Local lConsTree	As Logical
+	Local lNEOF		As Logical
+	Local lFndHsh	As Logical
+	Local cChvHsh	As Character
+
+	Local cFil		As Character
+	Local cPrf 		As Character
+	Local cNum 		As Character
+	Local cTip 		As Character
+	Local cFor 		As Character
+	Local cLoj 		As Character
+	Local cFilDes	As Character
+	Local cPrfDes	As Character
+	Local cNumDes	As Character
+	Local cTipDes	As Character
+	Local cForDes	As Character
+	Local cLojDes	As Character
+	Local nValor 	As Numeric
+	Local cStatus 	As Character
+	Local cData		As Character
+	Local cLiqOri	As Character
+	Local cLiqDes	As Character
+	Local cFatOri	As Character
+	Local cFatDes	As Character
+
+	aStructFI	:= {}
+	aHsh		:= {}
+	aAuxHsh		:= {}
+	cCampos		:= ""
+	cQuery		:= ""
+	cWhere		:= ""
+	nJ			:= 0
+	aIndex		:= {}
+	aIndex2		:= {}
+	cAliasNxt	:= ""
+	aArea		:= {}
+	nI			:= 0
+	lIncSim		:= .T.
+	lConsTree	:= .F.
+	lNEOF		:= .F.
+	lFndHsh		:= .F.
+
+	cFil	:= ""
+	cPrf 	:= ""
+	cNum 	:= ""
+	cTip 	:= ""
+	cFor 	:= ""
+	cLoj 	:= ""
+	cFilDes	:= ""
+	cPrfDes	:= ""
+	cNumDes	:= ""
+	cTipDes	:= ""
+	cForDes	:= ""
+	cLojDes	:= ""
+	nValor 	:= 0
+	cStatus := ""
+	cData	:= ""
+	cLiqOri	:= ""
+	cLiqDes	:= ""
+	cFatOri	:= ""
+	cFatDes := ""
+	cChvHsh := ""
+
+	Default cParPai := ""
+	Default cTitPai := ""
+	Default aRoots	:= {}
+
+	If __nTamPar == nil
+		__nTamPar 	:= TamSX3("E1_PARCELA")[1]
+		__cParc		:= Space(__nTamPar)
+	EndIf
+
+	If __cRetAls == Nil
+		__cRetAls	:= "__" + cAliasRst
+	EndIf
+	
+	aArea := GetArea()
+	If (__oFITMP == NIL)
+		aStructFI	:= (cAliasRst)->(DbStruct())
+		For nJ := 1 To Len(aStructFI)
+			If aStructFI[nJ][DBS_TYPE] <> "M"
+				If nJ > 1
+					cCampos += ', '
+				EndIf
+				
+				If !( aStructFI[nJ][DBS_NAME] $ 'FI7_PARORI|FI7_PARDES|FI7_VALOR|FI8_PARORI|FI8_PARDES|FI8_VALOR' )
+					cCampos += aStructFI[nJ][DBS_NAME]
+				ElseIf ( aStructFI[nJ][DBS_NAME] $ 'FI7_VALOR' )
+					cCampos += " (SELECT SUM(E1_VALOR) FROM " + RetSqlName("SE1") + " WHERE E1_FILIAL = FI7_FILIAL AND E1_TIPOLIQ != ' ' "
+					cCampos += " AND E1_PREFIXO = FI7_PRFORI AND E1_NUM = FI7_NUMORI AND E1_CLIENTE = FI7_CLIORI AND FI7_LOJORI = E1_LOJA) AS FI7_VALOR "
+				ElseIf ( aStructFI[nJ][DBS_NAME] $ 'FI8_VALOR' )
+					cCampos += " (SELECT SUM(E2_VALOR) FROM " + RetSqlName("SE2") + " WHERE E2_FILIAL = FI8_FILIAL "
+					cCampos += " AND E2_PREFIXO = FI8_PRFORI AND E2_NUM = FI8_NUMORI AND E2_FORNECE = FI8_FORORI AND FI8_LOJORI = E2_LOJA AND E2_STATUS <> 'D') AS FI8_VALOR "
+				Else
+					cCampos += "'" + Space(__nTamPar) + "' AS " + '"' + aStructFI[nJ][DBS_NAME] + '" '
+				EndIf
+			EndIf
+		Next nJ
+		aAdd(aStructFI, {"NLIQORI","C",TamSX3("E1_NUMLIQ")[1],0})
+		aAdd(aStructFI, {"NLIQDES","C",TamSX3("E1_NUMLIQ")[1],0})
+		
+		If cAliasRst == "FI8"
+			aAdd(aStructFI, {"NFATORI","C",TamSX3("E2_FATURA")[1],0})
+			aAdd(aStructFI, {"NFATDES","C",TamSX3("E2_FATURA")[1],0})
+			aAdd(aStructFI, {"NPRFFATORI","C",TamSX3("E2_PREFIXO")[1],0})
+			aAdd(aStructFI, {"NPRFFATDES","C",TamSX3("E2_PREFIXO")[1],0})
+			aAdd(aStructFI, {"STATUSORI","C",TamSX3("E2_STATUS")[1],0})
+			aAdd(aStructFI, {"E2_PARCELA","C",TamSX3("E2_PARCELA")[1],0})
+		Endif
+		
+		aAdd(aStructFI, {"IDPROC","C",6,0})
+		
+		aIndex	:= StrToKArr((cAliasRst)->(IndexKey(1)),"+")
+		
+		__oFITMP	:= FwTemporaryTable():New(__cRetAls)
+		__oFITMP:SetFields(aStructFI)
+		__oFITMP:AddIndex("1", aIndex)
+		
+		aIndex2	:= StrToKArr((cAliasRst)->(IndexKey(2)),"+")
+		aAdd(aIndex2,"NLIQORI")
+		aAdd(aIndex2,"NLIQDES")
+
+		If cAliasRst == "FI8"
+			aAdd(aIndex2,"NFATORI")
+			aAdd(aIndex2,"NFATDES")
+		Endif
+
+		__oFITMP:AddIndex("2", aIndex2)
+		__oFITMP:AddIndex("3", {"IDPROC","NLIQORI","NLIQDES"})
+		If cAliasRst == "FI8"
+			__oFITMP:AddIndex("4", {"IDPROC","NLIQORI","NLIQDES","NFATORI","NFATDES"})
+		EndIf
+		__oFITMP:Create()
+	
+		If cAliasRst == "FI8"
+			cQuery	:= cCampos
+			cQuery	+= ", SE2A.E2_NUMLIQ NLIQORI, SE2B.E2_NUMLIQ NLIQDES "
+			cQuery	+= ", SE2A.E2_FATURA NFATORI, SE2B.E2_FATURA NFATDES "
+			cQuery	+= ", SE2A.E2_FATPREF NPRFFATORI, SE2B.E2_FATPREF NPRFFATDES "
+			cQuery	+= ", SE2A.E2_STATUS STATUSORI "
+						
+			cWhere	:= " FI8_FILDES = '" + FI8->FI8_FILDES + "' AND "
+			cWhere	+= " FI8_PRFDES = '" + FI8->FI8_PRFDES + "' AND "
+			cWhere	+= " FI8_NUMDES = '" + FI8->FI8_NUMDES + "' AND "
+			cWhere	+= " FI8_PARDES = '" + FI8->FI8_PARDES + "' AND "
+			cWhere	+= " FI8_TIPDES = '" + FI8->FI8_TIPDES + "' AND "
+			cWhere	+= " FI8_FORDES = '" + FI8->FI8_FORDES + "' AND "
+			cWhere	+= " FI8_LOJDES = '" + FI8->FI8_LOJDES + "' AND "
+			cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+		Else
+			cQuery	:= cCampos
+			cQuery	+= ", SE1A.E1_NUMLIQ NLIQORI, SE1B.E1_NUMLIQ NLIQDES "
+
+			cWhere	:= " FI7_FILDES = '" + FI7->FI7_FILDES + "' AND "
+			cWhere	+= " FI7_PRFDES = '" + FI7->FI7_PRFDES + "' AND "
+			cWhere	+= " FI7_NUMDES = '" + FI7->FI7_NUMDES + "' AND "
+			cWhere	+= " FI7_PARDES = '" + FI7->FI7_PARDES + "' AND "
+			cWhere	+= " FI7_TIPDES = '" + FI7->FI7_TIPDES + "' AND "
+			cWhere	+= " FI7_CLIDES = '" + FI7->FI7_CLIDES + "' AND "
+			cWhere	+= " FI7_LOJDES = '" + FI7->FI7_LOJDES + "' AND "
+			cWhere	+= " FI7.D_E_L_E_T_ = ' ' "
+		EndIf
+
+		cQuery 	:= " SELECT DISTINCT " + cQuery
+
+		cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+		If cAliasRst == "FI7"
+			cQuery	+= " INNER JOIN " + RetSqlName("SE1") + " SE1A "
+			cQuery	+= " ON SE1A.E1_FILIAL = FI7.FI7_FILIAL AND SE1A.E1_PREFIXO = FI7.FI7_PRFORI AND SE1A.E1_NUM = FI7.FI7_NUMORI AND SE1A.E1_PARCELA = FI7.FI7_PARORI "
+			cQuery	+= " AND SE1A.E1_TIPO = FI7.FI7_TIPORI AND SE1A.E1_CLIENTE = FI7.FI7_CLIORI AND SE1A.E1_LOJA = FI7.FI7_LOJORI AND SE1A.D_E_L_E_T_ = ' ' "
+			cQuery	+= " INNER JOIN " + RetSqlName("SE1") + " SE1B "
+			cQuery	+= " ON SE1B.E1_FILIAL = FI7.FI7_FILDES AND SE1B.E1_PREFIXO = FI7.FI7_PRFDES AND SE1B.E1_NUM = FI7.FI7_NUMDES AND SE1B.E1_PARCELA = FI7.FI7_PARDES "
+			cQuery	+= " AND SE1B.E1_TIPO = FI7_TIPDES AND SE1B.E1_CLIENTE = FI7_CLIDES AND SE1B.E1_LOJA = FI7_LOJDES AND SE1B.D_E_L_E_T_ = ' ' "
+		Else
+			cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+			cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+			cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+			cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+			cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2B "
+			cQuery	+= " ON SE2B.E2_FILIAL = FI8.FI8_FILDES AND SE2B.E2_PREFIXO = FI8.FI8_PRFDES AND SE2B.E2_NUM = FI8.FI8_NUMDES AND SE2B.E2_PARCELA = FI8.FI8_PARDES "
+			cQuery	+= " AND SE2B.E2_TIPO = FI8_TIPDES AND SE2B.E2_FORNECE = FI8_FORDES AND SE2B.E2_LOJA = FI8_LOJDES AND SE2B.D_E_L_E_T_ = ' ' "
+		EndIf
+					
+		cQuery 	+= " WHERE "
+		cQuery 	+= cWhere
+		
+		cQuery 	:= ChangeQuery(cQuery)	
+				
+		DbSetOrder(0)
+		SqlToTrb(cQuery, aStructFI, __cRetAls)
+		If !(__cRetAls)->(Eof())
+			(__cRetAls)->(DbGoTop())
+			While !(__cRetAls)->(Eof())
+				RecLock(__cRetAls, .F.)
+					(__cRetAls)->IDPROC := __cIdProc	
+				MsUnlock()
+				(__cRetAls)->(DbSkip())
+			EndDo
+			(__cRetAls)->(DbGoTop())
+			lNEOF := .T.
+		EndIf
+		ASize(aStructFI,0)
+	Else
+		If "FI8" $ cAliasRst
+			cChvHsh := FI8->( FI8_FILDES + FI8_PRFDES + FI8_NUMDES + FI8_PARDES + FI8_TIPDES + FI8_FORDES + FI8_LOJDES )
+		Else
+			cChvHsh := FI7->( FI7_FILDES + FI7_PRFDES + FI7_NUMDES + FI7_PARDES + FI7_TIPDES + FI7_CLIDES + FI7_LOJDES )
+		EndIf
+
+		If !__oThsh:Get( cChvHsh, aHsh)
+			cAliasNxt	:= GetNextAlias()
+			If (__oQryTmp == Nil)
+				
+				If "FI8" $ cAliasRst
+					cQuery	:= " FI8_FILIAL FIL, FI8_PRFORI PRF, FI8_NUMORI NUM, "
+					cQuery	+= " FI8_TIPORI TIP, FI8_FORORI CLIFOR, FI8_LOJORI LOJ, "
+					cQuery	+= " FI8_FILDES FILDES, FI8_PRFDES PRFDES, FI8_NUMDES NUMDES, "
+					cQuery	+= " FI8_TIPDES TIPDES, FI8_FORDES CFDES, FI8_LOJDES LOJDES, "
+					cQuery	+= " (SELECT SUM(E2_VALOR) FROM " + RetSqlName("SE2") + " WHERE E2_FILIAL = FI8_FILIAL "
+					cQuery	+= " AND E2_PREFIXO = FI8_PRFORI AND E2_NUM = FI8_NUMORI AND E2_FORNECE = FI8_FORORI AND FI8_LOJORI = E2_LOJA AND E2_STATUS <> 'D') AS VALOR, "
+					cQuery	+= ' FI8_STATUS "STATUS", FI8_DATA, '
+					cQuery	+= " SE2A.E2_NUMLIQ NLIQORI, SE2B.E2_NUMLIQ NLIQDES, "
+					cQuery	+= " SE2A.E2_FATURA NFATORI, SE2B.E2_FATURA NFATDES, "
+					cQuery	+= " SE2A.E2_FATPREF NPRFFATORI, SE2B.E2_FATPREF NPRFFATDES, "
+					cQuery	+= " SE2A.E2_STATUS STATUSORI, SE2A.E2_PARCELA "
+				
+					cWhere	:= " FI8_FILDES = ? AND "
+					cWhere	+= " FI8_PRFDES = ? AND "
+					cWhere	+= " FI8_NUMDES = ? AND "
+					cWhere	+= " FI8_PARDES = ? AND "
+					cWhere	+= " FI8_TIPDES = ? AND "
+					cWhere	+= " FI8_FORDES = ? AND "
+					cWhere	+= " FI8_LOJDES = ? AND "
+					cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+				
+				Else
+					cQuery	:= " FI7_FILIAL FIL, FI7_PRFORI PRF, FI7_NUMORI NUM, "
+					cQuery	+= " FI7_TIPORI TIP, FI7_CLIORI CLIFOR, FI7_LOJORI LOJ, "
+					cQuery	+= " FI7_FILDES FILDES, FI7_PRFDES PRFDES, FI7_NUMDES NUMDES, "
+					cQuery	+= " FI7_TIPDES TIPDES, FI7_CLIDES CFDES, FI7_LOJDES LOJDES, "
+					cQuery	+= " (SELECT SUM(E1_VALOR) FROM " + RetSqlName("SE1") + " WHERE E1_FILIAL = FI7_FILIAL "
+					cQuery	+= " AND E1_PREFIXO = FI7_PRFORI AND E1_NUM = FI7_NUMORI AND E1_CLIENTE = FI7_CLIORI AND FI7_LOJORI = E1_LOJA) AS VALOR, "
+					cQuery	+= ' FI7_STATUS "STATUS", FI7_DATA,'
+					cQuery	+= " SE1A.E1_NUMLIQ NLIQORI, SE1B.E1_NUMLIQ NLIQDES "
+
+					cWhere	:= " FI7_FILDES = ? AND "
+					cWhere	+= " FI7_PRFDES = ? AND "
+					cWhere	+= " FI7_NUMDES = ? AND "
+					cWhere	+= " FI7_PARDES = ? AND "
+					cWhere	+= " FI7_TIPDES = ? AND "
+					cWhere	+= " FI7_CLIDES = ? AND "
+					cWhere	+= " FI7_LOJDES = ? AND "
+					cWhere	+= " FI7.D_E_L_E_T_ = ' ' "
+				EndIf
+
+				cQuery 	:= " SELECT DISTINCT " + cQuery
+
+				cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+				If "FI7" $ cAliasRst
+					cQuery	+= " INNER JOIN " + RetSqlName("SE1") + " SE1A "
+					cQuery	+= " ON SE1A.E1_FILIAL = FI7.FI7_FILIAL AND SE1A.E1_PREFIXO = FI7.FI7_PRFORI AND SE1A.E1_NUM = FI7.FI7_NUMORI AND SE1A.E1_PARCELA = FI7.FI7_PARORI "
+					cQuery	+= " AND SE1A.E1_TIPO = FI7.FI7_TIPORI AND SE1A.E1_CLIENTE = FI7.FI7_CLIORI AND SE1A.E1_LOJA = FI7.FI7_LOJORI AND SE1A.D_E_L_E_T_ = ' ' "
+					cQuery	+= " INNER JOIN " + RetSqlName("SE1") + " SE1B "
+					cQuery	+= " ON SE1B.E1_FILIAL = FI7.FI7_FILDES AND SE1B.E1_PREFIXO = FI7.FI7_PRFDES AND SE1B.E1_NUM = FI7.FI7_NUMDES AND SE1B.E1_PARCELA = FI7.FI7_PARDES "
+					cQuery	+= " AND SE1B.E1_TIPO = FI7_TIPDES AND SE1B.E1_CLIENTE = FI7_CLIDES AND SE1B.E1_LOJA = FI7_LOJDES AND SE1B.D_E_L_E_T_ = ' ' "
+				Else
+					cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+					cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+					cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+					cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2B "
+					cQuery	+= " ON SE2B.E2_FILIAL = FI8.FI8_FILDES AND SE2B.E2_PREFIXO = FI8.FI8_PRFDES AND SE2B.E2_NUM = FI8.FI8_NUMDES AND SE2B.E2_PARCELA = FI8.FI8_PARDES "
+					cQuery	+= " AND SE2B.E2_TIPO = FI8_TIPDES AND SE2B.E2_FORNECE = FI8_FORDES AND SE2B.E2_LOJA = FI8_LOJDES AND SE2B.D_E_L_E_T_ = ' ' "
+				EndIf
+							
+				cQuery 	+= " WHERE "
+				cQuery 	+= cWhere
+				
+				cQuery 		:= ChangeQuery(cQuery)
+				__oQryTmp 	:= FWPreparedStatement():New(cQuery)
+			EndIf
+
+			If 'FI7' $ cAliasRst
+				__oQryTmp:SetString(1, FI7->FI7_FILDES)
+				__oQryTmp:SetString(2, FI7->FI7_PRFDES)
+				__oQryTmp:SetString(3, FI7->FI7_NUMDES)
+				__oQryTmp:SetString(4, FI7->FI7_PARDES)
+				__oQryTmp:SetString(5, FI7->FI7_TIPDES)
+				__oQryTmp:SetString(6, FI7->FI7_CLIDES)
+				__oQryTmp:SetString(7, FI7->FI7_LOJDES)
+			Else
+				__oQryTmp:SetString(1, FI8->FI8_FILDES)
+				__oQryTmp:SetString(2, FI8->FI8_PRFDES)
+				__oQryTmp:SetString(3, FI8->FI8_NUMDES)
+				__oQryTmp:SetString(4, FI8->FI8_PARDES)
+				__oQryTmp:SetString(5, FI8->FI8_TIPDES)
+				__oQryTmp:SetString(6, FI8->FI8_FORDES)
+				__oQryTmp:SetString(7, FI8->FI8_LOJDES)
+			EndIf
+			cQuery  	:= __oQryTmp:GetFixQuery()
+			cAliasNxt	:= MPSysOpenQuery(cQuery)
+		Else
+			lFndHsh	:= .T.
+		EndIf
+
+		(__cRetAls)->(DbSetOrder(2))
+		(__cRetAls)->(DbGoTop())
+
+		nI := 1
+
+		If !lFndHsh
+
+			While !(cAliasNxt)->(Eof())
+
+				FWFreeArray(aAuxHsh)
+				aAuxHsh	:= {}
+
+				cFil	:= (cAliasNxt)->FIL
+				cPrf 	:= (cAliasNxt)->PRF
+				cNum 	:= (cAliasNxt)->NUM
+				cTip 	:= (cAliasNxt)->TIP
+				cFor 	:= (cAliasNxt)->CLIFOR
+				cLoj 	:= (cAliasNxt)->LOJ
+				cFilDes	:= (cAliasNxt)->FILDES
+				cPrfDes	:= (cAliasNxt)->PRFDES
+				cNumDes	:= (cAliasNxt)->NUMDES
+				cTipDes	:= (cAliasNxt)->TIPDES
+				cForDes	:= (cAliasNxt)->CFDES
+				cLojDes	:= (cAliasNxt)->LOJDES
+				nValor 	:= (cAliasNxt)->VALOR
+				cStatus := (cAliasNxt)->STATUS
+				If "FI8" $ cAliasRst
+					cData	:= STOD((cAliasNxt)->FI8_DATA)
+				Else
+					cData	:= STOD((cAliasNxt)->FI7_DATA)
+				EndIf
+				cLiqOri	:= (cAliasNxt)->NLIQORI
+				cLiqDes	:= (cAliasNxt)->NLIQDES
+				If "FI8" $ cAliasRst
+					cFatOri	:= (cAliasNxt)->NFATORI
+					cFatDes	:= (cAliasNxt)->NFATDES
+
+					aAdd(aAuxHsh, {cFil, cPrf, cNum, cTip, cFor, cLoj, cFilDes, cPrfDes, cNumDes, cTipDes, ;
+								cForDes, cLojDes, nValor, cStatus, cData, cLiqOri, cLiqDes, cFatOri, cFatDes} )
+				Else
+					aAdd(aAuxHsh, {cFil, cPrf, cNum, cTip, cFor, cLoj, cFilDes, cPrfDes, cNumDes, cTipDes, ;
+								cForDes, cLojDes, nValor, cStatus, cData, cLiqOri, cLiqDes} )
+				EndIf
+
+				lIncSim	:= .T.
+				If 'FI7' $ cAliasRst //Liquidacao a Receber
+					If(__cRetAls)->(DbSeek((cAliasNxt)->(FIL + PRFDES + NUMDES + __cParc + TIPDES + CFDES + LOJDES + NLIQORI + NLIQDES )) )
+						If Empty((__cRetAls)->IDPROC)
+							RecLock(__cRetAls, .F.)
+								(__cRetAls)->IDPROC := __cIdProc
+							MsUnlock()
+							lIncSim := .F.
+						Else
+							If FConsTree((__cRetAls)->NLIQORI)
+								lIncSim := .F.
+							Else
+								lConsTree := .T.
+							EndIf
+						EndIf
+					EndIf
+					If lIncSim
+						RecLock(__cRetAls, .T.)
+							(__cRetAls)->FI7_FILIAL 	:= (cAliasNxt)->FIL
+							(__cRetAls)->FI7_PRFORI 	:= (cAliasNxt)->PRF
+							(__cRetAls)->FI7_NUMORI 	:= (cAliasNxt)->NUM
+							(__cRetAls)->FI7_TIPORI 	:= (cAliasNxt)->TIP
+							(__cRetAls)->FI7_CLIORI 	:= (cAliasNxt)->CLIFOR
+							(__cRetAls)->FI7_LOJORI 	:= (cAliasNxt)->LOJ
+							(__cRetAls)->FI7_FILDES 	:= (cAliasNxt)->FILDES
+							(__cRetAls)->FI7_PRFDES 	:= (cAliasNxt)->PRFDES
+							(__cRetAls)->FI7_NUMDES 	:= (cAliasNxt)->NUMDES
+							(__cRetAls)->FI7_TIPDES 	:= (cAliasNxt)->TIPDES
+							(__cRetAls)->FI7_CLIDES 	:= (cAliasNxt)->CFDES
+							(__cRetAls)->FI7_LOJDES 	:= (cAliasNxt)->LOJDES
+							(__cRetAls)->FI7_VALOR	 	:= (cAliasNxt)->VALOR
+							(__cRetAls)->FI7_STATUS 	:= (cAliasNxt)->STATUS
+							(__cRetAls)->FI7_DATA	 	:= STOD((cAliasNxt)->FI7_DATA)
+							(__cRetAls)->NLIQORI		:= (cAliasNxt)->NLIQORI
+							(__cRetAls)->NLIQDES		:= (cAliasNxt)->NLIQDES
+							(__cRetAls)->IDPROC 		:= If(nI == 1,If(lConsTree,__cIdAnt, __cIdProc), '')
+						MsUnlock()
+						If !Empty(FI7->FI7_PARORI)
+							FParcOri(cAliasRst, cTitPai, aRoots)
+						EndIf
+					EndIf
+				Else
+					//Liquidação ou Fatura a Pagar
+					If FTemProcCP( aAuxHsh[1] )
+						If Empty((__cRetAls)->IDPROC)
+							RecLock(__cRetAls, .F.)
+								(__cRetAls)->IDPROC := __cIdProc
+							MsUnlock()
+							lIncSim := .F.
+						Else
+							If FConsTree((__cRetAls)->NLIQORI) .AND. FConsTree((__cRetAls)->NFATORI, .T.)
+								lIncSim := .F.
+							Else
+								lConsTree := .T.
+							EndIf
+						EndIf
+					EndIf
+
+					If lIncSim
+						RecLock(__cRetAls, .T.)
+							(__cRetAls)->FI8_FILIAL 	:= (cAliasNxt)->FIL
+							(__cRetAls)->FI8_PRFORI 	:= (cAliasNxt)->PRF
+							(__cRetAls)->FI8_NUMORI 	:= (cAliasNxt)->NUM
+							(__cRetAls)->FI8_TIPORI 	:= (cAliasNxt)->TIP
+							(__cRetAls)->FI8_FORORI 	:= (cAliasNxt)->CLIFOR
+							(__cRetAls)->FI8_LOJORI 	:= (cAliasNxt)->LOJ
+							(__cRetAls)->FI8_FILDES 	:= (cAliasNxt)->FILDES
+							(__cRetAls)->FI8_PRFDES 	:= (cAliasNxt)->PRFDES
+							(__cRetAls)->FI8_NUMDES 	:= (cAliasNxt)->NUMDES
+							(__cRetAls)->FI8_TIPDES 	:= (cAliasNxt)->TIPDES
+							(__cRetAls)->FI8_FORDES 	:= (cAliasNxt)->CFDES
+							(__cRetAls)->FI8_LOJDES 	:= (cAliasNxt)->LOJDES
+							(__cRetAls)->FI8_VALOR	 	:= (cAliasNxt)->VALOR
+							(__cRetAls)->FI8_STATUS 	:= (cAliasNxt)->STATUS
+							(__cRetAls)->FI8_DATA	 	:= STOD((cAliasNxt)->FI8_DATA)
+							(__cRetAls)->NLIQORI		:= (cAliasNxt)->NLIQORI
+							(__cRetAls)->NLIQDES		:= (cAliasNxt)->NLIQDES
+							(__cRetAls)->NFATORI		:= (cAliasNxt)->NFATORI
+							(__cRetAls)->NFATDES		:= (cAliasNxt)->NFATDES
+							(__cRetAls)->IDPROC 		:= If(nI == 1,If(lConsTree,__cIdAnt, __cIdProc), '')
+						MsUnlock()
+					EndIf
+					If !Empty(FI8->FI8_PARORI)
+						FParcOri(cAliasRst, cTitPai, aRoots, FI8->FI8_PARORI)
+					EndIf
+				EndIf
+				nI++
+
+				(cAliasNxt)->(DbSkip())
+			EndDo
+			If Len(aAuxHsh) > 0
+				AADD(aHsh, aClone(aAuxHsh[1]))
+			EndIf
+			(cAliasNxt)->(DbCloseArea())
+		EndIf
+	EndIf
+
+	If nI == 0 .And. lNEOF
+		FParcOri(cAliasRst, cTitPai)
+	ElseIf !lFndHsh .And. Len(aHsh) > 0
+		__oThsh:Set( cChvHsh, aHsh)
+	EndIf
+
+	(__cRetAls)->(DbSetOrder(1))
+	(__cRetAls)->(DbGoTop())
+	RestArea(aArea)
+
+Return __cRetAls
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FProcessA
+Monta o temporário por processos de liquidação
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FProcessA(cAliasRst As Character, cTitPai As Character) As Character
+
+//TIT
+//PROCURA POR TIT NO DESTINO
+FProcessQ(cAliasRst, cTitPai,"OQ")
+
+//GUARDA AS ORIGEM NO TMP
+//INSERE AGRUPADO NA ESTRUTURA PARA ARVORE
+
+//ENQUANTO TIVER DADOS
+While .T.
+	While !__lBorE
+		//PROCURA POR TIT NO DESTINO
+		FProcessQ(cAliasRst, ,"OQ")
+
+		Loop
+	EndDo
+	//SE NÃO TIVER MAIS ORIGEM
+	//NUMERA OS IDPROC = X
+	(__cRetAls)->(DbGoTop())
+	
+	cIdProc := '000000'
+	While !(__cRetAls)->(Eof())
+		If AllTrim((__cRetAls)->IDPROC) == 'X'
+			cIdProc := Soma1(cIdProc)
+			RecLock(__cRetAls, .F.)
+				(__cRetAls)->IDPROC := cIdProc
+			MsUnlock()
+			__nQtdeProc++
+		EndIf
+		(__cRetAls)->(DbSkip())
+	EndDo
+	(__cRetAls)->(DbGoTop())
+	Exit
+EndDo
+
+__cNivel := "0"
+//PROCURA POR TIT NA ORIGEM
+FProcessQ(cAliasRst, cTitPai,"DQ")
+
+//ENQUANTO TIVER DADOS
+While .T.
+	While !__lBorE
+
+		//PROCURA POR TIT NA ORIGEM
+		FProcessQ(cAliasRst, ,"DQ")
+
+		Loop
+	EndDo
+	//SE NÃO TIVER MAIS DESTINO
+	
+	(__cRetAls)->(DbGoTop())
+	Exit
+EndDo
+
+//SEGUIR PARA A MONTAGEM DA ÁRVORE
+
+Return __cRetAls
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FProcessQ
+Consultas para montar o temporário por processos de liquidação
+
+@author  Rodrigo Oliveira	
+@since   25/06/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FProcessQ(cAliasRst As Character, cTitPai As Character, cOper As Character) As Character
+	Local aStructFI	As Array
+	Local aFields	As Array
+	Local aFlds		As Array
+	Local cCposAuxA	As Character
+	Local cQuery	As Character
+	Local cQueryA	As Character
+	Local cQueryB	As Character
+	Local cQryAux	As Character
+	Local cWhere	As Character
+	Local nJ		As Numeric
+	Local aIndex	As Array
+	Local aIndex2	As Array
+	Local aHsh		As Array
+	Local aAuxHsh	As Array
+	Local aArea		As Array
+	Local nI		As Numeric
+	Local lIncSim	As Logical
+	Local lConsTree	As Logical
+	Local lNEOF		As Logical
+	Local lFndHsh	As Logical
+	Local cChvHsh	As Character
+
+	Local cFil		As Character
+	Local cPrf 		As Character
+	Local cNum 		As Character
+	Local cTip 		As Character
+	Local cFor 		As Character
+	Local cLoj 		As Character
+	Local cFilDes	As Character
+	Local cPrfDes	As Character
+	Local cNumDes	As Character
+	Local cTipDes	As Character
+	Local cForDes	As Character
+	Local cLojDes	As Character
+	Local nValor 	As Numeric
+	Local nTamCli	As Numeric
+	Local nTamLoja	As Numeric
+	Local nTamFil	As Numeric
+	Local cStatus 	As Character
+	Local cData		As Character
+	Local cLiqOri	As Character
+	Local cLiqDes	As Character
+	Local cFatOri	As Character
+	Local cFatDes	As Character
+	Local TMPFI		As Character
+
+	aStructFI	:= {}
+	aFields		:= {}
+	aFlds		:= {}
+	aHsh		:= {}
+	aAuxHsh		:= {}
+	cCposAuxA	:= ""
+	cQuery		:= ""
+	cWhere		:= ""
+	nJ			:= 0
+	aIndex		:= {}
+	aIndex2		:= {}
+	aArea		:= {}
+	nI			:= 0
+	lIncSim		:= .T.
+	lConsTree	:= .F.
+	lNEOF		:= .F.
+	lFndHsh		:= .F.
+
+	cFil	:= ""
+	cPrf 	:= ""
+	cNum 	:= ""
+	cTip 	:= ""
+	cFor 	:= ""
+	cLoj 	:= ""
+	cFilDes	:= ""
+	cPrfDes	:= ""
+	cNumDes	:= ""
+	cTipDes	:= ""
+	cForDes	:= ""
+	cLojDes	:= ""
+	nValor 	:= 0
+	cStatus := ""
+	cData	:= ""
+	cLiqOri	:= ""
+	cLiqDes	:= ""
+	cFatOri	:= ""
+	cFatDes := ""
+	cChvHsh := ""
+	TMPFI 	:= ""
+	nTamCli	:= 0
+	nTamLoja := 0
+	nTamFil	:= Len(FwxFilial("FI7"))
+
+	Default cParPai := ""
+	Default cTitPai := ""
+	Default aRoots	:= {}
+
+	__lBorE	:= .F.
+
+	If Empty(__cAlsNxt)
+		__cAlsNxt	:= GetNextAlias()
+	EndIf
+
+	If __nTamPar == nil
+		__nTamPar 	:= TamSX3("E1_PARCELA")[1]
+		__cParc		:= Space(__nTamPar)
+	EndIf
+
+	If __cRetAls == Nil
+		__cRetAls	:= "__" + cAliasRst
+	EndIf	
+
+	aArea := GetArea()
+
+	If (__oFITMP == NIL)
+		__cCpoIns	:= ""
+		aStructFI	:= (cAliasRst)->(DbStruct())
+		For nJ := 1 To Len(aStructFI)
+			If aStructFI[nJ][DBS_TYPE] <> "M"
+				If nJ > 1
+					__cCampos += ', '
+				EndIf
+				
+				If !( aStructFI[nJ][DBS_NAME] $ 'FI8_VALOR' )
+					__cCampos += aStructFI[nJ][DBS_NAME]
+				Else
+					__cCampos += " (SELECT SUM(E2_VLCRUZ) FROM " + RetSqlName("SE2") + " WHERE E2_FILIAL = FI8_FILIAL "
+					__cCampos += " AND E2_PREFIXO = FI8_PRFORI AND E2_NUM = FI8_NUMORI AND E2_PARCELA = FI8_PARORI "
+					__cCampos += " AND E2_FORNECE = FI8_FORORI AND FI8_LOJORI = E2_LOJA AND E2_STATUS <> 'D') AS FI8_VALOR "
+				EndIf
+			EndIf
+		Next nJ
+		aAdd(aFields, {"NLIQORI","C",TamSX3("E1_NUMLIQ")[1],0})
+		aAdd(aFields, {"NLIQDES","C",TamSX3("E1_NUMLIQ")[1],0})
+			
+		If cAliasRst == "FI8"
+			aAdd(aFields, {"NFATORI","C",TamSX3("E2_FATURA")[1],0})
+			aAdd(aFields, {"NFATDES","C",TamSX3("E2_FATURA")[1],0})
+			aAdd(aFields, {"NPRFFATORI","C",TamSX3("E2_PREFIXO")[1],0})
+			aAdd(aFields, {"NPRFFATDES","C",TamSX3("E2_PREFIXO")[1],0})
+			aAdd(aFields, {"STATUSORI","C",TamSX3("E2_STATUS")[1],0})
+		EndIf
+
+		aAdd(aFields, {"FI8_VALOR","N",TamSX3("E2_VALOR")[1],TamSX3("E2_VALOR")[2]})				
+		
+		aEval(aFields,{|x| __cCpoIns += x[1] + ", "})
+
+		aAdd(aFields, {"DTPROC","C",8,0})
+		aAdd(aFields, {"IDPROC","C",6,0})
+		aAdd(aFields, {"NIVEL","C",4,0})
+
+		nTamCli		:= TamSX3("E1_CLIENTE")[1]
+		nTamLoja	:= TamSX3("E1_LOJA")[1]
+
+		aAdd(aFields, {"CFORI","C", nTamCli,0})
+		aAdd(aFields, {"LOJAORI","C", nTamLoja,0})
+		aAdd(aFields, {"CFDES","C", nTamCli,0})
+		aAdd(aFields, {"LOJADES","C", nTamLoja,0})
+		aAdd(aFields, {"FILIAL","C", nTamFil,0})
+		aAdd(aFields, {"FILDES","C", nTamFil,0})
+		aAdd(aFields, {"FI_STATUS","C", TamSX3("FI7_STATUS")[1],0})
+		aAdd(aFields, {"FIREC","N", 16,0})
+		aAdd(aFields, {"RECORI","N", 16,0})
+		aAdd(aFields, {"RECDES","N", 16,0})
+		
+		__cCpoIns	+= "DTPROC "
+
+		__oFITMP	:= FwTemporaryTable():New(__cRetAls)
+		__oFITMP:SetFields(aFields)
+
+		aAdd(aIndex2,"NIVEL")
+		aAdd(aIndex2,"NLIQORI")
+		aAdd(aIndex2,"NLIQDES")
+
+		If cAliasRst == "FI8"
+			aAdd(aIndex2,"NFATORI")
+			aAdd(aIndex2,"NFATDES")
+		EndIf
+		__oFITMP:AddIndex("1", aIndex2)
+		__oFITMP:AddIndex("2", {"NIVEL","IDPROC","NLIQORI","NLIQDES"})
+		If cAliasRst == "FI8"
+			__oFITMP:AddIndex("3", {"NIVEL","IDPROC","NLIQORI","NLIQDES","NFATORI","NFATDES"})
+		EndIf
+		__oFITMP:Create()
+	EndIf
+
+	If (__oFIAXTMP == NIL)
+
+		For nI := 1 to Len(aStructFI)
+			Do Case
+				Case aStructFI[nI,1] == cAliasRst + "_FILIAL"
+					aAdd(aFlds, {"FILIAL",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] == cAliasRst + "_PRFORI"
+					aAdd(aFlds, {"PREFIXO",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] == cAliasRst + "_NUMORI"
+					aAdd(aFlds, {"NUMERO",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] == cAliasRst + "_PARORI"
+					aAdd(aFlds, {"PARCELA",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] == cAliasRst + "_TIPORI"	
+					aAdd(aFlds, {"TIPO",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] $ "" + cAliasRst + "_CLIORI|" + cAliasRst + "_FORORI"
+					aAdd(aFlds, {"CLIFOR",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+				Case aStructFI[nI,1] == cAliasRst + "_LOJORI"
+					aAdd(aFlds, {"LOJA",aStructFI[nI,2],aStructFI[nI,3],aStructFI[nI,4]})
+			EndCase
+		Next nI
+
+		__cCposAux := ""
+		For nI := 1 to Len(aFlds)
+			__cCposAux	+= If( Empty(__cCposAux), aFlds[nI,1], ", " + aFlds[nI,1])
+		Next
+
+		__oFIAXTMP	:= FwTemporaryTable():New(TMPFI)
+		__oFIAXTMP:SetFields(aFlds)
+				
+		__oFIAXTMP:Create()
+	EndIf
+
+	Do Case
+		Case cOper == "OQ"
+
+			If !Empty(cTitPai)
+				If (__oQryTmpA == Nil)
+					
+					If cAliasRst == "FI8"
+						cQryAux	:= __cCampos
+						cQryAux	+= ", SE2A.E2_EMISSAO DTPROC, SE2A.E2_NUMLIQ NLIQORI, SE2B.E2_NUMLIQ NLIQDES "
+						cQryAux	+= ", SE2A.E2_FATURA  NFATORI "
+						cQryAux	+= ", SE2B.E2_FATURA  NFATDES "
+						cQryAux	+= ", SE2A.E2_FATPREF  NPRFFATORI "
+						cQryAux	+= ", SE2B.E2_FATPREF  NPRFFATDES "
+						cQryAux	+= ", SE2A.E2_STATUS STATUSORI, FI8.R_E_C_N_O_ FIREC, SE2A.R_E_C_N_O_ SERECORI, SE2B.R_E_C_N_O_ SERECDES "
+									
+						cWhere	:= " FI8_FILDES = ? AND "
+						cWhere	+= " FI8_PRFDES = ? AND "
+						cWhere	+= " FI8_NUMDES = ? AND "
+						cWhere	+= " FI8_PARDES = ? AND "
+						cWhere	+= " FI8_TIPDES = ? AND "
+						cWhere	+= " FI8_FORDES = ? AND "
+						cWhere	+= " FI8_LOJDES = ? AND "
+						cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+					EndIf
+
+					cQuery 	:= " SELECT DISTINCT " + cQryAux
+					cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+					If "FI8" $ cAliasRst
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+						cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2B "
+						cQuery	+= " ON SE2B.E2_FILIAL = FI8.FI8_FILDES AND SE2B.E2_PREFIXO = FI8.FI8_PRFDES AND SE2B.E2_NUM = FI8.FI8_NUMDES AND SE2B.E2_PARCELA = FI8.FI8_PARDES "
+						cQuery	+= " AND SE2B.E2_TIPO = FI8_TIPDES AND SE2B.E2_FORNECE = FI8_FORDES AND SE2B.E2_LOJA = FI8_LOJDES AND SE2B.D_E_L_E_T_ = ' ' "
+					EndIf
+									
+					cQuery 	+= " WHERE "
+					cQuery 	+= cWhere
+						
+					cQuery 	:= ChangeQuery(cQuery)	
+					__oQryTmpA 	:= FWPreparedStatement():New(cQuery)
+		
+				EndIf
+
+				If 'FI8' $ cAliasRst
+					__oQryTmpA:SetString(1, FI8->FI8_FILDES)
+					__oQryTmpA:SetString(2, FI8->FI8_PRFDES)
+					__oQryTmpA:SetString(3, FI8->FI8_NUMDES)
+					__oQryTmpA:SetString(4, FI8->FI8_PARDES)
+					__oQryTmpA:SetString(5, FI8->FI8_TIPDES)
+					__oQryTmpA:SetString(6, FI8->FI8_FORDES)
+					__oQryTmpA:SetString(7, FI8->FI8_LOJDES)
+				EndIf
+				cQuery  	:= __oQryTmpA:GetFixQuery()
+
+			Else
+
+				If (__oQryTmpB == Nil)
+					
+					If cAliasRst == "FI8"
+						cQryAux	:= __cCampos
+						cQryAux	+= ", SE2B.E2_EMISSAO DTPROC, SE2B.E2_NUMLIQ NLIQORI, SE2B.E2_NUMLIQ NLIQDES "
+						cQryAux	+= ", SE2A.E2_FATURA  NFATORI "
+						cQryAux	+= ", SE2B.E2_FATURA  NFATDES "
+						cQryAux	+= ", SE2A.E2_FATPREF  NPRFFATORI "
+						cQryAux	+= ", SE2B.E2_FATPREF  NPRFFATDES "
+						cQryAux	+= ", SE2B.E2_STATUS STATUSORI, FI8.R_E_C_N_O_ FIREC, SE2A.R_E_C_N_O_ SERECORI, SE2B.R_E_C_N_O_ SERECDES "
+									
+						cWhere	:= " FI8_FILDES In (Select FILIAL from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_PRFDES In (Select PREFIXO from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_NUMDES In (Select NUMERO from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_PARDES In (Select PARCELA from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_TIPDES In (Select TIPO from " 		+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_FORDES In (Select CLIFOR from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_LOJDES In (Select LOJA from " 		+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+					EndIf
+
+					cQuery 	:= " SELECT DISTINCT " + cQryAux
+					cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+					If "FI8" $ cAliasRst
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2B "
+						cQuery	+= " ON SE2B.E2_FILIAL = FI8.FI8_FILDES AND SE2B.E2_PREFIXO = FI8.FI8_PRFDES AND SE2B.E2_NUM = FI8.FI8_NUMDES AND SE2B.E2_PARCELA = FI8.FI8_PARDES "
+						cQuery	+= " AND SE2B.E2_TIPO = FI8_TIPDES AND SE2B.E2_FORNECE = FI8_FORDES AND SE2B.E2_LOJA = FI8_LOJDES AND SE2B.D_E_L_E_T_ = ' ' "
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+						cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8_TIPORI AND SE2A.E2_FORNECE = FI8_FORORI AND SE2A.E2_LOJA = FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+					EndIf
+									
+					cQuery 	+= " WHERE "
+					cQuery 	+= cWhere
+						
+					cQuery 	:= ChangeQuery(cQuery)	
+					__oQryTmpB 	:= FWPreparedStatement():New(cQuery)
+				Else
+					cQuery	:= __oQryTmpB:GetFixQuery()
+				EndIf
+			EndIf
+
+		OtherWise
+
+			If !Empty(cTitPai)
+				If (__oQryTmpC == Nil)
+					
+					If cAliasRst == "FI8"
+						cQryAux	:= __cCampos
+						cQryAux	+= ", SE2A.E2_EMISSAO DTPROC, SE2A.E2_NUMLIQ NLIQORI, SE2B.E2_NUMLIQ NLIQDES "
+						cQryAux	+= ", SE2A.E2_FATURA NFATORI, SE2B.E2_FATURA NFATDES "
+						cQryAux	+= ", SE2A.E2_FATPREF NPRFFATORI, SE2B.E2_FATPREF NPRFFATDES "
+						cQryAux	+= ", SE2A.E2_STATUS STATUSORI, FI8.R_E_C_N_O_ FIREC, SE2A.R_E_C_N_O_ SERECORI, SE2B.R_E_C_N_O_ SERECDES "
+									
+						cWhere	:= " FI8_FILIAL = ? AND "
+						cWhere	+= " FI8_PRFORI = ? AND "
+						cWhere	+= " FI8_NUMORI = ? AND "
+						cWhere	+= " FI8_PARORI = ? AND "
+						cWhere	+= " FI8_TIPORI = ? AND "
+						cWhere	+= " FI8_FORORI = ? AND "
+						cWhere	+= " FI8_LOJORI = ? AND "
+						cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+					EndIf
+
+					cQuery 	:= " SELECT DISTINCT " + cQryAux
+					cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+					If "FI8" $ cAliasRst
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+						cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2B "
+						cQuery	+= " ON SE2B.E2_FILIAL = FI8.FI8_FILDES AND SE2B.E2_PREFIXO = FI8.FI8_PRFDES AND SE2B.E2_NUM = FI8.FI8_NUMDES AND SE2B.E2_PARCELA = FI8.FI8_PARDES "
+						cQuery	+= " AND SE2B.E2_TIPO = FI8_TIPDES AND SE2B.E2_FORNECE = FI8_FORDES AND SE2B.E2_LOJA = FI8_LOJDES AND SE2B.D_E_L_E_T_ = ' ' "
+					EndIf
+									
+					cQuery 	+= " WHERE "
+					cQuery 	+= cWhere
+						
+					cQuery 	:= ChangeQuery(cQuery)	
+					__oQryTmpC 	:= FWPreparedStatement():New(cQuery)
+		
+				EndIf
+
+				If 'FI8' $ cAliasRst
+					__oQryTmpC:SetString(1, FI8->FI8_FILDES)
+					__oQryTmpC:SetString(2, FI8->FI8_PRFDES)
+					__oQryTmpC:SetString(3, FI8->FI8_NUMDES)
+					__oQryTmpC:SetString(4, FI8->FI8_PARDES)
+					__oQryTmpC:SetString(5, FI8->FI8_TIPDES)
+					__oQryTmpC:SetString(6, FI8->FI8_FORDES)
+					__oQryTmpC:SetString(7, FI8->FI8_LOJDES)
+				EndIf
+				cQuery  	:= __oQryTmpC:GetFixQuery()
+
+			Else
+
+				If (__oQryTmpD == Nil)
+					
+					If cAliasRst == "FI8"
+						cQryAux	:= __cCampos
+						cQryAux	+= ", SE2A.E2_EMISSAO DTPROC, SE2A.E2_NUMLIQ NLIQORI, SE2A.E2_NUMLIQ NLIQDES "
+						cQryAux	+= ", SE2A.E2_FATURA NFATORI, SE2A.E2_FATURA NFATDES "
+						cQryAux	+= ", SE2A.E2_FATPREF NPRFFATORI, SE2A.E2_FATPREF NPRFFATDES "
+						cQryAux	+= ", SE2A.E2_STATUS STATUSORI, FI8.R_E_C_N_O_ FIREC, SE2A.R_E_C_N_O_ SERECORI, 0 SERECDES "
+									
+						cWhere	:= " FI8_FILIAL In (Select FILIAL from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_PRFORI In (Select PREFIXO from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_NUMORI In (Select NUMERO from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_PARORI In (Select PARCELA from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_TIPORI In (Select TIPO from " 		+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_FORORI In (Select CLIFOR from " 	+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8_LOJORI In (Select LOJA from " 		+ __oFIAXTMP:GetRealName() + " ) AND "
+						cWhere	+= " FI8.D_E_L_E_T_ = ' ' "
+					EndIf
+
+					cQuery 	:= " SELECT DISTINCT " + cQryAux
+					cQuery	+= " FROM " + RetSQLName(cAliasRst) + " " + cAliasRst
+					If "FI8" $ cAliasRst
+						cQuery	+= " INNER JOIN " + RetSqlName("SE2") + " SE2A "
+						cQuery	+= " ON SE2A.E2_FILIAL = FI8.FI8_FILIAL AND SE2A.E2_PREFIXO = FI8.FI8_PRFORI AND SE2A.E2_NUM = FI8.FI8_NUMORI AND SE2A.E2_PARCELA = FI8.FI8_PARORI "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						cQuery	+= " AND SE2A.E2_TIPO = FI8.FI8_TIPORI AND SE2A.E2_FORNECE = FI8.FI8_FORORI AND SE2A.E2_LOJA = FI8.FI8_LOJORI AND SE2A.D_E_L_E_T_ = ' ' "
+						
+					EndIf
+									
+					cQuery 	+= " WHERE "
+					cQuery 	+= cWhere
+						
+					cQuery 	:= ChangeQuery(cQuery)	
+					__oQryTmpD 	:= FWPreparedStatement():New(cQuery)
+				Else
+					cQuery	:= __oQryTmpD:GetFixQuery()
+				EndIf
+			EndIf
+
+	EndCase
+
+	__cAlsNxt	:= MPSysOpenQuery(cQuery)
+	
+	If !(__cAlsNxt)->(Eof())
+			
+		cQryAux	:= cQuery
+		cQueryA	:= " Select NLIQORI, NLIQDES,"
+		If cAliasRst == "FI8"
+			cQueryA += " NFATORI, NFATDES, NPRFFATORI, NPRFFATDES, STATUSORI,"
+		EndIf
+		cQueryA += " ISNULL(A.FI8_VALOR,0) FI8_VALOR, DTPROC FROM (" + cQryAux + ") A "
+		cQueryA += " GROUP BY NLIQORI, NLIQDES,"
+		If cAliasRst == "FI8"
+			cQueryA += " NFATORI, NFATDES, NPRFFATORI, NPRFFATDES, STATUSORI,"
+		EndIf
+		cQueryA += " FI8_VALOR, DTPROC "
+
+		cQueryA := ChangeQuery(cQueryA)	
+
+		If cOper = "OQ"
+			If cAliasRst == "FI8"
+				cCposAuxA	:= "FI8_FILIAL, FI8_PRFORI, FI8_NUMORI, FI8_PARORI, FI8_TIPORI, FI8_FORORI, FI8_LOJORI"
+			EndIf
+		Else
+			If cAliasRst == "FI8"
+				cCposAuxA	:= "FI8_FILDES, FI8_PRFDES, FI8_NUMDES, FI8_PARDES, FI8_TIPDES, FI8_FORDES, FI8_LOJDES"
+			EndIf
+		EndIf
+		cQueryB := " SELECT " + cCposAuxA + " FROM (" + cQryAux + ") B "
+		cQueryB := ChangeQuery(cQueryB)			
+			
+		TcSqlExec( " INSERT INTO " + __oFITMP:GetRealName() + " (" + __cCpoIns + ") " + cQueryA )
+
+		If cOper == "OQ"
+			(__cRetAls)->(DbGoTop())
+			While !(__cRetAls)->(Eof())
+				RecLock( __cRetAls, .F.)
+					If AllTrim((__cRetAls)->IDPROC) == 'X'
+						(__cRetAls)->IDPROC := '0'
+					Else
+						(__cRetAls)->IDPROC := 'X'
+					EndIf
+					If Empty((__cRetAls)->NIVEL)
+						(__cRetAls)->NIVEL	:= __cNivel
+					EndIf
+				MsUnLock()
+				GrvCpos( cQuery, !Empty(cTitPai), cAliasRst, (__cAlsNxt)->(NLIQORI + NLIQDES), If( cAliasRst == "FI8", (__cAlsNxt)->(NFATORI + NFATDES + NPRFFATORI + NPRFFATDES), Nil), .F., cTitPai ) 
+				(__cRetAls)->(DbSkip())
+			EndDo
+			__cNivel := AllTrim(Str(Val(__cNivel) -1))
+			(__cRetAls)->(DbGoTop())
+		Else
+			__cNivel	:= Soma1(__cNivel)
+			GrvCpos( cQuery, .F., cAliasRst, (__cAlsNxt)->(NLIQORI + NLIQDES), If( cAliasRst == "FI8", (__cAlsNxt)->(NFATORI + NFATDES + NPRFFATORI + NPRFFATDES), Nil), .T., cTitPai )
+		EndIf
+
+		TcSqlExec( " DELETE FROM " + __oFIAXTMP:GetRealName() )
+
+		TcSqlExec( " INSERT INTO " + __oFIAXTMP:GetRealName() + " (" + __cCposAux + ") " + cQueryB )
+
+	Else
+		__lBorE := .T.
+	EndIf
+
+Return __cRetAls
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FARoot
+Verifica a árvore de títulos liquidados e suas parcelas
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FARoot(cAliasRst, lChkOri) As Array
+	Local aRet 		As Array
+	Local cLocal	As Character
+	Local cQuery	As Character
+	Local cCampos	As Character
+	Local cWhere	As Character
+	
+	DEFAULT lChkOri	:= .F.
+
+	aRet	:= {}
+	cLocal	:= GetNextAlias()
+	__nAuxParc	:= 0
+	
+	If __oTmpRoot == Nil
+		If cAliasRst == "FI8"
+			cCampos	:= " FI8_FILIAL FILIAL, FI8_PRFORI PRFORI, FI8_NUMORI NUMORI, FI8_PARORI PARORI, "
+			cCampos	+= " FI8_TIPORI TIPORI, FI8_FORORI CFORI, FI8_LOJORI LOJORI "
+							
+			If lChkOri
+				cCampos	+= ", FI8_CHKORI "
+			EndIf
+
+			cWhere	:= " FI8_FILIAL = ? AND "
+			cWhere	+= " FI8_PRFORI = ? AND "
+			cWhere	+= " FI8_NUMORI = ? AND "
+			cWhere	+= " FI8_TIPORI = ? AND "
+			cWhere	+= " FI8_FORORI = ? AND "
+			cWhere	+= " FI8_LOJORI = ? AND "
+			cWhere	+= " D_E_L_E_T_ = ' ' "
+		Else
+			cCampos	:= " FI7_FILIAL FILIAL, FI7_PRFORI PRFORI, FI7_NUMORI NUMORI, FI7_PARORI PARORI, "
+			cCampos	+= " FI7_TIPORI TIPORI, FI7_CLIORI CFORI, FI7_LOJORI LOJORI "
+			
+			If lChkOri
+				cCampos	+= ", FI7_CHKORI "
+			EndIf
+
+			cWhere	:= " FI7_FILIAL = ? AND "
+			cWhere	+= " FI7_PRFORI = ? AND "
+			cWhere	+= " FI7_NUMORI = ? AND "
+			cWhere	+= " FI7_TIPORI = ? AND "
+			cWhere	+= " FI7_CLIORI = ? AND "
+			cWhere	+= " FI7_LOJORI = ? AND "
+			cWhere	+= " D_E_L_E_T_ = ' ' "
+
+		EndIf
+
+		cQuery := " SELECT DISTINCT "
+		cQuery += cCampos
+		cQuery += " FROM " + RetSQLName(cAliasRst)
+		cQuery += " WHERE "
+		cQuery += cWhere
+
+		cQuery := ChangeQuery(cQuery)
+		__oTmpRoot := FWPreparedStatement():New(cQuery)
+	EndIf
+
+	If cAliasRst == "FI7"
+		__oTmpRoot:SetString(1, FI7->FI7_FILDES)
+		__oTmpRoot:SetString(2, FI7->FI7_PRFDES)
+		__oTmpRoot:SetString(3, FI7->FI7_NUMDES)
+		__oTmpRoot:SetString(4, FI7->FI7_TIPDES)
+		__oTmpRoot:SetString(5, FI7->FI7_CLIDES)
+		__oTmpRoot:SetString(6, FI7->FI7_LOJDES)
+	Else
+		__oTmpRoot:SetString(1, FI8->FI8_FILDES)
+		__oTmpRoot:SetString(2, FI8->FI8_PRFDES)
+		__oTmpRoot:SetString(3, FI8->FI8_NUMDES)
+		__oTmpRoot:SetString(4, FI8->FI8_TIPDES)
+		__oTmpRoot:SetString(5, FI8->FI8_FORDES)
+		__oTmpRoot:SetString(6, FI8->FI8_LOJDES)
+	EndIf
+
+	cQuery  	:= __oTmpRoot:GetFixQuery()
+	cLocal 		:= MPSysOpenQuery(cQuery)
+
+	While !(cLocal)->(Eof())
+		aAdd(aRet, (cLocal)->(FILIAL + PRFORI + NUMORI + PARORI + TIPORI + CFORI + LOJORI))
+		__nAuxParc++
+		(cLocal)->(DbSkip())
+	EndDo
+
+	__nQtdeMax := __nQtdeMax * Max(__nAuxParc, 1)
+	(cLocal)->(DbCloseArea())
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FConsTree
+Consolida a árvore de títulos liquidados por mais de uma liquidação
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FConsTree(cNLiqOri, lFatura) As Logical
+	Local lRet		As Logical
+	Local cIdProc	As Character
+	Local cQuery	As Character
+	Local aArea		As Array
+	Local cNumFat	As Character
+	
+	DEFAULT lFatura := .F.
+
+	lRet	:= .T.
+	cIdProc	:= ''
+	cQuery	:= ''
+	aArea	:= GetArea()
+	cNumFat := ''
+
+	If __cIdProc > "000001"
+		cIdProc := __cIdAnt
+
+		If lFatura
+			cQuery 	:= " Select NFATDES From " + __oFITMP:GetRealName() + " FI "
+			cQuery	+= " Where NFATDES = '" + cNLiqOri + "' And IDPROC = '" + cIdProc + "' AND FI.D_E_L_E_T_ = ' ' "
+
+			cNumFat := MpSysExecScalar(cQuery,"NFATDES")
+			lRet 	:= Empty(cNumFat) .Or. AllTrim(cNumFat) == 'NOTFAT'
+		Else
+			cQuery 	:= " Select NLIQDES From " + __oFITMP:GetRealName() + " FI "
+			cQuery	+= " Where NLIQDES = '" + cNLiqOri + "' And IDPROC = '" + cIdProc + "' AND FI.D_E_L_E_T_ = ' ' "
+
+			If !Empty(MpSysExecScalar(cQuery,"NLIQDES"))
+				cQuery 	:= " Select NLIQDES From " + __oFITMP:GetRealName() + " FI "
+				cQuery	+= " Where NLIQORI = '" + cNLiqOri + "' And IDPROC = '" + cIdProc + "' AND FI.D_E_L_E_T_ = ' ' "
+		
+				lRet := !Empty(MpSysExecScalar(cQuery,"NLIQDES"))
+			EndIf
+		Endif
+	EndIf
+	RestArea(aArea)
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FParcOri
+Grava uma das parcelas dos títulos para montagem da Tree
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FParcOri(cAliasRst, cTitPai, aRoots, cParc )
+	
+	DEFAULT aRoots	:= {}
+	DEFAULT cParc	:= ""
+
+	RecLock(__cRetAls, .F.)
+		
+		If "FI7" $ cAliasRst
+			If cTitPai != (__cRetAls)->(FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + __cParcPai + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI)
+				If Len(aRoots) == 0 .Or. (Len(aRoots) > 0 .And. aScan(aRoots, { |x| x == (__cRetAls)->(FI7_FILIAL + FI7_PRFORI + FI7_NUMORI + __cParc + FI7_TIPORI + FI7_CLIORI + FI7_LOJORI)} ) == 0 )
+					If !Empty((cAliasRst)->FI7_PARORI)
+						(__cRetAls)->FI7_PARORI := (cAliasRst)->FI7_PARORI
+					EndIf
+				EndIf
+			Else
+				(__cRetAls)->FI7_PARORI := __cParcPai
+			EndIf
+		Else
+			If cTitPai != (__cRetAls)->(FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + cParc + FI8_TIPORI + FI8_FORORI + FI8_LOJORI)
+				If Len(aRoots) == 0 .Or. (Len(aRoots) > 0 .And. aScan(aRoots, { |x| x == (__cRetAls)->(FI8_FILIAL + FI8_PRFORI + FI8_NUMORI + __cParc + FI8_TIPORI + FI8_FORORI + FI8_LOJORI)} ) == 0 )
+					If !Empty((cAliasRst)->FI8_PARORI)
+						(__cRetAls)->FI8_PARORI := (cAliasRst)->FI8_PARORI
+					endIf
+				EndIf
+			Else
+				(__cRetAls)->FI8_PARORI := __cParcPai
+			EndIf
+		EndIf 
+
+	MsUnlock()
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FGetNLiq
+Consegue o número da liquidação no momento da montagem do temporário
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FGetNLiq(cAliasTit, lFatura)
+	Local cRet 		:= ''
+	Local cQuery	:= ''
+
+	DEFAULT lFatura := .F.
+	
+	If cAliasTit == "SE1"
+		cQuery 	:= " Select NLIQDES, FI7_CLIDES, FI7_LOJDES From " + __oFITMP:GetRealName() + " FI "
+		cQuery	+= " Where FI7_FILIAL = '" + (cAliasTit)->E1_FILIAL + "' AND FI7_PRFORI = '" + (cAliasTit)->E1_PREFIXO + "' AND FI7_NUMORI = '" + (cAliasTit)->E1_NUM + "' "
+		cQuery	+= " AND FI7_PARORI = '" + (cAliasTit)->E1_PARCELA + "' AND FI7_CLIORI = '" + (cAliasTit)->E1_CLIENTE + "' AND FI7_LOJORI = '" + (cAliasTit)->E1_LOJA + "' "
+		cQuery	+= " AND FI.D_E_L_E_T_ = ' ' "
+		
+		cRet := MpSysExecScalar(cQuery,"NLIQDES")
+		cCli := MpSysExecScalar(cQuery,"FI7_CLIDES")
+		cLoj := MpSysExecScalar(cQuery,"FI7_LOJDES")
+	Else
+		cQuery 	:= " Select NLIQDES, NFATDES, NFATORI, CFDES, LOJADES From " + __oFITMP:GetRealName() + " FI "
+		cQuery	+= " Where FILIAL = '" + (cAliasTit)->E2_FILIAL + "' "
+		cQuery	+= " AND CFORI = '" + (cAliasTit)->E2_FORNECE + "' AND LOJAORI = '" + (cAliasTit)->E2_LOJA + "' "
+		If lFatura 
+			cQuery	+= " AND ((NFATDES != 'NOTFAT' OR NFATORI != 'NOTFAT') AND NLIQDES = ' ' ) "
+			Else
+			cQuery	+= " AND NFATDES != 'NOTFAT' "
+		EndIf
+		cQuery += " AND STATUSORI != 'D' AND FI.D_E_L_E_T_ = ' ' "
+		
+		If lFatura
+		cRet := If (Alltrim(MpSysExecScalar(cQuery,"NFATDES")) != 'NOTFAT',MpSysExecScalar(cQuery,"NFATDES"),MpSysExecScalar(cQuery,"NFATORI"))
+		else
+		cRet := MpSysExecScalar(cQuery,"NLIQDES")
+		EndIf
+		cCli := MpSysExecScalar(cQuery,"CFDES")
+		cLoj := MpSysExecScalar(cQuery,"LOJADES")
+	Endif
+
+Return {cRet, cCli, cLoj}
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FParDes
+Consegue a parcela do título destino (gerado na liquidação)
+
+@author  Rodrigo Oliveira	
+@since   04/11/2021
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FParDes(cAliasRst)
+	LOCAL cRet		:= ''
+
+	Local cQuery	:= ''
+
+	If !Empty(cAliasRst)
+		If cAliasRst == "__FI7"
+			cQuery 	:= " Select FI7_PARDES CPARC From " + RetSqlName("FI7") + " FI7 "
+			cQuery	+= " Where FI7_FILIAL = '" + (cAliasRst)->FI7_FILIAL + "' AND FI7_PRFORI = '" + (cAliasRst)->FI7_PRFORI + "' "
+			cQuery	+= " AND FI7_NUMORI = '" + (cAliasRst)->FI7_NUMORI + "' AND FI7_PARORI = '" + (cAliasRst)->FI7_PARORI + "' "
+			cQuery	+= " AND FI7_CLIORI = '" + (cAliasRst)->FI7_CLIORI + "' AND FI7_LOJORI = '" + (cAliasRst)->FI7_LOJORI + "' "
+			cQuery	+= " AND FI7.D_E_L_E_T_ = ' ' "
+		
+			cRet := MpSysExecScalar(cQuery,"CPARC")
+		Else
+			cQuery 	:= " Select FI8_PARDES CPARC From " + RetSqlName("FI8") + " FI8 "
+			cQuery	+= " Where FI8_FILIAL = '" + (cAliasRst)->FI8_FILIAL + "' AND FI8_PRFORI = '" + (cAliasRst)->FI8_PRFORI + "' "
+			cQuery	+= " AND FI8_NUMORI = '" + (cAliasRst)->FI8_NUMORI + "' AND FI8_PARORI = '" + (cAliasRst)->FI8_PARORI + "' "
+			cQuery	+= " AND FI8_FORORI = '" + (cAliasRst)->FI8_FORORI + "' AND FI8_LOJORI = '" + (cAliasRst)->FI8_LOJORI + "' "
+			cQuery	+= " AND FI8.D_E_L_E_T_ = ' ' "
+		
+			cRet := MpSysExecScalar(cQuery,"CPARC")
+		EndIf			
+	EndIf
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FiniStatic
+
+Inicializa as variáveis STATIC
+
+@author  Pequim
+@since   03/01/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FiniStatic(lZeraStc As Logical)
+
+	__oHRsted	:= NIL
+	__oTmpFI	:= NIL
+	__oFITMP	:= NIL
+	__oFIAXTMP	:= NIL
+	__oQryTmp	:= NIL
+	__oQryTmpA	:= NIL
+	__oQryTmpB	:= NIL
+	__oQryTmpC	:= NIL
+	__oQryTmpD	:= NIL
+	__oTmpRoot	:= NIL
+	__nQtdeMax	:= 0
+	__nAuxParc	:= 0
+	__cNivel	:= "0"
+	__nTamPar	:= NIL
+	__cIdProc 	:= '000000'
+	__cIdAnt	:= ''
+	__cParc		:= ''
+	__cRetAls	:= ''
+	__cParcPai	:= ""
+	__cCampos	:= ""
+	__cAlsNxt	:= ""
+	__lPLSFN250 := FindFunction("PLSFN250") 
+	__lMNivel	:= .F.
+	__lContinue	:= .T.
+	If lZeraStc
+		__lProcess	:= .F.
+	EndIf
+	__nRecPai	:= 0
+	__nQtdeProc	:= 0
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F250VerSim
+
+Abre a tela de visualização da liquidacao ou fatura (carteira a pagar)
+
+@author  Pequim
+@since   03/01/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function F250VerSim(cPrompt As Character, nRecNo As Numeric, cNumLiq As Character, cNumFat As Character, bRegOri As Block)
+
+	If (STR0047 $ cPrompt)		//Liquidação
+		FINA250A(1,nRecNo, cNumLiq, .F.)
+	Else
+		FINA250A(1,nRecNo, cNumFat, .T., "NOTFAT" $ (__cRetAls)->NFATDES )
+	Endif
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FTemProcCP
+
+Verifica existência de processo para Contas a Pagar
+
+@author  Pequim
+@since   10/01/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FTemProcCP(aHshCP As Array) As Logical
+
+	Local lRet		As Logical
+	Local lLiq		As Logical
+	Local cQry 		As Character
+	Local cQryL 	As Character
+	Local nI		As Numeric
+
+	lRet 	:= .F.
+	lLiq	:= .F.
+
+	If Empty(AllTrim(aHshCP[16] + aHshCP[17]))
+		If __oQryProc	== NIL
+			cQry := " Select FI8_FILDES FILDES From "+ __oFITMP:GetRealName() + "  FI "
+			cQry += " Where FI8_FILDES = ? AND "
+			cQry += " FI8_PRFDES = ? AND "
+			cQry += " FI8_NUMDES = ? AND "
+			cQry += " FI8_TIPDES = ? AND "
+			cQry += " FI8_FORDES = ? AND "
+			cQry += " FI8_LOJDES = ? AND "
+			cQry += " NLIQORI = ? AND "
+			cQry += " NLIQDES = ? AND "
+			cQry += " NFATORI = ? AND "
+			cQry += " NFATDES = ? AND "
+			cQry += " FI.D_E_L_E_T_ = ' ' "
+
+			cQry := ChangeQuery(cQry)
+
+			__oQryProc 	:= FWPreparedStatement():New(cQry)
+
+		EndIf
+	Else
+		lLiq	:= .T.
+		If __oQryPrcL	== NIL
+			cQryL := " Select FI8_FILDES FILDES From "+ __oFITMP:GetRealName() + "  FI "
+			cQryL += " Where FI8_FILDES = ? AND "
+			cQryL += " FI8_PRFDES = ? AND "
+			cQryL += " FI8_TIPDES = ? AND "
+			cQryL += " FI8_FORDES = ? AND "
+			cQryL += " FI8_LOJDES = ? AND "
+			cQryL += " NLIQORI = ? AND "
+			cQryL += " NLIQDES = ? AND "
+			cQryL += " NFATORI = ? AND "
+			cQryL += " NFATDES = ? AND "
+			cQryL += " FI.D_E_L_E_T_ = ' ' "
+
+			cQryL := ChangeQuery(cQryL)
+			__oQryPrcL	:= FWPreparedStatement():New(cQryL)
+		
+		EndIf
+	EndIf
+
+	nI	:= 1
+
+	If !lLiq
+		//Insere parâmetros em todas as Queries separadas por UNION
+		__oQryProc:SetString(nI, aHshCP[1])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[8])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[9])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[10])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[11])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[12])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[16])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[17])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[18])
+		nI++
+		__oQryProc:SetString(nI, aHshCP[19])
+
+		cQry := __oQryProc:GetFixQuery()
+	Else
+		__oQryPrcL:SetString(nI, aHshCP[1])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[8])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[10])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[11])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[12])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[16])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[17])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[18])
+		nI++
+		__oQryPrcL:SetString(nI, aHshCP[19])
+
+		cQryL := __oQryPrcL:GetFixQuery()
+	EndIf
+
+	If !Empty(MpSysExecScalar(If(lLiq,cQryL,cQry),"FILDES"))
+		lRet	:= .T.
+	EndIf
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F250Tela
+
+Apresenta tela para escolha da visão (título ou processo) da consulta
+quando vindo do FINA740/FINA750
+
+@author  Pequim
+@since   10/01/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function	F250Tela(cAlias As Character) As Logical
+
+	Local nOpca  As Numeric
+	Local oDlg   As Object
+	Local oFont1 As Object
+	Local oPanel As Object
+	Local oBtn1  As Object
+	Local oBtn2  As Object
+
+	nOpca := 0
+
+	Define MsDialog oDlg TITLE (STR0010 + " - " + STR0044) From 0, 0 TO 70,480 PIXEL
+	oFont1 	:= TFont():New("Arial",, -12, .T., .T.,,,,, )
+	oPanel  := TPanel():New(0,0,,oDlg,,,,,,240,90,.F.,.F.)
+
+	oBtn1 := TButton():New( 10,  30, STR0042, oPanel,{|| nOpca := 1, __lProcess := .F., oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+	oBtn2 := TButton():New( 10, 130, STR0043, oPanel,{|| nOpca := 1, __lProcess := .T., oDlg:End() }, 80, 15,, oFont1,.F.,.T.,.F.,,.F.,,,.F. )
+
+	Activate MsDialog oDlg Centered
+
+Return (nOpca == 1)
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PergProcs
+
+Apresenta tela para escolha da visão (título ou processo) da consulta
+quando vindo do FINA740/FINA750
+
+@author  Rodrigo Oliveira
+@since   14/02/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function PergProcs(cPerg, cMV)
+	Local bVisRastr	:= { || .F. }
+	
+	If ValType(&(cMV)) == 'N'
+		bVisRastr := {|| &(cMV) == 2 }
+	EndIf
+
+	SaveInter()
+	Pergunte(cPerg,.F.)
+
+	__lProcess := Eval(bVisRastr)
+
+	RestInter()
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FITotal
+
+Cálculo do Total da Fatura / Liquidação apresentada na árvore
+
+@author  Rodrigo Oliveira
+@since   14/07/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function FITotal(lFatura, cNLiq, cNFat, cPref)
+	Local cRet 		As Character
+	Local cVlrPict 	As Character
+	Local cQry		As Character
+	Local nTotTmp	As Character
+
+	cVlrPict 	:= PesqPict("FI7", "FI7_VALOR")
+
+	cQry		:= "SELECT SUM(E2_VLCRUZ) TOTAL"
+	cQry		+= " FROM " + RetSqlName("SE2") + " WHERE"
+	If lFatura
+		cQry		+= " E2_FATPREF = '" + cPref + "' "
+		cQry		+= " AND E2_FATURA = '" + cNFat + "' "
+	Else
+		cQry		+= " E2_NUMLIQ = '" + cNLiq + "' "
+	EndIf
+	cQry		+= " AND D_E_L_E_T_ = ' ' "
+
+	cQry 	:= ChangeQuery(cQry)
+	nTotTmp := MpSysExecScalar(cQry,"TOTAL")
+
+	cRet := ALLTRIM(TRANSFORM(nTotTmp, CVLRPICT))
+
+Return cRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GrvCpos
+
+Complementa a Temporária com os campos do título
+
+@author  Rodrigo Oliveira
+@since   01/06/2022
+@version P12
+/*/
+//-------------------------------------------------------------------
+Static Function GrvCpos(cQry As Character, lTitPai As Logical, cAls As Character, cChav1 As Character, cChav2 As Character, lDest As Logical, cTitPai As Character)
+	Local cQuery  As Character
+	Local cAlsNxt As Character
+	Local nRecE2  As Numeric
+	Local cTypeDb As Character  
+
+    Default cQry 	:= ""
+    Default lTitPai := .F.
+    Default cAls 	:= ""
+    Default cChav1 	:= ""
+    Default cChav2 	:= ""
+    Default lDest 	:= .F.
+    Default cTitPai := ""
+
+	cQuery	:= ''
+	cAlsNxt	:= GetNextAlias()
+	nRecE2	:= 0
+	cTypeDb := Upper(TcGetDb())
+
+	cQuery := " SELECT FI8_FORORI, FI8_LOJORI, FI8_FORDES, FI8_LOJDES, FI8_FILIAL,"
+	cQuery += " FI8_FILDES, FI8_STATUS, FIREC, SERECORI, SERECDES,"
+	cQuery += " NLIQORI, NLIQDES, NFATORI, NFATDES from (" + cQry + ") A "
+	
+	If cTypeDb $ "ORACLE"  
+		//No Oracle nao foi usado a funcao CONCAT devido a mesma só permitir 2 parametros (colunas)
+		cQuery += " WHERE NLIQORI || NLIQDES = '"+cChav1+"' "
+		If cAls == "FI8"
+			cQuery += " AND NFATORI || NFATDES || NPRFFATORI || NPRFFATDES = '"+cChav2+"' "
+		EndIf	
+		If lTitPai	
+			cQuery += " AND ( FI8_FILDES || FI8_PRFDES || FI8_NUMDES || FI8_PARDES || FI8_TIPDES || FI8_FORDES || FI8_LOJDES = '" + cTitPai + "' "
+			cQuery += " OR FI8_FILIAL || FI8_PRFORI || FI8_NUMORI || FI8_PARORI || FI8_TIPORI || FI8_FORORI || FI8_LOJORI = '" + cTitPai + "' ) "
+		EndIf
+	Else
+		cQuery += " WHERE CONCAT(NLIQORI , NLIQDES) = '"+cChav1+"' "
+		If cAls == "FI8"
+			cQuery += " AND CONCAT(NFATORI , NFATDES , NPRFFATORI , NPRFFATDES) = '"+cChav2+"' "
+		EndIf	
+		If lTitPai	
+			cQuery += " AND ( CONCAT(FI8_FILDES , FI8_PRFDES , FI8_NUMDES , FI8_PARDES , FI8_TIPDES , FI8_FORDES , FI8_LOJDES) = '" + cTitPai + "' "
+			cQuery += " OR CONCAT(FI8_FILIAL , FI8_PRFORI , FI8_NUMORI , FI8_PARORI , FI8_TIPORI , FI8_FORORI , FI8_LOJORI) = '" + cTitPai + "' ) "
+		EndIf
+	Endif
+
+	cQuery  := ChangeQuery(cQuery)
+	cAlsNxt	:= MPSysOpenQuery(cQuery)
+
+	If cAls == "FI8" .And. !(cAlsNxt)->(Eof())
+		If lTitPai
+			nRecE2 := SE2->(Recno())
+		EndIf
+		(__cRetAls)->(DbGoTop())
+		While !(__cRetAls)->(Eof())
+			If (__cRetAls)->(NLIQORI + NLIQDES + NFATORI + NFATDES) == ;
+				(cAlsNxt)->(NLIQORI + NLIQDES + NFATORI + NFATDES) .And. Empty((__cRetAls)->CFORI)
+				RecLock(__cRetAls, .F.)
+					(__cRetAls)->CFORI		:= (cAlsNxt)->FI8_FORORI
+					(__cRetAls)->LOJAORI	:= (cAlsNxt)->FI8_LOJORI
+					(__cRetAls)->CFDES		:= (cAlsNxt)->FI8_FORDES
+					(__cRetAls)->LOJADES	:= (cAlsNxt)->FI8_LOJDES
+					(__cRetAls)->FILIAL		:= (cAlsNxt)->FI8_FILIAL
+					(__cRetAls)->FILDES		:= (cAlsNxt)->FI8_FILDES
+					(__cRetAls)->FI_STATUS	:= (cAlsNxt)->FI8_STATUS
+					(__cRetAls)->FIREC		:= (cAlsNxt)->FIREC
+					If lTitPai .And. ( nRecE2 == (cAlsNxt)->SERECORI .Or. nRecE2 == (cAlsNxt)->SERECDES )
+						(__cRetAls)->RECORI		:= (cAlsNxt)->SERECORI
+						(__cRetAls)->RECDES		:= (cAlsNxt)->SERECDES
+					EndIf
+					If lDest
+						(__cRetAls)->IDPROC := '0'
+						If Empty((__cRetAls)->NIVEL)
+							(__cRetAls)->NIVEL	:= __cNivel
+						EndIf
+					EndIf
+				MsUnLock()
+			EndIf
+			(__cRetAls)->(DbSkip())
+		EndDo
+	EndIf
+
+	If Select(cAlsNxt) > 0
+        (cAlsNxt)->(dbCloseArea())
+    EndIf
+
+Return

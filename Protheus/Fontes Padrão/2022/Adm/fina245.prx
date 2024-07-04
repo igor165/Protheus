@@ -1,0 +1,405 @@
+#INCLUDE "PROTHEUS.Ch"
+#INCLUDE "fina245.ch"
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} FINA245
+
+Programa para geração automática de borderôs de pagamento.
+São gerados para os títulos, cujos fornecedores possuem conta nos mesmos bancos que a empresa usuária
+e que aceitem transferência entre contas como forma de pagamento.
+
+@Author	Marcello Gabriel
+@since	25/02/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function FINA245()
+Local oProcess	:= Nil
+
+oProcess := tNewProcess():New( "FINA245", STR0001,{|oSelf| F245Proc(oSelf)}, STR0002, "FINA245",,.F.,,"",.F.,.T.) //"Borderôs automáticos"###"Este programa tem como objetivo gerar borderôs automaticamente para pagamento a fornecedores via transferência bancária."
+FreeObj(oProcess)
+DelClassIntf()
+Return()
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F245PROC
+Gera automaticamente os borderôs de pagamento.
+A geração é através do FINA241 (borderô com impostos)
+
+@Author	Marcello Gabriel
+@since	25/02/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F245Proc(oSelf)
+Local nBco			:= 0
+Local nPos			:= 0
+Local cQuery		:= ""
+Local cAliasTmp		:= ""
+Local cNumBor		:= ""
+Local c245ArqTit	:= ""
+Local cAliasSE2		:= ""
+Local dDtBor		:= Ctod("//")
+Local lMostraLan	:= .F.
+Local aArea			:= {}
+Local aBcos			:= {}
+Local aRetBor		:= {}
+Local aBorderos		:= {}
+
+
+aArea := GetArea()
+MsgRun(STR0003,"",{|| CursorWait(),F245SelBco(@aBcos),STR0004,CursorArrow()}) //"Verificando o cadastro de bancos"###"Geração automática de borderôs"
+If Empty(aBcos)
+	Help(" ",1,"F245BANCOS",,STR0005,1,1) //"Não há bancos configurados para geração automática de borderôs"
+Else
+	dDtBor := MV_PAR04
+	lMostraLan := (MV_PAR06 == 1)
+	MsgRun(STR0006,"",{|| CursorWait(),F245SelTit(@aBcos,@c245ArqTit,@cAliasSE2),STR0004,CursorArrow()}) //"Verificando os títulos a pagar."###"Geração automática de borderôs"
+	If Empty(cAliasSE2)
+		Help(" ",1,"F245TITULOS",,STR0007,1,1) //"Não foram encontrados títulos para geração dos borderôs."
+	Else
+		oSelf:SaveLog(STR0008) //"Início do processo"
+		oSelf:SetRegua1(Len(aBcos))
+		Begin Transaction
+			For nBco := 1 To Len(aBcos)
+			
+				If aBcos[nBco,6] = 0	//Se não tiver titulos no banco, não mostra.
+					Loop
+				Endif
+				 
+				oSelf:IncRegua1(STR0009 + ": " + AllTrim(aBcos[nBco,1]) + "-" + AllTrim(aBcos[nBco,2]) + "-" + AllTrim(aBcos[nBco,3])) //"Gerando borderô"
+				aRetBor := {cAliasSE2,aBcos[nBco,1],aBcos[nBco,2],aBcos[nBco,3],"01","20",dDtBor,lMostraLan}
+				FINA241(0,aRetBor)
+				oSelf:SaveLog(STR0010 + " " + Alltrim(aRetBor[9]) + " - " + AllTrim(aBcos[nBco,1]) + "-" + AllTrim(aBcos[nBco,2]) + "-" + AllTrim(aBcos[nBco,3])) //"Borderô"
+				Aadd(aBorderos,{aBcos[nBco,1],aBcos[nBco,2],aBcos[nBco,3],aBcos[nBco,5],aRetBor[9],aRetBor[10]})
+				
+			Next
+		End Transaction
+		oSelf:SaveLog(STR0011) //"Fim do processo"
+		DbSelectArea(cAliasSE2)
+		DbCloseArea()
+		TcDelFile(c245ArqTit)
+		If !Empty(aBorderos)
+			If MV_PAR05 == 1
+				F245Resumo(@aBorderos)
+			Endif
+		Endif
+	Endif
+Endif
+Asize(aBcos,0)
+aBcos := Nil
+aSize(aRetBor,0)
+aRetBor := Nil
+aSize(aBorderos,0)
+aBorderos := Nil
+RestArea(aArea)
+aSize(aArea,0)
+aArea := Nil
+Return()
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F245SELBCO
+Seleciona os bancos para os quais serão gerados borderôs.
+Caso haja mais de uma conta em um mesmo banco, será solicitado ao usuário escolher qual será
+utilizada.
+
+@Author	Marcello Gabriel
+@since	25/02/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F245SelBco(aBcos)
+Local nBco		:= 0
+Local nLen		:= 0
+Local cQuery	:= ""
+Local cAliasTmp	:= ""
+Local cChvBco	:= ""
+Local aArea		:= {}
+Local aBcosTmp	:= {}
+
+Default aBcos	:= {}
+
+cQuery := "select DISTINCT A6_COD,A6_AGENCIA,A6_NUMCON,A6_MOEDA,A6_NOME,EE_PERMPG,EE_DTVALID,FIL_MOVCTO from " + RetSQLName("SA6") + " SA6, " + RetSQLName("SEE") + " SEE, " + RetSQLName("FIL") + " FIL"
+cQuery += " where A6_FILIAL = '" + xFilial("SA6") + "'"
+cQuery += " and SA6.D_E_L_E_T_= ' '"
+cQuery += " and EE_FILIAL = '" + xFilial("SEE") + "'"
+cQuery += " and EE_CODIGO = A6_COD"
+cQuery += " and EE_AGENCIA = A6_AGENCIA"
+cQuery += " and EE_CONTA = A6_NUMCON"
+cQuery += " and EE_PERMPG = '1'"
+cQuery += " and "
+cQuery += " ("
+cQuery += "EE_DTVALID = '" + Space(8) + "'"
+cQuery += " or "
+cQuery += "EE_DTVALID >= '" + Dtos(dDataBase) + "'"
+cQuery += ")"
+cQuery += " and SEE.D_E_L_E_T_= ' '"
+cQuery += " and FIL_FILIAL = '" + xFilial("FIL") + "'"
+cQuery += " and FIL_BANCO = A6_COD"
+cQuery += " and FIL_MOVCTO = '1'"
+cQuery += " and FIL.D_E_L_E_T_= ' '"
+cQuery += " order by A6_COD,A6_AGENCIA,A6_NUMCON"
+cQuery := ChangeQuery( cQuery )
+cAliasTmp := GetNextAlias() 			
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTmp,.F.,.T.)
+While !((cAliasTmp)->(Eof()))
+	cChvBco := (cAliasTmp)->A6_COD
+	Aadd(aBcosTmp,{})
+	nLen := Len(aBcosTmp)
+	While !((cAliasTmp)->(Eof())) .And. (cAliasTmp)->A6_COD == cChvBco
+		Aadd(aBcosTmp[nLen],{(cAliasTmp)->A6_COD,(cAliasTmp)->A6_AGENCIA,(cAliasTmp)->A6_NUMCON,(cAliasTmp)->A6_MOEDA,(cAliasTmp)->A6_NOME})
+		(cAliasTmp)->(DbSkip())
+	Enddo
+Enddo
+DbSelectArea(cAliasTmp)
+DbCloseArea()
+/*
+Verificando se ha mais de uma conta em um mesmo banco. Se afirmativo, pede ao usuario
+para definir qual sera utilizada. */
+nBco := 0
+nLen := Len(aBcosTmp)
+cChvBco := ""
+aBcos := {}
+For nBco := 1 To Len(aBcosTmp)
+	If Len(aBcosTmp[nBco]) > 1
+		nLen := F245SelCta(@aBcosTmp[nBco])
+		/* O ultimo elemento e utilizado na selecao de titulos e armazenara o valor total ja selecionado para o banco: utilizado para comparacao com o limite 
+		informado pelo usuario */  
+		If nLen > 0
+			Aadd(aBcos,{aBcosTmp[nBco,nLen,1],aBcosTmp[nBco,nLen,2],aBcosTmp[nBco,nLen,3],aBcosTmp[nBco,nLen,4],aBcosTmp[nBco,nLen,5],0})
+		Endif
+	Else
+		Aadd(aBcos,{aBcosTmp[nBco,1,1],aBcosTmp[nBco,1,2],aBcosTmp[nBco,1,3],aBcosTmp[nBco,1,4],aBcosTmp[nBco,1,5],0})
+	Endif	
+Next
+/*-*/
+Asize(aBcosTmp,0)
+aBcoTmp := Nil
+Return()
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F245SELCTA
+Caso haja mais de uma conta em um mesmo banco, apresenta-as e solicita ao usuário escolher qual será
+utilizada.
+
+@Author	Marcello Gabriel
+@since	25/02/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F245SelCta(aBancos)
+Local nSel		:= 0
+Local nLenCta	:= 0
+Local aContas	:= {}
+Local oSize1	:= Nil
+Local oSize		:= Nil
+Local oDlg		:= Nil
+Local oBrwCta	:= Nil
+Local oOK		:= Nil
+Local oNOK		:= Nil
+Local cTexto	:= ""
+
+Default aBancos	:= {}
+
+If !Empty(aBancos)
+	For nSel := 1 To Len(aBancos)
+		Aadd(aContas,Aclone(aBancos[nSel]))
+		Aadd(aContas[Len(aContas)],.F.)
+	Next
+	nLenCta := Len(aContas[1])
+	nSel := 0
+	oSize1 := FWDefSize():New(.T.)
+		oSize1:lLateral := .F.
+		oSize1:lProp	:= .T. 
+		oSize1:Process()
+		
+		oOK	:= LoadBitmap(GetResources(),"wfchk")
+		oNOK:= LoadBitmap(GetResources(),"wfunchk")
+		
+		cTexto := STR0012 + CRLF + CRLF //"Este banco possui mais de uma conta configurada. Qual deve ser utilizada para o borderô?"
+		cTexto += STR0013  //"Caso nenhuma seja selecionada, não será gerado borderô para este banco."
+		
+	DEFINE MSDIALOG oDlg TITLE STR0001	From oSize1:aWindSize[1],oSize1:aWindSize[2] to oSize1:aWindSize[3]/2,oSize1:aWindSize[4]/2 OF oMainWnd PIXEL		//"Borderôs automáticos" 
+		oSize := FwDefSize():New(.T.,,,oDlg)
+			oSize:AddObject("PNLTOP",100,30,.T.,.T.)
+			oSize:AddObject("PNLCEN",100,70,.T.,.T.)
+			oSize:lProp	:= .T.             
+			oSize:aMargins := {3,3,3,3}  
+			oSize:Process()
+			
+		@oSize:GetDimension("PNLTOP","LININI"),oSize:GetDimension("PNLTOP","COLINI") MSPANEL oPnlTop SIZE oSize:GetDimension("PNLTOP","XSIZE")-6,oSize:GetDimension("PNLTOP","YSIZE") PROMPT cTexto
+		
+		oBrwCta := TCBrowse():New(oSize:GetDimension("PNLCEN","LININI"),oSize:GetDimension("PNLCEN","COLINI"),oSize:GetDimension("PNLCEN","XSIZE")-6,oSize:GetDimension("PNLCEN","YSIZE"),,,,oDlg,,,,,,,,,,,,.T.,"",.T.,{|| .T.},,,,)
+			oBrwCta:AddColumn(TCColumn():New(""	,{|| If(aContas[oBrwCta:nAt,nLenCta],oOK,oNOK)},,,,,010,.T.,.F.,,,,,))
+			oBrwCta:AddColumn(TCColumn():New(SA6->(RetTitle("A6_COD")),{|| aContas[oBrwCta:nAt,1]},,,,"LEFT",20,.F.,.F.,,,,,))
+			oBrwCta:AddColumn(TCColumn():New(SA6->(RetTitle("A6_AGENCIA")),{|| aContas[oBrwCta:nAt,2]},,,,"LEFT",40,.F.,.F.,,,,,))
+			oBrwCta:AddColumn(TCColumn():New(SA6->(RetTitle("A6_NUMCON")),{|| aContas[oBrwCta:nAt,3]},,,,"LEFT",40,.F.,.F.,,,,,))
+			oBrwCta:AddColumn(TCColumn():New(SA6->(RetTitle("A6_NOME")),{|| aContas[oBrwCta:nAt,5]},,,,"LEFT",30,.F.,.F.,,,,,))
+			oBrwCta:bLDblClick := {|| nSel := 0,Aeval(aContas,{|cta| ++nSel,If(oBrwCta:nAt == nSel,cta[nLenCta] := .Not. cta[nLenCta],cta[nLenCta] := .F.)}),nSel := If(aContas[oBrwCta:nAt,nLenCta],oBrwCta:nAt,0),oBrwCta:Refresh()}
+			oBrwCta:SetArray(aContas)
+	ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar(oDlg,{||oDlg:End()},{|| nSel := 0,oDlg:End()},,,,,,,.F.)
+	
+	oBrwCta := Nil
+	oDlg := Nil 
+	FreeObj(oSize1)
+	oSize1 := Nil 
+	FreeObj(oSize)
+	oSize := Nil
+	FreeObj(oOK)
+	oOK := Nil
+	FreeObj(oNOK)
+	oNOK := Nil
+	Asize(aContas,0)
+	aContas := Nil
+Endif
+Return(nSel)
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F245SELTIT
+Seleciona os títulos disponíves para os borderôs.
+Para a seleção considera o período de vencimento e os bancos dos fornecedores constantes nos títulos.  
+Observação: esses bancos devem estar configurados para aceitarem pagamento via transferência eletrônica
+(tabela/campo FIL_MOVCTO).
+
+@Author	Marcello Gabriel
+@since	27/02/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F245SelTit(aBcos,c245ArqTit,cAliasSE2)
+Local cQuery	:= ""
+Local cAliasTmp	:= ""
+Local cFiltro	:= ""
+Local nLimite	:= 0
+Local nBco		:= 0
+Local nMoedaBco	:= 0
+Local nMoedaTit	:= 0
+Local nTitulos	:= 0
+Local aEstr		:= {}
+
+cAliasSE2 := ""
+c245ArqTit := ""
+
+For nBco := 1 To Len(aBcos)
+	If nBco > 1
+		cFiltro += ","
+	Endif
+	cFiltro += "'" + aBcos[nBco,1] + "'"
+Next
+
+cQuery := "SELECT DISTINCT E2_MOEDA,E2_FORBCO,E2_SALDO,SE2.R_E_C_N_O_,FIL_BANCO from " + RetSQLName("SE2") + " SE2, " + RetSQLName("FIL") + " FIL "
+cQuery += " where E2_FILIAL = '" + xFilial("SE2") + "'"
+cQuery += " and E2_VENCREA >= '" + Dtos(MV_PAR01) + "'"
+cQuery += " and E2_VENCREA <= '" + Dtos(MV_PAR02) + "'"
+cQuery += " and E2_FORBCO in (" + cFiltro + ")"
+cQuery += " and SE2.D_E_L_E_T_= ' '"
+cQuery += " and FIL_FILIAL = '" + xFilial("FIL") + "'"
+cQuery += " and FIL_BANCO = E2_FORBCO"
+cQuery += " and FIL_AGENCI = E2_FORAGE"
+cQuery += " and FIL_DVAGE = E2_FAGEDV"
+cQuery += " and FIL_CONTA = E2_FORCTA"
+cQuery += " and FIL_DVCTA = E2_FCTADV"
+cQuery += " and FIL_MOVCTO = '1'" 
+cQuery += " and FIL.D_E_L_E_T_ = ' '"
+/*
+Condicoes executada pela fina241 e fina240 para completar a selecao dos titulos: verifica o tipo do titulo,
+saldo, se ja pertence a um bordero etc. */
+cFiltro := FA240Chec2()
+cQuery += " and " + cFiltro
+cQuery += " and not E2_ORIGEM = 'SIGAEFF'"
+/*-*/
+cQuery += " order by E2_FORBCO
+cQuery := ChangeQuery(cQuery)
+cAliasTmp := GetNextAlias() 			
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasTmp,.F.,.T.)
+If !((cAliasTmp)->(Eof()))
+	Aadd(aEstr,{"NUM_REG","N",10,0})
+	Aadd(aEstr,{"E2_FORBCO","C",TamSX3("E2_FORBCO")[1],0})
+	Aadd(aEstr,{"E2_FORAGE","C",TamSX3("E2_FORAGE")[1],0})
+	Aadd(aEstr,{"E2_FORCTA","C",TamSX3("E2_FORCTA")[1],0})
+	c245ArqTit := CriaTrab(,.F.) 
+	DbCreate(c245ArqTit,aEstr,"TOPCONN")
+	cAliasSE2 := GetNextAlias()
+	DbUseArea(.T.,"TOPCONN",c245ArqTit,cAliasSE2,.F.,.F.)
+	Asize(aEstr,0)
+	aEstr := Nil
+	/*-*/
+	While !((cAliasTmp)->(Eof()))
+		nBco := Ascan(aBcos,{|bco| bco[1] == (cAliasTmp)->E2_FORBCO})
+		If nBco > 0
+			nMoedaBco := Max(aBcos[nBco,4],1)
+			nMoedaTit := Max((cAliasTmp)->E2_MOEDA,1)
+			If nMoedaBco == nMoedaTit
+				aBcos[nBco,6] += (cAliasTmp)->E2_SALDO
+				If MV_PAR03 <= 0 .Or. aBcos[nBco,6] <= MV_PAR03  
+					RecLock(cAliasSE2,.T.)
+					Replace (cAliasSE2)->NUM_REG	With (caliasTmp)->R_E_C_N_O_
+					Replace (cAliasSE2)->E2_FORBCO	With aBcos[nBco,1]
+					Replace (cAliasSE2)->E2_FORAGE	With aBcos[nBco,2]
+					Replace (cAliasSE2)->E2_FORCTA	With aBcos[nBco,3]
+					MsUnLock()
+					nTitulos++
+				Endif
+			Endif
+		Endif
+		(cAliasTmp)->(DbSkip())
+	Enddo
+	(cAliasSE2)->(DbGoTop())
+	If nTitulos == 0
+		DbSelectArea(cAliasSE2)
+		DbCloseArea()
+		TcDelFile(c245ArqTit)
+		cAliasSE2 := ""
+	Endif
+Endif
+DbSelectArea(cAliasTmp)
+DbCloseArea()
+Return()
+
+
+//-----------------------------------------------------------------------------------------------------
+/*/{Protheus.doc} F245RESUMO
+Exibe os borderôs gerados.
+
+@Author	Marcello Gabriel
+@since	02/03/2015
+/*/
+//-----------------------------------------------------------------------------------------------------
+Function F245Resumo(aBorderos)
+Local oSize1	:= Nil
+Local oSize		:= Nil
+Local oDlg		:= Nil
+Local oBrwBor	:= Nil
+
+Default aBorderos	:= {}
+
+If !Empty(aBorderos)
+	oSize1 := FWDefSize():New(.T.)
+		oSize1:lLateral := .F.
+		oSize1:lProp	:= .T. 
+		oSize1:Process()
+		
+	DEFINE MSDIALOG oDlg TITLE STR0014 From oSize1:aWindSize[1],oSize1:aWindSize[2] to oSize1:aWindSize[3]/2,oSize1:aWindSize[4]/2 OF oMainWnd PIXEL		//"Relação de borderôs gerados" 
+		oSize := FwDefSize():New(.T.,,,oDlg)
+			oSize:AddObject("PNLCEN",100,100,.T.,.T.)
+			oSize:lProp	:= .T.             
+			oSize:aMargins := {3,3,3,3}  
+			oSize:Process()
+		
+		oBrwBor := TCBrowse():New(oSize:GetDimension("PNLCEN","LININI"),oSize:GetDimension("PNLCEN","COLINI"),oSize:GetDimension("PNLCEN","XSIZE")-6,oSize:GetDimension("PNLCEN","YSIZE"),,,,oDlg,,,,,,,,,,,,.T.,"",.T.,{|| .T.},,,,)
+			oBrwBor:AddColumn(TCColumn():New(STR0010,{|| aBorderos[oBrwBor:nAt,5]},,,,"LEFT",40,.F.,.F.,,,,,))		//"Borderô"
+			oBrwBor:AddColumn(TCColumn():New(STR0015,{|| aBorderos[oBrwBor:nAt,6]},,,,"LEFT",40,.F.,.F.,,,,,))		//"Títulos"
+			oBrwBor:AddColumn(TCColumn():New(SA6->(RetTitle("A6_COD")),{|| aBorderos[oBrwBor:nAt,1]},,,,"LEFT",20,.F.,.F.,,,,,))
+			oBrwBor:AddColumn(TCColumn():New(SA6->(RetTitle("A6_AGENCIA")),{|| aBorderos[oBrwBor:nAt,2]},,,,"LEFT",40,.F.,.F.,,,,,))
+			oBrwBor:AddColumn(TCColumn():New(SA6->(RetTitle("A6_NUMCON")),{|| aBorderos[oBrwBor:nAt,3]},,,,"LEFT",40,.F.,.F.,,,,,))
+			oBrwBor:AddColumn(TCColumn():New(SA6->(RetTitle("A6_NOME")),{|| aBorderos[oBrwBor:nAt,4]},,,,"LEFT",30,.F.,.F.,,,,,))
+			oBrwBor:SetArray(aBorderos)
+	ACTIVATE MSDIALOG oDlg CENTERED ON INIT EnchoiceBar(oDlg,{||oDlg:End()},{|| oDlg:End()},,,,,,,.F.,.F.)
+	
+	oBrwBor := Nil
+	oDlg := Nil 
+	FreeObj(oSize1)
+	oSize1 := Nil 
+	FreeObj(oSize)
+	oSize := Nil
+Endif
+Return()

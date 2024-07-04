@@ -1,0 +1,497 @@
+/*/{PROTHEUS.DOC} LOCR024.PRW 
+ITUP BUSINESS - TOTVS RENTAL
+RELATำRIO PLANILHA DE LOCAวรO DE RELAวรO DE COLABORADORES
+ALOCADOS EM OBRAS VIA TIME SHEET
+@TYPE FUNCTION
+@AUTHOR FRANK ZWARG FUGA
+@SINCE 03/12/2020
+@VERSION P12
+@HISTORY 03/12/2020, FRANK ZWARG FUGA, FONTE PRODUTIZADO.
+/*/
+
+#INCLUDE "RWMAKE.CH"
+#INCLUDE "TOPCONN.CH"
+
+FUNCTION LOCR024()
+// --> DECLARACAO DE VARIAVEIS.
+LOCAL AORD := {}
+LOCAL CDESC1       := "ESTE PROGRAMA TEM COMO OBJETIVO IMPRIMIR RELATORIO DE ACORDO COM OS PARAMETROS INFORMADOS PELO USUARIO."
+LOCAL CDESC2       := "EXIBINDO A RELAวรO DE COLABORADORES ALOCADOS EM OBRAS." 
+LOCAL CDESC3       := "ALOCAวีES / OBRAS"
+LOCAL TITULO       := "PLANILHA DE ALOCAวรO"
+LOCAL _NLIN         := 80
+LOCAL CABEC1       := ""
+                   //  01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+                   //           10        20        30        40        50        60        70        80        90       100       110       120       130       140       150       160       170       180       190       200       210       220
+LOCAL CABEC2       := ""
+LOCAL IMPRIME 
+
+PRIVATE LEND       := .F.
+PRIVATE LABORTPRINT:= .F.
+PRIVATE LIMITE     := 80
+PRIVATE TAMANHO    := "P"
+PRIVATE NOMEPROG   := "LOC065" // COLOQUE AQUI O NOME DO PROGRAMA PARA IMPRESSAO NO CABECALHO
+PRIVATE NTIPO      := 15
+PRIVATE ARETURN    := { "ZEBRADO", 1, "ADMINISTRACAO", 1, 2, 1, "", 1}
+PRIVATE NLASTKEY   := 0
+PRIVATE CPERG      := "LOCP028"
+PRIVATE CBTXT      := SPACE(10)
+PRIVATE CBCONT     := 00
+PRIVATE CONTFL     := 01
+PRIVATE M_PAG      := 01
+PRIVATE WNREL      := "LOC065" // COLOQUE AQUI O NOME DO ARQUIVO USADO PARA IMPRESSAO EM DISCO
+PRIVATE CSTRING    := "FPQ"
+
+IMPRIME := .T.
+
+DBSELECTAREA("FPQ")
+DBSETORDER(1)
+
+VALIDPERG()
+PERGUNTE(CPERG,.F.)
+
+// --> MONTA A INTERFACE PADRAO COM O USUARIO... 
+WNREL := SETPRINT(CSTRING,NOMEPROG,CPERG,@TITULO,CDESC1,CDESC2,CDESC3,.F.,AORD,.F.,TAMANHO,,.F.)
+
+IF NLASTKEY == 27
+	RETURN
+ENDIF
+
+SETDEFAULT(ARETURN,CSTRING)
+
+IF NLASTKEY == 27
+   RETURN
+ENDIF
+
+NTIPO := IF(ARETURN[4]==1,15,18)
+
+// --> PROCESSAMENTO. RPTSTATUS MONTA JANELA COM A REGUA DE PROCESSAMENTO.
+RPTSTATUS({|| RUNREPORT(CABEC1,CABEC2,TITULO,_NLIN) },TITULO)
+
+RETURN
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+ฑฑษออออออออออัออออออออออหอออออออัออออออออออออออออออออหออออออัอออออออออออออปฑฑ
+ฑฑบFUNO    ณRUNREPORT บ AUTOR ณ AP5 IDE            บ DATA ณ  07/05/02   บฑฑ
+ฑฑฬออออออออออุออออออออออสอออออออฯออออออออออออออออออออสออออออฯอออออออออออออนฑฑ
+ฑฑบDESCRIO ณ FUNCAO AUXILIAR CHAMADA PELA RPTSTATUS. A FUNCAO RPTSTATUS บฑฑ
+ฑฑบ          ณ MONTA A JANELA COM A REGUA DE PROCESSAMENTO.               บฑฑ
+ฑฑฬออออออออออุออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออนฑฑ
+ฑฑบUSO       ณ PROGRAMA PRINCIPAL                                         บฑฑ
+ฑฑศออออออออออฯออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผฑฑ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿
+/*/
+STATIC FUNCTION RUNREPORT(CABEC1,CABEC2,TITULO,_NLIN)
+
+SETPRVT("XTQCOM,XTQVEN,XTQEST,XTQPED,XTVCOM,XTVVEN,XTVEST,XTVPED,XIMPLINHA")
+
+// MONTA ARQUIVO DE TRABALHO
+// CRIA O ARQUIVO TEMPORARIO PARA SELECIONAR OS BUDGETS
+PRIVATE XSTRU := {}
+
+ATAM:=TAMSX3("RA_FILIAL")
+AADD(XSTRU, {"RA_FILIAL"  ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("RA_MAT")
+AADD(XSTRU, {"RA_MAT"     ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("RA_NOME")
+AADD(XSTRU, {"RA_NOME"    ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("FPQ_PROJET")
+AADD(XSTRU, {"FPQ_PROJET" ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("RA_SALARIO")
+AADD(XSTRU, {"RA_DSHEET"  ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("A1_COD")
+AADD(XSTRU, {"A1_COD"     ,ATAM[3],ATAM[1],ATAM[2] } )
+ATAM:=TAMSX3("A1_LOJA")
+AADD(XSTRU, {"A1_LOJA"    ,ATAM[3],ATAM[1],ATAM[2] } )
+
+//PRIVATE CARQ := CRIATRAB(XSTRU,.T.)
+//DBUSEAREA(.T.,,CARQ,"TRB",.T.)
+//PRIVATE CIND := CRIATRAB(NIL,.F.)
+//INDREGUA("TRB",CIND,"FPQ_PROJET+RA_MAT",,,"SELECIONANDO REGISTROS...")
+
+CT65  := "T65"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+CTI65 := "TI65"+SUBSTR(TIME(),1,2)+SUBSTR(TIME(),4,2)+SUBSTR(TIME(),7,2)
+IF TCCANOPEN(CT65)
+   	TCDELFILE(CT65)
+ENDIF
+DBCREATE(CT65, XSTRU, "TOPCONN")
+DBUSEAREA(.T., "TOPCONN", CT65, ("TRB"), .F., .F.)
+DBCREATEINDEX(CTI65, "FPQ_PROJET+RA_MAT"         , {|| FPQ_PROJET+RA_MAT         })
+TRB->( DBCLEARINDEX() ) //FORวA O FECHAMENTO DOS INDICES ABERTOS
+DBSETINDEX(CTI65) //ACRESCENTA A ORDEM DE INDICE PARA A มREA ABERTA
+
+// CARREGA OS DADOS PARA IMPRESSAO
+DADZLO()
+
+//_NSUBVAL := 0 //TOTALIZADOR DE SUB-TOTAIS POR PERอODO
+//_NSUBTON := 0
+//_NTOTVAL := 0 //TOTALIZADOR DE VALORES ANTERIORES
+//_NTOTTON := 0
+
+TITULO := ALLTRIM(TITULO) +" " + ALLTRIM(DTOC(MV_PAR01)) + "-" + ALLTRIM(DTOC(MV_PAR02))
+
+// --: SETREGUA -> INDICA QUANTOS REGISTROS SERAO PROCESSADOS PARA A REGUA
+DBSELECTAREA("TRB")
+SETREGUA(RECCOUNT())
+
+DBGOTOP()
+WHILE !EOF()
+
+//	_NSUBVAL := _NSUBTON := 0
+
+	_CPRJ := TRB->FPQ_PROJET
+	_LIMPLINHA := .T.
+	_LPRILINHA := .T.
+	WHILE !EOF()
+		IF LABORTPRINT
+			@_NLIN,00 PSAY "*** CANCELADO PELO OPERADOR ***"
+			EXIT
+		ENDIF
+
+		INCREGUA()
+
+		IF _NLIN > 58 // SALTO DE PมGINA. NESTE CASO O FORMULARIO TEM 58 LINHAS...
+      		CABEC(TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+      		_NLIN := 6
+		//	_LIMPLINHA := .T.
+   		ENDIF
+
+		IF _LIMPLINHA .OR. _CPRJ <> TRB->FPQ_PROJET
+			IF _LPRILINHA
+				_LPRILINHA	:= .F.
+			ELSE
+    			_NLIN := IMPOBS(_NLIN,_CPRJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+			    @_NLIN,00 PSAY REPLICATE("_",LIMITE)
+				_NLIN++
+			ENDIF
+
+			_NLIN := IMPPRJ(_NLIN,TRB->FPQ_PROJET,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+			_NLIN := IMPCLI(_NLIN,TRB->A1_COD,TRB->A1_LOJA,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+			_NLIN := IMPDOC(_NLIN,TRB->FPQ_PROJET,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+
+			@_NLIN,000 PSAY "FUNCIONARIOS  FL     MATRIC  NOME DO FUNCIONARIO                          DIAS"
+			_NLIN++
+			_CPRJ := TRB->FPQ_PROJET
+			_LIMPLINHA := .F.
+		ENDIF	
+   		
+		@_NLIN,014 PSAY TRB->RA_FILIAL  
+		@_NLIN,021 PSAY TRB->RA_MAT
+		@_NLIN,029 PSAY SUBSTR(TRB->RA_NOME,1,45)
+   		@_NLIN,073 PSAY TRB->RA_DSHEET PICTURE "99999"
+   		_NLIN++ // AVANCA A LINHA DE IMPRESSAO
+
+   		// ACUMULA OS TOTAIS DA LINHA
+//		_NSUBVAL += 
+//		_NSUBTON += 
+
+		// ACUMULA OS TOTAIS GERAIS
+//		_NTOTVAL += 
+//		_NTOTTON += 
+
+   		DBSELECTAREA("TRB")
+   		DBSKIP() // AVANCA O PONTEIRO DO REGISTRO NO ARQUIVO
+	ENDDO	
+   
+	// IMPRIME OS SUB-TOTAIS DO PERอODO
+//	IF _NSUBVAL>0 .OR. _NSUBTON>0
+//		@_NLIN,09 PSAY "TOTAL"
+//		@_NLIN,17 PSAY TRANSFORM(_NSUBVAL,"@E 9999,999,999,999.99")
+//		@_NLIN,38 PSAY TRANSFORM(_NSUBTON,"@E 9999,999,999,999.99")
+//		@_NLIN,59 PSAY TRANSFORM(_NSUBVAL/_NSUBTON,"@E 9999,999,999,999.99")
+//       _NLIN ++
+//	ENDIF
+	_NLIN := IMPOBS(_NLIN,_CPRJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+    @_NLIN,00 PSAY REPLICATE("_",LIMITE)
+    _NLIN ++
+ENDDO
+
+// IMPRIME OS TOTAIS GERAIS
+//IF _NTOTVAL>0 .OR. _NTOTTON>0
+//	@_NLIN,09 PSAY "GERAL"
+//	@_NLIN,17 PSAY TRANSFORM(_NTOTVAL,"@E 9999,999,999,999.99")
+//	@_NLIN,38 PSAY TRANSFORM(_NTOTTON,"@E 9999,999,999,999.99")
+//	@_NLIN,59 PSAY TRANSFORM(_NTOTVAL/_NTOTTON,"@E 9999,999,999,999.99")
+//   _NLIN ++
+//ENDIF
+//@_NLIN,00 PSAY REPLICATE("_",LIMITE)
+//_NLIN ++
+
+// --> FINALIZA A EXECUCAO DO RELATORIO... 
+SET DEVICE TO SCREEN
+
+// --> SE IMPRESSAO EM DISCO, CHAMA O GERENCIADOR DE IMPRESSAO... 
+IF ARETURN[5]==1
+   DBCOMMITALL()
+   SET PRINTER TO
+   OURSPOOL(WNREL)
+ENDIF
+
+MS_FLUSH()
+
+// --> DELETA O ARQUIVO DE TRABALHO
+DBSELECTAREA("TRB")
+DBCLOSEAREA()
+
+TCSQLEXEC("DROP TABLE "+CT65)
+TCSQLEXEC("DROP TABLE "+CTI65)
+
+//DELETE FILE (CARQ + ".DBF")
+//DELETE FILE (CIND + ORDBAGEXT())
+
+RETURN
+
+
+
+// ======================================================================= \\
+STATIC FUNCTION IMPPRJ(_PLIN,_PPRJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+// ======================================================================= \\
+
+//PROJETO/OBRA  XXXXXXXXXXXXXXXXXXXXXX / EI 123456789012345-123456789012345-123456789012345
+//01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+//         10        20        30        40        50        60        70        80        90       100       110       120       130       140       150       160       170       180       190       200       210       220
+
+IF _PLIN > 54 // SALTO DE PมGINA. NESTE CASO O FORMULARIO TEM 54 LINHAS...
+	CABEC(TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+	_PLIN := 6
+ENDIF
+
+@ _PLIN,000 PSAY "PROJETO/OBRA"
+
+IF FP1->(DBSEEK(XFILIAL("FP1")+_PPRJ))
+	WHILE FP1->(!EOF()) .AND. FP1->FP1_PROJET == _PPRJ
+		IF _PLIN > 58 // SALTO DE PมGINA. NESTE CASO O FORMULARIO TEM 58 LINHAS...
+      		CABEC(TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+      		_PLIN := 6
+   		ENDIF
+		@ _PLIN,014 PSAY ALLTRIM(_PPRJ) + " / " + FP1->FP1_OBRA + "  CEI " + FP1->FP1_CEIORI
+		_PLIN++
+		FP1->(DBSKIP())
+	ENDDO
+ELSE
+	@ _PLIN,014 PSAY ALLTRIM(_PPRJ) + ", NรO CADASTRADO NA FILIAL " + XFILIAL("FP1") + "."
+	_PLIN++
+ENDIF
+
+RETURN _PLIN
+
+
+
+// ======================================================================= \\
+STATIC FUNCTION IMPCLI(_PLIN,_PCOD,_PLOJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+// ======================================================================= \\
+
+//CLIENTE       999999/99 - 1234567890123456789012345678901234567890
+//              123456789012345678901234567890123456789012345678901234567890
+//              99999-999-123456789012345678901234567890-1234567890123456789012345-12
+//              CNPJ 99.999.999/9999-99 IE 123456789012345678
+//01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+//         10        20        30        40        50        60        70        80        90       100       110       120       130       140       150       160       170       180       190       200       210       220
+
+@ _PLIN,000 PSAY "CLIENTE     "
+IF SA1->(DBSEEK(XFILIAL("SA1")+_PCOD+_PLOJ))
+	@ _PLIN,014 PSAY SA1->A1_COD + "/" + SA1->A1_LOJA + " - " + SA1->A1_NOME
+	_PLIN++
+	@ _PLIN,014 PSAY SA1->A1_END
+	_PLIN++
+	@ _PLIN,014 PSAY TRANSFORM(SA1->A1_CEP,"@R 99999-999") + "-" + ALLTRIM(SA1->A1_BAIRRO) + "-" + ALLTRIM(SA1->A1_MUN) + "/" + SA1->A1_EST
+	_PLIN++
+	@ _PLIN,014 PSAY "CNPJ " + TRANSFORM(SA1->A1_CGC,"@R 99.999.999/9999-99") + " IE " + ALLTRIM(SA1->A1_INSCR)
+ELSE
+	@ _PLIN,014 PSAY "CLIENTE " + _PCOD + "/" + _PLOJ + ", NรO CADASTRADO."
+ENDIF
+
+_PLIN+=2
+
+RETURN	_PLIN
+
+
+
+// ======================================================================= \\
+STATIC FUNCTION IMPDOC(_PLIN,_PPRJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+// ======================================================================= \\
+
+LOCAL _LFLAG		:= .F.
+
+//DOCUMENTOS    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX - XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//              XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX - XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+//01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+//         10        20        30        40        50        60        70        80        90       100       110       120       130       140       150       160       170       180       190       200       210       220
+
+@ _PLIN,000 PSAY "DOCUMENTOS  "
+_LIMP := .T.
+IF FPB->(DBSEEK(SUBSTR(_PPRJ,5,2)+_PPRJ))
+
+	WHILE FPB->(!EOF()) .AND. FPB->FPB_PROJET == _PPRJ
+		IF _PLIN > 60 // SALTO DE PมGINA. NESTE CASO O FORMULARIO TEM 60 LINHAS...
+      		CABEC(TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+      		_PLIN := 6
+			@ _PLIN,000 PSAY "DOCUMENTOS  "
+   		ENDIF
+
+		IF !EMPTY(FPB->FPB_CODIGO)
+			_LIMP := .F.
+			IF _LFLAG
+				@ _PLIN,045 PSAY "- " + FPB->FPB_DESCRI
+				_PLIN++ 
+				_LFLAG := .F.
+			ELSE
+				@ _PLIN,014 PSAY FPB->FPB_DESCRI
+				_LFLAG := .T.
+			ENDIF
+		ENDIF
+		
+		FPB->(DBSKIP())
+	ENDDO
+
+ENDIF
+
+IF _LIMP
+	@ _PLIN,014 PSAY "NAO APRESENTAR DOCUMENTACAO"
+ENDIF
+
+_PLIN+=2
+
+RETURN _PLIN
+
+
+
+// ======================================================================= \\
+STATIC FUNCTION IMPOBS(_PLIN,_PPRJ,TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+// ======================================================================= \\
+
+LOCAL _NNRLIN := 0 
+
+@ _PLIN,000 PSAY "OBSERVAวีES "
+IF FP0->(DBSEEK(XFILIAL("FP0")+_PPRJ))
+	_NQTDLIN := MLCOUNT(FP0->FP0_OBSDOC,65)
+	FOR _NNRLIN := 1 TO _NQTDLIN
+		IF _PLIN > 60 // SALTO DE PมGINA. NESTE CASO O FORMULARIO TEM 60 LINHAS...
+      		CABEC(TITULO,CABEC1,CABEC2,NOMEPROG,TAMANHO,NTIPO)
+      		_PLIN := 6
+			@ _PLIN,000 PSAY "OBSERVAวีES "
+   		ENDIF
+		@ _PLIN,014 PSAY MEMOLINE(FP0->FP0_OBSDOC,65,_NNRLIN)
+		_PLIN++
+	NEXT _NNRLIN
+ENDIF
+
+_PLIN++
+
+RETURN _PLIN
+
+
+
+// ======================================================================= \\
+STATIC FUNCTION DADZLO() 
+// ======================================================================= \\
+// --> UTILIZADA PARA CARREGAR OS VALORES DAS COMPRAS DOS PRODUTOS.
+
+_CQUERY := "SELECT ZLO.FPQ_FILIAL, ZLO.FPQ_MAT, ZLO.FPQ_DATA, ZLO.FPQ_STATUS, ZLO.FPQ_AS, ZLO.FPQ_PROJET, ZLO.FPQ_OBRA, ZLO.FPQ_DESC, ZLO.FPQ_VT, ZLO.FPQ_HORAS, "
+_CQUERY += "       SRA.RA_FILIAL, SRA.RA_MAT, SRA.RA_NOME, SRA.RA_CODFUNC, DTQ.FQ5_AS, DTQ.FQ5_CONTRA,  "
+_CQUERY += "       AAM.AAM_CONTRT, AAM.AAM_CODCLI, AAM.AAM_LOJA, SA1.A1_COD, SA1.A1_LOJA  "
+_CQUERY += "FROM   " + RETSQLNAME("FPQ") + " ZLO INNER JOIN "
+_CQUERY +=             RETSQLNAME("SRA") + " SRA ON "
+_CQUERY += "       SRA.D_E_L_E_T_ = '' AND "
+_CQUERY += "       SRA.RA_FILIAL = ZLO.FPQ_FILIAL AND "
+_CQUERY += "       ZLO.FPQ_MAT = SRA.RA_MAT LEFT JOIN "
+_CQUERY +=             RETSQLNAME("FQ5") + " DTQ ON "
+_CQUERY += "       DTQ.D_E_L_E_T_ = '' AND "
+_CQUERY += "       ZLO.FPQ_AS = DTQ.FQ5_AS AND "
+_CQUERY += "       ZLO.FPQ_PROJET = DTQ.FQ5_CONTRA LEFT JOIN "
+_CQUERY +=             RETSQLNAME("AAM") + " AAM ON "
+_CQUERY += "       AAM.D_E_L_E_T_ = '' AND "
+_CQUERY += "       DTQ.FQ5_CONTRA = AAM.AAM_CONTRT LEFT JOIN "
+_CQUERY +=             RETSQLNAME("SA1") + " SA1 ON "
+_CQUERY += "       SA1.D_E_L_E_T_ = '' AND "
+_CQUERY += "       AAM.AAM_CODCLI = SA1.A1_COD AND "
+_CQUERY += "       AAM.AAM_LOJA   = SA1.A1_LOJA "
+_CQUERY += "WHERE  ZLO.D_E_L_E_T_ = ''                              AND "
+_CQUERY += "       ZLO.FPQ_MAT     BETWEEN '" + MV_PAR03       + "' AND '" + MV_PAR04 + "' AND "
+_CQUERY += "       ZLO.FPQ_PROJET  BETWEEN '" + MV_PAR05       + "' AND '" + MV_PAR06 + "' AND "
+_CQUERY += "       ZLO.FPQ_DATA    BETWEEN '" + DTOS(MV_PAR01) + "' AND '" + DTOS(MV_PAR02) + "' AND "
+_CQUERY += "       ZLO.FPQ_STATUS  >= 'OBRA  ' AND ZLO.FPQ_STATUS  <= 'OBRASL' AND "
+_CQUERY += "       ZLO.FPQ_PROJET  <> '                      ' "
+_CQUERY := CHANGEQUERY(_CQUERY)
+TCQUERY _CQUERY NEW ALIAS "QRY"
+	
+DBSELECTAREA("QRY")
+DBGOTOP()
+WHILE QRY->(!EOF())
+		DBSELECTAREA("TRB")
+		IF DBSEEK(QRY->FPQ_PROJET + QRY->RA_MAT)
+			RECLOCK('TRB',.F.)
+		ELSE
+			RECLOCK('TRB',.T.)
+			TRB->RA_FILIAL	:= QRY->RA_FILIAL
+			TRB->RA_MAT		:= QRY->RA_MAT
+			TRB->RA_NOME	:= QRY->RA_NOME
+			TRB->FPQ_PROJET	:= QRY->FPQ_PROJET
+			TRB->A1_COD		:= QRY->A1_COD
+			TRB->A1_LOJA	:= QRY->A1_LOJA
+		ENDIF
+		TRB->RA_DSHEET	:= TRB->RA_DSHEET	+ 1
+		TRB->(MSUNLOCK()) 
+
+      DBSELECTAREA("QRY")
+      DBSKIP()
+ENDDO
+
+QRY->(DBCLOSEAREA()) 
+
+RETURN 
+
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+ฑฑษออออออออออัออออออออออหอออออออัออออออออออออออออออออหออออออัอออออออออออออปฑฑ
+ฑฑบFUNO    ณVALIDPERG บ AUTOR ณ AP5 IDE            บ DATA ณ  07/05/02   บฑฑ
+ฑฑฬออออออออออุออออออออออสอออออออฯออออออออออออออออออออสออออออฯอออออออออออออนฑฑ
+ฑฑบDESCRIO ณ VERIFICA A EXISTENCIA DAS PERGUNTAS CRIANDO-AS CASO SEJA   บฑฑ
+ฑฑบ          ณ NECESSARIO (CASO NAO EXISTAM).                             บฑฑ
+ฑฑฬออออออออออุออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออนฑฑ
+ฑฑบUSO       ณ ESPECIFICO GPO                                             บฑฑ
+ฑฑศออออออออออฯออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผฑฑ
+ฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑฑ
+฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿฿
+/*/
+STATIC FUNCTION VALIDPERG() 
+
+LOCAL _SALIAS := ALIAS()
+LOCAL AREGS := {}
+LOCAL I,J
+
+DBSELECTAREA("SX1")
+DBSETORDER(1)
+CPERG := PADR(CPERG,10)
+
+//          GRUPO/ORDEM/PERGUNTA                                                            /VARIAVEL /TIPO/TAMANHO/DECIMAL/PRESEL/GSC/VALID                                          /VAR01     /DEF01/DEF01/DEF01/CNT01/VAR02/DEF02/DEF02/DEF02/CNT02/VAR03/DEF03/DEF03/DEF03/CNT03/VAR04/DEF04/DEF04/DEF04/CNT04/VAR05/DEF05/DEF05/DEF05/CNT05/F3    /PYME/SXG/HELP/PICTURE/IDFIL
+AADD(AREGS,{CPERG,"01" ,"PERอODO DE ?"        ,"PERอODO DE ?"        ,"PERอODO DE ?"        ,"MV_CH1" ,"D" ,08     ,0      ,0     ,"G",""                                             ,"MV_PAR01",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""    ,""  ,"" ,""  ,""     ,""})
+AADD(AREGS,{CPERG,"02" ,"PERอODO ATษ ?"       ,"PERอODO ATษ ?"       ,"PERอODO ATษ ?"       ,"MV_CH2" ,"D" ,08     ,0      ,0     ,"G",""                                             ,"MV_PAR02",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""    ,""  ,"" ,""  ,""     ,""})
+AADD(AREGS,{CPERG,"03" ,"MATRICULA DE ?"      ,"MATRICULA DE ?"      ,"MATRICULA DE ?"      ,"MV_CH3" ,"C" ,06     ,0      ,0     ,"G",""                                             ,"MV_PAR03",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,"SRA" ,"S" ,"" ,""  ,""     ,""})
+AADD(AREGS,{CPERG,"04" ,"MATRICULA ATษ ?"     ,"MATRICULA ATษ ?"     ,"MATRICULA ATษ ?"     ,"MV_CH4" ,"C" ,06     ,0      ,0     ,"G",""                                             ,"MV_PAR04",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,"SRA" ,"S" ,"" ,""  ,""     ,""})
+AADD(AREGS,{CPERG,"05" ,"NR. DO PROJETO DE ?" ,"NR. DO PROJETO DE ?" ,"NR. DO PROJETO DE ?" ,"MV_CH5" ,"C" ,22     ,0      ,0     ,"G",""                                             ,"MV_PAR05",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,"FP0" ,"S"  ,"" ,"" ,""     ,""})
+AADD(AREGS,{CPERG,"06" ,"NR. DO PROJETO ATษ ?","NR. DO PROJETO ATษ ?","NR. DO PROJETO ATษ ?","MV_CH6" ,"C" ,22     ,0      ,0     ,"G",""                                             ,"MV_PAR06",""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,""   ,"FP0" ,"S"  ,"" ,"" ,""     ,""})
+
+FOR I:=1 TO LEN(AREGS)
+	IF !DBSEEK(CPERG+AREGS[I,2])
+		RECLOCK("SX1",.T.)
+		FOR J:=1 TO FCOUNT()
+			IF J <= LEN(AREGS[I])
+                FIELDPUT(J,AREGS[I,J])
+			ENDIF
+        NEXT J 
+        MSUNLOCK()
+	ENDIF
+NEXT I 
+
+DBSELECTAREA(_SALIAS)
+
+RETURN

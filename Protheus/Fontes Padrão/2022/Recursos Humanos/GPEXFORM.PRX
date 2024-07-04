@@ -1,0 +1,4547 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "GPEXFORM.CH"
+#INCLUDE "APDTREEN.CH"
+#INCLUDE "COMPILE.CH"          
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+Ё Statics utilizadas no Processo de Calculo e Na Montagem    deЁ
+Ё Formulas e Roteiros ( Sao Reinicializadas atraves da  chamadaЁ
+Ё aa Funcao RstExecCalc()									   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static __aMnemonicos	:= {}  					//Array das variaveis usadas no calculo
+Static __aLocal			:= {}					//Armazena as Locais para a Montagem das Formulas
+Static _aGetTreeErr		:= {}					//Array com os Erros na Montagem das Formulas
+Static _aLogExecRot		:= {}					//Array com os Logs na Execucao do Roteiro
+Static __aRotErr		:= {}					//Array com os Erros de Roteiro de Calculo
+Static __aMnemError		:= {}					//Array com os Mnemonicos que possuem inicializadores com erro
+
+Static __bFunRotExec	:= NIL					//Funcao de Roteiro Compilada
+
+Static __cFunRotExec	:= "__cFunRotExec"		//Funcao de Roteiro a ser Executada
+Static __cRotInExec		:= "__cRotInExec"		//Roteiro que esta sendo executado
+Static __cGetRotExec	:= "__cGetRotExec"		//Roteiro a Ser Executado
+Static __cRotFilial		:= "__cRotFilial"		//Filial Selecao do Roteiro Roteiro
+Static __cRpoForm		:= "RpoForm_No_Init"	//Armazena o Nome do Ultimo Rpo de Formulas Utilizado
+Static __cLastRotExec	:= "__cLastRotExec"		//Ultimo Roteiro Executado
+
+Static __lEndCalc		:= .F.					//Variavel de Controle de encerramento do calculo tratado na formula
+Static __lNoPrcReg		:= .F.					//Variavel de Controle para desprezar o funcionario no calculo
+Static __lCriaLocal		:= .T.					//Variavel para Controle de Inclusao de Variaveis Locais
+Static __IsInDebbug		:= .F.					//Verifica se Esta em Processo de Debbug
+Static __lInitFrm		:= .T.					//Verifica se Deve Inicializar e Compilar as Formulas
+Static __lFilRPO								//Indica se deve compilar roteiros por filial. PadrЦo И falso, compilaГЦo И por grupo de empresas. Desenvolvido para TMF.
+
+Static __oRpoForm		:= NIL					//Objeto Repositorio para a Compilacao das Formulas
+Static lRefTrab			:= FindFunction("fRefTrab") .And. fRefTrab("R")
+Static cBuildVer		:= GetSrvVersion()
+/*
+зддддддддддбддддддддддбдддддддбдддддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGPEXFORM  Ё Autor Ё Marinaldo de Jesus    Ё Data Ё10/06/2002Ё
+цддддддддддеддддддддддадддддддадддддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁBiblioteca de Funcoes Genericas para uso em Formulas        Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      Ё Generico                                                   Ё
+цддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё         ATUALIZACOES SOFRIDAS DESDE A CONSTRU─AO INICIAL.             Ё
+цддддддддддддбддддддддддбдддддддбддддддддддддддддддддддддддддддддддддддд╢
+ЁProgramador Ё Data     Ё BOPS  ЁMotivo da Alteracao                    Ё
+цддддддддддддеддддддддддедддддддеддддддддддддддддддддддддддддддддддддддд╢
+ЁLeandro Dr. Ё27/09/2012|M12RH01|Requisito RHU210- UnificaГЦo das folhasЁ
+ЁAllyson M   Ё01/09/2015| TSZEC3|Ajuste em GetFunRot() p/ forcar o      Ё
+Ё            Ё          |       |posicionamento em SRY.      			Ё
+ЁGustavo M   Ё24/02/2016| TUKUJ3|Ajuste na performance da rotina.       Ё
+ЁRaquel HagerЁ26/01/2016|MRH-5214|Realizado ajuste para simular a       Ё
+Ё            Ё          |        |compilaГЦo de fСrmula e validar se    Ё
+Ё            Ё          |        |ela estА em uso por roteiro de cАlculoЁ
+ЁRenan BorgesЁ21/02/2017ЁMRH-6779ЁAjuste para gerar o repositСrio de forЁ
+Ё            Ё        	Ё        Ёmulas corretamente, quando for gerado Ё
+Ё            Ё        	Ё        Ёa partir de uma rotina de cАlculo.    Ё
+Ё            Ё        	Ё        ЁAlИm disso foi disponibilizado a opГЦoЁ
+Ё            Ё        	Ё        Ёde recompilar tudo na rotina de Rotei-Ё
+Ё            Ё        	Ё        Ёros de cАlculos, que sС serА possМvel Ё
+Ё            Ё        	Ё        Ёa recompilaГЦo quando estiver exclusi-Ё
+Ё            Ё        	Ё        Ёvo o rpo de fСrmulas.                 Ё
+ЁGabriel A.  Ё16/03/2017ЁMRH-8494ЁAjuste para que ao executar o cАlculo Ё
+Ё            Ё          Ё        Ёunificado, nЦo seja validada a        Ё
+Ё            Ё          Ё        Ёexclusividade das fСrmulas, pois ele ИЁ
+Ё            Ё          Ё        Ёexecutado em mЗltiplas threads.       Ё
+юддддддддддддаддддддддддадддддддаддддддддддддддддддддддддддддддддддддддды
+*/
+/*
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRstExecCalc	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё07/15/2003Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁReinicializar as Static utilizadas no GPEXFORM toda vez   queЁ
+Ё          ЁRetornar ao Menu											 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                    	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды
+*/
+Function RstExecCalc( lReset )
+
+Default lReset := .T.
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁStatics utilizadas no Processo de Calculo e Na Montagem     deЁ
+ЁFormulas e/ou Roteiros									       Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды
+*/
+__cRotFilial	:= "__cRotFilial"
+__cGetRotExec	:= "__cGetRotExec"
+__cFunRotExec	:= "__cFunRotExec"
+__cLastRotExec	:= "__cLastRotExec"
+__bFunRotExec	:= NIL
+__lEndCalc		:= .F.
+__lNoPrcReg		:= .F.
+__lInitFrm		:= .T.
+__lCriaLocal	:= .T.
+__cKeyAux		:= ""
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁRestaura a variavel __acodfol para carregar novamente em outroЁ
+Ёsituacao.                 					       Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+If lReset
+	RstaCodFol()
+EndIf
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁFuncao Reinicializadora de Statics utilizadas no Calculo  e naЁ
+ЁMontagem de Formulas e/ou Roteiros							   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+SetDebbug()
+SetLocal()
+GetTreeErr()
+LogExecRot()
+If lReset
+	RstMnemonicos()
+EndIf
+SetRotExec( "__cRotInExec" )
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁCarrega as Funcoes em Assembler Nao Localizadas pela  FindFuncЁ
+Ёtion()														   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+GetAsmFunc()
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁCarrega as Palavras Reservadas								   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+GetReservedWords()
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁInicializa a Static __IniFormPad__ no Gpea290()			   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Gpea290FrmInit()
+
+If Select("SX3") > 0
+	/*
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁInicializa a Static __cPeriodCalc no Gpem020()			   	   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	SetPeriodCalc( Space( GetSx3Cache( "RCH_PER" , "X3_TAMANHO" ) ) )
+	
+	/*
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁInicializa a Static __cProcesCalc no Gpem020()			   	   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	SetProcesCalc( Space( GetSx3Cache( "RCH_PROCES" , "X3_TAMANHO" ) ) )
+	
+	/*
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁInicializa a Static __cNumPgCalc no Gpem020()			   	   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	SetNumPgCalc( Space( GetSx3Cache( "RCH_NUMPAG" , "X3_TAMANHO" ) ) )
+EndIf
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁRestaura as variaveis do Novo Modelo de Calculo		 	   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+If MV_MODFOL == '2'
+	RstNewCalc()
+EndIf
+
+IF ( FindFunction( "RstHashSRV" ) ) //Limpa hash com dados da SRV
+	RstHashSRV()
+EndIf
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁInitLogExecRotЁAutor ЁMarinaldo de Jesus   Ё Data Ё02/12/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInicializa o Array com Informacoes do Roteiro				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                    	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function InitLogExecRot()
+
+_aLogExecRot := Array( 4 , 2 )
+_aLogExecRot[ 1 , 1 ] := STR0034	//"Erro de Carga de Mnemonicos"
+_aLogExecRot[ 1 , 2 ] := {}
+_aLogExecRot[ 2 , 1 ] := STR0035	//"Erro de Carga de Formulas"
+_aLogExecRot[ 2 , 2 ] := {}
+_aLogExecRot[ 3 , 1 ] := STR0036	//"Ocorreu erro na compilacao ou Execucao do Roteiro"
+_aLogExecRot[ 3 , 2 ] := {}
+_aLogExecRot[ 4 , 1 ] := STR0046	//"Log de Calculo" ( Gerado pela funcao AddLogExecRot() )
+_aLogExecRot[ 4 , 2 ] := {}
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetDebbug	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁSeta Variavel __IsInDebbug que sera utilizada pela IsDebbug()Ё
+Ё          Ёpara Identificar se o Processo de Formula Esta em Modo DebbugЁ
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SetDebbug( lSet )
+
+Local lLastSet
+
+DEFAULT lSet 			:= .F.
+DEFAULT __IsInDebbug	:= .F.
+
+lLastSet		:= __IsInDebbug
+__IsInDebbug	:= lSet
+
+Return( lLastSet )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁIsDebbug	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica se Esta em Modo Debbug			                     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function IsDebbug()
+DEFAULT __IsInDebbug := .F.
+Return( __IsInDebbug )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAbortProc	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё11/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica se Houve Cancelamento do Processo de Calculo		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function AbortProc()
+
+Local lAbortProc
+
+Begin Sequence
+
+	IF (;
+			lAbortProc := (;
+								( Type( "lAbortPrint" ) == "L" );
+								.and.;
+								( lAbortPrint );
+						  );
+		)
+		EndCalc()
+		Break
+	EndIF
+
+	IF ( lAbortProc := __lEndCalc )
+		Break
+	EndIF
+
+	IF ( lAbortProc := __lNoPrcReg )
+		Break
+	EndIF
+
+End Sequence
+
+Return( lAbortProc )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁFimEnquanto	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё14/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInclui um Exit em um Laco Enquanto ( While ) na Formula		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T.			                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁForcar a Saida em um Laco Enquanto ( While ) na Formula		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function FimEnquanto()
+Return( .T. )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁFimFormula	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё14/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInclui um Break na Formula		 							 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T.			                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁForcar a Finalizacao da Formula		 						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function FimFormula()
+Return( .T. )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRetorneEnq	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё14/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInclui um Loop em um Laco Enquanto ( While ) na Formula		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T.			                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                               		 						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RetorneEnq()
+Return( .T. )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁEndCalc	  	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁSeta a Finalizacao do processo de Calculo		             Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function EndCalc()
+fFunExec()
+Return( __lEndCalc := .T. )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁIfDefTop	  ЁAutor ЁMauricio T. Takakura Ё Data Ё13/01/2006Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁIncluir condicao para TOP 		 							 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T.			                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁPermitir incluir a definicao IFDEF TOP						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function IfDefTop()
+
+Local lTop
+
+#IFDEF TOP
+	lTop := .T.
+#ELSE
+	lTop := .F.
+#ENDIF
+
+Return( lTop )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁIsEndCalc	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica se Setou a Finalizacao do processo de Calculo		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function IsEndCalc()
+
+Local IsEndCalc := __lEndCalc
+IF ( IsEndCalc )
+	__lEndCalc := .F.
+EndIF
+Return( IsEndCalc )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁNoPrcReg	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁSeta o Nao Processamento do Registro Corrente				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function NoPrcReg()
+fFunExec()
+Return( __lNoPrcReg := .T. )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁIsNoPrcReg	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica se Setou para Desprezar o Registro no Processo    deЁ
+Ё          ЁCalculo														 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__IsInDebbug                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function IsNoPrcReg()
+Local lIsNoPrcReg := __lNoPrcReg
+IF ( lIsNoPrcReg )
+	__lNoPrcReg := .F.
+EndIF
+Return( lIsNoPrcReg )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetTreeErr	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna Array Unidimensional com as Strings dos Erros  OcorriЁ
+Ё          Ёdos Durante a Compilacao das Formulas						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁaTreeErr													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁReinicializa _aGetTreeErr a Cada Chamada					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetTreeErr()
+
+Local aTreeErr := aClone( _aGetTreeErr )
+
+DEFAULT _aGetTreeErr := {}
+
+aTreeErr		:= aClone( _aGetTreeErr )
+_aGetTreeErr	:= {}
+
+Return( aTreeErr )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAddTreeErr	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdiciona String de Erro aa _aGetTreeErr						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function AddTreeErr( cErr )
+
+Local aErr
+
+Local nErr		:= Len( cErr )
+
+DEFAULT _aGetTreeErr := {}
+
+IF ( nErr > 220 )
+	aErr := {}
+	While ( nErr > 220 )
+		aAdd( aErr , SubStr( cErr , 1 , 220 ) )
+		cErr := SubStr( cErr , 221 )
+		IF ( ( nErr := Len( cErr ) ) < 220 )
+			aAdd( aErr , cErr )
+			Exit
+		EndIF
+	End While
+	aEval( aErr , { |cErr| AddTreeErr( cErr ) } )
+ElseIF ( aScan( _aGetTreeErr , { |x| x == cErr } ) == 0 )
+	aAdd( _aGetTreeErr , cErr )
+EndIF	
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁDelFunRot	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem Roteiro a Ser Executado           					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function DelFunRot( cSryFilial , cRoteiro )
+Return( GetFunRot( cSryFilial , cRoteiro , .F. , NIL , .F. , NIL ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetFunRot	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem Funcao do Roteiro a Ser Executado           			 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetFunRot(	cSryFilial	,;	//01 -> Filial do SRY ( Cabecalho de Roteiro de Calculo )
+					cRoteiro	,;	//02 -> Codigo do Roteiro de Calculo
+					lCompile	,;	//03 -> .T. para Compilar, .F. para Remover o Codigo
+					cSrc		,;	//04 -> Codigo do Programa ( Por Referencia )
+					lInitPadrao	,;	//05 -> Se devera inicializar os Roteiros Padroes
+					oRpoForm	,;	//06 -> Objeto Repositorio
+					lInclui		,;	//07 -> Se Esta Efetuando a Inclusao de Novo Roteiro
+					lEmptyRpo	,;  //08 -> Se o RPO esta vazio, acumula os roteiros para compilar de uma Зnica vez
+					aRotComp	,;  //09 -> Lista os roteiros que serЦo compilados
+					lSimula		,;  //10 -> Simula se o roteiro estА em uso
+					lGP290REPL	,;  //11 -> Indica se estА na funГЦo de rИplica de fСrmulas
+					aRotBkp		,;  //12 -> Array com os roteiros da SRY
+					aSRYHBKP	,;  //13 -> Array com o Header da SRY
+					aSRMHBkp	,;  //14 -> Array com o Header da SRM
+					aSYPHBkp	 ;  //15 -> Array com o Header da SYP
+				  )
+         
+Local aFunRot
+Local aMsgErr
+Local aRotPadrao
+Local aPrgsCompile
+
+Local cIdent
+Local cPrgFile
+Local cFunction    := ""
+Local cSourcePath
+Local cFormula
+
+Local nLoop
+Local nLoops
+Local nHandle
+Local nSryOrder
+Local nSrmOrder
+
+DEFAULT lEmptyRpo 	:= .F.
+DEFAULT lSimula   	:= .F.
+DEFAULT lGP290REPL  := .F.
+DEFAULT aRotBkp		:= {}
+DEFAULT aSRYHBKP	:= {}
+DEFAULT aSRMHBkp	:= {}
+DEFAULT aSYPHBkp	:= {}
+
+Begin Sequence
+
+	IF Empty( cRoteiro )
+		RotAddErr( STR0037 )	//"Nao Foi Informado Roteiro para Calculo."
+		RotAddErr( STR0038 )	//"Sera necessario informar um Roteiro Valido."	
+		Break
+	EndIF
+
+	nSryOrder	:= RetOrder( "SRY" , "RY_FILIAL+RY_CALCULO" )
+	SRY->( dbSetOrder( nSryOrder ) )
+	cRoteiro	:= Padr( Upper( AllTrim( cRoteiro ) ) , GetCache( "SX3" , "RY_CALCULO" , NIL , "X3_TAMANHO" , 2 , .F. ) )
+	DEFAULT lInitPadrao := .T.
+	IF ( lInitPadrao )
+		lInitPadrao := .F.
+		If !lGP290REPL
+			fGeraRoteiro( NIL , @aRotPadrao , .T. )
+		EndIf
+		IF lGP290REPL .Or. ( aScan( aRotPadrao , { |aRotPadrao| ( aRotPadrao[1] == cRoteiro ) } ) > 0 )
+			Gpea160RotGer( .F., Nil, lGP290REPL, aRotBkp, aSRYHBKP, aSRMHBkp, aSYPHBkp, cRoteiro )
+		EndIF
+	EndIF
+	
+	DEFAULT lInclui := .F.
+	IF !( lInclui )
+		IF SRY->( !MsSeek( cSryFilial + cRoteiro , .F. ) )
+			RotAddErr( STR0039 )	//"O Roteiro Informado para Calculo nao e valido."
+			RotAddErr( STR0038 )	//"Sera necessario informar um Roteiro Valido."	
+			Break
+		EndIF
+	EndIF	
+
+	cFunction	:= RotGetFunc( @cSryFilial , cRoteiro , IF( lInclui , GetMemVar( "RY_ORIGEM" ) , SRY->RY_ORIGEM ) )
+	IF ( lInclui )
+		Break
+	Else
+		SRY->( dbSeek( cSryFilial + cRoteiro ) )
+	EndIF
+
+	DEFAULT lCompile := .T.
+	IF ( lCompile )
+
+		IF (;
+				( SRY->RY_RECOMP == "2" );		//Compilado
+				.and.;
+				IsFunction( cFunction );		//Ja Existe a Funcao no Repositorio
+				.and.;
+				( cSryFilial == __cRotFilial );	//Nao Trocou de Filial
+				.and.;
+				( cRoteiro == __cGetRotExec );	//Nao Trocou de Roteiro
+				.and.;
+				!ErrorInRot();					//Nao Existe Erro Pendente
+			)
+			Break
+		EndIF
+
+		__cRotFilial	:= cSryFilial
+		__cGetRotExec	:= cRoteiro
+
+		IF !( RpoFormInit() )
+			RotAddErr( STR0041 )	//"Nao Foi Possivel Inicializar o Repositorio para Carga dos Roteiros."
+			Break
+		EndIF
+
+		IF (;
+				!( SRY->RY_RECOMP <> "2" );	//Nao Forca Recompilar
+				.and.;
+				IsFunction( cFunction );	//Ja Existe a Funcao no Repositorio
+			)
+			Break
+		EndIF
+
+		nSrmOrder		:= RetOrder( "SRM" , "RM_FILIAL+RM_CALCULO+RM_SEQ" )
+
+		SRM->( dbSetOrder( nSrmOrder ) )
+		IF SRM->( !MsSeek( cSryFilial + cRoteiro , .F. ) )
+			RotAddErr( STR0039 )	//"O Roteiro Informado para Calculo nao e valido."
+			RotAddErr( STR0040 )	//"Nao possui o sequenciamento de Calculo."
+			RotAddErr( STR0038 )	//"Sera necessario informar um Roteiro Valido."	
+			Break
+		EndIF
+
+		IF Empty( cSourcePath := GetRpoForm( .F. , .T., cSryFilial ) )
+			RotAddErr( STR0042 )	//"Nao Foi Possivel Obter acesso ao Diretorio:"
+			RotAddErr( STR0043 )	//"Para a Criacao do Programa para Compilacao do Roteiro."
+			Break
+		EndIF
+		cPrgFile	:= Lower( ( cSourcePath + cFunction + ".PRG" ) )
+
+		IF !( FileCreate( cPrgFile , @nHandle,,1 ) )
+			RotAddErr( STR0044 + " " + cPrgFile )	//"Nao Foi Possivel Criar o arquivo."
+			Break
+		EndIF
+
+		cIdent := Space( 4 )
+	
+		aFunRot := {}
+		aAdd( aFunRot , "Function " + cFunction + "()" )
+		aAdd( aFunRot , "" )
+		aAdd( aFunRot , "Begin Sequence" )
+		aAdd( aFunRot , "" )
+
+			While SRM->(;
+							!Eof();
+							.and.;
+							( RM_FILIAL == cSryFilial );
+							.and.;
+							( RM_CALCULO == cRoteiro );
+						)
+					IF ( SRM->RM_HABILIT == "1" ) //Apenas os Roteiros Habilitados
+						cFormula := AllTrim( SRM->RM_FORMULA )
+						If !Empty(SRM->RM_VERBA)
+							cFormula := SubStr(cFormula,1,Len(cFormula)-1) + "'" + SRM->RM_VERBA + "')"
+						EndIf
+						If !FindFunction( cFormula )
+							RotAddErr( STR0047 + " " + cPrgFile )										//"Nao Foi Possivel compor o Roteiro."
+							RotAddErr( STR0048 + " " + cFormula + " " + STR0049 )						//"A Formula"###"nao Esta Compilada."
+							RotAddErr( STR0050 + " " + cRoteiro + " " + STR0051 + " " + SRM->RM_SEQ )	//"Roteiro:"###"Sequencia:"
+							fClose( nHandle )
+							Break
+						EndIf
+						aAdd( aFunRot , cIdent + "IF ( AbortProc() ) " )
+						aAdd( aFunRot , cIdent + cIdent + "Break" )
+						aAdd( aFunRot , cIdent + "EndIF" )
+						aAdd( aFunRot , "" )
+						aAdd( aFunRot , cIdent + cFormula )
+					EndIF
+				SRM->( dbSkip() )
+			End While					
+
+		aAdd( aFunRot , "" )
+		aAdd( aFunRot , "End Sequence" )
+		aAdd( aFunRot , "" )
+		aAdd( aFunRot , "Return( NIL )" )
+
+		cSrc 	:= ""
+		nLoops := Len( aFunRot )
+		For nLoop := 1 To nLoops
+			cSrc += ( aFunRot[ nLoop ] + CRLF )
+		Next nLoop
+
+		fWrite( nHandle , cSrc )
+		fClose( nHandle )
+
+	EndIF
+
+	If !lEmptyRpo
+		AddPrgCompile( @aPrgsCompile , cFunction , cPrgFile , cSrc )
+		IF !Compile( @oRpoForm , @aPrgsCompile , lCompile , @aMsgErr, lSimula )
+			RotAddErr( STR0059 + " " + cPrgFile )	//"Nao Foi Possivel Compilar o Roteiro:"
+			aEval( aMsgErr , { |cError| RotAddErr( cError ) } )
+			RotAddErr( STR0045 + " " 	+ cPrgFile )	//"Ocorreu erro na compilacao do Roteiro."
+			If Type("oRpoForm") <> "U"
+				RotAddErr( "Error Col:"		+ Str( oRpoForm:ErrCol  ) )
+				RotAddErr( "Error Line:"	+ Str( oRpoForm:ErrLine ) )
+			Else
+				RotAddErr( "Error Col: 0"	 )
+				RotAddErr( "Error Line: 0"	 )
+			EndIf
+		ElseIF SRY->( RecLock( "SRY" , .F. ) )
+			SRY->RY_RECOMP := "2"		//Compilado
+			SRY->( MsUnLock() )
+		EndIF
+	Else
+		AddPrgCompile( @aRotComp , cFunction , cPrgFile , cSrc )
+	EndIf
+	
+End Sequence
+
+Return( cFunction )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRotGetFunc	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem a Funcao para Executar o Roteiro             			 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RotGetFunc( cSryFilial , cRoteiro , cOrigem )
+Local aArea		:= GetArea()
+Local cMyRet	:= ""
+Local cSeqFil	:= ""
+
+//?? cSryFilial			:= xFilial( "SRY" , cSryFilial )
+DEFAULT cRoteiro	:= ""
+DEFAULT cOrigem		:= "1"
+
+If Empty( cSryFilial )
+	cSeqFil := "__"
+Else
+	cSeqFil := GetSrySeqFil(cSryFilial,.F.)
+EndIf
+          
+cMyRet := Iif( cOrigem == "1" , "S_" , "U_" ) + "ROT" + Iif( Empty( cSeqFil ) , "__" , cSeqFil ) + cRoteiro
+
+RestArea(aArea)
+
+Return( cMyRet )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁErrorInRot	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica se Existe Erros no Roteiro a Ser Executado			 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ErrorInRot()
+Return( !Empty( __aRotErr ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRotAddErr	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdiciona String de Erro aa __aRotErr						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function RotAddErr( cErr )
+
+Local aErr
+
+Local nErr		:= Len( cErr )
+
+DEFAULT __aRotErr := {}
+
+IF ( nErr > 220 )
+	aErr := {}
+	While ( nErr > 220 )
+		aAdd( aErr , SubStr( cErr , 1 , 220 ) )
+		cErr := SubStr( cErr , 221 )
+		IF ( ( nErr := Len( cErr ) ) < 220 )
+			aAdd( aErr , cErr )
+			Exit
+		EndIF
+	End While
+	aEval( aErr , { |cErr| RotAddErr( cErr ) } )
+ElseIF ( aScan( __aRotErr , { |x| x == cErr } ) == 0 )
+	aAdd( __aRotErr , cErr )
+EndIF	
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRotGetErr	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem os Erros de Roteiro               					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RotGetErr()
+
+Local aRotErr
+
+DEFAULT __aRotErr	:= {}
+
+aRotErr		:= aClone( __aRotErr )
+__aRotErr	:= {}
+
+Return( aClone( aRotErr ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetFunForm	  ЁAutor ЁMauricio T. Takakura Ё Data Ё10/02/2005Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem Funcao da Formula a Ser Executado           			 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL     													 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                         					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetFunForm(	cFilForm	,;	//01 -> Filial do SRY ( Cabecalho da Formula de Calculo )
+						cFormula	 ;	//02 -> Codigo da Formula
+				   )
+
+Local cFunction
+
+Local nRc2Order
+
+Begin Sequence
+
+	IF Empty( cFormula )
+		AddTreeErr( STR0063 ) //"Nao Foi Informado Formula para Execucao."
+		AddTreeErr( STR0064 )	//"Sera necessario informar uma Formula Valida."
+		Break
+	EndIF
+
+	nRc2Order	:= RetOrder( "RC2" , "RC2_FILIAL+RC2_CODIGO+RC2_ORIGEM" )
+	RC2->( dbSetOrder( nRc2Order ) )
+	RC2->( DbSeek( cFilForm + cFormula ) )
+	IF RC2->( Eof() )
+		cFunction := ""
+		AddTreeErr( STR0065 ) //"Formula nao cadastrada! Informe uma Formula Valida !"
+		Break
+	EndIF
+
+	cFunction := ( RC2->( RC2_ORIGEM + AllTrim( RC2_CODIGO ) ) )
+
+End Sequence
+
+Return( cFunction )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetTreeFrm		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem a estrutura das Formulas                 				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetTreeFrm(	aGetTreeFrm	,;	//01 -> Array Com Informacoes para a Compilacao da Formula ( Por Referencia )
+						cRc2Filial	,;	//02 -> Filial do Rc2 para a Compilacao da Formula
+						cRc2Origem	,;	//03 -> Codigo da Origem da Formula no RC2
+						cRc2Codigo	,;	//04 -> Codigo da Formula no RC2
+						lIniFormPad	,;	//05 -> Se Devera Inicializar as Formulas Padroes
+						oRpoForm	,;	//06 -> Objeto Repositorio ( Por Referencia )
+						lCompile	,;	//07 -> Se devera Compilar ou Excluir a(s) Formula(s)
+						lSimula		,;	//08 -> Simula se FСrmula estА em uso
+						lForca		;   //09 -> Simula se Formula estА em uso. // MemСria de CАlculo.
+					)
+
+Local aArea
+Local aAreaRC2
+Local aAreaRC3
+Local aMsgErr
+Local aPrgsCompile
+
+Local lGetTreeFrm	:= .T.
+Local lSetDebbug	:= SetDebbug( .T. )
+Local lSetCentury	:= __SetCentury( "on" )
+
+Local adbTreeForm
+Local aRc3Header
+
+Local bRc2While
+Local bRc3ItemField
+Local bRc3TreeField
+Local bRc3DescField
+
+Local cCodForm
+Local cRetForm
+Local cKeyForm
+Local cNodeMaster
+
+Local lReCompile
+
+Local nPrgErr
+Local nNoPrgErr
+Local nRc2Order
+Local nRc2Recno
+Local nRc2NextRecno
+Local nRc3Select
+Local nRc3TreeOrder
+Local nRc3ItemOrder
+Local lRpoUso	:= .F.
+Static __IniFormPad__
+
+DEFAULT lIniFormPad		:= .F.
+DEFAULT lCompile		:= .T.
+DEFAULT __IniFormPad__	:= lIniFormPad
+DEFAULT lSimula		:= .F.
+DEFAULT lForca		:= .F.
+
+SetLocal()
+
+Begin Sequence
+
+	IF ( __IniFormPad__ )
+		GpIniForm()
+		__IniFormPad__	:= .F.
+	EndIF
+
+	IF !( lGetTreeFrm := RpoFormInit() )
+		Break
+	EndIF
+
+	aArea			:= GetArea()
+	aAreaRC2		:= RC2->( GetArea() )
+	aAreaRC3		:= RC3->( GetArea() )
+
+	nRc2Order := RetOrder( "RC2" , "RC2_FILIAL+RC2_ORIGEM+RC2_CODIGO" )
+	RC2->( dbSetOrder( nRc2Order ) )
+
+	cRc2Filial := xFilial( "RC2" , cRc2Filial )
+	IF (;
+			( cRc2Origem == NIL );
+			.and.;
+			( cRc2Codigo == NIL );
+		)
+		IF !( lGetTreeFrm := RC2->( dbSeek( cRc2Filial , .T. ) ) )
+			AddTreeErr( STR0023 ) //"Nao Foi Possivel Carregar as Formulas. Verifique se as Tabelas de Formulas RC2 e RC3 estao com Conteudo"
+			Break
+		EndIF
+		bRc2While		:= { || cRc2Filial == RC2_FILIAL }
+	ElseIF (;
+				( cRc2Origem <> NIL );
+				.and.;
+				( cRc2Codigo == NIL );
+			)
+		IF !( lGetTreeFrm := RC2->( dbSeek( cRc2Filial + cRc2Origem , .T. ) ) )
+			AddTreeErr( STR0023 ) //"Nao Foi Possivel Carregar as Formulas. Verifique se as Tabelas de Formulas RC2 e RC3 estao com Conteudo"
+			Break
+		EndIF
+		bRc2While		:= { || ( ( RC2_FILIAL == cRc2Filial ) .and. ( RC2_ORIGEM == cRc2Origem ) ) }
+	ElseIF (;
+				( cRc2Origem <> NIL );
+				.and.;
+				( cRc2Codigo <> NIL );
+			)
+		IF !( lGetTreeFrm := RC2->( dbSeek( cRc2Filial + cRc2Origem + cRc2Codigo , .T. ) ) )
+			AddTreeErr( STR0023 ) //"Nao Foi Possivel Carregar as Formulas. Verifique se as Tabelas de Formulas RC2 e RC3 estao com Conteudo"
+			Break
+		EndIF
+		bRc2While		:= { || ( ( RC2_FILIAL == cRc2Filial ) .and. ( RC2_ORIGEM == cRc2Origem ) .and. ( RC2_CODIGO == cRc2Codigo ) ) }
+	EndIF
+	IF !( lGetTreeFrm := ( bRc2While <> NIL ) )
+		AddTreeErr( STR0023 ) //"Nao Foi Possivel Carregar as Formulas. Verifique se as Tabelas de Formulas RC2 e RC3 estao com Conteudo"
+		Break
+	EndIF
+
+	nRc3Select		:= Select( "RC3" )
+	bRc3ItemField	:= FieldWBlock( "RC3_SEQFOR" , nRc3Select )
+	bRc3DescField	:= FieldWBlock( "RC3_DESCR"	 , nRc3Select )
+	bRc3TreeField	:= FieldWBlock( "RC3_SEQPAI" , nRc3Select )
+
+	nRc3TreeOrder	:= RetOrder( "RC3" , "RC3_FILIAL+RC3_ORIGEM+RC3_CODIGO+RC3_SEQPAI+RC3_SEQFOR" )
+	nRc3ItemOrder	:= RetOrder( "RC3" , "RC3_FILIAL+RC3_ORIGEM+RC3_CODIGO+RC3_SEQFOR+RC3_SEQPAI" )
+
+	aRc3Header		:= GdMontaHeader( NIL , NIL , NIL , "RC3" , NIL , .T. , .T. , .F. , .F. , .F. , .F. , .F. , .T. )
+	cNodeMaster		:= Replicate( "0" , GetSx3Cache( "RC3_SEQFOR" , "X3_TAMANHO" ) )
+	oRpoForm		:= GetRpoObj()
+
+	aGetTreeFrm		:= {}
+
+	While RC2->(;
+					!Eof();
+					.and.;
+					Eval( bRc2While );
+				 )
+
+		IF !GetNextRecno( "RC2" , @nRc2NextRecno , @nRc2Recno , nRc2Order )
+			Exit
+		EndIF
+
+		Begin Transaction
+			RC2->( Rc2Rc3NewCod( cRc2Filial , RC2_ORIGEM , RC2_CODIGO ) )
+		End Transaction	
+
+		cRc2Origem	:= RC2->RC2_ORIGEM
+		cRc2Codigo	:= RC2->RC2_CODIGO
+		cCodForm	:= ( cRc2Origem + cRc2Codigo )
+		lReCompile	:= (;
+							( RC2->RC2_RECOMP <> "2" );
+							.or.;
+							!IsFunction( cCodForm );
+						)
+		
+		IF (;
+				( lReCompile );
+				.or.;
+				!( lCompile ) .Or. lForca;
+			)
+
+			cRetForm	:= AllTrim( RC2->RC2_RETURN )
+			cKeyForm	:= cCodForm
+			cCodForm	:= AllTrim( cCodForm )
+			ApdTreeCacheClear()
+			adbTreeForm := ApdGetNodes(	"RC2"			,;
+										cRc2Filial		,;
+										cKeyForm		,;
+										"RC2_DESC"		,;
+										nRc2Recno		,;
+										NIL             ,;
+										NIL           	,;
+										"RC3"       	,;
+										bRc3ItemField	,;
+										bRc3DescField	,;
+										nRc3TreeOrder	,;
+										bRc3TreeField	,;
+										nRc3ItemOrder 	,;
+										{ || .T. }		,;
+										NIL       		,;
+										NIL       		,;
+										NIL				 ;
+				 			)
+
+			aAdd( aGetTreeFrm , {;
+									cCodForm				,;	//01 -> Codigo da Formula
+									cRetForm				,;	//02 -> Codigo do Mnemonico de Retorno
+									aClone( adbTreeForm )	,;	//03 -> Estrutura Tree da Formula
+									{ {} , {} }				,;	//04 -> Array Bidimensional [1]Formula Convertida em Funcao;[2]Sequencia da Formula
+									lReCompile .Or. lForca	,;	//05 -> Se Forca a Recompilacao da Formula
+									nRc2Recno				,;	//06 -> Recno do RC2 para Futuro Posicionamento
+									{}						,;	//07 -> Informacoes de Erro na Formula
+									lCompile				 ;	//08 -> .T. Se Devera Compilar, .F. Remove
+								 };
+				 )
+
+	    EndIF
+
+		IF !GotoNextRecno( "RC2" , nRc2NextRecno , nRc2Order )
+			Exit
+		EndIF
+
+	End While
+
+	If Len(aGetTreeFrm) > 0
+		
+		lMayIUseCode	:= .T.
+		If IsInCallStack("GPEM020PROCESSA") .And. !lGrid .And. !( lGpeGerFrm := WhileExecRot() )
+			Break
+		EndIf
+	
+		RC3->( dbSetOrder( nRc3ItemOrder ) )
+		ColsTreeFrm( @aGetTreeFrm , aRc3Header , cNodeMaster )
+
+		MkeTreeFrm( @aPrgsCompile , aGetTreeFrm , aRc3Header , cNodeMaster, cCodForm )
+
+		IF !( lGetTreeFrm := Compile( oRpoForm , @aPrgsCompile , lCompile , @aMsgErr,lSimula ,@lRpoUso) )
+			aEval( aMsgErr , { |cError| AddTreeErr( cError ) } )
+		EndIF
+		
+		If lSimula .Or. lRpoUso
+			aGetTreeFrm := {}
+			Return( lGetTreeFrm )
+		EndIf
+
+		If IsInCallStack("GPEM020PROCESSA") .And. !lGrid .And. ( lMayIUseCode )
+			LeaveExecRot()
+		EndIf
+
+		IF !( lGetTreeFrm := ( ( nPrgErr := aScan( aPrgsCompile , { |x| !( x[ COMPILE_OK ] ) } ) ) == 0 ) )
+			// Se simulaГЦo de tentativa de compilaГЦo da fСrmula falhar
+			// Retornar e impedir ediГЦo - fСrmula em  uso por roteiro de cАlculo
+			
+			--nPrgErr
+			While ( ( nPrgErr := aScan( aPrgsCompile , { |x| !( x[ COMPILE_OK ] ) } , ++nPrgErr ) ) > 0 )
+				AddTreeErr( "________________________________________"	)
+				AddTreeErr( aPrgsCompile[ nPrgErr , COMPILE_PRG ]  		)
+				AddTreeErr( AllTrim( aPrgsCompile[ nPrgErr , COMPILE_ERROR_STR  ] ) )
+				AddTreeErr( AllTrim( Str( aPrgsCompile[ nPrgErr , COMPILE_ERROR_COL  ] ) ) )
+				AddTreeErr( AllTrim( Str( aPrgsCompile[ nPrgErr , COMPILE_ERROR_LINE ] ) ) )
+				AddTreeErr( "________________________________________"  )
+				nRc2Recno := aPrgsCompile[ nPrgErr , COMPILE_RECNO ]
+				IF !Empty( nRc2Recno )
+					RC2->( MsGoto( nRc2Recno ) )
+					IF RC2->( !Eof() )
+						IF RC2->( RecLock( "RC2" , .F. ) )
+							RC2->RC2_RECOMP := "1"	//Recompilar
+							RC2->( MsUnLock() )
+							Rc2RecSry()
+						EndIF
+					EndIF
+				EndIF
+				nForm							:= aPrgsCompile[ nPrgErr , COMPILE_INDICE ]
+				aGetTreeFrm[ nForm , 7 ]		:= Array( 5 )
+				aGetTreeFrm[ nForm , 7 ][ 1 ]	:= aPrgsCompile[ nPrgErr , COMPILE_ERROR_STR 	]
+				aGetTreeFrm[ nForm , 7 ][ 2 ]	:= aPrgsCompile[ nPrgErr , COMPILE_ERROR_COL 	]
+				aGetTreeFrm[ nForm , 7 ][ 3 ]	:= aPrgsCompile[ nPrgErr , COMPILE_ERROR_LINE	]
+				aGetTreeFrm[ nForm , 7 ][ 4 ]	:= aPrgsCompile[ nPrgErr , COMPILE_PRG			]
+				aGetTreeFrm[ nForm , 7 ][ 5 ]	:= aPrgsCompile[ nPrgErr , COMPILE_SOURCE		]
+			End While
+		EndIF
+
+		IF ( ( nNoPrgErr := aScan( aPrgsCompile , { |x| ( x[ COMPILE_OK ] ) } ) ) > 0 )
+			--nNoPrgErr
+			While ( ( nNoPrgErr := aScan( aPrgsCompile , { |x| ( x[ COMPILE_OK ] ) } , ++nNoPrgErr ) ) > 0 )
+				nRc2Recno := aPrgsCompile[ nNoPrgErr , COMPILE_RECNO ]
+				IF !Empty( nRc2Recno )
+					RC2->( MsGoto( nRc2Recno ) )
+					IF RC2->( !Eof() )
+						IF RC2->( RecLock( "RC2" , .F. ) )
+							RC2->RC2_RECOMP := "2"	//Compilado
+							RC2->( MsUnLock() )
+						EndIF
+					EndIF
+				EndIF
+			End While
+		EndIF
+	EndIf
+End Sequence
+
+IF !Empty( aAreaRC2 )
+	RestArea( aAreaRC2 )
+	RestArea( aAreaRC3 )
+	RestArea( aArea )
+EndIF	
+
+IF !( lSetCentury )
+	__SetCentury( "off" )
+EndIF
+
+SetLocal()
+SetDebbug( lSetDebbug  )
+
+Return( lGetTreeFrm )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁColsTreeFrm		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁPercorre as Formulas e Carrega as Informacoes do aCols		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function ColsTreeFrm( aGetTreeFrm , aRc3Header , cNodeMaster )
+
+Local nForm
+Local nForms
+
+nForms := Len( aGetTreeFrm )
+For nForm := 1 To nForms
+	TreeFrmCols( @aGetTreeFrm[ nForm , 3 ] , aRc3Header , cNodeMaster )
+Next nForm
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁTreeFrmCols		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁCarrega aCols conforme aHeader                         	 	 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function TreeFrmCols( adbTreeForm , aRc3Header , cNodeMaster )
+
+Local aCols
+
+Local nRecno
+Local nLoop
+Local nLoops
+
+nLoops := Len( adbTreeForm )
+For nLoop := 1 To nLoops
+	
+	IF ( adbTreeForm[ nLoop , NODE_INFERIOR ] == cNodeMaster )
+	
+		TreeFrmCols( adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cNodeMaster )
+	
+	Else
+		
+		nRecno := adbTreeForm[ nLoop , NODE_RECNO ]
+		
+		RC3->( dbGoto( nRecno ) )
+		
+		aCols := RC3->(;
+							GdBuildCols(	aRc3Header	,;	//01 -> Array com os Campos do Cabecalho da GetDados
+											NIL			,;	//02 -> Numero de Campos em Uso
+											NIL			,;	//03 -> [@]Array com os Campos Virtuais
+											NIL			,;	//04 -> [@]Array com os Campos Visuais
+											"RC3"		,;	//05 -> Opcional, Alias do Arquivo Carga dos Itens do aCols
+											NIL			,;	//06 -> Opcional, Campos que nao Deverao constar no aHeader
+											NIL			,;	//07 -> [@]Array unidimensional contendo os Recnos
+											"RC3"   	,;	//08 -> Alias do Arquivo Pai
+											NIL			,;	//09 -> Chave para o Posicionamento no Alias Filho
+											NIL			,;	//10 -> Bloco para condicao de Loop While
+											NIL			,;	//11 -> Bloco para Skip no Loop While
+											.T.			,;	//12 -> Se Havera o Elemento de Delecao no aCols 
+											.F.			,;	//13 -> Se Sera considerado o Inicializador Padrao
+											.F.			,;	//14 -> Opcional, Carregar Todos os Campos
+											.T.		 	,;	//15 -> Opcional, Nao Carregar os Campos Virtuais
+											NIL			,;	//16 -> Opcional, Utilizacao de Query para Selecao de Dados
+											NIL			,;	//17 -> Opcional, Se deve Executar bKey  ( Apenas Quando TOP )
+											NIL			,;	//18 -> Opcional, Se deve Executar bSkip ( Apenas Quando TOP )
+											.F.			,;	//19 -> Carregar Coluna Fantasma e/ou BitMap ( Logico ou Array )
+											.F.			,;	//20 -> Inverte a Condicao de aNotFields carregando apenas os campos ai definidos
+											.F.			,;	//21 -> Verifica se Deve Checar se o campo eh usado
+											.F.			,;	//22 -> Verifica se Deve Checar o nivel do usuario
+											.F.			,;	//23 -> Verifica se Deve Carregar o Elemento Vazio no aCols
+											NIL			,;	//24 -> [@]Array que contera as chaves conforme recnos
+											NIL			,;	//25 -> [@]Se devera efetuar o Lock dos Registros
+											NIL			,;	//26 -> [@]Se devera obter a Exclusividade nas chaves dos registros
+											NIL			,;	//27 -> Numero maximo de Locks a ser efetuado
+											NIL			,;	//28 -> Utiliza Numeracao na GhostCol
+											NIL			 ;	//29 -> Carrega os Campos de Usuario
+										);
+						)										
+		
+		adbTreeForm[ nLoop , NODE_ACOLS ] := aClone( aCols )
+		
+		TreeFrmCols( adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cNodeMaster )
+	
+	EndIF
+
+Next nLoop
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁMkeTreeFrm		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁPercorre todas as Formulas para Montagem       				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function MkeTreeFrm( aPrgsCompile , aGetTreeFrm , aRc3Header , cNodeMaster, cCodForm )
+
+Local lMkeTreeFrm	:= .T.
+
+Local cPrgFile
+Local cPrgSrc
+
+Local nForm
+Local nForms
+
+Begin Sequence
+
+	nForms := Len( aGetTreeFrm )
+	IF ( nForms == 0 )
+		Break
+	EndIF
+
+	IF !( lMkeTreeFrm := SetMnemonicos( xFilial( "RCA" ) , @__aMnemonicos , .T. , NIL , .T. ) )	//Aqui __aMnemonicos he Static
+		AddTreeErr( STR0062 ) //"Nao Foi Possivel Carregar os Mnemonicos para a Montagem e Compilacao das Formulas"
+		Break
+	EndIF
+
+	For nForm := 1 To nForms
+		lMkeTreeFrm := TreeFrmMke(;
+										@aPrgsCompile			,;
+										@aGetTreeFrm			,;
+										nForm					,;
+										@cPrgFile				,;
+										@cPrgSrc				,;
+										aRc3Header				,;
+										cNodeMaster				 ;
+								 )
+		IF !( lMkeTreeFrm )
+			RC2->( MsGoto( aGetTreeFrm[ nForm , 6 ] ) )
+			IF RC2->( !Eof() )
+				AddTreeErr( STR0024 + " " + cCodForm + " - " + AllTrim( RC2->RC2_DESC ) ) //"Nao Foi Possivel Montar e/ou Compilar a Formula:"
+			EndIF	
+		EndIF	
+	Next nForm
+
+End Sequence
+
+Return( lMkeTreeFrm )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁTreeFrmMke		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁMonta as Formulas                              				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function TreeFrmMke(	aPrgsCompile	,;	//Array com as Informacoes para Compilacao ( Por Referencia )
+							aGetTreeFrm 	,;	//Array com as Informacoes da Fomula a Ser Compilada
+							nForm			,;	//Indice em aGetTreeFrm
+							cPrgFile		,;	//Programa a ser Compilado ( Por Referencia )
+							cSrc			,;	//Codigo a ser Compilado ( Por Referencia )
+							aRc3Header		,;	//Array com a Estrutura Header do RC3
+							cNodeMaster		 ;	//Node Mastre da Estrutura de Formula
+						  )
+
+Local aLocal
+Local aBodyFrm
+Local aTreeFrmMke
+Local aSeqFrmMke
+
+Local cFunction
+Local cReturn
+Local cSrcAux
+Local cSourcePath
+Local cSvRc2Codigo
+Local cIdent	:= Space(4)
+Local cFilAux   := Replicate("!", Len(cFilAnt))
+Local cFilSRY   := ""
+
+Local lTreeFrmMke
+Local lReturn
+Local lReCompile
+Local lCompile
+
+Local nLoop
+Local nLoops
+Local nHandle
+Local nRc2Recno
+
+Static __lMemCalc
+DEFAULT __lMemCalc := cPaisLoc == "BRA" .And. FindFunction("fMemCalc") .And. fMemCalc()
+DEFAULT __lFilRPO  := SuperGetMv("MV_RPOFIL",, .F.) //Gera repositСrios auxiliares por filial? -- TMF
+
+If __lFilRPO 
+	cFilSRY   := If(Type("cFilCalc") <> "U" .and. !Empty(cFilCalc) .and. cFilCalc <> cFilAux, xFilial("SRY",cFilCalc), xFilial("SRY") )
+EndIf
+
+Begin Sequence
+
+	cFunction		:= AllTrim( aGetTreeFrm[ nForm , 1 ] )
+	cSvRc2Codigo	:= SetMemVar( "RC2_CODIGO" , cFunction , .T. , .T. , .T. , .F. , NIL )
+
+	lCompile		:= aGetTreeFrm[ nForm , 8 ]
+
+	IF ( lCompile )	
+		aTreeFrmMke	:= {}
+		aAdd( aTreeFrmMke , "Function " + cFunction + "(cPdRot)" )
+	
+		aLocal	 	:= {}
+		cReturn		:= aGetTreeFrm[ nForm , 2 ]
+		lReturn		:= !Empty( cReturn )
+		IF ( lReturn )
+			AddLocal( cReturn , @aLocal )
+		EndIF
+		//MemСria de CАlculo
+		If __lMemCalc
+			AddLocal( "nTimeINI" , @aLocal )
+		EndIf
+
+		aBodyFrm	:= {}
+		MkeBodyFrm( @aBodyFrm , aGetTreeFrm[ nForm , 3 ] , aRc3Header , cReturn , cNodeMaster , @aLocal )
+		
+		nLoops := Len( aLocal )
+		IF ( nLoops > 0 )
+			//ASort(aLocal, NIL, NIL, { |aItem1, aItem2| aItem1 < aItem2 })
+			
+			For nLoop := 1 To nLoops
+				aAdd( aTreeFrmMke , aLocal[ nLoop , 2 ] )
+			Next nLoop
+
+			aAdd( aTreeFrmMke , "" )
+		EndIF
+
+		//MemСria de CАlculo
+		If __lMemCalc
+			aAdd( aTreeFrmMke , "fAddMemLog('FСrmula : ' + '" + cFunction + "' ,1)" )
+			aAdd( aTreeFrmMke , "nTimeINI := Time()" )
+		EndIf
+
+		aAdd( aTreeFrmMke , "cVerbaRot := cPdRot" )
+		aAdd( aTreeFrmMke , "" )
+		
+		aAdd( aTreeFrmMke , "Begin Sequence" )		
+		aAdd( aTreeFrmMke , cIdent+ "If ( AbortProc() )" )
+		aAdd( aTreeFrmMke , cIdent+cIdent+ "Break" )
+		aAdd( aTreeFrmMke , cIdent+ "EndIf" )
+		aAdd( aTreeFrmMke , "" )			
+		
+		aSeqFrmMke := {}
+		nLoops := Len( aBodyFrm )
+		IF ( nLoops > 0 )
+			For nLoop := 1 To nLoops
+				aAdd( aTreeFrmMke	, aBodyFrm[ nLoop , 1 ] )
+				aAdd( aSeqFrmMke	, aClone( aBodyFrm[ nLoop , 2 ] ) )
+			Next nLoop
+		EndIF
+
+		//MemСria de CАlculo
+		If __lMemCalc
+			aAdd( aTreeFrmMke , "fAddMemLog('Tempo de execuГЦo : ' + ElapTime(NTIMEINI,TIME()),1)" )
+			aAdd( aTreeFrmMke , "fGrvLogFun(GetRotExec(), cPeriodo, cSemana,'" + cFunction +"', aMenLog)" )
+			aAdd( aTreeFrmMke , "aMenLog := {}" )
+		EndIf
+
+		aAdd( aTreeFrmMke , "End Sequence" )
+		
+		IF ( lReturn )
+			aAdd( aTreeFrmMke , "Return (" + cReturn + ")" )
+		Else
+			aAdd( aTreeFrmMke , "Return" )
+		EndIF
+		
+		aGetTreeFrm[ nForm , 4 , 1 ] := aClone( aTreeFrmMke )
+		aGetTreeFrm[ nForm , 4 , 2 ] := aClone( aSeqFrmMke	)
+
+	EndIF
+
+	lTreeFrmMke	:= !Empty( cSourcePath	:= GetRpoForm( .F. , .T., cFilSRY ) )
+
+	IF !( lTreeFrmMke )
+		Break
+	EndIF
+
+	IF ( lCompile )
+
+		cPrgFile	:= Lower( ( cSourcePath + ( cFunction + ".PRG" ) ) )
+		lReCompile	:= ( aGetTreeFrm[ nForm , 5 ] .or. !File( cPrgFile ) )
+		IF !( lReCompile )
+			Break
+		EndIF
+		
+		lTreeFrmMke := FileCreate( cPrgFile , @nHandle,, 1 )
+
+		cSrc 	:= ""
+		cSrcAux	:= ""
+		nLoops := Len( aTreeFrmMke )
+		For nLoop := 1 To nLoops
+			cSrcAux := RTrim( aTreeFrmMke[ nLoop ] )
+
+			IF nLoop > 1 .AND. nLoop < nLoops
+				cSrcAux := cIdent + cSrcAux
+			EndIF
+		
+			IF ( SubStr( cSrcAux , -1 ) == ";" )
+				cSrcAux := cSrcAux
+				cSrc	+= SubStr( cSrcAux , 1 , ( Len( cSrcAux ) - 1 ) )
+				For nLoop := nLoop + 1 To nLoops
+					cSrcAux := RTrim( aTreeFrmMke[ nLoop ] )
+					IF ( SubStr( cSrcAux , -1 ) <> ";" )
+						cSrcAux := AllTrim( cSrcAux )
+						cSrc	+= ( cSrcAux + CRLF )
+						Exit
+					EndIF
+					cSrcAux := AllTrim( cSrcAux )
+					cSrc	+= SubStr( cSrcAux , 1 , ( Len( cSrcAux ) - 1 ) )
+				Next nLoop
+			Else
+				cSrc += ( cSrcAux + CRLF )
+			EndIF
+		Next nLoop
+
+		fWrite( nHandle , cSrc )
+		fClose( nHandle )
+
+	EndIF
+
+	nRc2Recno := aGetTreeFrm[ nForm , 6 ]
+	AddPrgCompile( @aPrgsCompile , cFunction , cPrgFile , cSrc , "RC2" , nRc2Recno , nForm )
+
+End Sequence
+
+IF !Empty( cSvRc2Codigo )
+	SetMemVar( "RC2_CODIGO" , cSvRc2Codigo , .F. , .F. , .F. , .F. , NIL )
+EndIF
+
+Return( lTreeFrmMke )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAddPrgCompile	Ё Autor ЁMarinaldo de JesusЁ Data Ё16/12/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdicionar Informacoes para Compilacao no Array aPrgsCompile  Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function AddPrgCompile( aPrgsCompile , cFunction , cPrgFile , cSrc , cAlias , nRecno , nIndice )
+
+Local nPrgsCompile
+
+DEFAULT aPrgsCompile := {}
+
+aAdd( aPrgsCompile , Array( COMPILE_ELEMENTS ) )
+nPrgsCompile := Len( aPrgsCompile )
+
+aPrgsCompile[ nPrgsCompile , COMPILE_FUNCTION	]	:= cFunction
+aPrgsCompile[ nPrgsCompile , COMPILE_PRG		]	:= cPrgFile
+aPrgsCompile[ nPrgsCompile , COMPILE_SOURCE		]	:= cSrc
+aPrgsCompile[ nPrgsCompile , COMPILE_OK			]	:= .F.
+aPrgsCompile[ nPrgsCompile , COMPILE_ALIAS		]	:= cAlias
+aPrgsCompile[ nPrgsCompile , COMPILE_RECNO		]	:= nRecno
+aPrgsCompile[ nPrgsCompile , COMPILE_ERROR_STR	]	:= ""
+aPrgsCompile[ nPrgsCompile , COMPILE_ERROR_COL	]	:= 0
+aPrgsCompile[ nPrgsCompile , COMPILE_ERROR_LINE	]	:= 0
+aPrgsCompile[ nPrgsCompile , COMPILE_INDICE		]	:= nIndice
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁCompile			Ё Autor ЁMarinaldo de JesusЁ Data Ё16/12/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁCompilar as Formulas Adicionando-as no Repositorio Auxiliar  Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function Compile( oRpoForm , aPrgsCompile , lCompile , aMsgErr, lSimula, lRpoUso )
+
+Local cSrc
+Local cPrgFile
+Local cFunction
+Local cSourcePath
+Local lCompileOk
+Local nPrg
+Local nPrgs
+Local nSrcChkSum
+
+DEFAULT lSimula := .F.
+DEFAULT lRpoUso	:= .F.
+
+Begin Sequence
+
+	aMsgErr := {}
+
+	IF !( lCompileOk := !Empty( aPrgsCompile ) )
+    	Break
+	EndIF
+
+	IF !( lCompileOk := RpoFormInit() )
+		aAdd( aMsgErr , STR0061 )
+		Break
+	EndIF
+
+	DEFAULT oRpoForm	:= GetRpoObj()
+
+	IF !( oRpoForm:StartBuild( .T. ) )
+		aAdd( aMsgErr , STR0062 )			//"Nao Foi Possivel Compilar a Formula:"
+		aAdd( aMsgErr , STR0060 )			//"Rpo em uso por Outro Processo."
+		aAdd( aMsgErr , oRpoForm:ErrStr )
+		lCompileOk := .F.
+		lRpoUso := .T.
+		oRpoForm:EndBuild()
+		oRpoForm:Close()
+		RpoFormInit()
+		Break
+	EndIF
+
+	If lSimula
+		Break
+	EndIf
+	
+	DEFAULT lCompile	:= .T.
+
+	nPrgs := Len( aPrgsCompile )
+	For nPrg := 1 To nPrgs
+
+		cFunction	:= aPrgsCompile[ nPrg , 1 ]
+		cPrgFile	:= aPrgsCompile[ nPrg , 2 ]
+
+		IF ( lCompile )
+
+			cSrc		:= aPrgsCompile[ nPrg , 3 ]
+			nSrcChkSum	:= oRpoForm:ChkSum( cSrc )
+
+			IF !( lCompileOk := oRpoForm:Compile( cPrgFile , cSrc , 0, nSrcChkSum ) )
+		   		ConOut( "Error Prg:" 	+ cPrgFile		 		  )
+		   		ConOut( "Error Str:" 	+ oRpoForm:ErrStr 		  )
+		   		ConOut( "Error Col:" 	+ Str( oRpoForm:ErrCol  ) )
+		   		ConOut( "Error Line:" 	+ Str( oRpoForm:ErrLine ) )
+				aPrgsCompile[ nPrg , COMPILE_ERROR_STR 	] := oRpoForm:ErrStr
+				aPrgsCompile[ nPrg , COMPILE_ERROR_COL 	] := oRpoForm:ErrCol
+				aPrgsCompile[ nPrg , COMPILE_ERROR_LINE	] := oRpoForm:ErrLine
+			EndIF
+
+		ElseIF IsFunction( cFunction )
+
+			cPrgFile := ( cFunction + ".PRG" )
+
+			IF ( lCompileOk := (;
+									oRpoForm:RemProg( cPrgFile );
+									.and.;
+									!IsFunction( cFunction );
+								);
+				)				 
+
+				IF !Empty( cSourcePath := GetRpoForm( .F. , .T. ) )
+					cPrgFile := ( cSourcePath + ( cFunction + ".PRG" ) )
+					FileErase( cPrgFile )
+				EndIF	
+
+				//"O Progama"###"Foi Removido Com Sucesso..."
+				ConOut( STR0015 + " " + cPrgFile + " " + STR0016 )
+
+			EndIF
+		
+		EndIF
+
+		aPrgsCompile[ nPrg , COMPILE_OK ] := lCompileOk
+
+	Next nPrg
+
+	oRpoForm:EndBuild()
+	oRpoForm:Close()
+	RpoFormInit()
+
+End Sequence
+
+Return( lCompileOk )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁCriaLocal		Ё Autor ЁMarinaldo de JesusЁ Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁCria variaveis Locais para uso em Formulas     				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function CriaLocal( cVar , cType , uInit , nSize , cForm , lShowInfo )
+
+Local cMsgInfo
+Local nForm
+Local nVar
+
+Local lCriaLocal := .T.
+
+Begin Sequence
+
+	IF !( IsDebbug() )
+		Break
+	EndIF
+
+	DEFAULT cForm := GetMemVar( "RC2_CODIGO" )
+
+	IF (;
+			Empty( cForm );
+			.or.;
+			Empty( cVar );
+		)	
+		lCriaLocal := .F.
+		Break
+	EndIF
+
+	cForm	:= Upper( AllTrim( cForm ) )
+	cVar	:= Upper( AllTrim( cVar  ) )
+
+	DEFAULT	cType		:= "U"
+	DEFAULT uInit		:= NIL
+	DEFAULT nSize		:= 0
+	DEFAULT lShowInfo   := .T.
+
+	SetLocal( .T. )
+
+	IF (;
+			( ( nForm := aScan( __aLocal , { |x| ( x[1] == cForm ) } ) ) == 0 );
+			.and.;
+			( ( nForm := aScan( __aLocal , { |x| ( SubStr( x[1] , 3 ) == cForm ) } ) ) == 0 );
+		)
+		aAdd( __aLocal , { cForm , {} } )
+		nForm := Len( __aLocal )
+	EndIF
+
+	IF !( lCriaLocal := CheckExecForm( @uInit , lShowInfo ) )
+		Break
+	EndIF
+
+	cType	:= Upper( AllTrim( cType ) )
+
+	IF (;
+			( cType <> "U" );
+			.and.;
+			( ValType( uInit ) <> cType );
+		)
+		lCriaLocal := .F.
+		cMsgInfo := STR0020 //"Tipo do Valor Inicial da VariАvel nЦo И compatМvel com o Tipo Definido para a VariАvel."
+		cMsgInfo += CRLF
+		cMsgInfo += CRLF
+		cMsgInfo += STR0021	//"Tipo Definido para a VariАvel:"
+		cMsgInfo += " "
+		cMsgInfo += "'" + cType + "'"
+		cMsgInfo += CRLF
+		cMsgInfo += STR0022	//"Tipo Definido para o Valor Inicial:"
+		cMsgInfo += " "
+		cMsgInfo += "'" + ValType( uInit ) + "'"
+		cMsgInfo += CRLF
+		cMsgInfo += CRLF
+		cMsgInfo += STR0032	//"A VariАvel passada no 1o. parБmetro da CriaLocal() nЦo serА adicionada ao Codigo Fonte."
+		cMsgInfo += CRLF
+		cMsgInfo += STR0033	//"Favor Corrigir o Tipo ou o Valor Inicial da Variavel ( parБmetros 2 e 3 , respectivamente )."
+		Break
+	EndIF
+
+	nVar := aScan( __aLocal[ nForm , 2 ] , { |x| ( x[1] == cVar ) } )
+	IF ( nVar == 0 )
+		aAdd( __aLocal[ nForm , 2 ] , Array( 4  ) )
+		nVar := Len( __aLocal[ nForm , 2 ] )
+	EndIF
+	uInit := IF( ( cVar == "C" ) , "'" + uInit + "'" , uInit )
+	__aLocal[ nForm , 2 , nVar , 01 ] := cVar	//01 -> Nome da Variavel
+	__aLocal[ nForm , 2 , nVar , 02 ] := cType	//02 -> Tipo da Variavel
+	__aLocal[ nForm , 2 , nVar , 03 ] := nSize	//03 -> Tamanho da Variavel ( Quando cType == "C" )
+	__aLocal[ nForm , 2 , nVar , 04 ] := uInit	//04 -> Inicializador Padrao para a Variavel
+
+End Sequence
+
+IF (;
+		!( lCriaLocal );
+		.and.;
+		( lShowInfo );
+		.and.;
+		!Empty( cMsgInfo );
+	)
+	MsgInfo( OemToAnsi( cMsgInfo ) , OemToAnsi( STR0017 ) ) //"AtenГДo!"
+EndIF		
+
+__lCriaLocal := lCriaLocal
+
+Return( lCriaLocal )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁCriaLocalOk		Ё Autor ЁMarinaldo de JesusЁ Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna o Estado de chamada da ultima CriaLocal				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function CriaLocalOk()
+
+Local lCriaLocalOk		:= .F. 
+
+DEFAULT __lCriaLocal	:= .T.
+
+lCriaLocalOk	:= __lCriaLocal
+__lCriaLocal	:= .T.
+
+Return( lCriaLocalOk )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetLocal		Ё Autor ЁMarinaldo de JesusЁ Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem as Variaveis Locais para a Formula       				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetLocal( cForm )
+
+Local aLocal := {}
+
+Local nForm
+
+Begin Sequence
+
+	IF !( IsDebbug() )
+		Break
+	EndIF
+
+	DEFAULT cForm := GetMemVar( "RC2_CODIGO" )
+	IF ( Empty( cForm ) )
+		Break
+	EndIF
+
+	SetLocal( .T. )
+
+	cForm	:= Upper( AllTrim( cForm ) )
+	nForm	:= aScan( __aLocal , { |x| ( x[1] == cForm ) } )
+	IF ( nForm == 0 )
+		nForm := aScan( __aLocal , { |x| ( SubStr( x[1] , 3 ) == cForm ) } )
+		IF ( nForm == 0 )
+			Break
+		EndIF
+	EndIF
+
+	aLocal := aClone( __aLocal[ nForm ] )
+
+End Sequence
+
+Return( aLocal )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetLocal		Ё Autor ЁMarinaldo de JesusЁ Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInicializa a variavel __aLocal                 				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SetLocal( lNoReSet )
+
+DEFAULT lNoReSet := .F.
+
+IF ( lNoReSet )
+	DEFAULT __aLocal := {}
+Else
+	__aLocal := {}
+EndIF
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRpoFormInit		Ё Autor ЁMarinaldo de JesusЁ Data Ё09/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInicializa o Rpo de Formula e Retorna o Nome Por Referencia  Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RpoFormInit( cGetRpoForm , lClose )
+Local lRpoFormInit	:= .T.
+Local lDel			:= .F.
+Local lIsObject
+Local lGetNew
+Local cFilAux       := Replicate("!", Len(cFilAnt))
+Local cFilSRY       := ""
+
+DEFAULT __cRpoForm 	:= "RpoForm_No_Init"
+DEFAULT lClose 		:= .F.
+DEFAULT __lFilRPO  	:= SuperGetMv("MV_RPOFIL",, .F.) //Gera repositСrios auxiliares por filial? -- TMF
+
+If __lFilRPO 
+	cFilSRY   := If(Type("cFilCalc") <> "U" .and. !Empty(cFilCalc) .and. cFilCalc <> cFilAux, xFilial("SRY",cFilCalc), xFilial("SRY") )
+EndIf
+
+Begin Sequence
+
+	cGetRpoForm := GetRpoForm( .T.,,cFilSRY )
+	IF !( lRpoFormInit := !Empty( cGetRpoForm ) )
+		Break
+	EndIF
+	
+	IF (;
+			( lIsObject := ( ValType( __oRpoForm ) == "O" ) );
+			.and.;
+			!( lGetNew := (;
+								( __cRpoForm <> cGetRpoForm );
+						   		.or.;
+						   		!__oRpoForm:Open( cGetRpoForm );
+						   );
+			 );
+		)
+		If !( lClose )
+			Break
+		EndIf
+	EndIF
+	
+	IF (;
+			( lIsObject );
+			.and.;
+			(;
+				( lGetNew );
+				.or.;
+				( lClose );
+			);	
+		)
+		__oRpoForm:Close()
+		__oRpoForm := NIL
+		IF ( lClose )
+			Break
+		EndIF
+	EndIF
+
+	__cRpoForm		:= cGetRpoForm
+	__oRpoForm		:= Rpo():New(iif(!isBlind() .And. cBuildVer != Nil .And. cBuildVer > '17.3.0.13',.T.,nil))
+	lRpoFormInit	:= __oRpoForm:Open( cGetRpoForm )
+	IF !( lRpoFormInit )
+		lIsObject := ( ValType( __oRpoForm ) == "O" )
+		lDel := 'INVALID RPO SIGNATURE' $ Upper(__oRpoForm:ERRSTR) .Or. 'GENERAL ERROR' $ Upper(__oRpoForm:ERRSTR)  //"Invalid RPO signature (APNSRM0418). Please update your RPO file."##"GENERAL ERROR opening rpoaux"
+		IF ( lIsObject )
+			__oRpoForm:Close()
+		EndIF
+		__oRpoForm := NIL
+		__cRpoForm := "RpoForm_No_Init"
+		If lDel
+			If FileErase( cGetRpoForm )
+				lRpoFormInit := RpoFormInit( cGetRpoForm , lClose )
+			EndIf
+		EndIf
+	EndIF
+
+End Sequence
+
+Return( lRpoFormInit )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetRpoObj		Ё Autor ЁMarinaldo de JesusЁ Data Ё23/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna Objeto Rpo em uso									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetRpoObj()
+
+RpoFormInit()
+
+Return( __oRpoForm )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetRpoForm		Ё Autor ЁMarinaldo de JesusЁ Data Ё04/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna um Nome Valido para o Rpo Auxiliar usado no GPE	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetRpoForm( lGetRpoName , lGetPathSource, cFilSRY )
+
+Local cRpoName			:= ""
+Local cSourcePath		:= ""
+Local cSeqSry			:= ""
+Local cFilAux   		:= Replicate("!", Len(cFilAnt))
+Local cGetRpoForm		:= GetPvProfString( GetEnvServer() , "SourcePath" , "" , GetAdv97() )
+Local cGetRpoPath		:= GetPvProfString( GetEnvServer() , "FormPath" , "" , GetAdv97() )
+Local lMakeOk			:= .F.
+
+DEFAULT __lFilRPO		:= SuperGetMv("MV_RPOFIL",, .F.) //Gera repositСrios auxiliares por filial? -- TMF
+DEFAULT lGetRpoName 	:= .F.
+DEFAULT lGetPathSource  := .F.
+
+If !Empty(cGetRpoPath)
+	cGetRpoForm := cGetRpoPath
+EndIf
+
+/*/
+зддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁTrocar as barras para evitar inconsistencia no Linux 				    Ё
+юддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды*/
+cGetRpoForm := StrTran(cGetRpoForm, "/", "\" )
+IF ( SubStr( cGetRpoForm , -1 ) <> "\" )
+	cGetRpoForm += "\"
+EndIF
+If __lFilRPO
+	DEFAULT cFilSRY := If(Type("cFilCalc") <> "U" .and. !Empty(cFilCalc) .and. cFilCalc <> cFilAux, xFilial("SRY",cFilCalc), xFilial("SRY") )
+	If Empty(cFilSRY)
+		cFilSRY := xFilial("SRY")
+	EndIf
+	cSeqSry := GetSrySeqFil(cFilSRY,.T.)
+	cRpoName	:= ( "rpofrm" + cSeqSry )
+Else 
+	cRpoName	:= ( "rpofrm" + cEmpAnt )
+EndIf
+cGetRpoForm += cRpoName
+
+cGetRpoForm := Lower( cGetRpoForm )
+IF !( lMakeOk := lIsSRVDir( cGetRpoForm ) )
+
+	/*/
+	зддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁFoi utilizado o parametro 1 no MakeDir para criar diretorio "fora" do  Ё
+	Ёservidor, pois esta se passando todo o caminho do path e nao a partir  Ё
+	Ёdele. Com esta funcionalidade sempre sera criado no server mesmo que   Ё
+	ЁC:\                                                                    Ё
+	юддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды*/
+	lMakeOk := ( MakeDir( cGetRpoForm ,1) == 0 )
+
+EndIF
+
+cSourcePath := "\source
+IF !( lMakeOk := lIsSRVDir( cGetRpoForm + cSourcePath ) )
+
+	lMakeOk := ( MakeDir( cGetRpoForm + cSourcePath, 1 ) == 0 )
+
+EndIF
+
+IF !( lMakeOk )
+	//"Nao Foi Possivel Criar o Diretorio:"###"Para a Compilacao das Formulas
+	AddTreeErr( STR0029 + " " + cGetRpoForm + " " + STR0030 )
+	cGetRpoForm := ""
+ElseIF ( lGetRpoName )
+	cGetRpoForm += ( "\" + cRpoName + ".rpo" )
+ElseIF ( lGetPathSource )
+	cSourcePath += "\"
+	cGetRpoForm += cSourcePath
+EndIF
+
+Return( cGetRpoForm )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁMkeBodyFrm		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁMonta o corpo da Formula                       				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁTreeFrmMke                                                   Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function MkeBodyFrm(	aBodyFrm	,;	//Array com o Corpo da Formula ( por Referencia )
+							adbTreeForm ,;	//Array Multidimensional e Recursivo com a Estrutura da Formula
+							aRc3Header	,;	//Array com a Estrutura de Cabecalho do RC3
+							cReturn		,;	//Variavel de Retorno da Formula
+							cNodeMaster ,;	//Node Superior
+							aLocal		,;	//Array com a Inicializacao dos Mnemonicos Locais ( Por Referencia ) 
+							nIdent		 ;	//Indice para Identacao da Formula
+						   )
+
+Local aCols
+
+Local cIdent
+Local cExprAdd
+
+Local cRc3Tipo
+
+Local cRc3SeqFor
+Local cRc3SeqPai
+
+Local cRc3TpResu
+Local cRc3TpFm01
+Local cRc3TpFm02
+
+Local cRc3Result
+Local cRc3Form01
+Local cRc3Form02
+
+Local cRc3Opera1
+Local cRc3Opera2
+Local cRc3Opera3
+
+Local nLoop
+Local nLoops
+
+DEFAULT nIdent := 4
+cIdent	:= Space( nIdent )
+
+nLoops := Len( adbTreeForm )
+For nLoop := 1 To nLoops
+
+	IF ( adbTreeForm[ nLoop , NODE_INFERIOR ] == cNodeMaster )
+
+		MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal )
+
+	Else
+
+		aCols		:= adbTreeForm[ nLoop , NODE_ACOLS ]
+		IF Empty( aCols )
+			Loop
+		EndIF
+
+		cRc3SeqFor	:= GdFieldGet( "RC3_SEQFOR"	 , 1 , .F. , aRc3Header , aCols )
+		cRc3SeqPai  := GdFieldGet( "RC3_SEQPAI"	 , 1 , .F. , aRc3Header , aCols )
+
+		cRc3Tipo	:= AllTrim( GdFieldGet( "RC3_TIPO"	 , 1 , .F. , aRc3Header , aCols ) )
+		
+		cRc3TpResu	:= AllTrim( GdFieldGet( "RC3_TPRESU" , 1 , .F. , aRc3Header , aCols ) )
+		cRc3TpFm01	:= AllTrim( GdFieldGet( "RC3_TPFM01" , 1 , .F. , aRc3Header , aCols ) )
+		cRc3TpFm02	:= AllTrim( GdFieldGet( "RC3_TPFM02" , 1 , .F. , aRc3Header , aCols ) )
+
+		cRc3Opera1	:= AllTrim( GdFieldGet( "RC3_OPERA1" , 1 , .F. , aRc3Header , aCols ) )
+		cRc3Opera2	:= AllTrim( GdFieldGet( "RC3_OPERA2" , 1 , .F. , aRc3Header , aCols ) )
+		cRc3Opera3	:= AllTrim( GdFieldGet( "RC3_OPERA3" , 1 , .F. , aRc3Header , aCols ) )
+
+		cRc3Result	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_RESULT" , 1 , .F. , aRc3Header , aCols ) ) )
+		cRc3Form01	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM01" , 1 , .F. , aRc3Header , aCols ) ) )
+		cRc3Form02  := SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM02" , 1 , .F. , aRc3Header , aCols ) ) )
+
+		//MemСria de CАlculo
+		If __lMemCalc .And. ( cRc3Tipo == ".MSG." ) .and. ( cRc3Opera3 $ ".CNT." ) .And. "FADDMEMLOG" $ cRc3Result
+			cRc3Tipo := ".EXE."
+		Endif
+
+		//AddLocal( cRc3Result , @aLocal )
+		//AddLocal( cRc3Form01 , @aLocal )
+		//AddLocal( cRc3Form02 , @aLocal )
+		AddLocal( cRc3Result + cRc3Opera1 + cRc3Form01 + cRc3Opera2 + cRc3Form02, @aLocal )
+
+		IF (;
+				( cRc3Tipo == ".CON." );
+				.and.;
+				( cRc3Opera3 == ".END." );
+			)
+			
+			cExprAdd := ( cIdent + "IF ( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " )" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+			MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal , nIdent + 4 )
+			//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+			cExprAdd := ( cIdent + "EndIF" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+			
+		ElseIF (;
+				( cRc3Tipo == ".CON." );
+				.and.;
+				( cRc3Opera3 $ ".AND./.OR." );
+			)
+
+			cExprAdd := ( cIdent + "IF (;" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+				cExprAdd := ( cIdent + cIdent + "( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " );" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+				cExprAdd := ( cIdent + cIdent + cRc3Opera3 + ";" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+				For nLoop := nLoop + 1 To nLoops
+					
+					aCols	:= adbTreeForm[ nLoop , NODE_ACOLS ]
+					IF Empty( aCols )
+						Loop
+					EndIF
+			
+					cRc3Tipo	:= AllTrim( GdFieldGet( "RC3_TIPO"	 , 1 , .F. , aRc3Header , aCols ) )
+	
+					cRc3SeqFor	:= GdFieldGet( "RC3_SEQFOR"	 , 1 , .F. , aRc3Header , aCols )
+					cRc3SeqPai  := GdFieldGet( "RC3_SEQPAI"	 , 1 , .F. , aRc3Header , aCols )
+			
+					cRc3TpResu	:= AllTrim( GdFieldGet( "RC3_TPRESU" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3TpFm01	:= AllTrim( GdFieldGet( "RC3_TPFM01" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3TpFm02	:= AllTrim( GdFieldGet( "RC3_TPFM02" , 1 , .F. , aRc3Header , aCols ) )
+	        	
+					cRc3Opera1	:= AllTrim( GdFieldGet( "RC3_OPERA1" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3Opera2	:= AllTrim( GdFieldGet( "RC3_OPERA2" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3Opera3	:= AllTrim( GdFieldGet( "RC3_OPERA3" , 1 , .F. , aRc3Header , aCols ) )
+	
+					cRc3Result	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_RESULT" , 1 , .F. , aRc3Header , aCols ) ) )
+					cRc3Form01	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM01" , 1 , .F. , aRc3Header , aCols ) ) )
+					cRc3Form02  := SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM02" , 1 , .F. , aRc3Header , aCols ) ) )
+	
+					//AddLocal( cRc3Result , @aLocal )
+					//AddLocal( cRc3Form01 , @aLocal )
+					//AddLocal( cRc3Form02 , @aLocal )				
+					AddLocal( cRc3Result + cRc3Opera1 + cRc3Form01 + cRc3Opera2 + cRc3Form02, @aLocal )
+	
+					cExprAdd := ( cIdent + cIdent + "( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " );" )
+					AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+					IF ( cRc3Opera3 $ ".AND./.OR." )
+	
+						cExprAdd := ( cIdent + cIdent + cRc3Opera3 + ";" )
+						AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+					ElseIF ( cRc3Opera3 == ".END." )
+	
+						cExprAdd := ( cIdent + ")" )
+						AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+						AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+	
+						Exit
+	
+					EndIF
+				
+				Next nLoop
+	
+				MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal , nIdent + 4 )
+	
+			cExprAdd := ( cIdent + "EndIF" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+		ElseIF (;
+					( cRc3Tipo == ".ENQ." );
+					.and.;
+					( cRc3Opera3 == ".END." );
+				)	
+
+			cExprAdd := ( cIdent + "While ( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " ) " )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+				
+				//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + "IF ( AbortProc() ) " )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+				//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + cIdent + "Break" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+            	
+				//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + "EndIF" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				
+				MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal , nIdent + 4 )
+
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+			cExprAdd := ( cIdent + "End" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+			AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+		ElseIF (;
+				( cRc3Tipo == ".ENQ." );
+				.and.;
+				( cRc3Opera3 $ ".AND./.OR." );
+			)
+
+			cExprAdd := ( cIdent + "While (;" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+				cExprAdd := ( cIdent + cIdent + "( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " );" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+				cExprAdd := ( cIdent + cIdent + cRc3Opera3 + ";" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+	
+				For nLoop := nLoop + 1 To nLoops
+					
+					aCols		:= adbTreeForm[ nLoop , NODE_ACOLS ]
+					IF Empty( aCols )
+						Loop
+					EndIF
+
+					cRc3Tipo	:= AllTrim( GdFieldGet( "RC3_TIPO"	 , 1 , .F. , aRc3Header , aCols ) )
+	
+					cRc3SeqFor	:= GdFieldGet( "RC3_SEQFOR"	 , 1 , .F. , aRc3Header , aCols )
+					cRc3SeqPai  := GdFieldGet( "RC3_SEQPAI"	 , 1 , .F. , aRc3Header , aCols )
+			
+					cRc3TpResu	:= AllTrim( GdFieldGet( "RC3_TPRESU" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3TpFm01	:= AllTrim( GdFieldGet( "RC3_TPFM01" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3TpFm02	:= AllTrim( GdFieldGet( "RC3_TPFM02" , 1 , .F. , aRc3Header , aCols ) )
+	        	
+					cRc3Opera1	:= AllTrim( GdFieldGet( "RC3_OPERA1" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3Opera2	:= AllTrim( GdFieldGet( "RC3_OPERA2" , 1 , .F. , aRc3Header , aCols ) )
+					cRc3Opera3	:= AllTrim( GdFieldGet( "RC3_OPERA3" , 1 , .F. , aRc3Header , aCols ) )
+	
+					cRc3Result	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_RESULT" , 1 , .F. , aRc3Header , aCols ) ) )
+					cRc3Form01	:= SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM01" , 1 , .F. , aRc3Header , aCols ) ) )
+					cRc3Form02  := SetGpeBlock( AllTrim( GdFieldGet( "RC3_FORM02" , 1 , .F. , aRc3Header , aCols ) ) )
+	
+					//AddLocal( cRc3Result , @aLocal )
+					//AddLocal( cRc3Form01 , @aLocal )
+					//AddLocal( cRc3Form02 , @aLocal )
+					AddLocal( cRc3Result + cRc3Opera1 + cRc3Form01 + cRc3Opera2 + cRc3Form02, @aLocal )
+
+					cExprAdd := ( cIdent + cIdent + "( " + cRc3Form01 + cRc3Opera2 + cRc3Form02 + " );" )
+					AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+					IF ( cRc3Opera3 $ ".AND./.OR." )
+
+						cExprAdd := ( cIdent + cIdent + cRc3Opera3 + ";" )
+						AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+					ElseIF ( cRc3Opera3 == ".END." )
+
+						cExprAdd := ( cIdent + ")" )
+						AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+						AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )                
+
+						Exit
+
+					EndIF
+				
+				Next nLoop
+
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + "IF ( AbortProc() ) " )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+				//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + cIdent + "Break" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+            	
+				//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				cExprAdd := ( cIdent + cIdent + "EndIF" )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+				
+				MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal , nIdent + 4 )
+
+			//AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+			cExprAdd := ( cIdent + "End" )
+			AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+
+		ElseIF ( cRc3Tipo == ".EXE." )
+
+			IF (;
+					( cRc3Opera3 == ".END." );
+					.and.;
+					!Empty( cReturn );
+					.and.;
+					!( cReturn == cRc3Result );
+				)
+
+				cExprAdd := ( cIdent + cReturn + " := " + cRc3Result + cRc3Opera1 + cRc3Form01 + cRc3Opera2 + cRc3Form02 )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+			Else
+
+				cExprAdd := ( cIdent + cRc3Result + cRc3Opera1 + cRc3Form01 + cRc3Opera2 + cRc3Form02 )
+				AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+				AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+			EndIF
+			
+			IF !Empty( adbTreeForm[ nLoop , NODE_TREE ] )
+			
+				MkeBodyFrm( @aBodyFrm , adbTreeForm[ nLoop , NODE_TREE ] , aRc3Header , cReturn , cNodeMaster , @aLocal , nIdent + 4 )
+			
+			EndIF
+
+		//# Tratamento de Mensagens
+		ElseIF (;
+				( cRc3Tipo == ".MSG." );
+				.and.;
+				( cRc3Opera3 $ ".CNT." );
+				)
+					cExprAdd := ( cIdent + "//# " + cRc3Result )
+					AddBodyFrm( @aBodyFrm , cExprAdd , cRc3SeqFor , cRc3SeqPai )
+					AddBodyFrm( @aBodyFrm , "" , cRc3SeqFor , cRc3SeqPai )
+
+		EndIF
+
+	EndIF
+
+Next nLoop
+
+Return( aBodyFrm )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAddBodyFrm		Ё Autor ЁMarinaldo de JesusЁ Data Ё05/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdiciona o Corpo da Formula no aBodyFrm        				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁTreeFrmMke                                                   Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function AddBodyFrm( aBodyFrm , cExprAdd , cSeqFrm , cSeqPai )
+
+Local cUpper		:= Upper( cExprAdd )
+
+Local lChkCriaLocal
+Local nAt
+
+Begin Sequence
+
+	cExprAdd := ExecFunRmv( cExprAdd )
+
+	cUpper	:= Upper( cExprAdd )
+	While ( ( nAt := At( "FIMENQUANTO()" , cUpper ) ) > 0 )
+		cUpper 		:= Stuff( cUpper 	, nAt , 13 , "" )
+		cExprAdd	:= Stuff( cExprAdd	, nAt , 13 , "Exit" )
+	End While
+
+	cUpper	:= Upper( cExprAdd )
+	While ( ( nAt := At( "RETORNEENQ()"	, cUpper ) ) > 0 )
+		cUpper 		:= Stuff( cUpper 	, nAt , 12 , "" )
+		cExprAdd	:= Stuff( cExprAdd	, nAt , 12 , "Loop" )
+	End While
+
+	cUpper	:= Upper( cExprAdd )
+	While ( ( nAt := At( "FIMFORMULA()"	, cUpper ) ) > 0 )
+		cUpper 		:= Stuff( cUpper 	, nAt , 12 , "" )
+		cExprAdd	:= Stuff( cExprAdd	, nAt , 12 , "Break" )
+	End While
+
+	lChkCriaLocal := !Empty( ChkCriaLocal( @cExprAdd , .F. , .T. ) )
+	IF (;
+			( lChkCriaLocal );
+			.and.;
+			Empty( cExprAdd );
+		)
+		Break
+	EndIF
+
+	aAdd( aBodyFrm , { cExprAdd , { cSeqFrm , cSeqPai } } )
+
+End Sequence
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAddLocal		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdiciona as Variaveis Locais                   				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁTreeFrmMke                                                   Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function AddLocal( cVar , aLocal )
+
+Local aParse
+Local aCriaLocal
+
+Local cUpper
+Local cInitLocal
+Local cPict
+Local cType
+
+Local nLoop
+Local nLoops
+Local nPosMnemo
+
+Begin Sequence
+
+	IF Empty( cVar )
+		Break
+	EndIF
+
+	cUpper	:= Upper( AllTrim( cVar ) )
+	aParse	:= ParseMnemo( cUpper )
+	nLoops	:= Len( aParse )
+	For nLoop := 1 To nLoops
+		cVar := aParse[ nLoop ]
+		IF Empty( cVar )
+			Loop
+		EndIF
+		nPosMnemo	:= aScan( __aMnemonicos , { |x| x[1] == cVar } )
+		IF (;
+				( nPosMnemo > 0 );
+				.and.;
+				( __aMnemonicos[ nPosMnemo , 6 ] == "3" );
+				.and.;
+				( aScan( aLocal , { |x| x[1] == cVar } ) == 0 );
+			)
+			cInitLocal	:= "Local "
+			cInitLocal	+= cVar
+			cInitLocal	+= " := "
+			IF Empty( __aMnemonicos[ nPosMnemo , 3 ] )
+				cInitLocal += "GetValType( '" + __aMnemonicos[ nPosMnemo , 4 ] + "' )"
+			Else
+				cInitLocal += StrTran( __aMnemonicos[ nPosMnemo , 3 ] , '"' , "'" )
+			EndIF
+			aAdd( aLocal , { cVar , cInitLocal } )
+		EndIF
+	Next nLoop
+	
+	IF ( At( "CRIALOCAL" , cUpper ) > 0 )
+	
+		ChkCriaLocal( cUpper )
+		aCriaLocal	:= GetLocal()
+		IF !Empty( aCriaLocal )
+			aCriaLocal	:= aClone( aCriaLocal[2] )
+			nLoops		:= Len( aCriaLocal )
+			For nLoop := 1 To nLoops
+				cVar	:= aCriaLocal[ nLoop , 1 ]
+				IF (;
+						!ChkAddVar( cVar );
+						.or.;
+						( aScan( aLocal , { |x| x[1] == cVar } ) > 0 );
+					)
+					Loop
+				EndIF	
+				cInitLocal	:= "Local "
+				cInitLocal	+= cVar
+				cInitLocal	+= " := "
+				IF (;
+						( aCriaLocal[ nLoop , 4 ] == NIL );
+						.or.;
+						( aCriaLocal[ nLoop , 2 ] == "U" );
+					)	
+					cInitLocal += "GetValType( '" + aCriaLocal[ nLoop , 2 ] + "'," + AllTrim( Str( aCriaLocal[ nLoop , 3 ] ) )  + " )"
+				Else
+					IF ( aCriaLocal[ nLoop , 2 ] == "C" )
+						cInitLocal += "'" + aCriaLocal[ nLoop , 4 ] + "'" 
+					Else
+						cPict := NIL
+						IF ( aCriaLocal[ 1 , 2 ] == "N" )
+							cPict	  	:= RetPictVal( aCriaLocal[ nLoop , 4 ] )
+						EndIF
+					    cInitLocal		+= AllToChar( aCriaLocal[ nLoop , 4 ] , cPict )
+					EndIF
+				EndIF
+				aAdd( aLocal , { cVar , cInitLocal } )
+			Next nLoop
+		EndIF
+
+	Else
+
+		aParse	:= ParseVar( cUpper )
+		nLoops	:= Len( aParse )
+		For nLoop := 1 To nLoops
+			cVar := aParse[ nLoop ]
+			IF Empty( cVar )
+				Loop
+			EndIF
+			IF (;
+					ChkAddVar( cVar );
+					.and.;
+					( aScan( aLocal , { |x| x[1] == cVar } ) == 0 );
+				)
+				cType := Upper( SubStr( cVar , 1 , 1 ) )
+				IF ( cType $ "ABCDLMNO" )
+					cInitLocal	:= "Local "
+					cInitLocal	+= cVar
+					cInitLocal	+= " := "
+					cInitLocal	+= "GetValType('" + cType + "')"
+					aAdd( aLocal , { cVar , cInitLocal } )
+				EndIF
+			EndIF
+		Next nLoop
+
+	EndIF
+
+End Sequence
+	
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁExecFunRmv		Ё Autor ЁMarinaldo de JesusЁ Data Ё26/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRemove EXECUTE_FUN_ da Expressao							 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ExecFunRmv( cExpr )
+
+Local cNewExpr	:= cExpr
+Local cUpper	:= Upper( cExpr )
+
+Local nAt
+
+While ( ( nAt := At( "EXECUTE_FUN_" , cUpper ) ) > 0 )
+	cUpper 		:= Stuff( cUpper 	, nAt , 12 , "" )
+	cNewExpr	:= Stuff( cNewExpr	, nAt , 12 , "" )
+End While
+
+Return( cNewExpr )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁChkCriaLocal	Ё Autor ЁMarinaldo de JesusЁ Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna Array com os Dados da CriaLocal a Serem Criados  RemoЁ
+Ё          Ёvendo CriaLocal da String								     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ChkCriaLocal( cString , lExecute , lRemove )
+
+Local aParse		:= {}
+Local aCriaLocal	:= {}
+Local cStringUpper	:= Upper( cString )
+
+Local cStringAux
+
+Local nY
+Local nAtLocal0
+Local nAtLocal1
+Local nTamVar 	:= Len( "CRIALOCAL" )
+
+DEFAULT lExecute	:= .T.
+DEFAULT lRemove		:= .F.
+
+cStringAux := cStringUpper
+While ( ( nAtLocal0 := At( "CRIALOCAL" , cStringAux ) ) > 0 )
+	nAtLocal1 	:= nAtLocal0 + nTamVar
+	cCriaLocal	:= SubStr( cStringAux , nAtLocal1, (Len(cStringAux)-nTamVar) )
+
+	IF ( lExecute )
+		CheckExecForm( cCriaLocal , .F. )
+	Else
+		aParse := ParseVar( cCriaLocal )
+		IF Len( aParse ) > 0
+			For nY := 1 To Len( aParse )
+				aAdd( aCriaLocal, aParse[nY] )
+			Next nY
+		Else
+			aAdd( aCriaLocal, cCriaLocal )
+		EndIF
+	EndIF
+	cStringAux	:= Stuff( cStringAux , nAtLocal0 , nTamVar , "" )
+	IF ( lRemove )
+		cString	:= Stuff( cString	 , nAtLocal0 , nTamVar , "" )
+	EndIF
+End While
+
+Return( aCriaLocal )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetGpeBlock		Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁTransforma ExecBlock em GpecBlock              				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function SetGpeBlock( cForm )
+Return( StrTran( Upper( cForm ) , "EXECBLOCK" , "GPECBLOCK" ) )
+
+/*/
+зддддддддддбдддддддддддбдддддддбддддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤┘o    ЁGpeCBlock  Ё Autor Ё Wilson               Ё Data Ё27/09/2002Ё
+цддддддддддедддддддддддадддддддаддддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤┘o ЁForca a passagem dos parametros na chamada do ExecBlock.    Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁGpeCBlock( p1 , p2 , p3 , p4 )                              Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ                                                            Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      Ё Generico                                                   Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GpeCBlock( P1 , P2 , P3 , P4 )
+Return( ExecBlock( P1 , .F. , .F. , P4 ) )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRc2Rc3NewCod	Ё Autor ЁMarinaldo de JesusЁ Data Ё03/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁCompatibiliza o Codigo do RC2 e RC3            				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function Rc2Rc3NewCod( cRc2Filial , cRc2Origem , cRc2Codigo )
+
+Local cNewCodForm
+Local cRc3KeySeek
+
+Local nRc3Order
+Local nRc3Recno
+Local nRc3NextRecno
+
+Begin Sequence
+
+	cNewCodForm	:= Rc2CodChkStr( cRc2Codigo )
+
+	IF ( cNewCodForm == cRc2Codigo )
+		Break
+	EndIF
+
+	IF RC2->( !RecLock( "RC2" , .F. ) )
+		Break
+	EndIF
+
+	RC2->RC2_CODIGO := cNewCodForm
+	RC2->RC2_RECOMP := "1"
+
+	nRc3Order :=  RetOrder( "RC3" , "RC3_FILIAL+RC3_ORIGEM+RC3_CODIGO+RC3_SEQFOR" )
+	RC3->( dbSetOrder( nRc3Order ) )
+
+	cRc3KeySeek := ( cRc2Filial + cRc2Origem + cRc2Codigo )
+	IF !RC3->( dbSeek( cRc3KeySeek , .F. ) )
+		Break
+	EndIF
+
+	While RC3->(;
+					!Eof();
+					.and.;
+					(;
+						( RC3_FILIAL + RC3_ORIGEM + RC3_CODIGO );
+						==;
+						cRc3KeySeek;
+					);
+				)
+
+		IF !GetNextRecno( "RC3" , @nRc3NextRecno , @nRc3Recno , nRc3Order )
+			Exit
+		EndIF
+	
+		IF RC3->( RecLock( "RC3" , .F. ) )
+			RC3->RC3_CODIGO := cNewCodForm
+		EndIF
+
+		IF !GotoNextRecno( "RC3" , nRc3NextRecno , nRc3Order )
+			Exit
+		EndIF
+	
+	End While
+
+	RC2->( MsUnLock() )
+	RC3->( MsUnLock() )
+
+End Sequence
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRc2CodChkStr	Ё Autor ЁMarinaldo de JesusЁ Data Ё04/11/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna Novo Codigo para o RC2 Retirando os Caracteres InvaliЁ
+Ё          Ёdos															 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function Rc2CodChkStr( cLastCod )
+
+Local cSubStr
+Local cNewCod
+
+Local nChar
+Local nChars
+
+cNewCod := Upper( AllTrim( cLastCod ) )
+IF ( !ChkAsc( cNewCod , .F. ) )
+	nChar	:= 0
+	nChars	:= Len( cNewCod )
+	While ( ( ++nChar ) <= nChars )
+		cSubStr := SubStr( cNewCod , nChar , 1 )
+		IF !ChkAsc( cSubStr , .F. )
+			cNewCod := StrTran( cNewCod , cSubStr , "" )
+			--nChar
+			nChars := Len( cNewCod )
+		EndIF
+	End While
+EndIF
+
+cNewCod := Padr( SubStr( cNewCod , 1 , 8 ) , GetSx3Cache( "RC2_CODIGO" , "X3_TAMANHO" ) )
+
+Return( cNewCod )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetMnemonicos	Ё Autor ЁMarinaldo de JesusЁ Data Ё10/06/2002Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁInicializa os Mnemonicos para uso em Formulas				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SetMnemonicos(	cFil		,;	//01 -> Filial para a Carga dos Mnemonicos
+						aMnemonicos	,;	//02 -> Array com os Mnemonicos ( Por Referencia )
+						lDefaults	,;	//03 -> Se Inicializa os Valores Defaults
+						cMnemonico	,;	//04 -> Mnemonico a ser Setado
+						lInitLocal	, ;	//05 -> De deverar Setar os Mnemonicos Locais
+						cFuncao)
+
+Local aArea
+Local aAreaRCA
+
+Local cFilRCA
+Local cType
+
+Local lSet
+Local lOne
+
+Local nMnemo
+Local nMnemos
+Local nPosMnem
+Local nRcaOrder
+
+Local uVar
+
+Static lDefautsMnemos
+
+DEFAULT lDefaults		:= .F.
+DEFAULT cMnemonico		:= ""
+DEFAULT lDefautsMnemos	:= .T.
+DEFAULT lInitLocal		:= .F.
+DEFAULT cFuncao			:= ""
+
+If IsBlind() .Or. IsInCallStack("FwMyTestRunner") .Or. IsInCallStack("EXECSUITE") .Or. IsInCallStack("EXECSUITEBLIND") .Or. IsInCallStack("AUTJOBRUNCT")
+	cFuncao := ""
+	If Upper(Alltrim(Procname(1))) == "FVLDMODEL" 
+		lDefautsMnemos := .F.
+		return .T.
+	EndIf
+EndIf
+
+cMnemonico	:= Upper( AllTrim( cMnemonico ) )
+lOne 		:= !Empty( cMnemonico )
+
+/*
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+Ё Verifica se Deve Carregar os Mnemonicos Padroes do Sistema   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+IF ( lDefautsMnemos )
+	fCarMnemo()
+	lDefautsMnemos := .F.
+EndIF
+
+DEFAULT __aMnemonicos := {}
+IF (;
+		(;
+			!( lDefaults );
+			.and.;
+			Empty( __aMnemonicos );
+		);	
+		.or.;
+		Empty( __aMnemonicos );
+	)
+
+	RstMnemonicos()
+
+	aArea		:= GetArea()
+	aAreaRCA	:= RCA->( GetArea() )
+	cFilRCA		:= xFilial( "RCA" , cFil )
+	nRcaOrder	:= RetOrder( "RCA" , "RCA_FILIAL+RCA_MNEMON" )
+
+	RCA->( dbSetOrder( nRcaOrder ) )
+	IF ( lSet := RCA->( dbSeek( cFilRCA , .F. ) ) )
+		
+		While RCA->( !Eof() .and. ( RCA_FILIAL == cFilRCA ) )
+			RcaAddMnemo( @__aMnemonicos )
+			RCA->( dbSkip() )
+		End While
+			
+	EndIF
+
+	RestArea( aAreaRCA )
+	RestArea( aArea )
+
+EndIF
+
+IF ( lDefaults )
+	IF ( lSet := ( nMnemos := Len( __aMnemonicos ) ) > 0 )
+		IF ( lOne )
+			nPosMnem := aScan( __aMnemonicos , { |x| Upper( AllTrim( x[1] ) ) == cMnemonico } )
+			IF ( nPosMnem == 0 )
+				aArea		:= GetArea()
+				aAreaRCA	:= RCA->( GetArea() )
+				IF ( lSet := GetCache( "RCA" , cMnemonico , cFilRCA , NIL , nRcaOrder , .T. ) )
+					RcaAddMnemo( @__aMnemonicos )
+					nPosMnem := aScan( __aMnemonicos , { |x| Upper( AllTrim( x[1] ) ) == cMnemonico } )
+				EndIF
+				RestArea( aAreaRCA )
+				RestArea( aArea )
+			EndIF
+		EndIF
+		DEFAULT nPosMnem := 1
+		IF (;
+				!( lOne );
+				.or.;
+				(;
+					( lOne );
+					.and.;
+					( lSet := ( nPosMnem > 0 ) );
+				);	
+			)
+			For nMnemo := nPosMnem To nMnemos
+				/*
+				здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+				ЁInicializa Apenas Os Mnemonicos Publicos e Privados           Ё
+				юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+				IF !( lInitLocal )
+					IF !( __aMnemonicos[ nMnemo , 06 ] $ "1/2" )
+						Loop
+					EndIF
+				EndIF	
+				/*
+				здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+				ЁCarrega os valores Defaults do arquivo de mnemonicos		   Ё
+				юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+				IF !Empty( uVar := AllTrim( __aMnemonicos[ nMnemo , 03 ] ) )
+					IF (;
+							( __aMnemonicos[ nMnemo , 04 ] == "D" );
+							.and.;
+							( "/" $ uVar );
+						)
+						IF (;
+								CheckExecForm( { || uVar := Ctod( uVar ) } , .F. );
+								.and.;
+								( ( cType := ValType( uVar ) ) == __aMnemonicos[ nMnemo , 04 ] );
+							)	
+							If Empty(cFuncao)
+								_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar )
+							Else
+								_setNamedPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar ,cFuncao)
+							EndIf
+						Else
+							If Empty(cFuncao)
+								_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+							Else
+								_setNamedPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ),cFuncao )
+							EndIf
+						EndIF
+					Else
+						IF CheckExecForm( @uVar , .F. )
+							If Empty(cFuncao)
+								_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar )
+							Else
+								_setNamedPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar ,cFuncao)
+							EndIf
+						Else
+							If Empty(cFuncao)
+								_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+							Else
+								_setNamedPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ),cFuncao )
+							EndIf
+						EndIF
+					EndIF
+				Else
+					If Empty(cFuncao)
+						_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+					Else
+						_setNamedPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) ,cFuncao)
+					EndIf
+				EndIF
+				IF ( lOne )
+					Exit
+				EndIF
+			Next nMnemo
+		EndIF
+	EndIF
+EndIF
+
+aMnemonicos		:= aClone( __aMnemonicos )
+
+DEFAULT lSet	:= .F.
+
+Return( lSet )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetContMnemon   Ё Autor ЁMauricio Takakura Ё Data Ё03/02/2005Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁPegar o conteudo Inicial do Mnemonico.       				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetContMnemon(	cFil		,;	//01 -> Filial para a Carga dos Mnemonicos
+						cMnemo		 ;	//02 -> Nome do Mnemonico
+					  )
+Local cType
+
+Local nPos
+
+Local uRetConteud
+Local uValor
+          
+cMnemo := UPPER( cMnemo )
+nPos := aScan( __aMnemonicos, { |x| x[1] == cMnemo } )
+
+If nPos > 0
+	uRetConteud := AllTrim( __aMnemonicos[ nPos, 3 ] )
+	If ( ( __aMnemonicos[ nPos , 04 ] == "D" ) .and. ( "/" $ uRetConteud ) )
+		If ( CheckExecForm( { || uValor := Ctod( uRetConteud ) } , .F. ) .and. ;
+		   ( ( cType := ValType( uValor ) ) == __aMnemonicos[ nPos , 04 ] )	)	
+			uRetConteud := uValor
+		Else
+			uRetConteud := GetValType( __aMnemonicos[ nPos , 04 ] )
+		EndIf
+	Else
+		uValor := uRetConteud
+		If CheckExecForm( @uValor , .F. )
+			uRetConteud := uValor
+		Else
+			uRetConteud := GetValType( __aMnemonicos[ nPos , 04 ] )
+		EndIf
+	EndIf
+EndIf
+
+Return( uRetConteud )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRstMnemonicos	Ё Autor ЁMarinaldo de JesusЁ Data Ё11/09/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁReinicializa a Static __aMnemonicos							 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RstMnemonicos()
+__aMnemonicos := {}
+Return( NIL )
+
+Function RstlDefaut()
+	lDefautsMnemos	:= .T.
+Return
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSaveMnemonicos  Ё Autor ЁMarinaldo de JesusЁ Data Ё02/12/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁSalva o conteudo dos Mnemonicos								 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SaveMnemonicos()
+
+Local aSvMnemonicos := {}
+
+Local nMnemo
+Local nMnemos
+
+nMnemos := Len( __aMnemonicos )
+For nMnemo := 1 To nMnemos
+	aAdd( aSvMnemonicos , { __aMnemonicos[ nMnemo , 1 ] , GetMemVar( __aMnemonicos[ nMnemo , 1 ] ) } ) 
+Next nMnemo
+
+Return( aSvMnemonicos )
+
+/*/
+зддддддддддбдддддддддддддддддбддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRestoreMnemonicosЁAutor ЁMarinaldo de JesusЁ Data Ё02/12/2004Ё
+цддддддддддедддддддддддддддддаддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRestaura o conteudo dos Mnemonicos							 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RestoreMnemonicos( aSvMnemonicos )
+
+Local nMnemo
+Local nMnemos
+
+nMnemos := Len( aSvMnemonicos )
+For nMnemo := 1 To nMnemos
+	SetMemVar( aSvMnemonicos[ nMnemo , 1 ] , aSvMnemonicos[ nMnemo , 2 ] )
+Next nMnemo
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддбддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁRcaAddMnemo		ЁAutorЁMarinaldo de Jesus  Ё Data Ё09/11/2004Ё
+цддддддддддеддддддддддддддддадддддаддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAdiciona Mnemonicos no Array aMnemonicos baseado no RCA 	 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function RcaAddMnemo( aMnemonicos )
+
+Local cRcaMnemon	:= AllTrim( RCA->RCA_MNEMON )
+
+DEFAULT aMneMonicos := {}
+
+IF ( aScan( aMneMonicos , { |x| x[1] == cRcaMnemon } ) == 0 )
+	RCA->( aAdd( aMneMonicos , {;
+									cRcaMnemon		,;	//01 - Codigo do Mnemonico
+									RCA_DESC		,;	//02 - Descricao do Mnemonico
+									If(Empty(RCA_CONTEU), GetValType(RCA_TIPO), If( Upper(AllTrim( RCA->RCA_MNEMON )) == "P_REGPARCI" .And. lRefTrab , .F., RCA_CONTEU)),;//03 - Conteudo DEFAULT do Mnemonico
+									RCA_TIPO		,;	//04 - Tipo do Mnemonico
+									Recno()			,;	//05 - Recno do Mnemonico
+									RCA_ACUMUL		 ;	//06 - Instancia do Mnemonico
+								};
+				);
+		)
+EndIF
+	
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддбддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁCheckExecForm	ЁAutorЁMarinaldo de Jesus  Ё Data Ё07/06/2002Ё
+цддддддддддеддддддддддддддддадддддаддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁExecuta as Formulas para Verificacao de Erros         	 	 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function CheckExecForm( uExec , lShowHelp , cHelp , cMsgHelp , lAddLogExecRot )
+
+Local bErro			:= ErrorBlock( { |oErr| ErroForm( oErr , @lExecOk , lShowHelp , cHelp , @cMsgHelp , lAddLogExecRot ) } )
+Local lExecOk		:= .T.
+Local cTipoExec		:= ""
+Local l270 			:= FunName() == "GPEA270"
+Local lFuncao 		:= If(l270,FindFunction(AllTrim(uExec)),.F.)
+
+DEFAULT uExec		:= ""
+DEFAULT lShowHelp	:= .T.
+
+cTipoExec			:= ValType( uExec )
+
+Begin Sequence
+	If ( cTipoExec == "C" )
+		uExec := __ExecMacro( uExec )
+		If l270
+			If lFuncao .And. ValType(uExec) == "L"
+				lExecOk := .F.
+				cHelp := "ERR_FORM"
+				cMsgHelp := STR0067
+				Help( "" , 1 , cHelp , NIL , cMsgHelp , 3 , 1 )
+			EndIf
+		EndIf
+	ElseIf ( cTipoExec == "B" )
+		uExec := Eval( uExec )
+	EndIf
+End Sequence
+
+ErrorBlock( bErro )
+
+Return( lExecOk )
+
+/*/
+зддддддддддбддддддддддддддддбдддддбддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁErroForm 		ЁAutorЁMarinaldo de Jesus  Ё Data Ё07/06/2002Ё
+цддддддддддеддддддддддддддддадддддаддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica os Erros na Execucao da Formula                     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function ErroForm(	oErr			,;	//01 -> Objeto oErr
+							lNotErro		,;	//02 -> Se Ocorreu Erro ( Retorno Por Referencia )
+							lShowHelp		,;	//03 -> Se Devera Mostrar o Help
+							cHelp			,;	//04 -> Nome do Help a Ser Mostrado
+							cMsgHelp		,;	//05 -> Mensagem Complementar para o Helo ( Podera ser Retornada Por Referencia )
+							lAddLogExecRot	 ;	//06 -> Se Esta Executando aa Partir da ExecRot, verifica se Deve Adicionar Log
+						)
+
+Local aErrorStack
+
+DEFAULT lNotErro	:= .T.
+DEFAULT lShowHelp	:= .T.
+
+IF !( lNotErro := !( oErr:GenCode > 0 ) )
+	IF ( lShowHelp )
+		DEFAULT cMsgHelp		:= ""
+		DEFAULT lAddLogExecRot	:= IsInCallStack( "EXECROT" )
+		IF !Empty( cMsgHelp )
+			IF ( lAddLogExecRot )
+				AddLogExecRot( cMsgHelp )
+				cMsgHelp	:= ""
+			Else
+				cMsgHelp	+= CRLF
+			EndIF
+		EndIF
+		cMsgHelp += "Error Description: "
+		cMsgHelp += oErr:Description
+		IF ( lAddLogExecRot )
+			AddLogExecRot( cMsgHelp )
+			aErrorStack	:= Str2Arr( oErr:ErrorStack , Chr( 10 ) )
+			aEval( aErrorStack , { |cStackError| RotAddErr( cStackError ) } )
+		Else
+			DEFAULT cHelp	:= "ERR_FORM"
+			Help( "" , 1 , cHelp , NIL , cMsgHelp , 3 , 1 )
+		EndIF	
+	EndIF
+EndIF
+
+Break
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддддбдддддбдддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁValidRot		ЁAutorЁMarinaldo de Jesus Ё Data Ё27/02/2002Ё
+цддддддддддеддддддддддддддддадддддадддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁValida o Tamanho da Expressao digitada no Roteiro           Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁValidRot( cTitulo , cMemo , nSizeCpo )						Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                    Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Retorno  ЁlValid 														Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁcTitulo		-> Titulo do Campo a ser Validado				Ё
+Ё          ЁcMemo		-> Expressao para Validacao						Ё
+Ё          ЁnSizeCpo	-> Tamanho do Campo para Validacao				Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ValidRot( cTitulo , cMemo , nSizeCpo )
+
+Local lValid	:= .F. 
+Local cMsg		:= ""
+Local nSizeMemo	:= 0
+
+DEFAULT cTitulo 	:= ""
+DEFAULT cMemo		:= ""
+DEFAULT nSizeCpo	:= 0.01
+
+cMemo := ClearChar( cMemo )
+
+IF  !( lValid := ( ( nSizeMemo := Len( cMemo ) ) <= nSizeCpo ) )
+	cMsg := ( STR0001 + '"' + cTitulo + '"' + STR0002 + CRLF )	//"A Express└o da"###"Ultrapassou o tamanho m═ximo permitido para o campo."
+	cMsg += ( STR0003 + CRLF )									//"Favor refazer a Express└o ou criar Sub-Sequencias."
+	cMsg += CRLF
+	cMsg += CRLF
+	cMsg += ( STR0004 + StrZero( nSizeCpo  , 10 ) + CRLF )		//"Tamanho do Campo: "
+	cMsg += ( STR0005 + StrZero( nSizeMemo , 10 ) )				//"Tamanho da Express└o: "
+	MsgAlert( OemToAnsi( cMsg ) , OemToAnsi(STR0006) )			//"Aten┤└o"
+EndIF
+
+Return( lValid )
+
+/*/
+зддддддддддбддддддддддддддддбдддддбдддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁClearChar		ЁAutorЁMarinaldo de Jesus Ё Data Ё27/02/2002Ё
+цддддддддддеддддддддддддддддадддддадддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁValida o Tamanho da Expressao digitada no Roteiro           Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁClearChar( cMemo )											Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁValidRot() em GPEA160                                       Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Retorno  ЁcMemo  														Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁcMemo  		-> Expressao a ser limpa         				Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Static Function ClearChar( cMemo )
+
+cMemo := IF( Empty( cMemo ) .or. ValType( cMemo ) != "C" , "" , cMemo )
+
+cMemo := AllTrim( cMemo )
+cMemo := NoAcento( ftAcento( cMemo ) )
+cMemo := StrTran( cMemo , Chr(13) , "" )
+cMemo := StrTran( cMemo , Chr(10) , "" )
+cMemo := AllTrim( cMemo )
+
+Return( cMemo )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetMemVar		Ё Autor ЁMarinaldo de JesusЁ Data Ё30/01/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁObtem e Retorna o Conteudo de uma Variavel de Memoria		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁuRetValue                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetMemVar( cVar , lInitPad , cLado )
+
+Local cVarAux
+Local uRetValue
+
+DEFAULT cVar 		:= "__Undefined__"
+DEFAULT lInitPad	:= .F.
+
+cVar := Upper( AllTrim( cVar ) )
+IF !( "M->" == SubStr( cVar , 1 , 3 ) )
+	cVar := ( "M->" + cVar )
+EndIF
+
+IF ( IsMemVar( cVar ) )
+	uRetValue := __ExecMacro( cVar )
+Else
+	IF !( cVar == Upper( "__Undefined__" ) )
+		cVarAux := SubStr( cVar , 4 )
+		IF !( GetSx3Cache( cVarAux , "X3_CAMPO" ) == NIL )
+			uRetValue := CriaVar( cVarAux , lInitPad , cLado , .F. )
+		EndIF
+	EndIF
+EndIF
+
+Return( uRetValue )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetMemVar		Ё Autor ЁMarinaldo de JesusЁ Data Ё30/01/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁAtualiza conteudo da Variavel de Memoria     				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁuLastVal                                               	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SetMemVar(		cVar			,;	//Variavel de Memoria a ser Setada.
+						uSetValue		,;	//Conteudo a ser Setado.
+						lSetOwnerPrvt	,;	//Se cria em uma instancia superior caso nao exista.
+						lForceSetOwner	,;	//Se forca a criacao em uma instancia acima
+						lRetLastValue	,;	//Se retorna o valor anterior.
+						lInitPad		,;	//Se utiliza o Inicializador padrao em GetMemVar().
+						cLado			 ;	//Lado para o Inicializador padrao para FieldType <=>"C".
+				  )
+
+Local uRetValue
+
+DEFAULT cVar 			:= "__Undefined__"
+DEFAULT lSetOwnerPrvt	:= .F.
+DEFAULT lRetLastValue	:= .F.
+DEFAULT lForceSetOwner	:= .F.
+
+cVar := Upper( AllTrim( cVar ) )
+IF !( "M->" == SubStr( cVar , 1 , 3 ) )
+	cVar := ( "M->" + cVar )
+EndIF
+
+IF ( lRetLastValue )
+	uRetValue	:= GetMemVar( SubStr( cVar , 4 ) , lInitPad , cLado )
+Else
+	uRetValue	:= uSetValue
+EndIF
+IF (;
+		!IsMemVar( cVar );
+		.or.;
+		( lForceSetOwner );
+	)
+	IF ( lSetOwnerPrvt )
+		_SetOwnerPrvt( SubStr( cVar , 4 ) , uSetValue )
+	EndIF
+Else
+	&( cVar )	:= uSetValue
+EndIF
+
+Return( uRetValue )
+
+/*/
+зддддддддддбддддддддддддддддбдддддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁIsMemVar		Ё Autor ЁMarinaldo de JesusЁ Data Ё20/03/2004Ё
+цддддддддддеддддддддддддддддадддддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁVerifica a Existencia de Variavel de Memoria 				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁlIsMemVar                                           	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+Ё Uso      ЁGenerico                                                     Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function IsMemVar( cVar )
+
+Local cType
+Local cTypeVar
+Local lIsMemVar
+
+DEFAULT cVar := "__Undefined__"
+
+cVar := Upper( AllTrim( cVar ) )
+IF !( "M->" == SubStr( cVar , 1 , 3 ) )
+	cVar := ( "M->" + cVar )
+EndIF
+
+cType		:= Type( cVar )	
+cTypeVar	:= GetSx3Cache( SubStr( cVar , 4 ) , "X3_TIPO" )
+IF (;
+		( cTypeVar == "M" );
+		.and.;
+		( cType == "C" );
+	)
+	cTypeVar := "C"
+EndIF
+lIsMemVar	:= IF( cTypeVar <> NIL , ( cType == cTypeVar ) , ( cType <> "U" ) )
+
+Return( lIsMemVar )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁInGpexFormExecЁAutor ЁMarinaldo de Jesus   Ё Data Ё24/08/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁExecutar Funcoes Dentro de GPEXFORM                          Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁInGpexFormExec( cExecIn , aFormParam )						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁuRet                                                 	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function InGpexFormExec( cExecIn , aFormParam )
+         
+Local uRet
+
+DEFAULT cExecIn		:= ""
+DEFAULT aFormParam	:= {}
+
+IF !Empty( cExecIn )
+	cExecIn	:= BldcExecInFun( cExecIn , aFormParam )
+	uRet	:= __ExecMacro( cExecIn )
+EndIF
+
+Return( uRet )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁMayIExecRot   ЁAutor ЁMarinaldo de Jesus   Ё Data Ё01/12/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁGarante a Exclusividade na Execucao do Roteiro				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T., se Tem Exclusividade, Caso Contratio .F.          	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function MayIExecRot()
+Return( MayIUseCode( cEmpAnt + "MayIExecRot" ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁLeaveExecRot  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё01/12/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁLibera a Exclusividade na Execucao do Roteiro				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T.                                                    	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function LeaveExecRot()
+Return( Leave1Code( cEmpAnt + "MayIExecRot" ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁWhileExecRot  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё01/12/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁTentativa de Exclusividade para a Execucao do Roteiro		 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё.T., se Tem Exclusividade, Caso Contratio .F.          	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function WhileExecRot( nWait , lStop )
+
+Local cMsgInfo	:= STR0052	//"As Formulas ou Roteiros estЦo em uso por outro Processo."
+Local cTitInfo	:= STR0053	//"Formulas e/ou Roteiros em uso."
+Local cMsgYesNo	:= STR0054	//"Deseja Tentar Novamente?"
+Local cTitYesNo	:= IF( Type( "cCadastro" ) == "C" , STR0055 + " " + cCadastro , STR0056 )//"Tendando Acessar"###"Aviso"
+Local cMsgWait	:= STR0057	//"Aguarde..."
+Local cTitWait	:= STR0058	//"Tentando"
+
+DEFAULT nWait	:= 1000
+DEFAULT lStop	:= .T.
+
+Return( WhileYesNoWait( { || MayIExecRot() } , nWait , lStop , cMsgInfo , cTitInfo , cMsgYesNo , cTitYesNo , cMsgWait , cTitWait ) )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁExecRot		  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁExecuta o Roteito de Calculo								 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁnRet                                                   	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ExecRot( cFilExec , cRotExec, lRot, cNomeForm )
+
+Local nRet
+
+Local aGetTreeFrm
+Local aTreeErr
+Local aRotErr
+Local aMnemonErr
+
+Local cType
+Local cSvRoteiro
+Local cSryFilial	:= ""
+Local cFilAux 		:= ""
+
+Local lInExecRot
+Local lInitPadrao
+Local lInitFrmAux	:= .T.
+
+Local nMnemo
+Local nMnemos
+
+Local oRpoForm
+
+Local uVar
+Local uCont
+
+Private cBkpFilial	:= ""
+Private cBkpRoteiro	:= ""
+Private cFunRotExec	:= ""
+Private cFunForExec	:= ""
+
+Static __cKeyAux	:= ""
+
+DEFAULT lRot		:= .T.		// se a execucao eh um roteiro ==> .F. == Formula
+DEFAULT cNomeForm	:= ""
+DEFAULT __lFilRPO   := SuperGetMv("MV_RPOFIL",, .F.) //Gera repositСrios auxiliares por filial? -- TMF
+
+Begin Sequence
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁCarregar os Mnemonicos no Array __aMnemonicos				   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	IF Empty( __aMnemonicos )
+		IF (;
+				!SetMnemonicos( cFilExec , @__aMnemonicos , .F. );	//Aqui __aMnemonicos he Static
+				.or.;
+				( ( nMnemos := Len( __aMnemonicos ) ) == 0 );
+			)	
+			DEFAULT aMnemonErr := {}
+			aAdd( aMnemonErr , STR0031 )	//"Nao Foi Possivel Carregar os Mnemonicos para a Execucao do Calculo. Verifique a Tabela de Mnemonicos RCA"
+			nRet := -1						//Nao Consegui Carregar os Mnemonicos
+			Break
+		EndIF
+	EndIF
+
+	If __lInitFrm .and. !__IniFormPad__ .and. __lFilRPO //Verifica se as fСrmulas padrУes foram gravadas, caso nЦo existam, forГa a criaГЦo
+		cFilAux		:= xFilial( "RC2" , cFilExec )
+		If RC2->(DbSeek(cFilAux))
+			While RC2->(!Eof() .and. RC2_FILIAL == cFilAux)
+				If RC2->RC2_ORIGEM == "S_"
+					lInitFrmAux := .F.
+					Exit 
+				EndIf
+				RC2->(DbSkip())
+			EndDo
+		EndIf 
+
+		If lInitFrmAux
+			//Se nЦo existem fСrmulas padrУes criadas, forГa compilaГЦo de todos os roteiros e fСrmulas
+			Gpea290FrmInit( .T. )
+			GpeGerFrm(.T.)
+			Gpea160RotGer( .F., , , , , , , , .T. )
+			__lInitFrm := .F.
+		EndIf
+		GPCallCmpAll("SRY",.T.,.F.,,.T.)
+	EndIf	
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁSeta o Roteiro a Ser Executado								   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	If lRot
+		cSvRoteiro 		:= SetRotExec( cRotExec )
+	Else
+		cSvRoteiro 		:= cRotExec
+	EndIf	
+	
+	// Verifica as Formulas que Precisam ser Compiladas
+	If( __lInitFrm )
+		If !GetTreeFrm( @aGetTreeFrm , cFilExec , NIL , NIL , .T. , @oRpoForm , .T. )
+			nRet		:= -2	//Nao Consegui Inicializar ou Compilar Todas as Formulas
+			Break
+		EndIf
+		__lInitFrm := .F.
+
+	EndIf
+	
+	If __cLastRotExec # cRotExec
+
+		cSryFilial		:= xFilial( "SRY" , cFilExec )
+	
+		/*/
+		здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+		Ё Verifica se Deve Adicionar as Formulas Padroes                         Ё
+		юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+		If !IsBlind()//Se for JOB, nЦo efetua a verificaГЦo
+			IF !GpeGerFrm()
+				Break 
+			EndIF
+		EndIf
+		
+		If lRot
+			lInitPadrao := .T.
+			If cSryFilial + cRotExec $ __cKeyAux
+				lInitPadrao := .F.
+			Else
+				__cKeyAux += cSryFilial + cRotExec + "*"
+			EndIf			
+
+			cFunRotExec := ( GetFunRot( cSryFilial , @cRotExec, , , lInitPadrao ) + "()" )
+			
+			// Se for JOB, nЦo efetua a verificaГЦo
+			// Executa nos testes automatizados
+			If !IsBlind() .Or. IsInCallStack("FwMyTestRunner") .Or. IsInCallStack("EXECSUITE") .Or. IsInCallStack("EXECSUITEBLIND") .Or. IsInCallStack("AUTJOBRUNCT")
+				GPCallCmpAll("SRY",.T.,.F.,,, {cFilExec}) //"Validando a CompilaГЦo de Roteiros e Formulas..."
+			EndIf
+		Else
+			cFunRotExec := ( GetFunForm( cSryFilial , @cRotExec ) + "()" )
+		EndIf
+		
+		cBkpFilial	:= cSryFilial
+		cBkpRoteiro	:= cRotExec
+		
+		If __bFunRotExec # NIL
+			If GetCbSource( __bFunRotExec ) <> GetCbSource( __CompStr( cFunRotExec ) )
+				__bFunRotExec := NIL
+			EndIf
+		EndIf
+	Else
+		cFunRotExec := __cFunRotExec
+	EndIf
+	
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁVerifica se a ExecRot ja Esta Empilhada					   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	lInExecRot := ( ( cSvRoteiro <> cRotExec ) .and. IsInCallStack( "EXECROT" ) )
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁInicializa os Mnemonicos 									   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	DEFAULT nMnemos := Len( __aMnemonicos )
+	For nMnemo := 1 To nMnemos
+		IF (;
+				( __aMnemonicos[ nMnemo , 06 ] == "3" );		//"3" -> Mnemonicos Local sao inicializados apenas na Formula
+				.or.;
+				(;
+					( __aMnemonicos[ nMnemo , 06 ] == "1" );	//"1" -> Mnemonicos Public sao inicializados apenas uma unica vez
+					.and.;
+					type(__aMnemonicos[ nMnemo , 01]) <> "U";   //IsMemVar( __aMnemonicos[ nMnemo , 01 ] );
+					.and.;
+					!( lInExecRot );	//Se ExecRot ja Estiver Empilhada ( chamada via Formula ), Re-Seta os Mnemonicos Public para uso em Novo Roteiro
+				);
+			)
+			Loop
+		EndIF
+
+		// "2" -> Mnemonicos Private sao reinicializados a Cada Processo
+		IF ( !Empty( uVar := AllTrim( __aMnemonicos[ nMnemo , 03 ] ) ) )
+			IF (;
+					( __aMnemonicos[ nMnemo , 04 ] == "D" );
+					.and.;
+					( "/" $ uVar );
+				)
+				IF (;
+						CheckExecForm( { || uVar := Ctod( uVar ) } , .F. );
+						.and.;
+						( ( cType := ValType( uVar ) ) == __aMnemonicos[ nMnemo , 04 ] );
+					)	
+					If Empty( __bFunRotExec )
+						_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar )
+					Else
+						&(__aMnemonicos[ nMnemo , 01 ]) := uVar
+					EndIf
+				Else
+					If Empty( __bFunRotExec )
+						_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+					Else
+						&(__aMnemonicos[ nMnemo , 01 ]) := GetValType( __aMnemonicos[ nMnemo , 04 ] )
+					EndIf
+				EndIF
+			Else
+				If Empty( __bFunRotExec )
+					IF CheckExecForm( @uVar , .F. )
+						If Empty( __bFunRotExec )
+							_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , uVar )
+						Else
+							&(__aMnemonicos[ nMnemo , 01 ]) := uVar
+						EndIf
+					Else
+						aAdd( __aMnemError, { __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ), __aMnemonicos[ nMnemo , 03 ], uVar } )
+						If Empty( __bFunRotExec )
+							_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+						Else
+							&(__aMnemonicos[ nMnemo , 01 ]) := GetValType( __aMnemonicos[ nMnemo , 04 ] )
+						EndIf
+					EndIf
+				Else
+					If Empty(__aMnemError)
+						If Empty(__aMnemonicos[ nMnemo , 03 ])
+							uCont := GetValType( __aMnemonicos[ nMnemo , 04 ] )
+						Else
+							uCont := &(__aMnemonicos[ nMnemo , 03 ])
+						EndIf
+					Else
+						nPosItem := aScan( __aMnemError, { |x| x[1] == __aMnemonicos[ nMnemo , 01 ] } )
+						If nPosItem > 0
+							uCont := __aMnemError[ nPosItem , 02 ]
+						Else
+							If Empty(__aMnemonicos[ nMnemo , 03 ])
+								uCont := GetValType( __aMnemonicos[ nMnemo , 04 ] )
+							Else
+								uCont := &(__aMnemonicos[ nMnemo , 03 ])
+							EndIf
+						EndIf
+					EndIf
+					&(__aMnemonicos[ nMnemo , 01 ]) := uCont
+				EndIF
+			EndIF
+		Else
+			If Empty( __bFunRotExec )
+				_SetOwnerPrvt( __aMnemonicos[ nMnemo , 01 ] , GetValType( __aMnemonicos[ nMnemo , 04 ] ) )
+			Else
+				&(__aMnemonicos[ nMnemo , 01 ]) := GetValType( __aMnemonicos[ nMnemo , 04 ] )
+			EndIf
+		EndIF
+	Next nMnemo
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁCompilando Bloco para a Execucao do Roteiro      		   	   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	IF Empty( __bFunRotExec )
+		If 	lRot
+			IF (;
+					( __cFunRotExec <> cFunRotExec );
+					.or.;
+					( __bFunRotExec == NIL );
+				)	
+
+				/*/
+				здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+				ЁCarregando o Roteiro para Calculo                		   	   Ё
+				юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+				If cBkpFilial <> cSryFilial .Or. cBkpRoteiro <> cRotExec
+					cFunRotExec := ( GetFunRot( cSryFilial , @cRotExec ) + "()" )
+				Endif
+				
+				IF ErrorInRot()
+					nRet	:= -3	//Nao Consegui Inicializar ou Compilar o Roteiro
+					Break
+				EndIF
+				
+				__cFunRotExec	:= cFunRotExec
+		
+				IF !CheckExecForm( { || __bFunRotExec := __CompStr( cFunRotExec ) } , .T. , NIL , NIL , .T. )
+					nRet	:= -4	//Ocorreu Erro ao Compilar a Funcao para Executar o Roteiro
+					Break
+				EndIF
+
+			EndIF
+    
+		/*/
+		здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+		ЁExecucao de uma determinada formula diretamente  		   	   Ё
+		юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+		Else
+			If cBkpFilial <> cSryFilial .Or. cBkpRoteiro <> cRotExec
+				cFunRotExec := GetFunForm( cSryFilial , @cRotExec )
+			Endif
+			IF !Empty( _aGetTreeErr )
+				nRet := -2		//Nao Consegui Inicializar ou Compilar Todas as Formulas
+				Break
+			EndIF
+			 cFunRotExec += "()"
+	
+			__cFunRotExec	:= cFunRotExec
+			IF !CheckExecForm( { || __bFunRotExec := __CompStr( cFunRotExec ) } , .T. , NIL , NIL , .T. )
+				nRet	:= -2	//Nao Consegui Inicializar ou Compilar Todas as Formulas
+				Break
+			EndIF
+		EndIF
+	EndIF
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁExecutando Roteiro de Calculo                    		   	   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	IF !CheckExecForm( { ||&cFunRotExec } , .T. , NIL , NIL , .T. )
+		nRet	:= -5	//Ocorreu Erro ao Executar o Roteiro
+		Break
+	EndIF
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁFuncao que Verifica a Finalizacao do Calculo				   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	IF IsEndCalc()
+		nRet := 2	//Nao Ocorreu Erro, Finalizacao de Calculo
+		cNomeForm := cFunForExec
+	EndIF
+
+	/*/
+	здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+	ЁFuncao que Verifica Se Deve Desprezar o Registro			   Ё
+	юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+	IF lRot
+		IF IsNoPrcReg()
+			nRet := 1	//Nao Ocorreu Erro, Nao Processar o Registro
+			cNomeForm := cFunForExec
+		EndIF
+	EndIF
+
+End Sequence
+
+/*/
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁSe nao Ocorreu nenhuma Inconsistencia, Carrega o valor DEFAULTЁ
+Ёpara nRet													   Ё
+Ё         													   Ё
+ЁValores Positivos ( Nao ocorrencia de Erros )				   Ё
+Ё         													   Ё
+ЁnRet == 0 	-> ExecRot() TudoOk								   Ё
+ЁnRet == 1 	-> Desprezar o Registro duranto o Processamento	   Ё
+ЁnRet == 2 	-> Forcar a Finalizacao do Calculo	   			   Ё
+Ё         													   Ё
+ЁValores Negativos ( Ocorrencia de Erros )				   	   Ё
+Ё         													   Ё
+ЁnRet == -1	-> Erro ao Carregar os Mnemonicos              	   Ё
+ЁnRet == -2	-> Erro ao Carregar as Formulas					   Ё
+ЁnRet == -3	-> Erro ao Carregar o Roteiro					   Ё
+ЁnRet == -4	-> Erro ao Compilar a Funcao de Roteiro			   Ё
+ЁnRet == -5	-> Erro ao Executar o Roteiro					   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+DEFAULT nRet	:= 0
+
+/*/
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁCarrega Erros de Mnemonicos                      			   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+IF ( nRet == -1 )
+	IF !Empty( aMnemonErr )
+		aEval( aMnemonErr , { |cErr| aAdd( _aLogExecRot[ 1 , 2 ] , cErr ) } )
+	EndIF
+EndIF
+
+/*/
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁCarrega Erros de Formula                         			   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+IF ( nRet == -2 )
+	aTreeErr	:= GetTreeErr()
+	IF !Empty( aTreeErr )
+		aEval( aTreeErr , { |cErr| aAdd( _aLogExecRot[ 2 , 2 ] , cErr ) } )
+	EndIF
+EndIF	
+
+/*/
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁCarrega os Erros de Roteiro                      			   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+IF (;
+		( nRet >= -5 );
+		.or.;
+		( nRet <= -3 );
+	)
+	aRotErr := RotGetErr()
+	IF !Empty( aRotErr )
+		aEval( aRotErr , { |cErr| aAdd( _aLogExecRot[ 3 , 2 ] , cErr ) } )
+	EndIF
+EndIF
+
+/*/
+здддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд©
+ЁRestaura o Roteiro de Entrada                    			   Ё
+юдддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+If lRot
+	SetRotExec( cSvRoteiro )
+EndIf
+
+__cLastRotExec := cRotExec
+__cFunRotExec := cFunRotExec
+
+Return( nRet )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁExecForm	  ЁAutor ЁMauricio T. Takakura Ё Data Ё10/02/2005Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁExecuta uma determinada formula								 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё nRet                                                  	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function ExecForm( cFilExec , cFormula, cRotForm )
+
+Local cSvRoteiro 
+
+Local nRet
+
+cSvRoteiro := SetRotExec( If( Empty(cRotForm), cFormula, cRotForm ) )
+
+nRet := ExecRot( cFilExec , cFormula, .F. )
+
+SetRotExec( cSvRoteiro )
+
+Return( nRet )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁLogExecRot	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё10/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna Array com os Logs na ExecRot            			 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁaLogExecRot                                            	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function LogExecRot()
+
+Local aLogExecRot
+
+DEFAULT _aLogExecRot	:= {}
+
+aLogExecRot				:= aClone( _aLogExecRot )
+InitLogExecRot()
+
+Return( aLogExecRot )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁAddLogExecRot ЁAutor ЁMarinaldo de Jesus   Ё Data Ё27/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁUtilizar na Montagem das Formulas de Roteiro para Adicao   deЁ
+Ё          ЁInformacoes no Log											 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNIL		                                            	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function AddLogExecRot( cMsg )
+
+Local aMsg
+
+Local nMsg		:= Len( cMsg )
+
+IF ( nMsg > 220 )
+	aMsg := {}
+	While ( nMsg > 220 )
+		aAdd( aMsg , SubStr( cMsg , 1 , 220 ) )
+		cMsg := SubStr( cMsg , 221 )
+		IF ( ( nMsg := Len( cMsg ) ) < 220 )
+			aAdd( aMsg , cMsg )
+			Exit
+		EndIF
+	End While
+	aEval( aMsg , { |cMsg| AddLogExecRot( cMsg ) } )
+ElseIF Len( _aLogExecRot) == 0   
+	InitLogExecRot()  
+ElseIF ( aScan( _aLogExecRot[ 4 , 2 ] , { |x| x == cMsg } ) == 0 )
+	aAdd( _aLogExecRot[ 4 , 2 ] , cMsg )
+EndIF	
+
+Return( NIL )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁGetRotExec	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё11/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁRetorna o Roteiro em Execucao no Momento       				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   Ё__cRotInExec ( Roteiro em Execucao )						 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetRotExec()
+DEFAULT __cRotInExec := "__cRotInExec"
+Return( __cRotInExec )
+
+/*/
+зддддддддддбддддддддддддддбддддддбдддддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤└o    ЁSetRotExec	  ЁAutor ЁMarinaldo de Jesus   Ё Data Ё11/11/2004Ё
+цддддддддддеддддддддддддддаддддддадддддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤└o ЁSeta o Roteiro para Execucao                   				 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁcLastRot ( Roteiro Anterior em Execucao )					 Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁObserva┤└oЁ                                                      	     Ё
+цддддддддддеддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico 													 Ё
+юддддддддддаддддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function SetRotExec( cNewRot )
+
+Local cLastRot
+
+DEFAULT __cRotInExec	:= "__cRotInExec"
+cLastRot				:= __cRotInExec
+__cRotInExec			:= cNewRot
+
+Return( cLastRot )
+
+/*/
+зддддддддддбдддддддддддддддддбдддддбдддддддддддддддддддбдддддбдддддддддд©
+ЁFun┤└o    ЁFinalFun		 ЁAutorЁMauro Sergio       ЁData Ё12/08/2002Ё
+цддддддддддедддддддддддддддддадддддадддддддддддддддддддадддддадддддддддд╢
+ЁDescri┤└o ЁFinaliza calculo do Funcionario								Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁFinalFun()													Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁCalculo Gpexcal1 Gpexcalc                                   Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁNoPrcReg()													Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁaTabelas -> Array com a carga da tabela       				Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function FinalFun()
+Return( NoPrcReg() )	//Variavel que define se deve continuar calculo do funcionario ou pular para o proximo.
+
+/*/
+зддддддддддбдддддддддддддддддбдддддбдддддддддддддддддддбдддддбдддддддддд©
+ЁFun┤└o    ЁFinalCalc		 ЁAutorЁMauro Sergio       ЁData Ё12/08/2002Ё
+цддддддддддедддддддддддддддддадддддадддддддддддддддддддадддддадддддддддд╢
+ЁDescri┤└o ЁFinaliza calculo											Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   ЁFinalCalc()													Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁFormulas para uso no Roteiro de Calculo                     Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁRetorno   ЁEndCalc()													Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁNIL															Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function FinalCalc()
+Return( EndCalc() )		//Variavel que define se calculo deve continuar ou ser abortado.
+
+/*/
+зддддддддддбдддддддддддддддддбдддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤┘o    ЁGetStackFormula  ЁAutorЁMarinaldo de JesusЁ Data Ё21/12/2004Ё
+цддддддддддедддддддддддддддддадддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤┘o ЁVerifica se Esta Executando a Partir de Uma Formula			Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                     								Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetStackFormula()
+
+Local cCallStack	:= ""
+Local nCallStack	:= 0
+
+While ( !Empty( cCallStack := ProcName( ++nCallStack ) ) )
+	If (;
+			( SubStr( cCallStack , 1 , 2 ) $ "S_/U_" );
+			.and.;
+			GetCache( "RC2" , cCallStack , NIL , NIL , RetOrder( "RC2" , "RC2_FILIAL+RC2_ORIGEM+RC2_CODIGO" , .F. ) );
+		)
+		Exit
+	EndIf
+End While
+
+Return( cCallStack )
+
+/*/
+зддддддддддбдддддддддддддддддбдддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤┘o    ЁGetLastRot		 ЁAutorЁLeandro Drumond   Ё Data Ё26/02/2014Ё
+цддддддддддедддддддддддддддддадддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤┘o ЁRetorna o ultimo roteiro executado (pilha de roteiros)		Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                     								Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function GetLastRot()
+
+Return cSvSetRot
+
+/*/
+зддддддддддбдддддддддддддддддбдддддбддддддддддддддддддбддддддбдддддддддд©
+ЁFun┤┘o    ЁRstLastRot   	 ЁAutorЁLeandro Drumond   Ё Data Ё13/01/2015Ё
+цддддддддддедддддддддддддддддадддддаддддддддддддддддддаддддддадддддддддд╢
+ЁDescri┤┘o ЁAltera o valor da variavel __cLastRotExec					Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁSintaxe   Ё<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁParametrosЁ<Vide Parametros Formais>									Ё
+цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢
+ЁUso       ЁGenerico                     								Ё
+юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды/*/
+Function RstLastRot(cRotAux)
+
+DEFAULT cRotAux := "__cLastRotExec"
+
+__cLastRotExec	:= cRotAux
+
+Return Nil 
+
+/*/{Protheus.doc} fFunExec
+FunГЦo que verifica qual fСrmula solicitou a parada na execuГЦo do roteiro via FinalCalc()/FinalFun()
+@author Allyson Mesashi
+@since 22/03/2018
+@version 1.0
+/*/
+Static Function fFunExec()
+
+Local aCalls	:= {}
+Local nCont		:= 1
+
+If IsInCallStack("Execrot")
+	While ProcName(nCont) != SubStr(cFunRotExec, 1, Len(cFunRotExec)-2)
+		aAdd(aCalls, {nCont, ProcName(nCont)})
+		nCont ++
+	End While
+	
+	aSort( aCalls , NIL , NIL , { |x,y| ( x[1] > y[1] ) } )
+	For nCont := 1 To Len(aCalls)
+		If At("S_", aCalls[nCont,2]) > 0 
+			cFunForExec := aCalls[nCont,2]
+			Exit
+		EndIf
+	Next nCont
+EndIf
+
+Return
+
+/*/{Protheus.doc} RstStMem
+Merge MemСria de CАlculo - FunГЦo para restaurar o conteЗdo do mnemТnico.
+@author Henrique Ferreira
+@since 28/08/2018
+@version 1.0
+/*/
+Function RstStMem()
+
+__lMemCalc := cPaisLoc == "BRA" .And. FindFunction("fGrvLogFun") .And. Type("P_LMEMCALC") <> "U" .And. P_LMEMCALC
+
+Return
+
+
+/*
+эээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээээ
+╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠
+╠╠зддддддддддбддддддддддбдддддддбдддддддддддддддддддддддбддддддбдддддддддд©╠╠
+╠╠ЁFun┤┘o	 Ё GrvReliq Ё Autor Ё Jonatas A. T. Alves   Ё Data Ё 03.02.10 Ё╠╠
+╠╠цддддддддддеддддддддддадддддддадддддддддддддддддддддддаддддддадддддддддд╢╠╠
+╠╠ЁDescri┤┘o Ё Grava as Verbas da Matriz de Impostos Reliqudiados na RGV. Ё╠╠
+╠╠цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢╠╠
+╠╠ЁSintaxe   Ё GrvReliq(X)												  Ё╠╠
+╠╠цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢╠╠
+╠╠ЁParametrosЁ X =	Matriz Multi contendo						    	  Ё╠╠
+╠╠Ё	 		 Ё Codigo da Verba , Referencia, Valor, Competencia.          Ё╠╠
+╠╠цддддддддддедддддддддддддддддддддддддддддддддддддддддддддддддддддддддддд╢╠╠
+╠╠Ё Uso 	 Ё Gravacao da reliquidacao para o Chile.                     Ё╠╠
+╠╠юддддддддддадддддддддддддддддддддддддддддддддддддддддддддддддддддддддддды╠╠
+╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠╠
+ъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъъ*/
+Function GrvReliq( aPdRlq )
+
+Local cCodRlq	:= aPdRlq[1] // Codigo da verba
+Local nPdRef	:= aPdRlq[2] // Quantidade de horas/dias
+Local nValRlq	:= aPdRlq[3] // Valor
+Local cDatArq	:= aPdRlq[4] // Competencia de referencia (meses retroativos)
+Local cCompRlq	:= aPdRlq[5] // Competencia de calculo (mes de geracao da reliquidacao)
+Local cRescEft	:= ""
+Local lTemItem	:= RGV->( FieldPos("RGV_ITEM") # 0 )
+Local lTemClVl	:= RGV->( FieldPos("RGV_CLVL") # 0 )
+Local dDtPgRlq	:= Ctod("//") // Data de pagamento
+Local dDtGera	:= Ctod("//") // Data de geracao da rescisao
+
+If Type("dDt_Pgto") # "U" // Data de pagto. da Folha
+	dDtPgRlq	:= dDt_Pgto
+ElseIf Type("M->RG_DATAHOM") # "U" // Data de pagto. da Rescisao
+	dDtPgRlq	:= M->RG_DATAHOM
+	dDtGera		:= M->RG_DTGERAR
+	cRescEft	:= If( Type("cEfetiva") # "U", If( cEfetiva == "C" , "S" , cEfetiva ), "" )
+EndIf
+
+dbSelectArea("RGV")
+dbSetOrder(1)
+
+If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT + cCompRlq + cDatArq + cCodRlq )
+	RecLock( "RGV", .F., .T. )
+	
+	RGV->RGV_VALOR	+= nValRlq
+Else
+	RecLock( "RGV", .T., .T. )
+	
+	RGV->RGV_FILIAL	:= SRA->RA_FILIAL
+	RGV->RGV_MAT 	:= SRA->RA_MAT
+	RGV->RGV_ANOMES	:= cCompRlq
+	RGV->RGV_DATARQ	:= cDatArq
+	RGV->RGV_PD		:= cCodRlq
+	RGV->RGV_HORAS	:= nPdRef
+	RGV->RGV_VALOR	:= nValRlq
+	RGV->RGV_DATPGT	:= dDtPgRlq
+	RGV->RGV_TIPO2	:= "C"
+	RGV->RGV_CC		:= SRA->RA_CC
+	RGV->RGV_DTGERA	:= dDtGera
+	RGV->RGV_EFETIV	:= cRescEft
+	
+	If lTemItem .And. lTemClVl
+		RGV->RC_ITEM	:= SRA->RA_ITEM
+		RGV->RC_CLVL	:= SRA->RA_CLVL
+	EndIf
+EndIf
+	
+MsUnlock()
+
+Return( NIL )

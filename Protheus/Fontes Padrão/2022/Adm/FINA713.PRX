@@ -1,0 +1,1737 @@
+#INCLUDE "TOTVS.ch"
+#INCLUDE "FINA713.ch"
+#INCLUDE "FILEIO.CH"
+
+Static __cPicVal := PesqPict('SE1', 'E1_VALOR')
+Static __cPicJur := PesqPict('SE1', 'E1_PORCJUR')
+Static __lEmaBOL := ExistBlock("NGFEMBOL")
+
+/*/{Protheus.doc} FINA713
+    Job para transmissão de boletos e envio de e-mail
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+/*/
+Function FINA713()
+    Local cLockName As Character
+    cLockName := cEmpAnt + ' - FINA713'
+    If F713VldUso()
+        If LockByName(cLockName, .T./*lEmpresa*/, .F./*lFilial*/ ) // uma execução por vez
+            F713Transf() // Transmite os boletos
+            F713Mail()   // envia os boletos por e-mail
+            UnLockByName(cLockName, .T./*lEmpresa*/, .F./*lFilial*/ )
+        EndIf
+    EndIf
+Return
+
+/*/{Protheus.doc} F713VldUso
+    Verifica se o sistema está preparado para uso da api de bancos
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 08/04/2021
+    @return logical, true para o ambiente configurado
+/*/
+Function F713VldUso() As Logical
+    Local lRet As Logical
+    lRet := .F.
+    If cPaisloc <> 'BRA' .Or. GetRPORelease() < '12.1.027'
+        lRet := .F.
+    Else
+        lRet := SA6->(FieldPos("A6_CFGBOL")) > 0 .And. SA6->(FieldPos("A6_CFGAPI")) > 0;
+            .And. SEA->(FieldPos("EA_BORAPI")) > 0 .And. SEA->(FieldPos("EA_APIMSG")) > 0 .And. SEA->(FieldPos("EA_APILOG")) > 0 .And. SEA->(FieldPos("EA_APIMAIL")) > 0 .AND. SEA->(FieldPos('EA_SUBCTA')) > 0 .AND. SEA->(FieldPos('EA_ESPECIE')) > 0;
+            .And. AI0->(FieldPos("AI0_RECBOL")) > 0 .And. AI0->(FieldPos("AI0_EMABOL")) > 0;
+            .And. AliasInDic("F77")
+    EndIf
+Return lRet
+
+/*/{Protheus.doc} F713VldBco
+    Verifica se o banco está configurado para api de bancos
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 08/04/2021
+    @param cFilBco, character, Filial do banco
+    @param cCodigo, character, Código fo banco
+    @param cAgencia, character, Agência do banco
+    @param cConta, character, Conta do banco
+    @param cCodFeb, character, Código do Banco na Febraban
+    @return logical, .T. se estiver configurado e .F. se não.
+/*/
+Function F713VldBco(cFilBco As Character, cCodigo As Character, cAgencia As Character, cConta As Character, cCodFeb As Character, lVldBcoApi As Logical) As Logical
+    Local lRet      As Logical
+    Local aArea     As Array
+    Local aAreaSA6  As Array
+
+    Default lVldBcoApi := .F.
+
+    aArea       := GetArea()
+    aAreaSA6    := SA6->(GetArea())
+
+    lRet        := .F.
+    lVldBcoApi  := .F.
+    If !Empty(cCodigo) .And. !Empty(cAgencia) .And. !Empty(cConta)
+        If SA6->(DbSeek(cFilBco + cCodigo + cAgencia + cConta))
+            If SA6->A6_CFGAPI $ '1|3' .AND. !Empty(SA6->A6_BCOOFI)
+                FWMsgRun(, {|| F714Carga() }, STR0015, STR0016)
+                cCodFeb := SA6->A6_BCOOFI
+                lRet        := .T.
+                lVldBcoApi  := .T.
+				If cCodFeb == '341'
+					VldVerItau(SA6->A6_CFGBOL)
+                Endif
+            EndIf
+        EndIf
+    EndIf
+
+    RestArea(aAreaSA6)
+    RestArea(aArea)
+Return lRet
+
+/*/{Protheus.doc} Function F713VldBol
+    Verifica se o borderô foi transmitido por api de bancos
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 30/03/2021
+    @param lYesNo, logical, Exibe confirmação quando estiver transmitido para alterar o retorno.
+    @param cFilBor, character, Filial do borderô
+    @param cNumBor, character, Número do borderô
+    @return  logical, .T. se estiver transmitido .F. se não.
+/*/
+Function F713VldBol(lYesNo As Logical, cFilBor As Character, cNumBor As Character ) As Logical
+    Local cQuery As Character
+    Local lRet   As Logical
+
+    cQuery := "SELECT COUNT(EA_NUM) AS TOTAL FROM " + RetSqlName("SEA") + " SEA "
+    cQuery += " WHERE "
+    cQuery += " SEA.EA_FILIAL = '" + cFilBor + "'"
+    cQuery += " AND SEA.EA_NUMBOR = '" + cNumBor + "'"
+    cQuery += " AND SEA.EA_CART = 'R' "
+    cQuery += " AND SEA.EA_BORAPI ='S' "
+    cQuery += " AND SEA.EA_TRANSF = 'S' "
+    cQuery += " AND SEA.D_E_L_E_T_ = ' ' "
+
+    If MpSysExecScalar(ChangeQuery(cQuery), "TOTAL") > 0
+        lRet := If(lYesNo, !F713YesNo(2), .T.) // Existem títulos transmitidos por API, deseja seguir com o processo?
+    Else
+        lRet := .F.
+    Endif
+Return lRet
+
+/*/{Protheus.doc} F713VldTit
+    Verifica se o título foi transmitido por api de bancos
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 08/04/2021
+    @param lYesNo, logical, Exibe confirmação quando estiver transmitido para alterar o retorno.
+    @param cFilTit, character, Filial do título
+    @param cPrefix, character, Prefixo do título
+    @param cNum, character, Número do título
+    @param cParcel, character, Parcela do título
+    @param cTipo, character, Tipo do título
+    @param cNumbor, character, borderô
+    @return logical, .T. se estiver transmitido .F. se não.
+/*/
+Function F713VldTit(lYesNo As Logical, cFilTit As Character, cPrefix As Character, cNum As Character, cParcel As Character, cTipo As Character, cNumbor As Character) As Logical
+    Local cQuery As Character
+    Local lRet   As Logical
+
+    cQuery := "SELECT COUNT(EA_NUM) AS TOTAL FROM " + RetSqlName("SEA") + " SEA "
+    cQuery += " WHERE "
+    cQuery += " SEA.EA_FILORIG = '" + cFilTit + "'"
+    cQuery += " AND SEA.EA_NUMBOR = '" + cNumBor + "'"
+    cQuery += " AND SEA.EA_PREFIXO = '" + cPrefix + "'"
+    cQuery += " AND SEA.EA_NUM = '" + cNum + "'"
+    cQuery += " AND SEA.EA_PARCELA = '" + cParcel + "'"
+    cQuery += " AND SEA.EA_TIPO = '" + cTipo + "'"
+    cQuery += " AND SEA.EA_CART = 'R' "
+    cQuery += " AND SEA.EA_BORAPI ='S' "
+    cQuery += " AND SEA.EA_TRANSF = 'S' "
+    cQuery += " AND SEA.D_E_L_E_T_ = ' ' "
+
+    If MpSysExecScalar(ChangeQuery(cQuery), "TOTAL") > 0
+        lRet := If(lYesNo, !F713YesNo(1), .T.)
+    Else
+        lRet := .F.
+    Endif
+Return lRet
+
+/*/{Protheus.doc} F713YesNo
+    Confirmação quando existir títulos transmitidos
+    @type function
+    @version  12.1.33
+    @author renato.ito
+    @since 08/04/2021
+    @param nMsg, numeric, 1 para singular, 2 para plural
+    @return logical, true se continua com o processo
+/*/
+Function F713YesNo(nMsg AS Numeric) As Logical
+    Local cMsg As Character
+
+    If nMsg > 1
+        cMsg := STR0001
+    Else
+        cMsg := STR0002
+    Endif
+Return MSGYESNO(cMsg, STR0003)
+
+/*/{Protheus.doc} F713VldEmB
+    Verifica se os e-mails digitados são válidos
+    @type function
+    @version 12.1.33
+    @author alison.kaique
+    @since 23/04/2021
+
+    @param oMdlAI0, object, Modelo de Dados da Tabela AI0
+
+    @return logical, true para e-mail válido
+/*/
+Function F713VldEmB(oMdlAI0 As Object) As Logical
+    Local lRet     As Logical   // controle de processamento
+    Local cEnvMail As Character // envio de boleto por e-mail
+    Local cEmails  As Character // lista de e-mails separados por ponto e vírgula
+    Local cEmailAt As Character // e-mail de verificação
+    Local aEmails  As Array     // lista de e-mails para validação
+    Local nI       As Numeric   // controle de FOR
+
+    lRet := .T.
+
+    If (AI0->(FieldPos("AI0_RECBOL")) > 0 .And. AI0->(FieldPos("AI0_EMABOL")) > 0)
+        cEnvMail := oMdlAI0:GetValue('AI0_RECBOL')
+        cEmails  := AllTrim(oMdlAI0:GetValue('AI0_EMABOL'))
+
+        If (cEnvMail == '1' .AND. Empty(cEmails))
+                Help("", 1, "AI0_RECBOL", , STR0004, 1,; // #"E-mail para envio de boleto não foi informado."
+                    ,,,,,, {STR0005}) // #"Informe um ou mais e-mails separados por ponto e vírgula."
+
+                lRet := .F.
+        ElseIf !(Empty(cEmails))
+                aEmails := StrTokArr2(cEmails, ";")
+
+                For nI := 01 To Len(aEmails)
+                    // verifica se o e-mail é válido
+                    cEmailAt := AllTrim(aEmails[nI])
+
+                    If !(IsEmail(cEmailAt))
+                        Help("", 1, "AI0_EMABOL", , STR0006 + cEmailAt, 1,; // #"E-mail inválido: "
+                            ,,,,,, {STR0007}) // #"Informe e-mail válido."
+
+                        lRet := .F.
+                        Exit
+                    EndIf
+                Next nI
+        EndIf
+    EndIf
+Return lRet
+
+/*/{Protheus.doc} F713Transf
+    Transmite os boletos
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+/*/
+Function F713Transf()
+    Local oLayAux    As Json
+    Local cBolAlias  As Character
+    Local cBorFil    As Character
+    Local cBorBco    As Character
+    Local cBorAge    As Character
+    Local cBorCnt    As Character
+    Local cLayout    As Character
+    Local cNumBor    As Character
+    Local cApiMsg    As Character
+    Local cFebrabran As Character
+    Local cCodBar    As Character
+    Local cCodDig    As Character
+    Local cURLBol    As Character
+    Local cFilAux    As Character
+    Local cTpRazao   As Character
+    Local cNmCpfCnpj As Character
+    Local oLayout    As Object
+    Local oApiMsg    As Object
+    Local oResult    As Object
+    Local oBills     As Object
+    Local oLog       As Object
+    Local oLogSEA    As Object
+    Local lRet       As Logical
+    Local nEaSaldo   As Numeric
+    Local aArea      As Array
+    Local aAreaSA6   As Array
+    Local aAreaSEA   As Array
+    Local aAreaSE1   As Array
+    Local aAreaSA1   As Array
+    Local aAreaAI0   As Array
+    Local aAreaSEE   As Array
+    Local aAreaF77   As Array
+    Local oError := Errorblock( { |e| F713LayErr(e, 'layout')})
+
+    Private cApiMail  As Character  // 0=Aguardando envio;1=Enviado;2=Falha;3=Não envia
+    Private _cErrorLay As Character  // Armazena erro de layout
+    cFilAux     := cFilAnt
+    cBorFil     := ''
+    cBorBco     := ''
+    cBorAge     := ''
+    cBorCnt     := ''
+    cNumBor     := ''
+    cApiMsg     := ''
+    cFebrabran  := ''
+    cApiMail    := '0'
+    cTpRazao    := ''
+    cNmCpfCnpj  := ''
+    nEaSaldo    := 0
+    lRet        := .F.
+    aArea       := GetArea()
+    aAreaSA6    := SA6->(GetArea())
+    aAreaSEA    := SEA->(GetArea())
+    aAreaSE1    := SE1->(GetArea())
+    aAreaSA1    := SA1->(GetArea())
+    aAreaAI0    := AI0->(GetArea())
+    aAreaSEE    := SEE->(GetArea())
+    aAreaF77    := F77->(GetArea())
+
+    // abre as tabelas
+    DbSelectArea('SA6')
+    DbSetOrder(1)   // A6_FILIAL, A6_COD, A6_AGENCIA, A6_NUMCON, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('SEA')
+    DbSetOrder(2)   //EA_FILIAL, EA_NUMBOR, EA_CART, EA_PREFIXO, EA_NUM, EA_PARCELA, EA_TIPO, EA_FORNECE, EA_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('SE1')
+    DbSetOrder(1)   // E1_FILIAL, E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('SA1')
+    DbSetOrder(1)   // A1_FILIAL, A1_COD, A1_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('AI0')
+    DbSetOrder(1)   // AI0_FILIAL, AI0_CODCLI, AI0_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('SEE')
+    DbSetOrder(1)   // EE_FILIAL, EE_CODIGO, EE_AGENCIA, EE_CONTA, EE_SUBCTA, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('F77')
+    DbSetOrder(1)   // F77_FILIAL, F77_BANCO, F77_ESPECI, R_E_C_N_O_, D_E_L_E_T_
+
+    // tabela com os títulos para transmissão
+    cBolAlias := MpSysOpenQuery(F713QryBol())
+    (cBolAlias)->(DbGoTop())
+
+    If (cBolAlias)->(!EOF())
+        oBills  := &("gfin.job.bills.bills():new()")
+        oLog    := JsonObject():new()
+        oLogSEA := JsonObject():new()
+        oLayout := JsonObject():new()
+        oLayAux := JsonObject():new()
+
+        While (cBolAlias)->(!EOF())
+            oResult := JsonObject():new()
+            oApiMsg := JsonObject():new()
+            cApiMsg     := ''
+            cResult     := ''
+            cTpRazao    := ''
+            cNmCpfCnpj  := ''
+            lRet        := .T.
+            cCodBar     := ''
+            cCodDig     := ''
+            cURLBol     := ''
+            _cErrorLay  := ''
+            // Posiciona as tabelas
+            If F713DbArea((cBolAlias)->EA_FILIAL, (cBolAlias)->EA_NUMBOR, (cBolAlias)->EA_PREFIXO, (cBolAlias)->EA_NUM, (cBolAlias)->EA_PARCELA, (cBolAlias)->EA_TIPO)
+                // verifica se mudou de banco para pegar o layout
+                If cBorFil <> (cBolAlias)->EA_FILIAL .Or. cBorBco <> (cBolAlias)->EA_PORTADO .Or. cBorAge <> (cBolAlias)->EA_AGEDEP .Or. cBorCnt <> (cBolAlias)->EA_NUMCON
+                    lRet   := .F.
+                    cLayout     := ''
+                    If SA6->A6_CFGAPI $ '1|3'
+                        cLayout := SA6->A6_CFGBOL
+                        If !Empty(oLayout:FromJson(cLayout))
+                            lRet     := .F.
+                            cApiMsg  := STR0008 //"Problema na configuração do layout na conta (A6_CFGBOL)."
+                        Else
+                            lRet := .T.
+                            // configura as credenciais do banco
+                            If oLayout:Hasproperty('credentials')
+                                oBills:setCredentials(oLayout['credentials']:ToJSON())
+                            EndIf
+                            // Código febraban do banco
+                            cFebrabran := SA6->A6_BCOOFI
+                            oBills:setFebraban(cFebrabran)
+							cBorFil := (cBolAlias)->EA_FILIAL
+                            cBorBco := (cBolAlias)->EA_PORTADO
+                            cBorAge := (cBolAlias)->EA_AGEDEP
+                            cBorCnt := (cBolAlias)->EA_NUMCON
+                        EndIf
+                    EndIf
+                EndIf
+            Else
+                (cBolAlias)->(DbSkip())
+                Loop
+            EndIf
+
+            // realiza a transmissão ao banco
+            If lRet
+
+                If Empty(Alltrim(SA1->A1_CGC))
+                    lRet    := .F.
+                    _cErrorLay := STR0057 // "Cadastro do cliente desatualizado. Campo CNPJ/CPF não preenchido. Verifique o campo A1_CGC"
+                Endif
+
+                If lRet
+                    oLayAux:FromJSON(oLayout['layout']:ToJSON())
+
+                    If cFebrabran <> '341'
+                        F713LProc(oLayAux, .T.)
+                    EndIf
+
+                    If cFebrabran $ "237|341|104"
+                        If oLayout:Hasproperty('beneficiarioFilial')
+                            oLayAux['beneficiarioFilial']  := oLayout['beneficiarioFilial'] // Antes do envio esse campo é retirado do layout
+                        EndIf
+                    EndIf
+
+                    BEGIN SEQUENCE
+                        Do Case
+                            Case cFebrabran == '001'
+                            If VldJsonBB()
+                                jsonBB(@oLayAux)
+                            Else
+                                _cErrorLay := STR0056 //"O conteúdo do Nosso Número deve ser limitado a 10 Caracteres. Verificar o campo EE_FAXATU em Parâmetros de Banco (FINA130)"
+                            Endif
+                            Case cFebrabran == '341'
+                                oBills:layout341(@oLayAux)
+                            Case cFebrabran == '237'
+                                oBills:layout237(@oLayAux)
+                            Case cFebrabran == '104'
+                                oBills:layout104(@oLayAux)
+                                cTpRazao   := oLayAux['TpRazao']
+                                cNmCpfCnpj := oLayAux['nrcpfcnpj']
+
+                                oLayAux:delName('TpRazao')
+                                oLayAux:delName('nrcpfcnpj')
+                            Case cFebrabran == '033'
+                                oLayAux['credentials'] := oLayout['credentials']
+                                oBills:layout033(@oLayAux)
+                        EndCase
+                    END SEQUENCE
+                    // Restaura o code block de tratamento de erro original
+                    ErrorBlock( oError )
+                    If cFebrabran $ '237|104'
+                        // apenas para remover os campos vazios
+                        F713LProc(oLayAux, .F.)
+                    EndIf
+                Endif
+
+                If Empty(_cErrorLay)
+                    oBills:setBody(oLayAux)
+                    If oBills:send()
+                        oResult:FromJSON(oBills:getResult())
+                        lRet    := .T.
+                        cCodBar := oBills:getCodBar()
+                        cCodDig := oBills:getCodDig()
+                        cURLBol := oBills:getURLBol()
+                        cApiMsg := STR0009  // "Boleto registrado com sucesso!"
+                    Else
+                        oResult:FromJSON(oBills:getResult())
+                        cApiMsg     := oBills:getError()
+                        lRet        := .F.
+                    EndIf
+                Else
+                    cApiMsg     := _cErrorLay
+                    lRet        := .F.
+                EndIf
+            EndIf
+
+            // pega os logs armazenados
+            oLogSEA:FromJSON(SEA->EA_APILOG)
+            // cria o objeto com o log e adiciona no array
+            oLog['date']    := FWTimeStamp(2, DATE(), TIME())
+            oLog['message'] := cApiMsg
+
+            oLogSEA['log']  := {oLog}
+
+            oApiMsg['banco']    := cFebrabran
+            oApiMsg['especie']  := F77->F77_SIGLA
+            oApiMsg['boleto']   := oLayAux
+            oApiMsg['URLBoleto']:= cURLBol
+            oApiMsg['transmitted']  := IIF(lRet,'S','N') // Determinar se o response contém os dados da transmissão ou erro.
+            If oLayout:Hasproperty('beneficiarioFilial') // Filial do beneficiario
+                oApiMsg['beneficiarioFilial']  := oLayout['beneficiarioFilial']
+            EndIf
+
+            If cFebrabran =='001'
+                nEaSaldo := oLayAux['valorOriginal']
+            ElseIf cFebrabran =='341' .And. lRet
+                If oLayout['credentials']['version'] == "v2"
+                    oApiMsg['version'] := oLayout['credentials']['version']
+                    nEaSaldo := Val(oLayAux['data']['dado_boleto']['valor_total_titulo']) / 100
+                Else
+                    nEaSaldo := Val(oLayAux['valor_cobrado']) / 100
+                EndIf
+            EndIf
+
+            If cFebrabran == "104" .Or. cFebrabran == "033"
+                oApiMsg['response'] := oBills:getResult()
+            Else
+                oApiMsg['response'] := oResult
+            Endif
+
+            If !Empty(cTpRazao)
+                oApiMsg['TpRazao'] := cTpRazao
+            EndIf
+
+            If !Empty(cNmCpfCnpj)
+                oApiMsg['nrcpfcnpj'] := cNmCpfCnpj
+            EndIf
+
+            // Atualiza a SEA
+            RecLock('SEA', .F.)
+                SEA->EA_APIMSG  := oApiMsg:ToJSON()
+                SEA->EA_TRANSF  := If(lRet, 'S', 'F')
+                SEA->EA_APILOG  := oLogSEA:ToJSON()
+                SEA->EA_APIMAIL := If(lRet, cApiMail, '3')
+                If lRet
+                    SEA->EA_SALDO := nEaSaldo
+                EndIf
+            SEA->(MsUnlock())
+
+            // Atualiza a SE1 com o código de barras
+            If !Empty(cCodBar)
+                RecLock('SE1', .F.)
+                If !Empty(cCodDig)
+                    SE1->E1_CODDIG := cCodDig
+                Endif
+                SE1->E1_CODBAR := cCodBar
+                SE1->(MsUnlock())
+            EndIf
+            (cBolAlias)->(DbSkip())
+        EndDo
+        FreeObj(oLayout)
+        FreeObj(oLayAux)
+        FreeObj(oBills)
+        FreeObj(oLog)
+        FreeObj(oLogSEA)
+        FreeObj(oResult)
+        FreeObj(oApiMsg)
+    Endif
+    cFilAnt := cFilAux
+    (cBolAlias)->(DbCloseArea())
+
+    SA6->(RestArea(aAreaSA6))
+    SEA->(RestArea(aAreaSEA))
+    SE1->(RestArea(aAreaSE1))
+    SA1->(RestArea(aAreaSA1))
+    AI0->(RestArea(aAreaAI0))
+    SEE->(RestArea(aAreaSEE))
+    F77->(RestArea(aAreaF77))
+    RestArea(aArea)
+    FwFreeArray(aAreaSA6)
+    FwFreeArray(aAreaSEA)
+    FwFreeArray(aAreaSE1)
+    FwFreeArray(aAreaSA1)
+    FwFreeArray(aAreaAI0)
+    FwFreeArray(aAreaSEE)
+    FwFreeArray(aAreaF77)
+    FwFreeArray(aArea)
+Return
+
+/*/{Protheus.doc} jsonBB
+    Prepara o Json para o Banco do Brasil
+    @type function
+    @version 1.0
+    @author luiz.nai
+    @since 25/06/2021
+/*/
+Function jsonBB(oLayout As Json)
+    oLayout['numeroConvenio']                       := Alltrim(SEE->EE_CODEMP)
+    oLayout['numeroCarteira']                       := Alltrim(SEE->EE_CODCART)
+    oLayout['numeroVariacaoCarteira']               := Alltrim(SEE->EE_VARCART)
+    oLayout['dataEmissao']                          := dateFormat(SE1->E1_EMISSAO, "dd.mm.yyyy")
+    oLayout['quantidadeDiasProtesto']               := IIF(Empty(SEE->EE_DIASPRT), 0, SEE->EE_DIASPRT)
+    oLayout['quantidadeDiasNegativacao']            := Nil
+    oLayout['orgaoNegativador']                     := Nil
+    oLayout['indicadorAceiteTituloVencido']         := "N"
+    oLayout['numeroDiasLimiteRecebimento']          := SEE->EE_DIASREC
+    oLayout['codigoAceite']                         := "A"
+    oLayout['codigoTipoTitulo']                     := SEA->EA_ESPECIE
+    oLayout['numeroTituloCliente']                  := "000" + PadL(AllTrim(SEE->EE_CODEMP), 7, "0") + strZero(Val(NossoNum()), 10)
+    oLayout['indicadorPermissaoRecebimentoParcial'] := "N"
+    oLayout['numeroTituloBeneficiario']             := SE1->E1_NUM
+    oLayout['indicadorPix']                         := "N"
+    oLayout['campoUtilizacaoBeneficiario']          := SE1->E1_IDCNAB
+    oLayout['mensagemBloquetoOcorrencia']           := SubStr(If(Empty(&(SEE->EE_FORMEN1)), '', &(SEE->EE_FORMEN1)), 1, 165)
+
+    // Lógica para multa
+    If oLayout['multa']['tipo'] == 1                 // valor
+        If Empty(oLayout['multa']['valor'])
+            oLayout:DelName('multa')
+        Endif
+    ElseIf oLayout['multa']['tipo'] == 2            // percentual
+        oLayout['multa']['porcentagem'] := oLayout['multa']['valor']
+        oLayout['multa']:DelName('valor')
+    Else
+        oLayout:DelName('multa')
+    EndIf
+
+    // Lógica para juros
+    If oLayout['jurosMora']['tipo'] == 1                 // valor
+        oLayout['jurosMora']:DelName('porcentagem')
+        If Empty(oLayout['jurosMora']['valor'])
+            oLayout:DelName('jurosMora')
+        Endif
+    ElseIf oLayout['jurosMora']['tipo'] == 2            // percentual
+        oLayout['jurosMora']:DelName('valor')
+        If Empty(oLayout['jurosMora']['porcentagem'])
+            oLayout:DelName('jurosMora')
+        Endif
+    Else
+        oLayout:DelName('jurosMora')
+    EndIf
+
+    // Lógica para o desconto
+    If oLayout['desconto']['tipo'] == 1                 // valor
+        If Empty(oLayout['desconto']['valor'])
+            oLayout:DelName('desconto')
+        Endif
+    ElseIf oLayout['desconto']['tipo'] == 2            // percentual
+        oLayout['desconto']['porcentagem'] := oLayout['desconto']['valor']
+        oLayout['desconto']:DelName('valor')
+    Else
+        oLayout:DelName('desconto')
+    EndIf
+
+    If oLayout:hasProperty('aceite')
+        oLayout['indicadorAceiteTituloVencido'] := Iif(oLayout['aceite'] == 1 , "S", "N")
+        oLayout:DelName('aceite')
+    Endif
+
+Return
+
+/*/{Protheus.doc} F713Mail
+    Envia os boletos por e-mail ao cliente
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+
+    @param cFilSEA, character, e1_filorig do título
+    @param cPrefix, character, prefixo do título
+    @param cNumber, character, numero do título
+    @param cParcel, character, parcela do título
+    @param cType  , character, tipo do título
+/*/
+Function F713Mail(cFilSEA As Character, cPrefix As Character, cNumber As Character, cParcel As Character, cType As Character)
+    Local cCliFil   As Character
+    Local cCliCod   As Character
+    Local cCliLoja  As Character
+    Local cCliMail  As Character
+    Local cApiError As Character
+    Local cDataBol  As Character
+    Local lRet      As Logical
+    Local lServOK   As Logical
+    Local aBoletos  As Array
+    Local aErros    As Array
+    Local oServMail As Object
+    Local cFilBkp   As Character
+    Local aArea     As Array
+    Local aAreaAI0  As Array
+    Local aAreaSEA  As Array
+    Local lRecBol   As Logical
+    Local lBolAPI   As Logical
+
+    aBoletos    := {}
+    aErros      := {}
+    lRet        := .T.
+    lServOK     := .T.
+    lBolAPI     := .F.
+    cApiError   := ''
+    cCliFil     := ''
+    cCliCod     := ''
+    cCliLoja    := ''
+    cDataBol    := ''
+    cFilBkp     := cFilAnt
+    oAPIMSG     := JsonObject():new()
+
+    aArea       := GetArea()
+    aAreaAI0    := AI0->(GetArea())
+    aAreaSEA    := SEA->(GetArea())
+
+    // tabela com os títulos para envio de e-mail
+    cMailAlias := MpSysOpenQuery(F713QryMai(cFilSEA, cPrefix, cNumber, cParcel, cType))
+    (cMailAlias)->(DbGoTop())
+    // Abre as tabelas que serão posicionadas
+    DbSelectArea('AI0')
+    DbSetOrder(1)   // AI0_FILIAL, AI0_CODCLI, AI0_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    DbSelectArea('SEA')
+    DbSetOrder(2)   //EA_FILIAL, EA_NUMBOR, EA_CART, EA_PREFIXO, EA_NUM, EA_PARCELA, EA_TIPO, EA_FORNECE, EA_LOJA, R_E_C_N_O_, D_E_L_E_T_
+
+    If (cMailAlias)->(!EOF())
+        // Macro execução para compilação na release 17
+        oServMail := &("gfin.job.bills.email.BillsEMail():new()")
+        // Verifica se deu erro ao criar a classe
+        If !oServMail:lOk
+            lServOK := .F.
+            cApiError := oServMail:getError()
+        EndIf
+    EndIf
+
+    // laço por registro ordenado por SE1.E1_FILIAL, SE1.E1_CLIENTE, SE1.E1_LOJA
+    While (cMailAlias)->(!EOF())
+        lRecBol     := .F.
+        aErros      := {}
+        aBoletos    := {}
+        cCliMail    := ''
+        cPDFName    := ''
+        cCliFil     := (cMailAlias)->E1_FILIAL
+        cCliCod     := (cMailAlias)->E1_CLIENTE
+        cCliLoja    := (cMailAlias)->E1_LOJA
+        // e-mail para envia do boleto
+        If AI0->(DbSeek(FWxFilial('AI0', cCliFil) + cCliCod + cCliLoja))
+            If AI0->AI0_RECBOL == '1'
+                cPDFName :=  'boleto-' + AllTrim((cMailAlias)->E1_NOMCLI) +;
+                StrTran(Time(), ':', '') +;
+                '.pdf'
+                cCliMail :=  AllTrim(AI0->AI0_EMABOL)
+                lRecBol  :=  .T.
+            EndIf
+        EndIf
+        // configura a carta de cobrança conforme a filial
+        If cFilAnt <> (cMailAlias)->EA_FILORIG
+            cFilAnt := (cMailAlias)->EA_FILORIG
+            oServMail:setCarta()
+        EndIf
+        // laço por cliente
+        While cCliFil == (cMailAlias)->E1_FILIAL .And. cCliCod == (cMailAlias)->E1_CLIENTE .And. cCliLoja == (cMailAlias)->E1_LOJA
+            lRet    := .T.
+            lBolAPI := .F.
+            // Posiciona a SEA
+            If SEA->(DbSeek((cMailAlias)->EA_FILIAL + (cMailAlias)->EA_NUMBOR + 'R' + (cMailAlias)->E1_PREFIXO + (cMailAlias)->E1_NUM + (cMailAlias)->E1_PARCELA + (cMailAlias)->E1_TIPO))
+                // Não envia e-mail
+                If !lRecBol
+                    lRet := .F.
+                    AADD(aErros, {SEA->(RECNO()), '', '3'})
+                    (cMailAlias)->(DbSkip())
+                    Loop
+                EndIf
+                // Se existir erro no serviço grava log
+                If !lServOK
+                    lRet := .F.
+                    AADD(aErros, {SEA->(RECNO()), cApiError, '2'})
+                Else
+                    lBolAPI := (oAPIMSG:hasProperty('transmitted') .And. oAPIMSG['transmitted'] == 'S') .Or. Empty(oAPIMSG:FromJSON(SEA->EA_APIMSG))
+                    If !lBolAPI // Pega o boleto enviado
+                        //erro json
+                        If __lEmaBOL
+                            AADD(aBoletos, {"", SEA->(RECNO())})
+                        Else
+                            lRet := .F.
+                            AADD(aErros, {SEA->(RECNO()), STR0010, '2'})   // "Problema ao recuperar o boleto (EA_APIMSG)."
+                        Endif
+                    Endif
+                Endif
+            Else
+                (cMailAlias)->(DbSkip())
+                Loop
+            EndIf
+
+            If lRet
+                If Empty(cCliMail)
+                    lRet    := .F.
+                    AADD(aErros, {SEA->(RECNO()), STR0011, '2'})    //"Endereço de e-mail do cliente não está preenchido (AI0_EMABOL)."
+                Else
+                    If lBolAPI
+                        If !formatMail(oAPIMSG, @cDataBol)
+                            AADD(aErros, {SEA->(RECNO()), STR0012, '2'})    // "Problema ao formatar o e-mail para envio."
+                        Else
+                            AADD(aBoletos, {cDataBol, SEA->(RECNO())})
+                        EndIf
+                    Endif
+                EndIf
+            EndIf
+            (cMailAlias)->(DbSkip())
+        EndDo
+
+        // Se existe erros atualiza a SEA
+        If Len(aErros) > 0
+            setErrors(aErros)
+        EndIf
+
+        // Se existe boletos para enviar e-mail
+        If Len(aBoletos) > 0
+            SendMail(aBoletos, cCliMail, oServMail, cPDFName)
+        EndIf
+    EndDo
+    (cMailAlias)->(DbCloseArea())
+
+    cFilAnt := cFilBkp
+    FreeObj(oAPIMSG)
+    FreeObj(oServMail)
+    FwFreeArray(aBoletos)
+    FwFreeArray(aErros)
+
+    AI0->(RestArea(aAreaAI0))
+    SEA->(RestArea(aAreaSEA))
+    RestArea(aArea)
+    FwFreeArray(aAreaAI0)
+    FwFreeArray(aAreaSEA)
+    FwFreeArray(aArea)
+Return
+
+/*/{Protheus.doc} SendMail
+    Dispara os e-mails e atualiza a SEA
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @param aBoletos , array    , {character (json), SEA->RECNO }
+    @param cEmail   , character, endereço do destinatário
+    @param oServMail, ojjeto   , classe de envio de e-mail
+/*/
+Static Function SendMail(aBoletos, cEmail, oServMail, cPDFName)
+    Local nBol      As Numeric
+    Local cApiMail  As Character
+    Local cApiMsg   As Character
+    Local oLog      As Object
+    Local oLogSEA   As Object
+    Local aArea     As Array
+    Local aAreaSEA  As Array
+
+    aArea        := GetArea()
+    aAreaSEA     := GetArea('SEA')
+    oLog         := JsonObject():new()
+    oLogSEA      := JsonObject():new()
+    cApiMsg      := ''
+    cApiMail     := '0'     // 0=Aguardando envio;1=Enviado;2=Falha;3=Não envia
+
+    oServMail:setEmail(cEmail)      // e-mail do destinatário
+    oServMail:setBills(aBoletos)    // array com os dados do boletos
+    oServMail:setPDFName(cPDFName)  // nome do arquivo
+    oServMail:sendEmail()           // envia os e-mails
+    If oServMail:lOk .And. !__lEmaBOL
+        cApiMail    := '1'
+        cApiMsg     := STR0013      //"E-mail enviado com sucesso!"
+    ElseIf !oServMail:lOk .And. !__lEmaBOL
+        cApiMail := '2'
+        cApiMsg := oServMail:getError()
+    ElseIf oServMail:lOk .And. oServMail:lPEMai .And. __lEmaBOL
+        cApiMail    := '1'
+        cApiMsg     := STR0049 // "E-mail gerado pelo Ponto de Entrada enviado com sucesso!"
+    ElseIf !oServMail:lOk .And. !oServMail:lPEMai .And. __lEmaBOL
+        cApiMail    := '3'
+        cApiMsg     := STR0050 // "E-mail gerado pelo Ponto de Entrada não enviado."
+    EndIf
+
+    // cria o objeto com o log e adiciona no array
+    oLog['date']    := FWTimeStamp(2, DATE(), TIME())
+    oLog['message'] := cApiMsg
+    DbSelectArea('SEA')
+    // Atualiza o status na SEA da transmissão do e-mail
+    For nBol := 1 To Len(aBoletos)
+        SEA->(DbGoTo(aBoletos[nBol][2]))
+        // pega os logs armazenados
+        oLogSEA:FromJSON(SEA->EA_APILOG)
+        oLogSEA['mail'] := oLog
+
+        RecLock('SEA', .F.)
+        SEA->EA_APILOG  := oLogSEA:ToJSON()
+        SEA->EA_APIMAIL := cApiMail
+        SEA->(MsUnlock())
+    Next
+    FreeObj(oLog)
+    FreeObj(oLogSEA)
+    RestArea(aAreaSEA)
+    RestArea(aArea)
+    FwFreeArray(aAreaSEA)
+    FwFreeArray(aArea)
+Return
+
+/*/{Protheus.doc} setErrors
+    Atualiza a SEA com o erro ao enviar e-mail
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @param aErros, array    , {Recno SEA, Mensagem do erro, 0=Aguardando envio;1=Enviado;2=Falha;3=Não envia}
+/*/
+Static Function setErrors(aErros As Array)
+    Local nBol      As Numeric
+    Local oLog      As Object
+    Local oLogSEA   As Object
+    Local aArea     As Array
+    Local aAreaSEA  As Array
+
+    aArea        := GetArea()
+    aAreaSEA     := GetArea('SEA')
+    oLog         := JsonObject():new()
+    oLogSEA      := JsonObject():new()
+
+    // cria o objeto com o log e adiciona no array
+    oLog['date']    := FWTimeStamp(2, DATE(), TIME())
+    DbSelectArea('SEA')
+    // Atualiza o status na SEA da transmissão do e-mail
+    For nBol := 1 To Len(aErros)
+        oLog['message'] := aErros[nBol][2]
+        SEA->(DbGoTo(aErros[nBol][1]))
+        // pega os logs armazenados
+        oLogSEA:FromJSON(SEA->EA_APILOG)
+        oLogSEA['mail'] := oLog
+        RecLock('SEA', .F.)
+            SEA->EA_APILOG  := oLogSEA:ToJSON()
+            SEA->EA_APIMAIL := aErros[nBol][3]
+        SEA->(MsUnlock())
+    Next
+    FreeObj(oLog)
+    FreeObj(oLogSEA)
+    RestArea(aAreaSEA)
+    RestArea(aArea)
+    FwFreeArray(aAreaSEA)
+    FwFreeArray(aArea)
+Return
+
+/*/{Protheus.doc} F713QryBol
+    query para listar os títulos aguardando transmissão
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 09/04/2021
+    @return character, query
+/*/
+Static Function F713QryBol() As Character
+    Local cQuery As Character
+
+    cQuery := " SELECT SEA.EA_FILIAL, SEA.EA_PORTADO, SEA.EA_AGEDEP, SEA.EA_NUMCON,"
+    cQuery += " SEA.EA_NUMBOR, SEA.EA_FILORIG, SEA.EA_PREFIXO, SEA.EA_NUM, SEA.EA_PARCELA, SEA.EA_TIPO "
+    cQuery += " FROM " + RetSqlName("SEA") + " SEA "
+    cQuery += " WHERE "
+    cQuery += " SEA.D_E_L_E_T_ = ' ' "
+    cQuery += " AND SEA.EA_CART = 'R' "
+    cQuery += " AND SEA.EA_BORAPI = 'S' "
+    cQuery += " AND SEA.EA_TRANSF <> 'S' "
+    cQuery += " ORDER BY SEA.EA_FILIAL, SEA.EA_PORTADO, SEA.EA_AGEDEP, SEA.EA_NUMCON, SEA.EA_NUMBOR "
+Return ChangeQuery(cQuery)
+
+/*/{Protheus.doc} F713QryMai
+    query para listar os títulos aguardando transmissão de e-mail
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 09/04/2021
+
+    @param cFilSEA, character, e1_filorig do título
+    @param cPrefix, character, prefixo do título
+    @param cNumber, character, numero do título
+    @param cParcel, character, parcela do título
+    @param cType  , character, tipo do título
+    @return character, query
+/*/
+Static Function F713QryMai(cFilSEA As Character, cPrefix As Character, cNumber As Character, cParcel As Character, cType As Character) As Character
+    Local cQuery As Character
+
+    cQuery := " SELECT SEA.EA_FILIAL, SEA.EA_PORTADO, SEA.EA_AGEDEP, SEA.EA_NUMCON, SEA.EA_FILORIG, "
+    cQuery += " SEA.EA_NUMBOR, SE1.E1_FILIAL, SE1.E1_PREFIXO, SE1.E1_NUM, SE1.E1_PARCELA, SE1.E1_TIPO, SE1.E1_CLIENTE, SE1.E1_LOJA, SE1.E1_NOMCLI "
+    cQuery += " FROM " + RetSqlName("SEA") + " SEA JOIN "
+    cQuery +=   RetSqlName("SE1") + " SE1 ON "
+    cQuery += " SE1.E1_FILORIG = SEA.EA_FILORIG "
+    cQuery += " AND SE1.E1_PREFIXO = SEA.EA_PREFIXO "
+    cQuery += " AND SE1.E1_NUM = SEA.EA_NUM "
+    cQuery += " AND SE1.E1_PARCELA = SEA.EA_PARCELA "
+    cQuery += " AND SE1.E1_TIPO = SEA.EA_TIPO "
+    cQuery += " AND SE1.E1_NUMBOR = SEA.EA_NUMBOR "
+    cQuery += " AND SE1.D_E_L_E_T_ = ' ' "
+    cQuery += " WHERE "
+    cQuery += " SEA.D_E_L_E_T_ = ' ' "
+    cQuery += " AND SEA.EA_CART = 'R' "
+    cQuery += " AND SEA.EA_APIMAIL = '0'
+
+    If !__lEmaBOL
+        cQuery += " AND SEA.EA_BORAPI  = 'S' "
+        cQuery += " AND SEA.EA_TRANSF  = 'S' "
+    Endif
+
+    // filtros
+    If (!(cFilSEA == Nil) .AND. !(cPrefix == Nil) .AND. !(cNumber == Nil) .AND. !(cParcel == Nil) .AND. !(cType == Nil))
+        cQuery += " AND EA_FILIAL = '" + cFilSEA + "'"
+        cQuery += " AND EA_PREFIXO = '" + cPrefix + "'"
+        cQuery += " AND EA_NUM = '" + cNumber + "'"
+        cQuery += " AND EA_PARCELA = '" + cParcel + "'"
+        cQuery += " AND EA_TIPO = '" + cType + "'"
+    EndIf
+
+    cQuery += " ORDER BY SE1.E1_FILIAL, SE1.E1_CLIENTE, SE1.E1_LOJA "
+
+Return ChangeQuery(cQuery)
+
+/*/{Protheus.doc} F713DbArea
+    Posiciona as tabelas do título e gera o IDCNAB
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @param cSEAFil, character, EA_FILIAL
+    @param cSEANumBor, character, EA_NUMBOR
+    @param cSEAPref, character, EA_PREFIXO
+    @param cSEANum, character, EA_NUM
+    @param cSEAParc, character, EA_PARCELA
+    @param cSEATipo, character, EA_TIPO
+    @return logical, True se conseguiu posicionar em todas as tabelas
+/*/
+Static Function F713DbArea(cSEAFil As Character, cSEANumBor As Character, cSEAPref As Character, cSEANum As Character, cSEAParc As Character, cSEATipo As Character) As Logical
+    Local lRet As Logical
+    cApiMail := '3'
+    lRet := .T.
+    //EA_FILIAL, EA_NUMBOR, EA_CART, EA_PREFIXO, EA_NUM, EA_PARCELA, EA_TIPO, EA_FORNECE, EA_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. (SEA->(DbSeek(cSEAFil + cSEANumBor + 'R' + cSEAPref + cSEANum + cSEAParc + cSEATipo)))
+        cFilAnt := SEA->EA_FILORIG
+    Else
+        lRet := .F.
+    Endif
+
+    // A6_FILIAL, A6_COD, A6_AGENCIA, A6_NUMCON, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. !(SA6->(DbSeek(xFilial('SA6') + SEA->EA_PORTADO + SEA->EA_AGEDEP + SEA->EA_NUMCON)))
+        lRet := .F.
+    Endif
+
+    //EE_FILIAL, EE_CODIGO, EE_AGENCIA, EE_CONTA, EE_SUBCTA, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. !(SEE->(DbSeek(xFilial('SEE') + SEA->EA_PORTADO + SEA->EA_AGEDEP + SEA->EA_NUMCON + SEA->EA_SUBCTA)))
+        lRet := .F.
+    Endif
+
+    // E1_FILIAL, E1_PREFIXO, E1_NUM, E1_PARCELA, E1_TIPO, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. SE1->(DbSeek(xFilial('SE1') + cSEAPref + cSEANum + cSEAParc + cSEATipo))
+        If SE1->E1_NUMBOR <> cSEANumBor
+            lRet := .F.
+        ElseIf Empty(SE1->E1_IDCNAB)
+            RecLock('SE1', .F.)
+            SE1->E1_IDCNAB := getIDCNAB()
+            SE1->(MsUnlock())
+        EndIf
+    Else
+        lRet := .F.
+    EndIf
+
+    // A1_FILIAL, A1_COD, A1_LOJA, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. SA1->(DbSeek(xFilial('SA1') + SE1->E1_CLIENTE + SE1->E1_LOJA))
+        //definir de onde pegar para enviar e-mail
+        If AI0->(DbSeek(xFilial('AI0') + SA1->A1_COD + SA1->A1_LOJA))
+            If AI0->AI0_RECBOL =='1'
+                cApiMail := '0'
+            EndIf
+        EndIf
+    Else
+        lRet := .F.
+    EndIf
+
+    // F77_FILIAL, F77_BANCO, F77_ESPECI, R_E_C_N_O_, D_E_L_E_T_
+    If lRet .And. !F77->(DbSeek(xFilial('F77') + SA6->A6_BCOOFI + SEA->EA_ESPECIE))
+        lRet := .F.
+    EndIf
+
+Return lRet
+
+/*/{Protheus.doc} F713LProc
+    Substitui os campos e funções por valores
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @param oLayTit, Json, layout
+    @param lExecute, logical, macroexecuta a instrução?
+    @return Json, layout com os valores carregados
+/*/
+Static Function F713LProc(oLayTit As Json, lExecute As Logical) As Json
+    Local aNames    As Array
+    Local nItem     As Numeric
+    local nSubItem  As Numeric
+    Local cType     As Character
+    Local oError := Errorblock( { |e| F713LayErr(e, oLayTit[aNames[nItem]])})
+
+    aNames := oLayTit:GetNames()
+    Begin Sequence
+        For nItem := 1 to Len(aNames)
+            cType := ValType(oLayTit[aNames[nItem]])
+
+            If (lExecute)
+                If cType == "C"
+                    oLayTit[aNames[nItem]] := &(oLayTit[aNames[nItem]])
+                ElseIf cType == "N"
+                    oLayTit[aNames[nItem]] := oLayTit[aNames[nItem]]
+                ElseIf cType == "J"
+                    oLayTit[aNames[nItem]] := F713LProc(oLayTit[aNames[nItem]], lExecute)
+                ElseIf cType == "A"
+                    For nSubItem := 1 to Len(oLayTit[aNames[nItem]])
+                        oLayTit[aNames[nItem]][nSubItem] := F713LProc(oLayTit[aNames[nItem]][nSubItem], lExecute)
+                    Next nSubItem
+                EndIf
+                cType := ValType(oLayTit[aNames[nItem]])
+
+                // remove os espaços em branco depois da macroexecução
+                If cType == "C"
+                    oLayTit[aNames[nItem]] := AllTrim(oLayTit[aNames[nItem]])
+                EndIf
+            Else
+                If !(cType $ "J|N") .and. Empty(oLayTit[aNames[nItem]])
+                    oLayTit:DelName(aNames[nItem])
+                ElseIf (cType == 'J')
+                    F713LProc(oLayTit[aNames[nItem]], lExecute)
+                ElseIf (cType == 'A')
+                    For nSubItem := 1 to Len(oLayTit[aNames[nItem]])
+                        F713LProc(oLayTit[aNames[nItem]][nSubItem], lExecute)
+                    Next nSubItem
+                EndIf
+            EndIf
+        Next
+    End Sequence
+    // Restaura o code block de tratamento de erro original
+    ErrorBlock( oError )
+Return oLayTit
+
+/*/{Protheus.doc} dateFormat
+    formata a data conforme layout
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 13/04/2021
+    @param dData, date, data
+    @param cFormat, character, formato sen dd para dia, mm para mês, MMM para mês por extenso, yy para ano 2 digitos e yyyy ano 4 dias
+    @return character, data formatada o se informar um formato inválido o mesmo não será substituído
+/*/
+Function dateFormat( dData As Date, cFormat As Character) As Character
+    Local cDay       As Character
+    Local cMonth     As Character
+    Local cMonthTxt  As Character
+    Local cYear      As Character
+
+    cDay         := StrZero(Day(dData), 2)
+    cMonth       := StrZero(Month(dData), 2)
+    cYear        := cValToChar(Year(dData))
+    cMonthTxt    := MesExtenso(dData)
+
+    cFormat := strtran(cFormat, 'dd'  , cDay )
+    cFormat := strtran(cFormat, 'mm'  , cMonth )
+    cFormat := strtran(cFormat, 'yyyy', cYear )
+    cFormat := strtran(cFormat, 'yy'  , SubStr(cYear, 3, 2))
+    cFormat := strtran(cFormat, 'MMM' , cMonthTxt)
+Return cFormat
+
+/*/{Protheus.doc} getIDCNAB
+    Próximo IDCNAB
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @return character, Próximo IDCNAB
+/*/
+Function getIDCNAB() As Character
+    Local cIDCNAB   As Character
+    Local cQuery    As Character
+
+    cQuery := "SELECT COUNT(E1_IDCNAB) IDCNAB FROM " + RetSQLName('SE1') + " SE1 "
+    cQuery += " WHERE "
+    cQuery += " SE1.D_E_L_E_T_ =' ' "
+    cQuery += " AND SE1.E1_IDCNAB ='"
+    cQuery := changeQuery(cQuery)
+    While .T.
+        cIDCNAB := GetSxENum("SE1", "E1_IDCNAB","E1_IDCNAB" + cEmpAnt, 19)
+        ConfirmSX8()
+        If !MpSysExecScalar(cQuery + cIDCNAB + "'", 'IDCNAB') > 0
+            Exit
+        EndIf
+    EndDo
+Return cIDCNAB
+
+
+
+/*/{Protheus.doc} formatValue
+  Formata valor passado por parâmetro.
+  @type function
+  @version  12.1.33
+  @author luiz.nai
+  @since 18/08/2021
+/*/
+
+Function formatValue(cGetValue As Character, nDecimal As Numeric, cPicture As Character)
+  Local cValue      As Character
+  Local nValue      As Numeric
+  Local nMulti      As Numeric
+  Default nDecimal := 2
+  cValue := ""
+
+  If(!Empty(cGetValue))
+    nMulti := Val(PADR("1", nDecimal + 1, "0"))
+
+    cValue := cGetValue
+    nValue := round(int(val(cValue))/nMulti,2)
+    cValue := AllTrim(Transform(nValue, cPicture))
+  ENDIF
+Return cValue
+
+/*/{Protheus.doc} discountMsg
+	Gera mensagem de desconto.
+	@type function
+	@version  12.1.33
+	@author luiz.nai
+	@since 29/07/2021
+/*/
+Function discountMsg(oDiscount As Json, bco As Character, cVersion As Character)
+	Local cMessage As Character
+	cMessage := ''
+
+	Default cVersion := ''
+
+	If(ValType(oDiscount) == 'J')
+		If(bco=='001')
+			If(oDiscount['tipo'] == 1)
+				//"Até o vencimento, desconto de R$"
+
+				cMessage := STR0017 + " " + AllTrim((Transform(oDiscount['valor'], __cPicVal))) + '.'
+			ElseIf(oDiscount['tipo'] == 2)
+				//"Até o vencimento, desconto de"
+				cMessage := STR0018 + " " + AllTrim(Transform(oDiscount['porcentagem'], __cPicVal )) + '%.'
+			EndIf
+		ElseIf(bco=='341')
+			If cVersion == "v2"
+				If(oDiscount['codigo_tipo_desconto'] == "01")
+					//"Valor de desconto R$"
+					cMessage := STR0019 + " " + formatValue(oDiscount['descontos'][1]['valor_desconto'], 2, __cPicVal) + " " + STR0021 // "referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['codigo_tipo_desconto'] == "02")
+					//"Percentual de desconto:"
+					cMessage := STR0020 + " " + formatValue(oDiscount['descontos'][1]['percentual_desconto'], 5, __cPicJur) + " " + STR0022 // "% referente a antecipação à data de vencimento."
+				EndIf
+			Else
+				If(oDiscount['tipo_desconto'] == 1)
+					//"Valor de desconto R$"
+					cMessage := STR0019 + " " + formatValue(oDiscount['valor_desconto'], 2, __cPicVal) + " " + STR0021 // "referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['tipo_desconto'] == 2)
+					//"Percentual de desconto:"
+					cMessage := STR0020 + " " + formatValue(oDiscount['percentual_desconto'], 5, __cPicJur) + " " + STR0022 // "% referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['tipo_desconto'] == 3)
+					//"Valor de desconto R$"
+					cMessage := STR0019 + " " + formatValue(oDiscount['valor_desconto'], 2, __cPicVal) + " " + STR0023 // "de dias corridos referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['tipo_desconto'] == 4)
+					//"Valor de desconto R$"
+					cMessage := STR0019 + " " + formatValue(oDiscount['valor_desconto'], 2, __cPicVal) + " " + STR0024 // "de dias úteis referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['tipo_desconto'] == 5)
+					//"Percentual de desconto:"
+					cMessage := STR0020 + " " + formatValue(oDiscount['percentual_desconto'], 5, __cPicJur) + " " + STR0025 // "% de dias corridos referente a antecipação à data de vencimento."
+				ElseIf(oDiscount['tipo_desconto'] == 6)
+					//"Percentual de desconto:"
+					cMessage := STR0020 + " " + formatValue(oDiscount['percentual_desconto'], 5, __cPicJur) + " " + STR0026 // "% de dias úteis referente a antecipação à data de vencimento."
+				EndIf
+			EndIf
+		ElseIf(bco=="237")
+			If !Empty(oDiscount['dataLimiteDesconto1'])
+				If VAL(oDiscount['percentualDesconto1']) > 0
+					// "Até o vencimento, desconto de"
+					cMessage := STR0018 + " " + AllTrim(Transform(Val(oDiscount['percentualDesconto1']) / 100000, "@E 999.99")) + '%.'
+				ElseIf VAL(oDiscount['vlDesconto1']) > 0
+					// "Até o vencimento, desconto de R$"
+					cMessage := STR0017 + " " + AllTrim((Transform(Val(oDiscount['vlDesconto1']) / 100, __cPicVal))) + '.'
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+Return cMessage
+
+/*/{Protheus.doc} feeMsg
+	Gera mensagem de juros.
+	@type function
+	@version  12.1.33
+	@author luiz.nai
+	@since 29/07/2021
+/*/
+Function feeMsg(oFee As Json, bco As Character, cVersion As Character)
+	Local cMessage As Character
+	cMessage := ''
+
+	Default cVersion := ''
+
+	If(ValType(oFee) == 'J')
+		If(bco=='001')
+			If(oFee['tipo'] == 1)
+				// "Após o vencimento, cobrar R$ "
+
+				cMessage := STR0027 + " " + AllTrim((Transform(oFee['valor'], __cPicVal))) + " " + STR0028 // "de juros por dia de atraso."
+			ElseIf(oFee['tipo'] == 2)
+				// "Após o vencimento, cobrar"
+				cMessage := STR0029 + " " + AllTrim(cValToChar(oFee['porcentagem'])) + STR0030 // "% de juros por dia de atraso."
+			EndIf
+		ElseIf(bco=='341')
+			If cVersion == "v2"
+				If(oFee['codigo_tipo_juros'] == "93")
+					// "Valor diário para incidência de juros após um dia corrido da data de vencimento: R$"
+					cMessage := STR0031 + " " + formatValue(oFee['valor_juros'], 2, __cPicVal) + '.'
+				ElseIf(oFee['codigo_tipo_juros'] == "90")
+					// "Percentual diário para incidência de juros após um dia corrido da data de vencimento:"
+					cMessage := STR0032 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				EndIf
+			Else
+				If(oFee['tipo_juros'] == 1)
+					// "Valor diário para incidência de juros após um dia corrido da data de vencimento: R$"
+					cMessage := STR0031 + " " + formatValue(oFee['valor_juros'], 2, __cPicVal) + '.'
+				ElseIf(oFee['tipo_juros'] == 2)
+					// "Percentual diário para incidência de juros após um dia corrido da data de vencimento:"
+					cMessage := STR0032 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				ElseIf(oFee['tipo_juros'] == 3)
+					// "Percentual mensal para incidência de juros após um dia corrido da data de vencimento:"
+					cMessage := STR0033 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				ElseIf(oFee['tipo_juros'] == 4)
+					// "Percentual anual para incidência de juros após um dia corrido da data de vencimento:"
+					cMessage := STR0034 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				ElseIf(oFee['tipo_juros'] == 5)
+					cMessage := STR0035 // "Isento de Juros: Não se aplica juros caso o título seja pago após a data de vencimento."
+				ElseIf(oFee['tipo_juros'] == 6)
+					// "Valor diário para incidência de juros após um dia útil da data de vencimento: R$"
+					cMessage := STR0036 + " " + formatValue(oFee['valor_juros'], 2, __cPicVal) + '.'
+				ElseIf(oFee['tipo_juros'] == 7)
+					// "Percentual diário para incidência de juros após um dia útil da data de vencimento:"
+					cMessage := STR0037 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				ElseIf(oFee['tipo_juros'] == 8)
+					// "Percentual mensal para incidência de juros após um dia útil da data de vencimento:"
+					cMessage := STR0038 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				ElseIf(oFee['tipo_juros'] == 9)
+					// "Percentual anual para incidência de juros após um dia útil da data de vencimento:"
+					cMessage := STR0039 + " " + formatValue(oFee['percentual_juros'], 5, __cPicJur) + '%.'
+				EndIf
+			EndIf
+		ElseIf(bco=='237')
+			If oFee['qtdeDiasJuros'] == "1"
+				If VAL(oFee['percentualJuros']) > 0
+					// "Após o vencimento, cobrar R$ "
+					cMessage := STR0029 + " " + AllTrim(Transform(Val(oFee['percentualJuros']) / 100000, "@E 999.99")) + " " + STR0030 // "% de juros por dia de atraso."
+				ElseIf VAL(oFee['vlJuros']) > 0
+					// "Após o vencimento, cobrar"
+					cMessage := STR0027 + " " + AllTrim((Transform(Val(oFee['vlJuros']) / 100, __cPicVal))) + " " + STR0028 // "de juros por dia de atraso."
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+Return cMessage
+
+/*/{Protheus.doc} fineMsg
+	Gera mensagem de multa.
+	@type function
+	@version  12.1.33
+	@author luiz.nai
+	@since 29/07/2021
+/*/
+Function fineMsg(oFine As Json, bco As Character, cVersion as Character)
+	Local cMessage As Character
+	cMessage := ''
+
+	Default cVersion := ''
+
+	If(ValType(oFine) == 'J')
+		If(bco=='001')
+			If(oFine['tipo'] == 1)
+				// "Após o vencimento, cobrar R$ "
+
+				cMessage := STR0027 + " " + AllTrim(transform(oFine['valor'], __cPicVal )) + " " + STR0040 // "de multa."
+			ElseIf(oFine['tipo'] == 2)
+				// "Após o vencimento, cobrar"
+
+				cMessage := STR0029 + " " + AllTrim(transform(oFine['porcentagem'], __cPicVal )) + STR0041 // "% de multa."
+			EndIf
+		ElseIf(bco=='341')
+			If cVersion == "v2"
+				If(oFine['codigo_tipo_multa'] == "01")
+					// "Após o vencimento, cobrar R$ "
+					cMessage := STR0027 + " " +  formatValue(oFine['valor_multa'], 2, __cPicVal) + " " + STR0040 // "de multa."
+				ElseIf(oFine['codigo_tipo_multa'] == "02")
+					// "Após o vencimento, cobrar"
+					cMessage := STR0029 + " " +  formatValue(oFine['percentual_multa'], 5, __cPicJur) + STR0041 // "% de multa."
+				EndIf
+			Else
+				If(oFine['tipo_multa'] == 1)
+					// "Após o vencimento, cobrar R$ "
+					cMessage := STR0027 + " " +  formatValue(oFine['valor_multa'], 2, __cPicVal) + " " + STR0040 // "de multa."
+				ElseIf(oFine['tipo_multa'] == 2)
+					// "Após o vencimento, cobrar"
+					cMessage := STR0029 + " " +  formatValue(oFine['percentual_multa'], 5, __cPicJur) + STR0041 // "% de multa."
+				EndIf
+			EndIf
+		ElseIf(bco=='237')
+			If oFine['qtdeDiasMulta'] == "1"
+				If VAL(oFine['percentualMulta']) > 0
+					// "Após o vencimento, cobrar R$ "
+					cMessage := STR0029 + " " + Alltrim(Transform(Val(oFine['percentualMulta']) / 100000, "@E 9999.99")) + " " + STR0041 // "% de multa."
+				ElseIf VAL(oFine['vlMulta']) > 0
+					// "Após o vencimento, cobrar"
+					cMessage := STR0027 + " " + AllTrim((Transform(Val(oFine['vlMulta']) / 100, __cPicVal))) + " " + STR0040 // "de multa."
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+Return cMessage
+
+/*/{Protheus.doc} formatMail
+    Carrega as informações no objeto do e-mail
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 14/04/2021
+    @param oAPIMSG, Json, boleto transmitido ao banco
+    @param cDataBol, Character, cariável para retornar as informações do boleto
+    @return character, JSON com as informações do boleto
+/*/
+Function formatMail(oAPIMSG As Json, cDataBol As Character) As Logical
+    Local lRet          As Logical
+    Local cBanco        As Character
+    Local oDataEMail    As Object
+    Local cMarkCNPJ     As Character
+    Local aFilAtu       As Array
+    Local cEndereco     As Character
+
+    If oAPIMSG:Hasproperty('beneficiarioFilial')
+        aFilAtu := FWArrFilAtu(cEmpAnt,PadR(oAPIMSG['beneficiarioFilial'],FWSizeFilial(),' '))
+    Else
+        aFilAtu := FWArrFilAtu()
+    EndIf
+
+    cMarkCNPJ := '@R 99.999.999/9999-99'
+    cBanco := oAPIMSG['banco']
+    lRet := .T.
+    oDataEMail := JsonObject():new()
+    oDataEMail['pagador']       := JsonObject():new()
+    oDataEMail['beneficiario']  := JsonObject():new()
+    oDataEMail['boleto']        := JsonObject():new()
+    oDataEMail['banco']         := cBanco
+    cEndereco := ""
+
+    Do Case
+        // Dados para o Boleto do Banco do Brasil
+        Case cBanco == '001'
+            oDataEMail['pagador']['nome']      := oAPIMSG['boleto', 'pagador', 'nome']
+            If oAPIMSG['boleto', 'pagador', 'tipoInscricao'] == '1'
+                cMaskCGC := '@R 999.999.999-99'
+            Else
+                cMaskCGC := cMarkCNPJ
+            EndIf
+            oDataEMail['pagador']['cnpj/cpf']  := AllTrim(Transform(oAPIMSG['boleto', 'pagador', 'numeroInscricao'], cMaskCGC))
+
+            // Endereço do pagador
+            cEndereco := Iif(!Empty(oAPIMSG['boleto', 'pagador', 'endereco']), oAPIMSG['boleto', 'pagador', 'endereco'], "") + ;
+            Iif(!Empty(oAPIMSG['boleto', 'pagador', 'cidade']), + ' - ' + oAPIMSG['boleto', 'pagador', 'cidade'], "") + ;
+            Iif(!Empty(oAPIMSG['boleto', 'pagador', 'uf']), + ' - ' + oAPIMSG['boleto', 'pagador', 'uf'], "") + ;
+            Iif(!Empty(oAPIMSG['boleto', 'pagador', 'cep']), + ' - ' + cValToChar(oAPIMSG['boleto', 'pagador', 'cep']), "")
+
+            oDataEMail['pagador']['endereco']  := Iif(Empty(Alltrim(StrTran(cEndereco, "-", ""))), "",  cEndereco)
+
+            oDataEMail['beneficiario']['banco']     := '001-9'
+            oDataEMail['beneficiario']['agencia']   := cValtoChar(oAPIMSG['response', 'beneficiario', 'agencia'])
+            oDataEMail['beneficiario']['conta']     := cValToChar(oAPIMSG['response', 'beneficiario', 'contaCorrente'])
+            oDataEMail['beneficiario']['cnpj']      := AllTrim(Transform(aFilAtu[18], cMarkCNPJ))
+            oDataEMail['beneficiario']['nome']      := AllTrim(aFilAtu[17])
+
+            // Endereço do beneficiario
+            cEndereco := Iif(!Empty(oAPIMSG['response', 'beneficiario', 'logradouro']), oAPIMSG['response', 'beneficiario', 'logradouro'], "") + ;
+            Iif(!Empty(oAPIMSG['response', 'beneficiario', 'cidade']), + ' - ' + oAPIMSG['response', 'beneficiario', 'cidade'], "") + ;
+            Iif(!Empty(oAPIMSG['response', 'beneficiario', 'uf']), + ' - ' + oAPIMSG['response', 'beneficiario', 'uf'], "") + ;
+            Iif(!Empty(oAPIMSG['response', 'beneficiario', 'cep']), + ' - CEP.: ' + cValToChar(oAPIMSG['response', 'beneficiario', 'cep']), "")
+
+            oDataEMail['beneficiario']['endereco']  := Iif(Empty(Alltrim(StrTran(cEndereco, "-", ""))), "",  cEndereco)
+
+            oDataEMail['boleto']['nossoNumero']    := oAPIMSG['boleto', 'numeroTituloCliente']
+            oDataEMail['boleto']['numeroDocumento']:= oAPIMSG['boleto', 'numeroTituloBeneficiario']
+            oDataEMail['boleto']['linhaDigitavel'] := AllTrim(Transform(oAPIMSG['response', 'linhaDigitavel'], "@R 99999.99999 99999.999999 99999.999999 9 99999999999999"))
+            oDataEMail['boleto']['codigoBarras']   := oAPIMSG['response', 'codigoBarraNumerico']
+
+            oDataEMail['boleto']['vencimento']     := strtran(oAPIMSG['boleto', 'dataVencimento'], '.'  , '/')
+            oDataEMail['boleto']['emissao']        := strtran(oAPIMSG['boleto', 'dataEmissao']   , '.'  , '/')
+            oDataEMail['boleto']['processamento']  := strtran(oAPIMSG['boleto', 'dataEmissao']   , '.'  , '/')
+            oDataEMail['boleto']['valor']          := AllTrim(Transform(oAPIMSG['boleto', 'valorOriginal'], "@E 9,999,999,999,999.99"))
+            oDataEMail['boleto']['especie']        := 'R$'
+            oDataEMail['boleto']['especieDoc']     := AllTrim(oAPIMSG['especie'])
+            oDataEMail['boleto']['carteira']       := cValToChar(oAPIMSG['response', 'numeroCarteira'])
+            oDataEMail['boleto']['mensagem']       := oAPIMSG['boleto', 'mensagemBloquetoOcorrencia']
+            oDataEMail['boleto']['localPagamento'] := STR0014  // "Pagável em qualquer banco"
+            oDataEMail['boleto']['aceite']         := oAPIMSG['boleto', 'indicadorAceiteTituloVencido']
+
+            oDataEMail['boleto']['msgJuros'] := feeMsg(oAPIMSG['boleto']['jurosMora'], cBanco)
+            oDataEMail['boleto']['msgDesconto'] := discountMsg(oAPIMSG['boleto']['desconto'], cBanco)
+            oDataEmail['boleto']['msgMulta'] := fineMsg(oAPIMSG['boleto']['multa'], cBanco)
+
+        Case cBanco == '341'
+            // Dados para o Boleto do Itau
+            oDataEMail := &("totvs.protheus.backoffice.ngf.itau.frtMailItau(oAPIMSG)")
+        Case cBanco == '237'
+            // Dados para o Boleto do Bradesco
+            oDataEMail := &("totvs.protheus.backoffice.ngf.bills.frtEmailBrad(oAPIMSG)")
+        Case cBanco == '104'
+            // Dados para o Boleto do Caixa
+            oDataEMail := &("totvs.protheus.backoffice.ngf.cef.frtEmailCaixa(oAPIMSG)")
+        Case cBanco == '033'
+            // Dados para o Boleto do Santander
+            oDataEMail := &("totvs.protheus.backoffice.ngf.santander.frtEmailSantander(oAPIMSG)")
+        OTHERWISE
+            lRet := .F.
+        EndCase
+    cDataBol := oDataEMail:ToJSON()
+    FreeObj(oDataEMail)
+    FwFreeArray(aFilAtu)
+Return lRet
+
+/*/{Protheus.doc} SchedDef
+    Execucao da rotina via Schedule.
+    @return  aParam
+/*/
+Static Function SchedDef()
+    Local aParam := {}
+
+    aParam := {"P",; //Tipo R para relatorio P para processo
+            "",;     //Nome do grupo de perguntas (SX1)
+            Nil,;    //cAlias (para Relatorio)
+            Nil,;    //aArray (para Relatorio)
+            Nil}     //Titulo (para Relatorio)
+Return aParam
+
+/*/{Protheus.doc} F713LayErr
+    Carrega o erro da macroexecução do layout
+    @type function
+    @version 12.1.33
+    @author renato.ito
+    @since 18/05/2021
+    @param e   , Object   , objeto do erro
+    @param cErr, Character, mensagem de erro
+/*/
+Static Function F713LayErr(e As Object, cErr As Character)
+    _cErrorLay := (e:DESCRIPTION + ' - ' + cErr)
+    Break
+Return
+
+/*/{Protheus.doc} VldVerItau
+	Apresenta uma tela informando sobre a nova versão de registro de boletos
+	@type  Function
+	@author francisco.carmo
+	@since 27/01/2022
+	@version 1.0
+	@param cExpirFunc, caracter, nome da rotina que deve ser descontinuada
+	@param cDescrFunc, caracter, descricaod a rotina e nome da rotina que substitui a rotina descontinuada
+	@param cExpiraData, caracter, data de experira??o a ser informada deve estar no formato AAAAMMDD
+/*/
+
+Static Function VldVerItau(JsonSA6 As Json)
+
+	Local dDate      As Date
+	Local oProfile   As Object
+	Local oLayout    As Object
+	Local aLoad      As Array
+	Local cShow      As Character
+	Local lCheck     As Logical
+	Local nPauseDays As Numeric
+    Local lVersionV2 As Logical
+
+    lVersionV2 := .F.
+	oLayout := JsonObject():new()
+
+	If Empty(oLayout:FromJson(JsonSA6))
+        lVersionV2 := oLayout['credentials']:hasProperty('version') .And. oLayout['credentials']['version'] == 'v2'
+
+		If !lVersionV2
+            // numero de dias que pode ser desabilitada a mensagem
+            nPauseDays  := 7
+            dDate       := Date()
+
+            oProfile := FwProFile():New()
+            oProfile:SetTask("ItauVersion") //Nome da sessão
+            oProfile:SetType("FINA710") //Rotina
+            aLoad := oProfile:Load()
+
+            If Empty(aLoad)
+                cShow := "00000000"
+            Else
+                cShow := aLoad[1]
+            Endif
+
+            // reseta o controle de nPauseDays dias e volta apresentar a tela de advertencia
+            If cShow <> "00000000" .and. STOD(cShow) + nPauseDays <= dDate
+                cShow := "00000000"
+                oProfile:SetProfile({cShow})
+                oProfile:Save()
+            ENDIF
+
+            If cShow == "00000000"
+                lCheck := DlgExpRot(nPauseDays)
+                If lCheck
+                    cShow := dtos(date())
+                    oProfile:SetProfile({cShow})
+                    oProfile:Save()
+                Else
+                    cShow := dtos(date() - (nPauseDays + 1))
+                    oProfile:SetProfile({cShow})
+                    oProfile:Save()
+                    aLoad := {}
+                EndIf
+            EndIf
+
+            oProfile:Destroy()
+            oProfile := nil
+            FWFReeArray(aLoad)
+		Endif
+	Endif
+
+RETURN
+
+/*/{Protheus.doc} DlgExpRot
+	Apresenta uma tela informando sobre a nova versão de registro de boletos
+	@type  Function
+	@author francisco.carmo
+	@since 27/01/2022
+	@version 1.0
+	@param cExpiraData, caracter, data de experiração a ser informada deve estar no formato AAAAMMDD
+	@param nPauseDays, numeric, numero de dias que a mensagem pode ser ocultada
+	@param cDescrFunc, caracter, descricaod a rotina e nome da rotina que substitui a rotina descontinuada
+	@return lCheck, logico, Verdadeiro se foi escolhido para desabilitar a mensagem por 7 dias
+/*/
+
+Static Function DlgExpRot(nPauseDays As Numeric)
+
+	Local oSay1   As object
+	Local oSay2   As object
+	Local oSay3   As object
+	Local oCheck1 As object
+	Local oModal  As object
+	Local cMsg1   As character
+	Local cMsg2   As character
+	Local cMsg3   As character
+	Local cEndWeb As Character
+	Local lCheck  As logical
+
+	cEndWeb := "https://tdn.totvs.com/pages/viewpage.action?pageId=661325519"
+	cMsg3   := ""
+
+	oModal := FWDialogModal():New()
+	oModal:SetCloseButton( .F. )
+	oModal:SetEscClose( .F. )
+	oModal:setTitle(STR0042) // "Existe versão atualizada para registro de boleto"
+
+	//define a altura e largura da janela em pixel
+	oModal:setSize(180, 250)
+
+	oModal:createDialog()
+
+	oModal:AddButton( STR0043, {||oModal:DeActivate()}, STR0043, , .T., .F., .T., ) // "Confirmar"
+
+	oContainer := TPanel():New( ,,, oModal:getPanelMain() )
+	oContainer:Align := CONTROL_ALIGN_ALLCLIENT
+
+	cMsg1 := i18n(STR0044,{cValToChar(Date())}) // "O Itaú disponibilizou uma nova formula de comunicação de registro de boletos."
+	cMsg2 := i18n("<b>" + STR0045 + "</b>", {} ) // "Favor acessar o documento: "
+
+	cMsg3 += "<b><a target='_blank' href='"+cEndWeb+"'> "
+	cMsg3 += Alltrim(STR0047) // "clique aqui"
+	cMsg3 += " </a></b>."
+	cMsg3 += "<span style='font-family: Verdana; font-size: 12px; color: #565759;' >" + ' ' +"</span>"
+
+	oSay1 := TSay():New( 10,10,{||cMsg1 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+
+	oSay2 := TSay():New( 30,10,{||cMsg2 },oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+
+	oSay3 := TSay():New(50,10,{||cMsg3},oContainer,,,,,,.T.,,,220,20,,,,,,.T.)
+	oSay3:bLClicked := {|| MsgRun( STR0048, "URL",{|| ShellExecute("open",cEndWeb,"","",1) } ) } // "Abrindo o link... Aguarde..."
+
+	lCheck := .F.
+	oCheck1 := TCheckBox():New(100,10,i18n(STR0046,{strzero(nPauseDays,2)}) ,{|x|If(Pcount()==0,lCheck,lCheck:=x)},oContainer,220,21,,,,,,,,.T.,,,) // "Não mostrar essa tela nos próximos 07 dias"
+
+	oModal:Activate()
+
+Return lCheck
+/*/{Protheus.doc} VldBanB001
+	Realiza a validação dos campos EE_VARCART, EE_CODEMP e EE_FAXATU quando for banco do BRASIL
+	@type  Function
+	@author francisco.carmo
+	@since 15/08/2022
+	@version 1.0
+	@param caracter,
+	@return lRet, logico, Verdadeiro se foi validado todas as condições do prenchimento dos campos
+/*/
+
+Function VldBanB001(cPort060 As Character, cAgen060 As Character, cConta060 As Character, cSubCta060 As Character) As Logical
+
+    Local cRet   as Character
+    Local cQuery as Character
+    Local cTemp  as Character
+    Local lRet   as Logical
+
+    cTemp   := GetNextAlias()
+    cRet    := ""
+    lRet    := .T.
+
+    cQuery := " SELECT "
+    cQuery += " SEE.EE_VARCART, SEE.EE_CODEMP, SEE.EE_FAXATU, SA6.A6_BCOOFI "
+    cQuery += " FROM " + RetSqlName("SEE") + " SEE "
+    cQuery += " INNER JOIN " + RetSqlName("SA6") + " SA6 "
+    cQuery += " ON "
+    cQuery += " SEE.EE_CODIGO = SA6.A6_COD AND "
+    cQuery += " SEE.EE_AGENCIA  = SA6.A6_AGENCIA AND "
+    cQuery += " SEE.EE_CONTA = SA6.A6_NUMCON AND "
+    cQuery += " SA6.D_E_L_E_T_ = ' '
+    cQuery += " WHERE "
+    cQuery += " SEE.EE_FILIAL      = '" + xFilial("SEE") + "'"
+    cQuery += " AND SEE.EE_CODIGO  = '" + cPort060       + "'"
+    cQuery += " AND SEE.EE_AGENCIA = '" + cAgen060       + "'"
+    cQuery += " AND SEE.EE_CONTA   = '" + cConta060      + "'"
+    cQuery += " AND SEE.EE_SUBCTA  = '" + cSubCta060     + "'"
+    cQuery += " AND SEE.D_E_L_E_T_ = ' ' "
+
+    cQuery := changeQuery(cQuery)
+
+    MPSysOpenQuery( cQuery, cTemp )
+
+    If (cTemp)->A6_BCOOFI == '001'
+
+        While (cTemp)->(!Eof())
+
+            If Empty((cTemp)->EE_VARCART)
+                cRet += CHR(10) + CHR(10) + STR0051 // "Necessário preenchimento do campo Variação de Conta (EE_VARCART)."
+            Endif
+
+            If Empty((cTemp)->EE_CODEMP)
+                cRet += CHR(10) + CHR(10) + STR0052 // "Necessário preenchimento do campo Código da Empresa (EE_CODEMP)."
+            Endif
+
+            lRet  := VldJsonBB(cTemp)
+
+            If !lRet
+                cRet += CHR(10) + CHR(10) + STR0053 //" O campo Faixa Atual deverá conter o tamanho máximo de 10 caracteres (EE_FAXATU)."
+            ElseIf Empty((cTemp)->EE_FAXATU)
+                cRet += CHR(10) + CHR(10) + STR0054 //" O campo Faixa Atual deverá conter valor para controle do Nosso Número (EE_FAXATU)."
+            Endif
+
+            (cTemp)->(DbSkip())
+
+        Enddo
+    Endif
+
+    If !Empty(cRet)
+        Help("", 1, "SEE_VALBB001", , cRet, 1,,,,,,, { STR0055 }) //"Revisar o(s) campo(s) assinalado(s)."
+        lRet := .F.
+    Endif
+
+    (cTemp)->(DBCloseArea())
+
+Return lRet
+
+/*/{Protheus.doc} VldJsonBB
+	Realiza a validação do campo EE_FAXATU quando for banco do BRASIL
+	@type  Function
+	@author francisco.carmo
+	@since 15/08/2022
+	@version 1.0
+	@param caracter,
+	@return lRet, logico, Verdadeiro se foi validado todas as condições do prenchimento dos campos
+/*/
+
+Static Function VldJsonBB(cTabela)
+
+    Local nFaixa   as Numeric
+    Local lRet     as Logical
+
+    Default cTabela := "SEE"
+
+    lRet    := .F.
+    nFaix   := 0
+
+    nFaixa := Iif(Empty((cTabela)->EE_FAXATU), 0, Val(Alltrim((cTabela)->EE_FAXATU)))
+
+    If nFaixa == 0
+        lRet := .T.
+    Else
+        lRet   := Iif(nFaixa > 0 .And. Len(cValToChar(nFaixa)) <= 10 , .T. , .F. )
+    Endif
+
+Return lRet

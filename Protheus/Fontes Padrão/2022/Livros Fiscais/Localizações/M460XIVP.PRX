@@ -1,0 +1,488 @@
+#include "SIGAWIN.CH"        // incluido pelo assistente de conversao do AP5 IDE em 09/09/99
+#include "protheus.CH"        // incluido pelo assistente de conversao do AP5 IDE em 09/09/99
+
+
+#DEFINE _NOMIMPOST 01
+#DEFINE _ALIQUOTA  02
+#DEFINE _BASECALC  03
+#DEFINE _IMPUESTO  04
+#DEFINE _IMPINCID  10
+#DEFINE _RATEOFRET 11
+#DEFINE _IMPFLETE  12
+#DEFINE _RATEODESP 13
+#DEFINE _IMPGASTOS 14
+#DEFINE _VLRTOTAL  3
+#DEFINE _FLETE     4
+#DEFINE _GASTOS    5
+#DEFINE _ALIQDESG  19
+#DEFINE _FCFILIAL  1
+#DEFINE _FCTES     2
+#DEFINE _FCIMPOSTO 3
+#DEFINE _FCPROV    4
+#DEFINE _FCCALCULO 5
+#DEFINE _FCINCIMP  6
+#DEFINE _FCLIQUIDO 7
+
+
+Function M460xivp(cCalculo,nItem,aInfo,cXFisRap)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Declaracao de variaveis utilizadas no programa atraves da funcao    ³
+//³ SetPrvt, que criara somente as variaveis definidas pelo usuario,    ³
+//³ identificando as variaveis publicas do sistema utilizadas no codigo ³
+//³ Incluido pelo assistente de conversao do AP5 IDE                    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lXFis,xRet,nOrdSFC,nRegSFC,nBase
+Local cImpIncid := ''
+Local aImpRef   := {}
+Local aImpVal   := {}
+Local nI        := 0
+Local _nMoeda   := 1
+Local lMAgente	:= ExistBlock("MAGENTE")
+Local _lRetorn  := .F.
+Local nPos		:= 0
+Local cPesq		:= " "
+Local cAlias	:= IIf(Type("M->F1_FORNECE")=="C" ,"SF1",Iif (Type("M->F2_CLIENTE")=="C","SF2",""))
+Local cPesqSFC	:= " "
+Local nPosSFC	:= 0
+Local cIncidImp := ""
+Local cTipoCli  := ""
+Local cTipoMov  := "" 
+Local cCfo		  := ""
+Local cTipoSFF  := ""
+Local lCliente  := .T.
+Local aAreaSFF  := {}
+Local aAreaSFH	:={}
+Local cTES      :=""
+Local cIvaPos	:= FunName()=="FINA935" 
+Local lExSFH    := .F.
+Local cCod		:=""
+Local cLoja		:=""
+Local cTipoInsc := ""
+Local _nSFF  	:= 0
+
+
+SetPrvt("CALIASROT,CORDEMROT,AITEMINFO,AIMPOSTO,_CPROCNAME,_CZONCLSIGA")
+SetPrvt("_LAGENTE,AFISCAL,_LCALCULAR,_LESLEGAL,_NALICUOTA,_NVALORMIN,_NALICDESG")
+SetPrvt("_NREDUCIR,_NIMPUESTO,")
+
+Default cXFisRap := ""
+
+/*/
+°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°
+°°+-----------------------------------------------------------------------+°°
+°°|Funcion   |M460xIVA  | Autor | Jose Luis Otermin      |Fecha | 22.07.99|°°
+°°+----------+------------------------------------------------------------|°°
+°°|Descrip.  |Programa que Calcula Percepcion de IVA s/RG 3337            |°°
+°°+----------+------------------------------------------------------------|°°
+°°|Uso       | MATA460, llamado por un punto de entrada                   |°°
+°°+-----------------------------------------------------------------------|°°
+°°|         ACTUALIZACIONES EFECTUADAS DESDE LA CODIFICACION INICIAL      |°°
+°°+-----------------------------------------------------------------------|°°
+°°|Programador | Fecha  | BOPS      |  Motivo de la Alteracion            |°°
+°°+------------+--------+-----------+-------------------------------------|°°
+°°|            |  /  /  |           |                                     |°°
+°°+-----------------------------------------------------------------------+°°
+°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°°
+//-----------------------------------------------------
+// Nota:
+// Debe registrarse al Cliente en la Tabla SFH en caso
+// que sea Agente de Percepcion o este Exento en una ZF.
+// Se utiliza el parametro MV_AGENTE
+// Significado de las posiciones de MV_AGENTE
+// SUBSTR(MV_AGENTE,1,1) = Agente Retencion Ganancias? (S/N)
+// SUBSTR(MV_AGENTE,2,1) = Agente Retencion IVA?       (S/N)
+// SUBSTR(MV_AGENTE,3,1) = Agente Retencion IB?        (S/N)
+// SUBSTR(MV_AGENTE,4,1) = Agente Percepcion IVA?      (S/N)
+// SUBSTR(MV_AGENTE,5,1) = Agente Percepcion IB?       (S/N)
+//-----------------------------------------------------
+// Nota:
+// Debe utilizarse el parametro MV_EXENTO
+// Significado de las posiciones de MV_EXENTO
+// SUBSTR(MV_EXENTO,1,1) = Exento Retencion Ganancias? (S/N)
+// SUBSTR(MV_EXENTO,2,1) = Exento Retencion IVA?       (S/N)
+// SUBSTR(MV_EXENTO,3,1) = Exento Retencion IB?        (S/N)
+// SUBSTR(MV_EXENTO,4,1) = Exento Percepcion IVA?      (S/N)
+// SUBSTR(MV_EXENTO,5,1) = Exento Percepcion IB?       (S/N)
+//-----------------------------------------------------
+/*/
+
+lXfis:=(MaFisFound()  .And. ProcName(1)<>"EXECBLOCK")
+If lXfis
+ lCliente := (MaFisRet(,"NF_CLIFOR" ) == "C")
+Endif
+cAliasRot  := Alias()
+cOrdemRot  := IndexOrd()
+
+If !lXFis
+	aItemINFO  := ParamIxb[1]
+	aImposto   := ParamIxb[2]
+	xRet:=aImposto
+Else
+	xRet:=0
+Endif
+
+_cProcName := "M460xIVP"
+
+_cZonClSIGA:= SM0->M0_ESTCOB // Zona Fiscal del Cliente SIGA
+_lAgente   := Iif((IsInCallStack( "FINA935") .OR. IsInCallStack("F935GeraNF")),.T.,(SUBSTR(GETMV("MV_AGENTE"),4,1)=="S")) //  Agente Percepcion IVA?
+
+If lMAgente
+	_lRetorn   := Execblock("MAGENTE",.F.,.F.,{SUBSTR(GETMV("MV_AGENTE"),4,1)})
+	If	ValType(_lRetorn)=='L'
+		_lAgente := _lRetorn
+	EndIf	
+Endif
+
+nPos := 0
+nPosSFC := 0
+lArrayIb	:= Type("aImpIB2") <> "U"
+lImpSFC	:= Type("aImpSFC") <> "U"
+
+If cAlias== "SF2
+	cCod:=	M->F2_CLIENTE
+	cLoja:=	M->F2_LOJA
+ElseIf cAlias== "SF1
+	cCod:=	M->F1_FORNECE
+	cLoja:=	M->F1_LOJA
+ElseIf lXFis
+	cCod:=	MaFisRet(,"NF_CODCLIFOR")
+	cLoja:=	MaFisRet(,"NF_LOJA")
+EndIf
+
+if cPaisLoc == "ARG" .and. ALLTRIM(FUNNAME()) $ "MATA468N|MATA461" .and. Empty(cCod) .and. Empty(cLoja) 
+	cCod:=	SC5->C5_CLIENTE
+	cLoja:=	SC5->C5_LOJACLI
+EndIf
+
+If lXFis .And. lArrayIb
+	cPesq:=xFilial("SF4")+MaFisRet(nItem,"IT_TES")+MaFisRet(nItem,"IT_CF")+MaFisRet(,"NF_CLIFOR" )+cCod+cLoja+MaFisRet(,"NF_PROVENT")+MaFisRet(nItem,"IT_PROVENT")+SubStr(Trim(MaFisRet(,"NF_SERIENF")),1,1)
+	If Len(aInfo)>0
+		cPesq:=cPesq+aInfo[1]
+	EndIf
+	nPos:=Ascan(aImpIB2,{|item| item[1] == cPesq})
+EndIf
+
+If nPos == 0
+	aFiscal    := ExecBlock("IMPGENER",.F.,.F.,{If(lXFis,{cCalculo,nItem,aInfo},ParamIxb), _cProcName, _lAgente,_cZonClSIGA,lXFis},.T.)
+	If lArrayIb
+		If nPos == 0
+			Aadd(aImpIB2,{cPesq,aFiscal})
+		Else
+			aImpIB2[nPos][2] := aFiscal
+		EndIf
+	EndIf
+Else
+	aFiscal:= aImpIB2[nPos][2]
+Endif
+
+_lCalcular :=  aFiscal[1]
+_lEsLegal  :=  aFiscal[2]
+_nAlicuota :=  aFiscal[3]
+_nValorMin :=  aFiscal[4]
+_nReducir  :=  aFiscal[5]
+_nMoeda    :=  aFiscal[7]
+_nAlicDesg :=  aFiscal[11]
+cIncidImp  :=  aFiscal[6]
+cZonaFis   :=  aFiscal[14]
+cCfo       :=  aFiscal[13]
+
+If SF3->(ColumnPos("F3_RG1316")) > 0
+	cTES   := aFiscal[18]
+else
+	cTES   := aFiscal[15]
+EndIF
+
+
+_nSFH := IIF(lCliente ,3,1)
+
+If  cPaisLoc == "ARG"
+	If  !( lCliente .And. (SUBSTR(GETMV("MV_AGENTE"),4,1)=="N") ) //Ventas: MV_AGENTE igual a N -> No calcula
+		cTipoInsc := IIF (lCliente,SA1->A1_TIPO,SA2->A2_TIPO)   
+		_nSFF  := IIF(VAL(LEFT(cTES,1))<5 ,19,4)
+		aAreaSFH := SFH->(GetArea())
+		dbSelectArea(aAreaSFH[1] )
+		dbSetOrder(_nSFH) //FH_FILIAL + FH_FORNECE/FH_CLIENTE + FH_LOJA + FH_IMPOSTO + FH_ZONFIS
+		If (SFH->(MsSeek(xFilial("SFH") + cCod  + cLoja + "IVP" )))
+			If  A085aVigSFH() 
+				IF  cTipoInsc == "S" 
+					aAreaSFF := SFF->(GetArea())
+					dbSelectArea("SFF") 
+					dbSetOrder(_nSFF)
+					If SFF->(MsSeek(xFilial("SFF") + "IVP"  + cTipoInsc + cCfo))
+						IF SFH->FH_ALIQ > 0
+							_nAlicuota := SFH->FH_ALIQ
+							_lCalcular := .T.
+							lExSFH := .T. 
+						Else
+							cTipoSFF := SFF->FF_TIPO 
+							cIncidImp := ALLTRIM(SFF->FF_INCIMP)
+							_nAlicuota := SFF->FF_ALIQ
+							_lCalcular := .T.
+							lExSFH := .T. 	
+						EndIF					
+					EndIf
+					SFF->(RestArea(aAreaSFF))	
+				Else
+					IF  lCliente
+						IF  (SUBSTR(GETMV("MV_AGENTE"),4,1)=="S") .and. SFH->FH_AGENTE == "N"
+							_nAlicuota := IIF(SFH->FH_ALIQ > 0,SFH->FH_ALIQ,_nAlicuota)
+							_lCalcular := .T.
+							lExSFH := .T.
+						EndIF
+					Else
+						IF  (SUBSTR(GETMV("MV_AGENTE"),4,1)=="N") .and. SFH->FH_AGENTE == "S"
+							_nAlicuota := IIF(SFH->FH_ALIQ > 0,SFH->FH_ALIQ,_nAlicuota)
+							_lCalcular := .T.
+							lExSFH := .T.
+						ElseIf (SUBSTR(GETMV("MV_AGENTE"),4,1)=="S") .AND. SFH->FH_SITUACA == "5" .AND. SFH->FH_AGENTE == "S"
+							_nAlicuota := IIF(SFH->FH_ALIQ > 0,SFH->FH_ALIQ,_nAlicuota) // RG 2408/08 - Régimen General Percepción del IVA - Percepción entre Agentes
+							lExSFH := .T.
+							_lCalcular := .T.
+						EndIF
+					EndIF
+				EndIF
+			ElseIf  lCliente  //Ventas: Sin registro vigente en la SFH -> Calcula
+					_lCalcular := .T.
+					lExSFH := .T.
+			Endif
+		ElseIf  lCliente  //Ventas: Sin registro en SFH -> Calcula
+				_lCalcular := .T.
+				lExSFH := .T.
+		Endif
+		SFH->(RestArea(aAreaSFH))
+	Endif
+Else
+	lExSFH := .T.
+Endif
+
+cTipoMov  := IIF(VAL(LEFT(cTES,1))<5 ,"E","S")
+
+aAreaSFF := SFF->(GetArea())
+dbSelectArea("SFF")
+		   
+If cTipoMov=="S"  .and. FunName() $ "MATA410|MATA461"
+	_lCalcular := .T.
+EndIf
+		  
+If cIvaPos .And. Type("lTemFX6") <> "U" .And.  lTemFX6
+	If cCalculo == "A"                                                                        
+		_nAlicuota:= nNewAlicuo
+	ELSEIF cCalculo == "V"
+		_nAlicuota:= MaFisRet(nItem,'IT_ALIQIV'+aInfo[2])
+	EndIf 
+EndIf
+		   
+SFF->(RestArea(aAreaSFF))
+
+IF _lCalcular  .AND. _lEsLegal .AND. lExSFH
+		
+	If !lXFis
+		If lCliente
+			cTipoCli := ALLTRIM(SA1->A1_TIPO) // Tipo de Sujeto Fiscal
+		Else
+			cTipoCli := ALLTRIM(SA2->A2_TIPO) // Tipo de Sujeto Fiscal
+		Endif
+		aImposto[_ALIQUOTA]  := _nAlicuota // Alicuota de Zona Fiscal del Proveedor
+		aImposto[_BASECALC]  := aItemINFO[_VLRTOTAL]+aItemINFO[_FLETE] // Base de Cálculo
+		aImposto[_ALIQDESG]  := _nAlicDesg
+		
+		//Tira os descontos se for pelo liquido .Bruno
+		If Subs(aImposto[5],4,1) == "S"  .And. Len(aImposto) >= 18 .And. ValType(aImposto[18])=="N"
+			aImposto[_BASECALC]	-=	aImposto[18]
+		Endif
+		
+		//+---------------------------------------------------------------+
+		//¦ Soma a Base de Cálculo os Impostos Incidentes                 ¦
+		//+---------------------------------------------------------Lucas-+
+		If cPaisLoc == "ARG" .And.cTipoCli == "S" .And. cTipoSFF == "S"
+			aImposto[_IMPINCID]:= cIncidImp
+		Endif
+		
+		If !Empty(aImposto[_IMPINCID]) 
+			aImposto[_BASECALC]	+=	ImpGenInci(aClone(aImposto),aClone(aItemInfo))
+		Endif
+
+		//+---------------------------------------------------------------+
+		//¦ Efectua el Cálculo del Impuesto                               ¦
+		//+---------------------------------------------------------------+
+		If _nAlicDesg > 0
+			_nImpuesto := Round(aImposto[_BASECALC] * ( aImposto[_ALIQUOTA]/100) * _nReducir ,MsDecimais(_nMoeda))
+			_nImpuesto := _nImpuesto - ((_nImpuesto * aImposto[_ALIQDESG]) / 100)
+		Else
+			_nImpuesto := Round(aImposto[_BASECALC] * ( aImposto[_ALIQUOTA]/100) * _nReducir ,MsDecimais(_nMoeda))
+		EndIf
+
+		If _nImpuesto > _nValorMin
+			aImposto[_IMPUESTO]  := _nImpuesto
+		ELSE
+			aImposto[_IMPUESTO]  := 0.00
+			aImposto[_IMPFLETE]  := 0.00
+			aImposto[_IMPGASTOS] := 0.00
+			aImposto[_RATEOFRET] := 0.00
+			aImposto[_RATEODESP] := 0.00
+		Endif
+		
+		xRet:=aImposto
+		
+	Else
+		
+		If lImpSFC
+			cPesqSFC := xFilial("SFC") + MaFisRet(nItem,"IT_TES") + aInfo[1]
+			nPosSFC  := Ascan(aImpSFC,{|item| item[_FCFILIAL] + item[_FCTES] + item[_FCIMPOSTO] == cPesqSFC})
+		EndIf
+
+		
+		
+		If !Empty(cXFisRap)
+			xRet := {0,_nAlicuota,0}
+			MaFisAlt('NF_MINIV'+aInfo[2],(_nValorMin/(_nAlicuota/100)),nItem)
+			//Base
+			nBase:=MaFisRet(nItem,"IT_VALMERC")+MaFisRet(nItem,"IT_FRETE")+MaFisRet(nItem,"IT_DESPESA")+MaFisRet(nItem,"IT_SEGURO")
+			If GetNewPar('MV_DESCSAI','1') == '1' 
+				nBase += MaFisRet(nItem,"IT_DESCONTO")
+			Endif
+			If lCliente
+				cTipoCli := ALLTRIM(SA1->A1_TIPO) // Tipo de Sujeto Fiscal
+			Else
+				cTipoCli := ALLTRIM(SA2->A2_TIPO) // Tipo de Sujeto Fiscal
+			Endif
+			//Tira os descontos se for pelo liquido
+			If nPosSFC == 0
+				nOrdSFC:=(SFC->(IndexOrd()))
+				nRegSFC:=(SFC->(Recno()))
+				SFC->(DbSetOrder(2))
+
+				If (SFC->(DbSeek(xFilial("SFC")+MaFisRet(nItem,"IT_TES")+aInfo[1])))
+					If cPaisLoc == "ARG" .And.cTipoCli == "S" .And. cTipoSFF == "S"
+						cImpIncid := cIncidImp
+					Else
+						cImpIncid := Alltrim(SFC->FC_INCIMP)
+					Endif
+					If SFC->FC_LIQUIDO == "S"
+						nBase -= MaFisRet(nItem,"IT_DESCONTO")
+					Endif
+				Endif
+				If lImpSFC
+					AADD(aImpSFC,{SFC->FC_FILIAL,SFC->FC_TES,SFC->FC_IMPOSTO,SFC->FC_PROV,SFC->FC_CALCULO,SFC->FC_INCIMP,SFC->FC_LIQUIDO})
+				EndIf
+			Else
+				If cPaisLoc == "ARG" .And. cTipoCli == "S" .And. cTipoSFF == "S"
+					cImpIncid := cIncidImp
+				Else
+					cImpIncid:=Alltrim(aImpSFC[nPosSFC][_FCINCIMP])
+				Endif
+				If aImpSFC[nPosSFC][_FCLIQUIDO]=="S"
+					nBase -= MaFisRet(nItem,"IT_DESCONTO")
+				Endif
+			EndIf
+
+			//+---------------------------------------------------------------+
+			//¦ Soma a Base de Cálculo os Impostos Incidentes                 ¦
+			//+---------------------------------------------------------------+
+			If !Empty(cImpIncid)
+				aImpRef := MaFisRet(nItem,"IT_DESCIV")
+				aImpVal := MaFisRet(nItem,"IT_VALIMP")
+				For nI := 1 to Len(aImpRef)
+					If !Empty(aImpRef[nI])
+						IF Trim(aImpRef[nI][1])$cImpIncid
+							nBase += aImpVal[nI]
+						Endif
+					Endif
+				Next
+			Endif
+
+			xRet[1] := nBase
+			If "V" $ cXFisRap
+				If IIF(nPosSFC>0,aImpSFC[nPosSFC][_FCCALCULO]=="T",SFC->FC_CALCULO=="T")
+					nBase := MaRetBasT(aInfo[2],nItem,_nAlicuota)
+				Endif
+				If _nAlicDesg > 0
+					xRet[3] :=	Round(nBase  * (_nAlicuota /100) * _nReducir,MsDecimais(_nMoeda))
+					xRet[3] := xRet[3] - ((xRet[3] *_nAlicDesg) / 100)
+				Else
+	 		    	xRet[3] :=	Round(nBase  * (_nAlicuota /100) * _nReducir,MsDecimais(_nMoeda))
+	 			EndIf
+				If xRet[3] <= _nValorMin
+					xRet[3] := 0 
+				Endif
+			Endif
+
+			If nPosSFC == 0
+				SFC->(DbSetOrder(nOrdSFC))
+				SFC->(DbGoto(nRegSFC))
+			EndIf
+		Else
+			Do Case
+				Case cCalculo=="A"
+					xRet:=_nAlicuota
+					MaFisAlt('NF_MINIV'+aInfo[2],(_nValorMin/(_nAlicuota/100)),nItem)
+				Case cCalculo=="B"
+					nBase:=MaFisRet(nItem,"IT_VALMERC")+MaFisRet(nItem,"IT_FRETE")+MaFisRet(nItem,"IT_DESPESA")+MaFisRet(nItem,"IT_SEGURO")
+
+					If GetNewPar('MV_DESCSAI','1')=='1' 
+						nBase	+= MaFisRet(nItem,"IT_DESCONTO")
+					Endif
+
+					//Tira os descontos se for pelo liquido
+					nOrdSFC:=(SFC->(IndexOrd()))
+					nRegSFC:=(SFC->(Recno()))
+					SFC->(DbSetOrder(2))
+					If (SFC->(DbSeek(xFilial("SFC")+MaFisRet(nItem,"IT_TES")+aInfo[1])))
+						cImpIncid:=Alltrim(SFC->FC_INCIMP)
+						If SFC->FC_LIQUIDO=="S"
+							nBase-= MaFisRet(nItem,"IT_DESCONTO")
+						Endif
+					Endif
+
+					//+---------------------------------------------------------------+
+					//¦ Soma a Base de Cálculo os Impostos Incidentes                 ¦
+					//+---------------------------------------------------------------+
+					If !Empty(cImpIncid)
+						aImpRef:=MaFisRet(nItem,"IT_DESCIV")
+						aImpVal:=MaFisRet(nItem,"IT_VALIMP")
+						For nI:=1 to Len(aImpRef)
+							If !Empty(aImpRef[nI])
+								IF Trim(aImpRef[nI][1])$cImpIncid
+									nBase+=aImpVal[nI]
+								Endif
+							Endif
+						Next
+					Endif
+
+					SFC->(DbSetOrder(nOrdSFC))
+					SFC->(DbGoto(nRegSFC))
+					xRet:=nBase
+				Case cCalculo=="V"
+					If nPosSFC == 0
+						nOrdSFC:=(SFC->(IndexOrd()))
+						nRegSFC:=(SFC->(Recno()))
+						SFC->(DbSetOrder(2))
+					EndIf
+
+					If IIF(nPosSFC>0,.T.,(SFC->(DbSeek(xFilial("SFC")+MaFisRet(nItem,"IT_TES")+aInfo[1]))))
+						If IIF(nPosSFC>0,aImpSFC[nPosSFC][_FCCALCULO]=="T",SFC->FC_CALCULO=="T")							 
+								xRet	:=	Round(MaRetBasT(aInfo[2],nItem,MaFisRet(nItem,'IT_ALIQIV'+aInfo[2])) *((MaFisRet(nItem,'IT_ALIQIV'+aInfo[2])	)/100) * _nReducir,MsDecimais(_nMoeda))			  		     
+							If xRet <= _nValorMin
+							  xRet:=0 
+							Endif
+						Else
+							If (MaFisRet(nItem,'IT_BASEIV'+aInfo[2]) *((MaFisRet(nItem,'IT_ALIQIV'+aInfo[2])	)/100) * _nReducir) >  _nValorMin
+								xRet	:=Round(MaFisRet(nItem,'IT_BASEIV'+aInfo[2])*((MaFisRet(nItem,'IT_ALIQIV'+aInfo[2])	)/100) * _nReducir,MsDecimais(_nMoeda))
+							Endif
+						Endif
+					Endif
+
+					If nPosSFC == 0
+						SFC->(DbSetOrder(nOrdSFC))
+						SFC->(DbGoto(nRegSFC))
+					EndIf
+			Endcase
+		Endif
+	Endif
+ENDIF
+
+dbSelectArea( cAliasRot )
+dbSetOrder( cOrdemRot )
+
+Return( xRet )

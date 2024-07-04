@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Apunte de registros imprevistos"
+	#define STR0002 "Visualizar"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Imprimir"
+	#define STR0007 "¡Atención!"
+	#define STR0008 "Registro imprevisto encontrado. ¿Selecciona a operación?"
+	#define STR0009 "Registro imprevisto"
+	#define STR0010 "Anular"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Extemporaneous Entries Register"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "Print"
+		#define STR0007 "Attention!"
+		#define STR0008 "Extemporaneous Entry found. Select operation? "
+		#define STR0009 "Extemporaneous Entry"
+		#define STR0010 "Cancel"
+	#else
+		#define STR0001 "Cadastro de Lançamentos Extemporâneos"
+		#define STR0002 "Visualizar"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Imprimir"
+		#define STR0007 "Atenção!"
+		#define STR0008 "Lançamento Extemporâneo encontrado. Seleciona a operação? "
+		#define STR0009 "Lançamento Extemporâneo"
+		#define STR0010 "Cancelar"
+	#endif
+#endif

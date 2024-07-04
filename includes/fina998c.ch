@@ -1,0 +1,9 @@
+#ifdef SPANISH
+	#define STR0001 "SERVICIO FILTRO DE CLIENTES"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "CUSTOMERS FILTER SERVICE"
+	#else
+		#define STR0001 If( cPaisLoc $ "ANG|PTG", "SERVICIO FILTRO DE CLIENTES", "SERVIÇO FILTRO DE CLIENTES" )
+	#endif
+#endif

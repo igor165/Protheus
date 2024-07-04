@@ -1,0 +1,1518 @@
+#Include "GPEM695.CH"
+#Include "PROTHEUS.CH"
+#Include "RWMAKE.CH"
+#Include "REPORT.CH"
+#INCLUDE "PARMTYPE.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "fwMBROWSE.CH"
+
+Static aStructRHH	:= Nil
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GPEM695()
+Pagamento Retroativo Gestao Publica.
+@return		lRet
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Function GPEM695()
+Local aOfusca		:= If(FindFunction('ChkOfusca'), ChkOfusca(), { .T., .F. }) //[2]Ofuscamento
+Local aFldRel		:= If(aOfusca[2], FwProtectedDataUtil():UsrNoAccessFieldsInList( {"RA_NOME"} ), {})
+//Inicializa variaveis de execucao.
+Private lOfusca		:= Len(aFldRel) > 0
+Private aErrProc	:= Array(2,0)
+Private aRotina		:= MenuDef()
+Private cCadastro	:= OemToAnsi( STR0001 )
+Private bFiltraBrw	:= {|| Nil}
+Private cGsPubl		:= GetMv( "MV_GSPUBL",,"1")
+
+//O parametro MV_GSPUBL = "2" identifica que eh GSP-Caixa. Se existir o
+//parametro MV_VDFLOGO eh porque eh GSP-MP (novo modelo de GSP).
+If cGsPubl == "2" .And. GetMv("MV_VDFLOGO",,"0") <> "0"
+    cGsPubl := "3"
+EndIf
+
+//Verifica se o arquivo esta vazio.
+If !ChkVazio('SRA')
+	Return
+EndIf
+
+//Endereca a funcao de BROWSE.
+oBrwSRA := FwMBrowse():New()
+
+oBrwSRA:SetAlias('SRA')
+oBrwSRA:SetDescription(OeMtoAnsi(cCadastro))
+oBrwSRA:SetmenuDef('GPEM695')
+
+GpLegMVC(@oBrwSRA)	// Adicionar a Legenda no Browse
+oBrwSRA:Activate()
+
+Return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695CALC()
+Pagamento Retroativo Gestao Publica - Execucao de calculo.
+
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+FUNCTION GP695CALC()
+Local   aSalva := GetArea()
+Local   lVerba := .F.
+Private cPerg  := 'GPM695'
+
+//Verifica cadastro de verbas.
+dbSelectArea( 'SRV' )
+dbGoTop()
+Do While !Eof()
+	If SRV->RV_COMPPRO = '1'
+	    lVerba := .T.
+	    If Empty(SRV->RV_CODPRTR)
+		   Aviso( STR0002, STR0004, { STR0003 } ) //"Atencao" ## "Informe o codigo de pagamento ou desconto em todas as verbas com incidencia para o promocao retroativa. Somente apos este procedimento o calculo podera ser efetuado." ## "OK"
+   		   RestArea(aSalva)
+           Return
+        EndIf
+	Endif
+	Skip
+Enddo
+
+If !lVerba
+    Aviso( STR0002, STR0005, { STR0003 } ) //"Atencao" ## "Não existe verba cadastrada com incidência para o promoção retroativa." ## "OK"
+    RestArea(aSalva)
+    Return
+EndIf
+
+//Carrega parametros.
+Pergunte( cPerg, .f. )
+
+//Monta tela de dialogo.
+cCadastro	:= OemToAnsi( STR0001 )
+cDescricao := OemToAnsi( STR0006 )
+bProcesso 	:= {|oSelf| GP695CAL(oSelf) }
+
+tNewProcess():New( "GPEM695", cCadastro, bProcesso, cDescricao, cPerg,,.T.,20,cDescricao,.T.)
+
+RestArea( aSalva )
+Return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695CAL()
+Pagamento Retroativo Gestao Publica - Calculo da promocao/progressao retroativa.
+@param		oSelf, objeto, objeto com as informações para processamento
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function GP695CAL(oSelf)
+Local aSalva		:= GetArea()
+Local nI			:= 0
+Local aVerbas		:= {}
+Local aSalBase		:= {}
+Local aPerSel		:= {}
+Local aSR3			:= {}
+Local nPosVerba		:= 0
+Local nPosSal		:= 0
+Local cAliasRHH		:= "QRHH"
+Local cAliasSR3		:= "QSR3"
+Local cAliasSRD		:= "QSRD"
+Local lCtrlRRA		:= Getmv("MV_CTRLRRA",,.F.)
+Local nTamFil		:= TamSX3("RA_FILIAL")[1]
+Local cFilPar		:= alltrim(MV_PAR04) +Space(ntamFil-len(alltrim(MV_PAR04)))
+Local cMatPar		:= alltrim(MV_PAR05)
+Local cComplemento	:= MV_PAR06
+Local cQuery		:= ""
+Local cTipo			:= ""
+Local cTipoAnt		:= ""
+Local nTReg			:= 0
+Local nPos			:= 0
+Local cWhere		:= ""
+Local _nQtd			:= 0
+Local cMesAnoDe		:= ""
+Local cMesAnoAte	:= ""
+Local cMesAnoPagto	:= ""
+Local c318  		:= ""
+
+//Ajusta variaveis de trabalho.
+If lCtrlRRA
+   If empty(cComplemento) .and. right(MV_PAR02,4) < right(MV_PAR01,4)
+       Aviso( STR0002, STR0061, { STR0003 } )  //"Atencao" "Preencha no parâmetro o campo complemento utilizado para o controle e geração da RRA!"
+       RestArea( aSalva )
+       Return
+   Endif
+Else
+   If empty(cComplemento) .and. right(MV_PAR02,4) < right(MV_PAR01,4)
+      If Aviso( STR0002, STR0062, { STR0037, STR0038 }) == 2   // "O campo complemento utilizado para o controle da RRA não foi informado!   Podem existir movimentos de anos anteriores processados no cálculo, Deseja continuar?"
+         RestArea( aSalva )
+         Return
+      EndIf
+   Endif
+EndIf
+
+If Empty(MV_PAR01)
+    Aviso( STR0002, STR0063, { STR0003 } )  //"Atencao" "Preencher o período de pagamento para o cálculo da promoção/progressão retroativa."
+    RestArea( aSalva )
+    Return
+Endif
+
+If Empty(MV_PAR02) .or. Empty( MV_PAR03 )
+	Aviso( STR0002, STR0028, { STR0003 } )	//"Atencao" "Preencher o período do cálculo da promoção/progressão retroativa."
+    RestArea( aSalva )
+	Return
+Endif
+
+cMesAnoPagto	:= SubStr( MV_PAR01, 3, 4 ) + SubStr( MV_PAR01, 1, 2 )
+cMesAnoDe	    := SubStr( MV_PAR02, 3, 4 ) + SubStr( MV_PAR02, 1, 2 )
+cMesAnoAte	    := SubStr( MV_PAR03, 3, 4 ) + SubStr( MV_PAR03, 1, 2 )
+
+If cMesAnoDe <= cMesAnoAte
+	If	( right(cMesAnoDe ,2) < "01" .Or. right(cMesAnoDe ,2) > "12" ) .Or. ;
+		( right(cMesAnoAte,2) < "01" .Or. right(cMesAnoAte,2) > "12" )
+		Aviso( STR0002, STR0032, { STR0003 } )	//"Atenção","Corrija o mês e ano de/até informado nos parâmetros pois ambos tem que estar entre 01 (Janeiro) e 12 (Dezembro)."
+        RestArea( aSalva )
+		return
+	Endif
+Else
+	Aviso( STR0002, STR0041,{ STR0003 }) //"Atenção","Verifique se as datas informadas são coerentes."
+    RestArea( aSalva )
+	return
+EndIf
+
+// **********************************************
+//Posiciona SRA
+dbSelectArea("SRA")
+dbSetOrder(1)
+If !SRA->(dbSeek(cFilPar+cMatPar))
+    Aviso( STR0002, STR0034, { STR0003 })  //"Atencao" "Matrícula não encontrada"
+    RestArea( aSalva )
+    Return
+EndIf
+
+oSelf:IncRegua1( SRA->RA_FILIAL + ' - ' + SRA->RA_MAT + If(lOfusca, "", ' - ' + SRA->RA_NOME ))
+
+// **********************************************
+//Busca Período atual em aberto
+fGetPerAtual(@aPerSel,xFilial("RCH"),SRA->RA_PROCES,fGetRotOrdinar())
+
+If  ( right(cMesAnoPagto ,2) < "01" .Or. right(cMesAnoPagto ,2) > "12" )
+     Aviso( STR0002, STR0033, { STR0003 } )  //"Atenção","Corrigir o mês e ano pagamento indicado nos parâmetros pois ambos têm que estar entre 01 (janeiro) e 12 (dezembro)."
+     RestArea( aSalva )
+     return
+Endif
+
+If  Len(aPerSel) == 0 .Or. cMesAnoPagto < aPerSel[1][1]
+     Aviso( STR0002, STR0072, { STR0003 } )  //"Atenção","Mês informado para pagamento não está ativo/aberto."
+     RestArea( aSalva )
+     return
+Endif
+
+// **********************************************
+//Verifica se o calculo ja foi integrado à folha.
+cWhere := "%"
+cWhere += " RHH.RHH_COMPL_     = 'P' AND "
+cWhere += " RHH.RHH_INTEGR     = 'S'   AND "
+cWhere += " RHH.RHH_FILIAL     = '" + cFilPar   + "' AND "
+cWhere += " RHH.RHH_MAT        = '" + cMatPar   + "' AND "
+cWhere += " RHH.RHH_DATA BETWEEN '" + cMesAnoDe + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasRHH
+    SELECT RHH_FILIAL,RHH_DATA,RHH_MAT,RHH_MESANO,RHH_VB,RHH_CC
+    FROM %table:RHH% RHH
+    WHERE  %exp:cWhere%
+           RHH.%notDel%
+EndSql
+
+DbSelectArea(cAliasRHH)
+Count To _nQtd
+(cAliasRHH)->(dbCloseArea())
+
+If _nQtd > 0
+    Aviso( STR0002, STR0035, { STR0003 }) // "Ja existe uma integração com a folha nesse período, para excluir, utilize a opção do menu de cancelamento de calculo retroativo"
+    RestArea( aSalva )
+    Return
+Endif
+
+// **********************************************
+//Verifica se o calculo ja foi efetuado.
+cWhere := "%"
+cWhere += " RHH.RHH_COMPL_     = 'P' AND "
+cWhere += " RHH.RHH_FILIAL     = '" + cFilPar   + "' AND "
+cWhere += " RHH.RHH_MAT        = '" + cMatPar   + "' AND "
+cWhere += " RHH.RHH_DATA BETWEEN '" + cMesAnoDe + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasRHH
+    SELECT RHH_FILIAL,RHH_DATA,RHH_MAT,RHH_MESANO,RHH_VB,RHH_CC
+    FROM %table:RHH% RHH
+    WHERE  %exp:cWhere%
+           RHH.%notDel%
+EndSql
+
+DbSelectArea(cAliasRHH)
+Count To _nQtd
+(cAliasRHH)->(dbCloseArea())
+
+If _nQtd > 0
+    If Aviso( STR0002, STR0036, { STR0037, STR0038 }) == 2   // "Ja existe um calculo efetuado, deseja recalcular?"
+        RestArea( aSalva )
+        Return
+    Else
+
+       dbSelectArea( "RHH" )
+       dbSetOrder( 1 )         // RHH_FILIAL+RHH_MAT+RHH_DATA+RHH_MESANO+RHH_VB+RHH_CC+RHH_ITEM+RHH_CLVL
+       If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT )
+           While RHH->(! Eof()) .and. (RHH->(RHH_FILIAL+RHH_MAT) == SRA->(RA_FILIAL+RA_MAT))
+
+             If RHH->RHH_DATA   >= cMesAnoDe  .and. ;
+                RHH->RHH_DATA   <= cMesAnoAte .and. ;
+                RHH->RHH_COMPL_ == 'P'
+                RecLock( "RHH", .F., .T. )
+                dbDelete()
+                MsUnlock()
+             EndIf
+
+             DbSkip()
+           Enddo
+       Endif
+
+    Endif
+Endif
+
+
+// **********************************************
+//Verifica existencia de aumento para a matricula selecionada.
+cWhere := "%"
+cWhere += " SR3.R3_TIPO     <> '003' AND "
+cWhere += " SR3.R3_FILIAL     = '" + cFilPar      + "' AND "
+cWhere += " SR3.R3_MAT        = '" + cMatPar      + "' AND "
+cWhere += " SR3.R3_DATA BETWEEN '" + cMesAnoDe    + "01' AND '" + cMesAnoAte + "31'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasSR3
+    SELECT R3_FILIAL,R3_DATA,R3_MAT, R3_DATA, R3_TIPO
+    FROM %table:SR3% SR3
+    WHERE  %exp:cWhere%
+           SR3.%notDel%
+EndSql
+
+DbSelectArea(cAliasSR3)
+While (cAliasSR3)->(!EoF())
+	//aSR3{mesAno,tipoAumento}
+	aAdd(aSR3, {Substr((cAliasSR3)->R3_DATA,1,6), (cAliasSR3)->R3_TIPO})
+	(cAliasSR3)->(DbSkip())
+EndDo
+Count To _nQtd
+(cAliasSR3)->(dbCloseArea())
+
+If _nQtd == 0
+    Aviso( STR0002, STR0073, { STR0003 }) // "Não foi encontrado ocorrência de aumento para a matrícula selecionada. Favor verificar o preenchimento dos parâmetros e a rotina de Histório de Subsídios."
+    RestArea( aSalva )
+    Return
+Endif
+
+
+// **********************************************
+//Verifica existencia de calculo de Dissidio.
+cWhere := "%"
+cWhere += " RHH.RHH_TPOAUM     = '003' AND "
+cWhere += " RHH.RHH_FILIAL     = '" + cFilPar      + "' AND "
+cWhere += " RHH.RHH_MAT        = '" + cMatPar      + "' AND "
+cWhere += " RHH.RHH_DATA BETWEEN '" + cMesAnoDe    + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += " RHH.RHH_MESANO     = '" + cMesAnoPagto + "' AND "
+cWhere += "%"
+
+BeginSql alias cAliasRHH
+    SELECT RHH_FILIAL,RHH_DATA,RHH_MAT,RHH_MESANO,RHH_VB,RHH_CC
+    FROM %table:RHH% RHH
+    WHERE  %exp:cWhere%
+           RHH.%notDel%
+EndSql
+
+DbSelectArea(cAliasRHH)
+Count To _nQtd
+(cAliasRHH)->(dbCloseArea())
+
+If _nQtd > 0
+    Aviso( STR0002, STR0074, { STR0003 }) // "Já existe cálculo de Dissídio para o funcionário para o período selecionado. Escolha outro período de cálculo/pagamento para processamento do cálculo."
+    RestArea( aSalva )
+    Return
+Endif
+
+
+// *************************************
+//Busca Verbas com ID.318 - Salario Base
+dbSelectArea("SRV")
+dbSetOrder(2)
+If dbseek(fwxfilial("SRV")+'0318')
+	c318 := SRV->RV_COD
+EndIf
+
+// **********************************************
+//Busca Verbas para promoção
+dbSelectArea("SRV")
+dbSetOrder(1)
+dbGoTop()
+
+aVerbas := {}
+While  SRV->( !eof()) .and. SRV->RV_FILIAL  == xFilial( "SRV", SRA->RA_FILIAL )
+     If (SRV->RV_COMPPRO == "1") .and. !empty(SRV->RV_CODPRTR)
+         Aadd(aVerbas,{SRV->RV_COD,Upper(SRV->RV_DESC),SRV->RV_TIPOCOD,SRV->RV_CODPRTR,})
+     EndIf
+
+     SRV->(dbSkip())
+Enddo
+
+If len(aVerbas) == 0
+    Aviso( STR0002, STR0039, { STR0003 })  //"Atencao" "Não foi localizado verbas com incidências para promoções/progressões!"
+    RestArea( aSalva )
+    Return
+EndIf
+
+// **********************************************
+//Seleciona lanctos SRD da matrícula
+cWhere := "%"
+cWhere += " SRD.RD_FILIAL        = '" + cFilPar   + "' AND "
+cWhere += " SRD.RD_MAT           = '" + cMatPar   + "' AND "
+cWhere += " SRD.RD_PERIODO BETWEEN '" + cMesAnoDe + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasSRD
+    SELECT R_E_C_N_O_ RECNO, RD_PD, RD_VALOR, RD_PERIODO, RD_PROCES, RD_SEMANA, RD_ROTEIR
+    FROM %table:SRD% SRD
+    WHERE  %exp:cWhere%
+           SRD.%notDel%
+    ORDER BY SRD.RD_PERIODO
+EndSql
+
+DbSelectArea(cAliasSRD)
+Count To _nQtd
+
+dbSelectArea(cAliasSRD)
+(cAliasSRD)->( DbGoTop() )
+
+ProcRegua( (cAliasSRD)->( RecCount() ) )
+oSelf:SetRegua1((cAliasSRD)->(RecCount()))
+
+cTipoAnt := aSR3[1,2]
+nReg := 0
+//Busca Verba 318 - Base de salário do mês
+Do While !(cAliasSRD)->(Eof())
+   If (cAliasSRD)->RD_PD == c318
+        If SRA->RA_SALARIO > (cAliasSRD)->RD_VALOR
+            If ( nReg := Ascan( aSR3, { | X | X[1] = (cAliasSRD)->RD_PERIODO } ) ) > 0
+            	cTipo := aSR3[nReg,2]
+            	cTipoAnt := aSR3[nReg,2]
+            Else
+            	cTipo := cTipoAnt
+            EndIf
+            Aadd(aSalBase,{(cAliasSRD)->RD_PERIODO, (cAliasSRD)->RD_PD, (cAliasSRD)->RD_VALOR, SRA->RA_SALARIO - (cAliasSRD)->RD_VALOR, SRA->RA_SALARIO / (cAliasSRD)->RD_VALOR, cTipo })
+        EndIf
+   EndIf
+
+    (cAliasSRD)->(dbSkip())
+Enddo
+
+If len(aSalBase) == 0
+   (cAliasSRD)->(dbCloseArea())
+    Aviso( STR0002, STR0040, { STR0003 })  //"Atencao" "Não foi localizada a verba de salário base (id.318) para o período selecionado!"
+    RestArea( aSalva )
+    Return
+EndIf
+
+
+//Avalia lançamentos SRD
+(cAliasSRD)->( DbGoTop() )
+Do While !(cAliasSRD)->(Eof())
+
+     nPosVerba := 0
+     nPosVerba := aScan(aVerbas,{|x| AllTrim(x[1]) == (cAliasSRD)->RD_PD})
+     If nPosVerba > 0
+
+        nPosSal := 0
+        nPosSal := aScan(aSalBase,{|x| AllTrim(x[1]) == (cAliasSRD)->RD_PERIODO})
+        If nPosSal > 0
+           Begin Transaction
+
+               //Atualiza RHH
+               RecLock( "RHH", .T., .T. )
+                    RHH->RHH_FILIAL    := SRA->RA_FILIAL
+                    RHH->RHH_MAT       := SRA->RA_MAT
+                    RHH->RHH_CC        := SRA->RA_CC
+                    RHH->RHH_VB        := (cAliasSRD)->RD_PD
+
+                    RHH->RHH_VL        := (cAliasSRD)->RD_VALOR
+                    RHH->RHH_DATA      := (cAliasSRD)->RD_PERIODO
+                    RHH->RHH_MESANO    := cMesAnoPagto
+
+                    RHH->RHH_VERBA     := ""
+                    RHH->RHH_VERBA     := aVerbas[nPosVerba][4]
+
+                    RHH->RHH_CALC      := Round((cAliasSRD)->RD_VALOR * aSalBase[nPosSal][5],2)
+                    RHH->RHH_VALOR     := RHH->RHH_CALC - RHH->RHH_VL
+                    RHH->RHH_INDICE    := (aSalBase[nPosSal][5] - 1) * 100
+                    RHH->RHH_VLRAUM    := RHH->RHH_CALC - RHH->RHH_VL
+
+                    RHH->RHH_TPOAUM    := aSalBase[nPosSal,6]
+                    RHH->RHH_COMPL_    := "P"
+                    RHH->RHH_INTEGR    := "N"
+
+                    RHH->RHH_IDCMPL    := cComplemento
+                    RHH->RHH_PROCES    := (cAliasSRD)->RD_PROCES
+                    RHH->RHH_SEMANA    := (cAliasSRD)->RD_SEMANA
+                    RHH->RHH_ROTEIR    := (cAliasSRD)->RD_ROTEIR
+                    RHH->RHH_RRA       := If( (left((cAliasSRD)->RD_PERIODO,4)<left(cMesAnoPagto,4)) .and. !empty(cComplemento),"1","0" )
+                MsUnLock()
+
+            End Transaction
+        EndIf
+     EndIf
+
+    (cAliasSRD)->(dbSkip())
+Enddo
+
+(cAliasSRD)->(dbCloseArea())
+
+Aviso( STR0002, STR0042, { STR0003 })  //"Atencao" "Cálculo finalizado com sucesso!"
+RestArea( aSalva )
+return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695EXC()
+Pagamento Retroativo Gestao Publica - Exclusão de calculo.
+
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+FUNCTION GP695EXC()
+Local   aSalva := GetArea()
+Local   lVerba := .F.
+Private cPerg  := 'GPM695A'
+
+//Carrega parametros.
+Pergunte( cPerg, .f. )
+
+//Monta tela de dialogo.
+cCadastro  := OemToAnsi( STR0001 )
+cDescricao := OemToAnsi( STR0065 )
+bProcesso  := {|oSelf| GP695EX(oSelf) }
+
+tNewProcess():New( "GPEM695", cCadastro, bProcesso, cDescricao, cPerg,,.T.,20,cDescricao,.T.)
+
+RestArea( aSalva )
+Return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695EXC()
+Pagamento Retroativo Gestao Publica - Exclusão da promocao/progressao retroativa
+@param		oSelf, objeto, objeto com as informações para processamento
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function GP695EX(oSelf)
+Local aSalva         := GetArea()
+Local cAliasRHH      := "QRHH"
+Local nTamFil        := TamSX3("RA_FILIAL")[1]
+Local cFilPar        := alltrim(MV_PAR04) +Space(ntamFil-len(alltrim(MV_PAR04)))
+Local cMatPar        := alltrim(MV_PAR05)
+Local cQuery         := ""
+Local nTReg          := 0
+Local nPos           := 0
+Local cWhere         := ""
+Local _nQtd          := 0
+Local cMesAnoDe      := ""
+Local cMesAnoAte     := ""
+Local cMesAnoPagto   := ""
+
+//Ajusta variaveis de trabalho.
+If Empty(MV_PAR01)
+    Aviso( STR0002, STR0066, { STR0003 } )  //"Atencao" "Preencher o período de pagamento para selecionar a exclusão da promoção/progressão retroativa."
+    RestArea( aSalva )
+    Return
+Endif
+
+If Empty(MV_PAR02) .or. Empty( MV_PAR03 )
+    Aviso( STR0002, STR0067, { STR0003 } )  //"Atencao" "Preencher o período de movimento para exclusão do cálculo da promoção/progressão retroativa."
+    RestArea( aSalva )
+    Return
+Endif
+
+cMesAnoPagto    := SubStr( MV_PAR01, 3, 4 ) + SubStr( MV_PAR01, 1, 2 )
+cMesAnoDe       := SubStr( MV_PAR02, 3, 4 ) + SubStr( MV_PAR02, 1, 2 )
+cMesAnoAte      := SubStr( MV_PAR03, 3, 4 ) + SubStr( MV_PAR03, 1, 2 )
+
+If cMesAnoDe <= cMesAnoAte
+    If  ( right(cMesAnoDe ,2) < "01" .Or. right(cMesAnoDe ,2) > "12" ) .Or. ;
+        ( right(cMesAnoAte,2) < "01" .Or. right(cMesAnoAte,2) > "12" )
+        Aviso( STR0002, STR0032, { STR0003 } )  //"Atenção","Corrija o mês e ano de/até informado nos parâmetros pois ambos tem que estar entre 01 (Janeiro) e 12 (Dezembro)."
+        RestArea( aSalva )
+        return
+    Endif
+Else
+    Aviso( STR0002, STR0041,{ STR0003 }) //"Atenção","Verifique se as datas informadas são coerentes."
+    RestArea( aSalva )
+    return
+EndIf
+
+If  ( right(cMesAnoPagto ,2) < "01" .Or. right(cMesAnoPagto ,2) > "12" )
+     Aviso( STR0002, STR0033, { STR0003 } )  //"Atenção","Corrigir o mês e ano pagamento indicado nos parâmetros pois ambos têm que estar entre 01 (janeiro) e 12 (dezembro)."
+     RestArea( aSalva )
+     return
+Endif
+
+// **********************************************
+//Posiciona SRA
+dbSelectArea("SRA")
+dbSetOrder(1)
+If !SRA->(dbSeek(cFilPar+cMatPar))
+    Aviso( STR0002, STR0034, { STR0003 })  //"Atencao" "Matrícula não encontrada"
+    RestArea( aSalva )
+    Return
+EndIf
+
+oSelf:IncRegua1( SRA->RA_FILIAL + ' - ' + SRA->RA_MAT + If(lOfusca, "", ' - ' + SRA->RA_NOME ))
+
+// **********************************************
+//Verifica se o calculo ja foi integrado à folha.
+cWhere := "%"
+cWhere += " RHH.RHH_COMPL_     = 'P' AND "
+cWhere += " RHH.RHH_INTEGR     = 'S'   AND "
+cWhere += " RHH.RHH_FILIAL     = '" + cFilPar      + "' AND "
+cWhere += " RHH.RHH_MAT        = '" + cMatPar      + "' AND "
+cWhere += " RHH.RHH_MESANO     = '" + cMesAnoPagto + "' AND "
+cWhere += " RHH.RHH_DATA BETWEEN '" + cMesAnoDe    + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasRHH
+    SELECT RHH_FILIAL,RHH_DATA,RHH_MAT,RHH_MESANO,RHH_VB,RHH_CC
+    FROM %table:RHH% RHH
+    WHERE  %exp:cWhere%
+           RHH.%notDel%
+EndSql
+
+DbSelectArea(cAliasRHH)
+Count To _nQtd
+(cAliasRHH)->(dbCloseArea())
+
+If _nQtd > 0
+    Aviso( STR0002, STR0035, { STR0003 }) // "Ja existe uma integração com a folha nesse período, para excluir, utilize a opção do menu de cancelamento de calculo retroativo"
+    RestArea( aSalva )
+    Return
+Endif
+
+// ******************************************
+// Seleciona calculo realizado para exclusão.
+cWhere := "%"
+cWhere += " RHH.RHH_COMPL_     = 'P' AND "
+cWhere += " RHH.RHH_FILIAL     = '" + cFilPar      + "' AND "
+cWhere += " RHH.RHH_MAT        = '" + cMatPar      + "' AND "
+cWhere += " RHH.RHH_MESANO     = '" + cMesAnoPagto + "' AND "
+cWhere += " RHH.RHH_DATA BETWEEN '" + cMesAnoDe    + "' AND '" + cMesAnoAte + "'" + " AND "
+cWhere += "%"
+
+BeginSql alias cAliasRHH
+    SELECT RHH_FILIAL,RHH_DATA,RHH_MAT,RHH_MESANO,RHH_VB,RHH_CC
+    FROM %table:RHH% RHH
+    WHERE  %exp:cWhere%
+           RHH.%notDel%
+EndSql
+
+DbSelectArea(cAliasRHH)
+Count To _nQtd
+(cAliasRHH)->(dbCloseArea())
+
+If _nQtd > 0
+    If Aviso( STR0002, STR0068, { STR0037, STR0038 }) == 2   // "Confirma a exclusão do movimento selecionado?"
+        RestArea( aSalva )
+        Return
+    Else
+       dbSelectArea( "RHH" )
+       dbSetOrder( 1 )         // RHH_FILIAL+RHH_MAT+RHH_DATA+RHH_MESANO+RHH_VB+RHH_CC+RHH_ITEM+RHH_CLVL
+       If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT )
+           While RHH->(! Eof()) .and. (RHH->(RHH_FILIAL+RHH_MAT) == SRA->(RA_FILIAL+RA_MAT))
+
+             If RHH->RHH_DATA   >= cMesAnoDe    .and. ;
+                RHH->RHH_DATA   <= cMesAnoAte   .and. ;
+                RHH->RHH_MESANO == cMesAnoPagto .and. ;
+                RHH->RHH_COMPL_ == 'P'
+
+                RecLock( "RHH", .F., .T. )
+                dbDelete()
+                MsUnlock()
+             EndIf
+
+             DbSkip()
+           Enddo
+       Endif
+
+       Aviso( STR0002, STR0069, { STR0003 })  //"Atencao" "Exclusão do movimento finalizado com sucesso!"
+    Endif
+Else
+    Aviso( STR0002, STR0070, { STR0003 })  //"Atencao" "Não foram selecionados registros!"
+Endif
+
+RestArea( aSalva )
+return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695Imp()
+Pagamento Retroativo Gestao Publica - Efetua a impressao do relatorio de promocao retroativa.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Function GP695Imp()
+Local oReport
+
+Pergunte( "GPC02R", .F. )
+oReport := ReportDef()
+oReport:PrintDialog()
+Return
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} ReportDef()
+Pagamento Retroativo Gestao Publica - Definicao do relatorio
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function ReportDef()
+
+Local oReport
+Local oSection1
+Local oSection2
+
+Local	cDesc		:=		STR0043 + ". " + STR0044 + " " + STR0045		// "Avaliação da Promoção/Progressão Retroativa"	# "Ser  impresso de acordo com os parametros solicitados pelo" # "usuario."
+Local 	aOrd		:= {	STR0046,;	//"Matricula"
+							STR0047,; 	//"Centro de custo"
+							STR0048}  	//"Nome"
+
+	//-- Inicio definicao do Relatorio
+	DEFINE REPORT oReport NAME "RELPMRT" TITLE OemToAnsi(STR0043) PARAMETER "GPC02R" ACTION {|oReport| PrintReport(oReport)} DESCRIPTION cDesc
+
+		//-- Section de Funcionarios
+		DEFINE SECTION oSection1 OF oReport TABLES "SRA" ORDERS aOrd TITLE STR0049
+		oSection1:SetHeaderBreak(.T.)
+
+			DEFINE CELL NAME "RA_MAT" 			OF oSection1 ALIAS "SRA"
+			DEFINE CELL NAME "RA_NOME"			OF oSection1 ALIAS "SRA"
+
+		//-- Section da Tabela Temporaria - Dissidio Retroativo
+		DEFINE SECTION oSection2 OF oReport TABLES "RHH" TITLE STR0006
+
+			DEFINE CELL NAME "RHH_DATA" 	OF oSection2 ALIAS "RHH" TITLE STR0050 PICTURE "@R 99/9999"	BLOCK {|| Right( RHH_DATA, 2 ) + '/' + Left( RHH_DATA, 4 )}
+			DEFINE CELL NAME "RHH_INDICE"	OF oSection2 ALIAS "RHH" TITLE STR0051	PICTURE "@E 999.999999"   SIZE 15
+			DEFINE CELL NAME "RHH_VB"		OF oSection2 ALIAS "RHH" TITLE STR0016 BLOCK {|| RHH->RHH_VB + " - " + If(RHH_VB =="000", Left("SUBSIDIO"+space(20),20), Left(PosSrv( RHH_VB,SRA->RA_FILIAL, 'RV_DESC' )+space(20),20))} SIZE 27
+			DEFINE CELL NAME "RHH_VL"		OF oSection2 ALIAS "RHH" TITLE STR0020 PICTURE "@E 9,999,999.99" SIZE 15
+			DEFINE CELL NAME "RHH_CALC"   	OF oSection2 ALIAS "RHH" TITLE STR0052 PICTURE "@E 9,999,999.99" SIZE 15
+			DEFINE CELL NAME "RHH_VALOR"	OF oSection2 ALIAS "RHH" TITLE STR0053 PICTURE "@E 999,999.99"   SIZE 12
+			DEFINE CELL NAME "RHH_VERBA"	OF oSection2 ALIAS "RHH" TITLE STR0018
+			DEFINE CELL NAME "RHH_GRRA"	    OF oSection2 ALIAS "RHH" TITLE STR0023
+
+Return oReport
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} PrintReport()
+Pagamento Retroativo Gestao Publica - Impressão do relatorio
+@param 		oReport, object, estrutura do relatório
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function PrintReport(oReport)
+Local nOrdem	:= oReport:Section(1):GetOrder()
+Local nReg		:= 0
+Local nI		:= 0
+Local oSection1	:= oReport:Section(1)
+Local oSection2	:= oReport:Section(2)
+Local cFiltro	:= ""
+Local cFil		:= ""
+Local cCC		:= ""
+Local cDescTot	:= ""
+Local cDtaAnt	:= ""
+Local aTotal	:= {}
+Local aTotPD	:= {}
+Local aFilial	:= {}
+Local aCC		:= {}
+Local aFunc		:= {}
+Local cPeriodo	:= ""
+Local lImpTot	:= .F.
+
+If mv_par01 == 3 .And. nOrdem != 1
+	Alert( STR0054 ) //"Ordem de impressão inválida para o formato Sintetico Detalhado. Escolha Matrícula como ordem de impressão."
+	Return( Nil )
+Endif
+
+//Posiciona no inicio da SRA
+SRA->( DBGoTop() )
+
+nTipo		:= mv_par01
+If !Empty(mv_par06)
+   cPeriodo := substr( mv_par06, 3, 4 ) + substr( mv_par06, 1, 2 )
+EndIf
+
+//Transforma parametros do tipo Range em expressao ADVPL para ser utilizada no filtro
+MakeAdvplExpr( "GPC02R" )
+
+//-- Adiciona no filtro o parametro tipo Range
+//-- Filial
+If !Empty(mv_par02)
+	cFiltro += mv_par02
+EndIf
+
+//-- Centro de Custo
+If !Empty(mv_par03)
+	If !Empty(cFiltro)
+		cFiltro +=  " .AND. "
+	EndIf
+	cFiltro += mv_par03
+EndIf
+
+//-- Matricula
+If !Empty(mv_par04)
+	If !Empty(cFiltro)
+		cFiltro +=  " .AND. "
+	EndIf
+	cFiltro += mv_par04
+EndIf
+
+//-- Nome
+If !Empty(mv_par05)
+	If !Empty(cFiltro)
+		cFiltro +=  " .AND. "
+	EndIf
+	cFiltro += mv_par05
+EndIf
+
+//-- Filtra a tabela de Funcionarios conforme perguntes
+If ! Empty( cFiltro )
+  	oSection1:SetFilter(cFiltro)
+EndIf
+
+//-- Filtra conforme parametro de Mes/Ano selecionado de pagamento
+If ! Empty( cPeriodo )
+  	oSection2:SetFilter( ' ( RHH_MESANO == "' + cPeriodo + '" .AND. RHH_COMPL_ == "P" )' )
+EndIf
+
+//-- Seleciona tabela de funcionarios
+dbSelectArea("SRA")
+dbSetOrder(nOrdem)
+
+//-- Define o total da regua da tela de processamento do relatorio
+oReport:SetMeter(SRA->( RecCount() ))
+
+//-- Inicializa variaveis de controle de impressao.
+aTotal	 := {}
+aTotPD	 := {}
+aFilial := {}
+aCC		 := {}
+cFil	 := SRA->RA_FILIAL
+cCC		 := SUBSTR(SRA->RA_CC+SPACE(20),1,20)
+
+While !Eof()
+	If nTipo != 3
+		aFunc	:= {}
+	EndIf
+
+	//-- Incrementa a régua da tela de processamento do relatório
+	oReport:IncMeter()
+
+	//-- Verifica se o usuário cancelou a impressão do relatorio
+	If oReport:Cancel()
+		Exit
+	EndIf
+
+	//-- Verifica se houve calculo para o funcionario.
+	dbSelectArea( "RHH" )
+	If dbSeek( SRA->RA_FILIAL + SRA->RA_MAT )
+
+		//-- Imprime os calculos do funcionario.
+		//-- Incializa impressão
+		If nTipo != 3
+			oSection1:Init()
+			oSection1:PrintLine()
+			oSection1:Finish()
+		EndIf
+
+		oSection2:Init()
+		cFunc := SRA->RA_MAT+"-"+If(lOfusca, Replicate('*',30), SRA->RA_NOME )
+
+		Do While !Eof() .and. RHH_FILIAL + RHH_MAT = SRA->RA_FILIAL + SRA->RA_MAT
+			//-- Analitico
+			If nTipo = 1
+				oSection2:PrintLine()
+	 		Endif
+
+				//Atualiza matriz de total dos funcionarios para impressao dos SubTotais.
+		 		If nTipo == 3
+				 	If ( nLinha := Ascan( aFunc, { | X | X[3] + X[1] = RHH_DATA + RHH_VB } ) ) > 0
+				 		aFunc[nLinha,2] += RHH_VALOR
+                        aFunc[nLinha,4] += RHH_VL
+                        aFunc[nLinha,5] += RHH_CALC
+				 	Else
+			 			Aadd( aFunc, { RHH_VB, RHH_VALOR, RHH_DATA, RHH_VL, RHH_CALC } )
+			 		Endif
+			 	Else
+					//Atualiza matriz de total do funcionario.
+				 	If ( nReg := Ascan( aFunc, { | X | X[1] = RHH_VB } ) ) > 0
+				 		aFunc[nReg,2] += Iif(!Empty(RHH_VALOR),RHH_VALOR,0)
+                        aFunc[nReg,4] += Iif(!Empty(RHH_VL),RHH_VL,0)
+                        aFunc[nReg,5] += Iif(!Empty(RHH_CALC),RHH_CALC,0)
+				 	Else
+			 			Aadd( aFunc, { RHH_VB, Iif(!Empty(RHH_VALOR),RHH_VALOR,0), RHH_DATA, Iif(!Empty(RHH_VL),RHH_VL,0), Iif(!Empty(RHH_CALC),RHH_CALC,0) } )
+			 		Endif
+		 		Endif
+
+				//Atualiza matriz de total da filial.
+			 	If ( nReg := Ascan( aFilial, { | X | X[1] = RHH_VB } ) ) > 0
+			 		aFilial[nReg,2] += Iif(!Empty(RHH_VALOR),RHH_VALOR,0)
+                    aFilial[nReg,4] += Iif(!Empty(RHH_VL),RHH_VL,0)
+                    aFilial[nReg,5] += Iif(!Empty(RHH_CALC),RHH_CALC,0)
+			 	Else
+		 			Aadd( aFilial, { RHH_VB, Iif(!Empty(RHH_VALOR),RHH_VALOR,0), RHH_DATA, Iif(!Empty(RHH_VL),RHH_VL,0), Iif(!Empty(RHH_CALC),RHH_CALC,0), Left(PosSrv(RHH_VB,SRA->RA_FILIAL,'RV_DESC')+space(20),20) } )
+			 	Endif
+
+				//Atualiza matriz de total do centro de custo.
+			 	If ( nReg := Ascan( aCC, { | X | X[1] = RHH_VB } ) ) > 0
+			 		aCC[nReg,2] += Iif(!Empty(RHH_VALOR),RHH_VALOR,0)
+                    aCC[nReg,4] += Iif(!Empty(RHH_VL),RHH_VL,0)
+                    aCC[nReg,5] += Iif(!Empty(RHH_CALC),RHH_CALC,0)
+			 	Else
+		 			Aadd( aCC, { RHH_VB, Iif(!Empty(RHH_VALOR),RHH_VALOR,0), RHH_DATA, Iif(!Empty(RHH_VL),RHH_VL,0), Iif(!Empty(RHH_CALC),RHH_CALC,0), Left(PosSrv(RHH_VB,SRA->RA_FILIAL,'RV_DESC')+space(20),20) } )
+			 	Endif
+
+				//Atualiza matriz de totalizacao geral.
+		 		If ( nReg := Ascan( aTotal, { | X | X[1] = RHH_VB } ) ) > 0
+		 			aTotal[nReg,2] += Iif(!Empty(RHH_VALOR),RHH_VALOR,0)
+                    aTotal[nReg,4] += Iif(!Empty(RHH_VL),RHH_VL,0)
+                    aTotal[nReg,5] += Iif(!Empty(RHH_CALC),RHH_CALC,0)
+			 	Else
+			 		Aadd( aTotal, { RHH_VB, Iif(!Empty(RHH_VALOR),RHH_VALOR,0), RHH_DATA, Iif(!Empty(RHH_VL),RHH_VL,0), Iif(!Empty(RHH_CALC),RHH_CALC,0), Left(PosSrv(RHH_VB,SRA->RA_FILIAL,'RV_DESC')+space(20),20) } )
+			 	Endif
+
+			//Atualiza matriz de total de Verbas.
+		 	If ( nReg := Ascan( aTotPd, { | X | X[1] = RHH_VB } ) ) > 0
+		 		aTotPd[nReg,2] += RHH_VL
+		 		aTotPd[nReg,3] += RHH_CALC
+	 			aTotPd[nReg,4] += Iif(!Empty(RHH_VALOR),RHH_VALOR,0)
+		 	Else
+		 		Aadd( aTotPd, { RHH_VB , RHH_VL, RHH_CALC, Iif(!Empty(RHH_VALOR),RHH_VALOR,0), Left(PosSrv( RHH_VB,SRA->RA_FILIAL, 'RV_DESC' )+space(20),20), RHH_VERBA, RHH_GRRA } )
+		 	Endif
+
+			dbSkip()
+		Enddo
+
+		oSection2:Finish()
+
+		//Imprime total do funcionario.
+		If nTipo != 3
+			If Len( aFunc ) > 0
+				cDescTot := ""
+				If Len( aFunc ) = 1
+					cDescTot := Pad( STR0054 + ": " + cFunc, 57 )	// "Total geral do funcionario: "
+				Else
+					cDescTot := Pad( STR0055 + " "  + cFunc, 90 )	// "Total de valores por verba do funcionario: "
+				EndIf
+
+				oReport:SkipLine()
+		   		oReport:PrintText(cDescTot)
+				oSection2:SetHeaderSection(.F.)
+		   		oSection2:Init(.F.)
+
+				For nReg := 1 to Len( aFunc )
+					If !Empty(aFunc[nReg,1])
+						//-- Altera valores da Section
+						oSection2:Cell( "RHH_DATA"	):SetValue("")
+						oSection2:Cell( "RHH_INDICE"):SetValue(0)
+						oSection2:Cell( "RHH_VB"	):SetValue(aFunc[nReg,1] + " - " + PosSrv( aFunc[nReg,1],SRA->RA_FILIAL, 'RV_DESC' ) )
+						oSection2:Cell( "RHH_VL"	):SetValue(aFunc[nReg,4])
+						oSection2:Cell( "RHH_CALC" 	):SetValue(aFunc[nReg,5])
+						oSection2:Cell( "RHH_VALOR"	):SetValue(aFunc[nReg,2])
+						oSection2:Cell( "RHH_VERBA"	):SetValue("")
+						oSection2:Cell( "RHH_GRRA"	):SetValue("")
+
+					   	oSection2:PrintLine()
+					EndIf
+				Next
+		   		oSection2:Finish()
+				oSection2:SetHeaderSection(.T.)
+			EndIf
+			oReport:ThinLine()
+			oReport:SkipLine()
+		EndIf
+	Endif
+
+	dbSelectArea( 'SRA' )
+	dbSkip()
+
+	//Imprime os SubTotais mensais.
+	If nTipo = 3 .And. !(SRA->( &( cFiltro) ) ) .and. ! Empty( aFunc )
+		aFunc := aSort( aFunc ,,, { |x,y| x[3]+x[1] < y[3]+y[1] } )
+		For nI := 1 to Len( aFunc )
+			If !Empty(aFunc[nI,1])
+
+		    	If !(cDtaAnt == aFunc[nI,3]) .And. ( nI > 1 )
+					oReport:SkipLine()
+		    	EndIf
+
+				//-- Altera valores da Section
+				oSection2:Cell( "RHH_DATA"	):SetValue("")
+				oSection2:Cell( "RHH_INDICE"):SetValue(0)
+				oSection2:Cell( "RHH_VB"	):SetValue(aFunc[nI,1] + " - " + PosSrv( aFunc[nI,1],SRA->RA_FILIAL, 'RV_DESC' ))
+				oSection2:Cell( "RHH_VL"	):SetValue(0)
+				oSection2:Cell( "RHH_CALC"	):SetValue(0)
+				oSection2:Cell( "RHH_VALOR"	):SetValue(aFunc[nI,2])
+				oSection2:Cell( "RHH_VERBA"	):SetValue("")
+				oSection2:Cell( "RHH_GRRA"	):SetValue("")
+				oSection2:Cell( "RHH_DATA"	):SetBlock({|| Right( aFunc[nI,3], 2 ) + '/' + Left( aFunc[nI,3], 4 )})
+
+		  		oSection2:PrintLine()
+
+		  		cDtaAnt  := aFunc[nI,3]
+		  		lImpTot  := .T.  //Determina se os totais poderao ser impressos
+			EndIf
+		Next
+	Endif
+
+	If cCC != SRA->RA_CC .and. nOrdem = 2 .and. Len( aCC ) > 0 .And. lImpTot
+		//Imprime total do Centro de custo.
+		oReport:SkipLine()
+		oReport:PrintText(Pad( STR0046 + cCC, 57 ))
+   		oSection2:Init(.F.)
+
+		For nReg := 1 to Len( aCC )
+			If !Empty(aCC[nReg,1])
+
+				//-- Altera valores da Section
+				oSection2:Cell( "RHH_DATA"	):SetValue("")
+				oSection2:Cell( "RHH_INDICE"):SetValue(0)
+				oSection2:Cell( "RHH_VB"	):SetValue(aCC[nReg,1] + " - " + PosSrv( aCC[nReg,1],SRA->RA_FILIAL, 'RV_DESC' ))
+				oSection2:Cell( "RHH_VL"	):SetValue(0)
+				oSection2:Cell( "RHH_CALC"	):SetValue(0)
+				oSection2:Cell( "RHH_VALOR"	):SetValue(aCC[nReg,2])
+				oSection2:Cell( "RHH_VERBA"	):SetValue("")
+				oSection2:Cell( "RHH_GRRA"	):SetValue("")
+
+		  		oSection2:PrintLine()
+			EndIf
+		Next
+
+  		oSection2:Finish()
+
+		oReport:ThinLine()
+		oReport:EndPage()
+
+		cCC	:= SUBSTR(SRA->RA_CC+SPACE(20),1,20)
+		aCC	:= {}
+	Endif
+
+	If cFil != SRA->RA_FILIAL .and. Len( aFilial ) > 0 .Or. lImpTot
+		//Imprime total da filial.
+		cDescTot := ""
+		If Len( aFilial ) = 1
+			cDescTot := Pad( STR0056 + cFil, 57 ) //"Sub-Total da filial: "
+		Else
+			cDescTot := Pad( STR0057 + cFil, 57 ) //"Sub-Total de valores por verba da filial: "
+		EndIf
+
+		oReport:SkipLine()
+		oReport:PrintText(cDescTot)
+   		oSection2:Init(.F.)
+
+		For nReg := 1 to Len( aFilial )
+			If !Empty(aFilial[nReg,1])
+
+				//-- Altera valores da Section
+				oSection2:Cell( "RHH_DATA"	):SetValue("")
+				oSection2:Cell( "RHH_INDICE"):SetValue(0)
+				oSection2:Cell( "RHH_VB"	):SetValue(aFilial[nReg,1] + " - " + aFilial[nReg,6])
+				oSection2:Cell( "RHH_VL"	):SetValue(aFilial[nReg,4])
+				oSection2:Cell( "RHH_CALC"	):SetValue(aFilial[nReg,5])
+				oSection2:Cell( "RHH_VALOR"	):SetValue(aFilial[nReg,2])
+				oSection2:Cell( "RHH_VERBA"	):SetValue("")
+				oSection2:Cell( "RHH_GRRA"	):SetValue("")
+
+		  		oSection2:PrintLine()
+			EndIf
+		Next
+
+  		oSection2:Finish()
+		oReport:ThinLine()
+		oReport:EndPage()
+
+		cFil 		:= SRA->RA_FILIAL
+		aFilial 	:= {}
+	Endif
+
+	oSection2:Cell( "RHH_DATA"	):SetValue()
+	oSection2:Cell( "RHH_INDICE"):SetValue()
+	oSection2:Cell( "RHH_VB"	):SetValue()
+	oSection2:Cell( "RHH_VL"	):SetValue()
+	oSection2:Cell( "RHH_CALC"	):SetValue()
+	oSection2:Cell( "RHH_VALOR"	):SetValue()
+	oSection2:Cell( "RHH_VERBA"	):SetValue()
+	oSection2:Cell( "RHH_GRRA"	):SetValue()
+
+	oSection2:Cell( "RHH_DATA" ):SetBlock({|| Right( RHH_DATA, 2 ) + '/' + Left( RHH_DATA, 4 )})
+	oSection2:Cell( "RHH_VB"	):SetBlock({|| RHH->RHH_VB + " - " + If(RHH_VB =="000", Left("SUBSIDIO"+space(20),20), Left(PosSrv( RHH_VB,SRA->RA_FILIAL, 'RV_DESC' )+space(20),20))})
+Enddo
+
+If ! nTipo = 3
+	oSection2:Cell( "RHH_DATA"		):Disable()
+	oSection2:Cell( "RHH_INDICE"	):Disable()
+EndIf
+
+//Imprime total geral.
+If Len( aTotPD ) > 0
+	aSort(aTotPD,,,{|x,y|x[1]<y[1]})
+
+	oReport:EndPage()
+	oReport:SkipLine(2)
+	oReport:PrintText(Pad( STR0058,57))
+	oReport:SkipLine()
+    oReport:SkipLine()
+	oSection2:Init(.F.)
+
+   	For nReg := 1 to Len(aTotPD)
+	   	If aTotPD[nReg,1] # "000"
+
+			//-- Altera valores da Section
+			oSection2:Cell( "RHH_DATA"	):SetValue("")
+			oSection2:Cell( "RHH_INDICE"):SetValue(0)
+			oSection2:Cell( "RHH_VB"	):SetValue(aTotPd[nReg,1] + " - " + aTotPd[nReg,5])
+			oSection2:Cell( "RHH_VL"	):SetValue(aTotPD[nReg,2])
+			oSection2:Cell( "RHH_CALC"	):SetValue(aTotPD[nReg,3])
+			oSection2:Cell( "RHH_VALOR"	):SetValue(Iif(!Empty(aTotPD[nReg,4]),aTotPD[nReg,4],0))
+			oSection2:Cell( "RHH_VERBA"	):SetValue("")
+			oSection2:Cell( "RHH_GRRA"	):SetValue("")
+
+	  		oSection2:PrintLine()
+		EndIf
+	Next nReg
+
+	oSection2:Finish()
+	oReport:ThinLine()
+	oReport:SkipLine()
+EndIf
+
+If Len( aTotal ) > 0
+
+	oReport:EndPage()
+
+	If Len( aTotal ) = 1
+		cDescTot := Pad( STR0059, 57 ) //"Total geral a pagar"
+	Else
+		cDescTot := Pad( STR0060, 57 ) //"Total geral de valores por verba"
+	Endif
+
+	oReport:SkipLine(2)
+	oReport:PrintText(cDescTot)
+	oReport:SkipLine()
+   	oSection2:Init(.F.)
+
+	For nReg := 1 to Len( aTotal )
+		If !Empty(aTotal[nReg,1])
+
+			//-- Altera valores da Section
+			oSection2:Cell( "RHH_DATA"	):SetValue("")
+			oSection2:Cell( "RHH_INDICE"):SetValue(0)
+			oSection2:Cell( "RHH_VB"	):SetValue(aTotal[nReg,1] + " - " + aTotal[nReg,6])
+			oSection2:Cell( "RHH_VL"	):SetValue(aTotal[nReg,4])
+			oSection2:Cell( "RHH_CALC"	):SetValue(aTotal[nReg,5])
+			oSection2:Cell( "RHH_VALOR"	):SetValue(aTotal[nReg,2])
+			oSection2:Cell( "RHH_VERBA"	):SetValue("")
+			oSection2:Cell( "RHH_GRRA"	):SetValue("")
+
+	  		oSection2:PrintLine()
+		EndIf
+	Next
+
+	oSection2:Finish()
+	oReport:ThinLine()
+Endif
+
+Return NIL
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef()
+Pagamento Retroativo Gestao Publica - Menu
+@return		aRotina, array, lista das opções de Menu disponíveis.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function MenuDef()
+Local aRotina :=  {}
+
+ADD OPTION aRotina TITLE STR0007 ACTION 'PesqBrw'         OPERATION 1 ACCESS 0 //"Pesquisar"
+ADD OPTION aRotina TITLE STR0008 ACTION 'GP695CALC()'  	  OPERATION 2 ACCESS 0 //"Calcular"
+ADD OPTION aRotina TITLE STR0009 ACTION 'VIEWDEF.GPEM695' OPERATION 2 ACCESS 0 //"Visualizar"
+ADD OPTION aRotina TITLE STR0010 ACTION 'GP695Imp()'  	  OPERATION 4 ACCESS 0 //"Relatorio"
+ADD OPTION aRotina TITLE STR0064 ACTION 'GP695EXC()'      OPERATION 5 ACCESS 0 //"Excluir"
+ADD OPTION aRotina TITLE STR0011 ACTION "GpLegend"  	  OPERATION 6 ACCESS 0 //"Legenda"
+
+Return aRotina
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef()
+Pagamento Retroativo Gestao Publica - Definicao do modelo de dados
+@return 	oModel, object, estrutura do modelo
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function ModelDef()
+Local oModel
+Local oStructSRA
+Local oStrucRHH
+Local nX	:= 0
+
+Private cMesAnoIni	:= ""
+Private cMesAnoFim	:= ""
+
+oModel:= MpFormModel():New("GPEM695", /*Pre-Validacao*/, , /*Commit*/, /*bCancel*/)
+
+//Estrutura do Cabecalho - SRA
+oStructSRA := FWFormStruct(1,"SRA",{|cCampo| AllTrim(cCampo)+"|" $ "RA_FILIAL|RA_MAT|RA_NOME|RA_ADMISSA|"})
+oStructSRA := GP695StrSRA( 1,oStructSRA  )
+oModel:AddFields("GPEM695_MSRA", /*cOwner*/, oStructSRA , /*Pre-Validacao*/,/*Pos-Validacao*/,/*Carga*/)
+oModel:GetModel("GPEM695_MSRA"):SetOnlyView( .T. )
+oModel:GetModel("GPEM695_MSRA"):SetOnlyQuery( .T. )
+
+//Estrutura do Grid - RHH
+oStructRHH := GP695StrRHH(1)
+oModel:AddGrid("GPEM695_MRHH", "GPEM695_MSRA", oStructRHH,/*bLinePre*/, /* bLinePost*/, /*bPre*/,  /*bPost*/,{|oGrid| ViewRHH(oGrid) }/*bLoad*/)
+oModel:GetModel("GPEM695_MRHH"):SetDescription( STR0001 )
+
+If aStructRHH == Nil
+	aStructRHH := oStructRHH:GetFields()
+EndIf
+
+//Nao sera permitido a alteracao/inclusao de valores na grid, qualquer lancamento devera ser incluso atraves da rotina de incidencias
+//Garante o WHEN somente nos campos usados para cada pais.
+For nX := 1 to Len(aStructRHH)
+	oStructRHH:SetProperty( aStructRHH[nX,3], MODEL_FIELD_WHEN, {|| .F. } )
+Next nX
+
+oModel:GetModel('GPEM695_MRHH'):SetNoInsertLine(.T.)
+oModel:GetModel('GPEM695_MRHH'):SetNoDeleteLine(.T.)
+oModel:GetModel('GPEM695_MRHH'):SetOptional(.T.)
+
+oModel:SetRelation('GPEM695_MRHH', { { 'RHH_FILIAL', 'xFilial( "RHH" )' }, { 'RHH_MAT', 'RA_MAT' }}, RHH->( IndexKey( 1 ) ) )
+oModel:GetModel('GPEM695_MRHH'):SetOnlyView ( .T. )
+oModel:GetModel('GPEM695_MSRA'):SetOnlyView ( .T. )
+
+Return(oModel)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef()
+Pagamento Retroativo Gestao Publica - Definição da tela.
+@return 		oView, object, objeto com informações da View carreada.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function ViewDef()
+Local nX := 0
+Local oModel
+Local oStructSRA
+Local oStructRHH
+Local oView
+
+oModel:= FwLoadModel("GPEM695")
+oView := FWFormView():New()
+oView:SetModel(oModel)
+
+oStructSRA := FWFormStruct(2,"SRA",{|cCampo| AllTrim(cCampo)+"|" $ "RA_MAT|RA_NOME|RA_ADMISSA|"})
+oStructSRA:SetNoFolder()
+oStructSRA := GP695StrSRA( 2,oStructSRA  )
+
+oStructSRA:AddGroup( 'A', OemToAnsi(STR0001) , '', 2 )   //SRA
+oStructSRA:AddGroup( 'EFD', OemToAnsi(STR0001) , '', 2 ) //EFD
+oStructSRA:SetProperty( "RA_MAT" , MVC_VIEW_GROUP_NUMBER , 'A' )
+oStructSRA:SetProperty( "RA_NOME" , MVC_VIEW_GROUP_NUMBER , 'A' )
+oStructSRA:SetProperty( "RA_ADMISSA" , MVC_VIEW_GROUP_NUMBER , 'A' )
+
+oView:AddField( "GPEM695_VSRA" , oStructSRA, "GPEM695_MSRA"  )
+
+oStructRHH := GP695StrRHH( 2 )
+oView:AddGrid("GPEM695_VRHH", oStructRHH, "GPEM695_MRHH" )
+
+oView:CreateHorizontalBox("SRA_HEAD", 20)
+oView:createHorizontalBox("FORMGRID",80)
+
+oView:SetOwnerView( "GPEM695_VSRA", "SRA_HEAD" )
+oView:SetOwnerView( "GPEM695_VRHH", "FORMGRID" )
+
+oView:SETVIEWCANACTIVATE( { |oModel| GPM695VldIni() } )
+
+oView:SetOnlyView("GPEM695_VSRA")
+oView:SetOnlyView("GPEM695_VRHH")
+
+Return(oView)
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695StrRHH()
+Pagamento Retroativo Gestao Publica - Monta estrutura do RHH
+@param 		nTipo, numeric, Estrutura RHH (nTipo 1=Model;2=View)
+@return 	oStruct, object, objeto com a estrutura da tabela RHH utilizada em tela.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function GP695StrRHH( nTipo  )
+Local aArea		:= GetArea()
+Local bValid	:= Nil
+Local bWhen		:= Nil
+Local bRelac	:= Nil
+Local aTit		:= {}
+Local nI		:= 1
+Local oStruct
+
+If nTipo == 1
+	oStruct := FWFormModelStruct():New()
+Else
+	oStruct := FWFormViewStruct():New()
+EndIf
+
+aTit := {	{ STR0012	,STR0012	, 'DATREFE', 'N', 07, 0 , '@R 99/9999'		}, ;	//"Per. Referencia"
+			{ STR0013	,STR0013	, 'PROCESS', 'C', 05, 0 , '@!'				}, ;	//"Processo"
+			{ STR0014	,STR0014	, 'ROTEIRO', 'C', 03, 0 , '@!'				}, ;	//"Roteiro"
+			{ STR0015	,STR0015	, 'DATPAG' , 'N', 07, 0 , '@R 99/9999'		}, ;	//"Per. Pagamento"
+			{ STR0016	,STR0016	, 'VERBORI', 'N', 03, 0 , '@!'				}, ;	//"Verba Origem"
+			{ STR0017	,STR0017	, 'DESCVOR', 'C', 20, 0 , '@!'				}, ;	//"Descrição"
+			{ STR0018	,STR0018	, 'VERBPGT', 'N', 03, 0 , '@!'				}, ;	//"Verba Pagto"
+			{ STR0017	,STR0017	, 'DESCVPG', 'C', 20, 0 , '@!'				}, ;	//"Descrição"
+			{ STR0019	,STR0019	, 'INDICE' , 'N', 10, 6 , '@E 999.999999'	}, ;	//"Indice"
+			{ STR0020	,STR0020	, 'VALORI' , 'N', 08, 2 , '@E 999,999.99'	}, ;	//"Valor Origem"
+			{ STR0021	,STR0021	, 'VALCAL' , 'N', 08, 2 , '@E 999,999.99'	}, ;	//"Valor Calculado"
+			{ STR0022	,STR0022	, 'VALPAG' , 'N', 08, 2 , '@E 999,999.99'	}, ;	//"Valor a pagar"
+			{ STR0023	,STR0023	, 'GERRRA' , 'C', 01, 0 , '@!'				}, ;	//"Processa RRA"
+			{ STR0024	,STR0024	, 'INTEGR' , 'C', 01, 0 , '@!'				}, ;	//"Integrado Folha"
+			{ STR0075	,STR0075	, 'TPOAUM' , 'C', 03, 0 , '@!'				}}		//"Tipo de Aumento"
+
+For nI := 1 To Len(aTit)
+	If nTipo = 1
+		oStruct:AddField( ;
+			aTit[nI][1]	, ;	// [01] Titulo do campo
+			aTit[nI][2]	, ;	// [02] ToolTip do campo
+			aTit[nI][3]	, ;	// [03] Id do Field
+			aTit[nI][4]	, ;	// [04] Tipo do campo
+			aTit[nI][5]	, ;	// [05] Tamanho do campo
+			aTit[nI][6]	, ;	// [06] Decimal do campo
+			bValid		, ;	// [07] Code-block de validação do campo
+			bWhen		, ;	// [08] Code-block de validação When do campo
+			Nil			, ;	// [09] Lista de valores permitido do campo
+			.F.			, ;	// [10] Indica se o campo tem preenchimento obrigatório
+			bRelac		, ;	// [11] Code-block de inicializacao do campo
+			NIL			, ;	// [12] Indica se trata-se de um campo chave
+			.F.			, ;	// [13] Indica se o campo não pode receber valor em uma operação de update.
+			.F.)			// [14] Indica se o campo é virtual
+	Else
+		oStruct:AddField( ;
+				aTit[nI][3]				, ;	// [01] Campo
+				alltrim(strzero(nI,2))	, ;	// [02] Ordem
+				aTit[nI][1]				, ;	// [03] Titulo
+				aTit[nI][1]				, ;	// [04] Descricao
+				NIL						, ;	// [05] Help
+				"GET"					, ;	// [06] Tipo do campo   COMBO, Get ou CHECK
+				aTit[nI][7]				, ;	// [07] Picture
+										, ;	// [08] PictVar
+										, ;	// [09] F3
+				.F.						, ;	// [10] Editavel
+										, ;	// [11] Folder
+										, ;	// [12] Group
+										, ;	// [13] Lista Combo
+										, ;	// [14] Tam Max Combo
+										, ;	// [15] Inic. Browse
+				.F.)						// [16] Virtual
+	EndIf
+Next nI
+
+RestArea( aArea )
+
+Return oStruct
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GP695StrSRA()
+Pagamento Retroativo Gestao Publica - Monta estrutura do SRA
+@param 		nTipo, numeric, Estrutura SRA (nTipo 1=Model;2=View)
+@return 	oStruct, object, objeto com a estrutura da tabela SRA utilizada em tela.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function GP695StrSRA( nTipo,oStruct  )
+Local aArea    := GetArea()
+Local bValid   := Nil
+Local bWhen    := Nil
+Local bRelac   := Nil
+Local aTit 	:= {}
+Local nI		:= 1
+
+For nI := 1 To Len(aTit)
+	If nTipo = 1
+		oStruct:AddField( ;
+			aTit[nI][1]	, ;	// [01] Titulo do campo
+			aTit[nI][2]	, ;	// [02] ToolTip do campo
+			aTit[nI][3]	, ;	// [03] Id do Field
+			aTit[nI][4]	, ;	// [04] Tipo do campo
+			aTit[nI][5]	, ;	// [05] Tamanho do campo
+			aTit[nI][6]	, ;	// [06] Decimal do campo
+			bValid		, ;	// [07] Code-block de validação do campo
+			bWhen		, ;	// [08] Code-block de validação When do campo
+			Nil			, ;	// [09] Lista de valores permitido do campo
+			.F.			, ;	// [10] Indica se o campo tem preenchimento obrigatório
+			bRelac		, ;	// [11] Code-block de inicializacao do campo
+			NIL			, ;	// [12] Indica se trata-se de um campo chave
+			.F.			, ;	// [13] Indica se o campo não pode receber valor em uma operação de update.
+			.F.)			// [14] Indica se o campo é virtual
+	Else
+		oStruct:AddField( ;
+				aTit[nI][3]				, ;	// [01] Campo
+				alltrim(strzero(nI+3,2)), ;	// [02] Ordem
+				aTit[nI][1]				, ;	// [03] Titulo
+				aTit[nI][1]				, ;	// [04] Descricao
+				NIL						, ;	// [05] Help
+				"GET"					, ;	// [06] Tipo do campo   COMBO, Get ou CHECK
+				aTit[nI][7]				, ;	// [07] Picture
+										, ;	// [08] PictVar
+										, ;	// [09] F3
+				.F.						, ;	// [10] Editavel
+										, ;	// [11] Folder
+				"EFD"					, ;	// [12] Group
+										, ;	// [13] Lista Combo
+										, ;	// [14] Tam Max Combo
+										, ;	// [15] Inic. Browse
+				.F.)						// [16] Virtual
+	EndIf
+Next nI
+
+RestArea( aArea )
+
+Return oStruct
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} ViewRHH()
+Pagamento Retroativo Gestao Publica - Busca dados na RHH
+@param 		oGrid, object, obejto com as informações do Grid.
+@return 	aRet, array, retorna array com dados de cálculo já existentens na RHH para o funcionário selecionado.
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Static Function ViewRHH(oGrid)
+Local aRet			:= {}
+Local aArea			:= GetArea()
+Local aCodFol		:= {}
+Local cDescVbOr		:= ""
+Local cDescVbPg		:= ""
+Local cMesAnoIni	:= ""
+Local cMesAnoFim	:= ""
+
+cMesAnoIni	:= Right( mv_par01, 4 ) + Left( mv_par01, 2 )
+cMesAnoFim	:= Right( mv_par02, 4 ) + Left( mv_par02, 2 )
+
+//Carrega cadastro de verbas para posterior filtro.
+If !Fp_CodFol(@aCodFol,xFilial("SRA", SRA->RA_FILIAL))
+	Return
+Endif
+
+//Monta matriz de visualizacao.
+While RHH->(!Eof()) .and. (RHH->(RHH_FILIAL+RHH_MAT) == SRA->(RA_FILIAL+RA_MAT)) .and. (RHH->RHH_DATA >= cMesAnoIni .and. RHH->RHH_DATA <= cMesAnoFim)
+	If RHH->RHH_COMPL_ == 'P'
+		cDescVbOr := FDESC("SRV",RHH->RHH_VB,"RV_DESC")
+		cDescVbOr := If( empty(cDescVbOr) .and. RHH->RHH_VB == "000", STR0026, cDescVbOr )	//"Salario Base"
+		cDescVbOr := If( empty(cDescVbOr),STR0027, cDescVbOr )								//"** Nao cadastrada **"
+		cDescVbPg := FDESC("SRV",RHH->RHH_VERBA,"RV_DESC")
+
+		aAdd(aRet,{RHH->( Recno() ),	{  Right(RHH->RHH_DATA,2)+Left(RHH->RHH_DATA,4), RHH->RHH_PROCES, RHH->RHH_ROTEIR, Right(RHH->RHH_MESANO,2)+Left(RHH->RHH_MESANO,4), RHH->RHH_VB, cDescVbOr, RHH->RHH_VERBA, cDescVbPg, RHH->RHH_INDICE, RHH->RHH_VL, RHH->RHH_CALC, Iif(!Empty(RHH->RHH_VALOR),RHH->RHH_VALOR,0), Iif( RHH->RHH_GRRA#'1','N','S'), Iif(RHH->RHH_INTEGR#'S','N','S'),RHH->RHH_TPOAUM}})
+	EndIf
+	RHH->(dbSkip())
+Enddo
+
+If Empty(aRet)
+	aAdd(aRet,{0,	{ "", "", "", "", "", "", "", "", 0, 0, 0, 0, "", "N","" }})
+EndIf
+
+RestArea( aArea )
+Return aRet
+
+
+//------------------------------------------------------------------------------
+/*/{Protheus.doc} GPM695VldIni()
+Pagamento Retroativo Gestao Publica - Validação inicial da View
+@param 		oModel, object, obejto com as informações do Grid.
+@param 		nOperacao, numeric,
+@return 	lRet, logic, retorna se modelo é válido
+@author	    Equipe MP
+@since		10/07/2014
+@version	P11.9
+/*/
+//------------------------------------------------------------------------------
+Function GPM695VldIni(oModel,nOperacao)
+Local aArea		:= GetArea()
+Local lRet	     	:= .T.
+Local cMesAnoIni	:= ""
+Local cMesAnoFim	:= ""
+
+//Carrega Perguntas para Periodo a Ser Visualizado.
+IF ! Pergunte( "GPCR04", .T. )
+	Return .F.
+EndIf
+
+cMesAnoIni	:= Right( mv_par01, 4 ) + Left( mv_par01, 2 )
+cMesAnoFim	:= Right( mv_par02, 4 ) + Left( mv_par02, 2 )
+
+If Empty( mv_par01 ) .or. Empty( mv_par02 )
+	Aviso( STR0002, STR0028, { STR0003 },, STR0029 )	//"Atencao" "Preencher o período do cálculo da promoção retroativa."
+	Return .F.
+EndIf
+
+//Verifica se o calculo foi executado.
+dbSelectArea( "RHH" )
+dbSetOrder( 2 )			// RHH_FILIAL+RHH_MAT+RHH_DATA+RHH_MESANO+RHH_VB+RHH_CC+RHH_ITEM+RHH_CLVL
+
+RHH->( dbGoTop() )
+
+// Na visualizacao procura a partir do primeiro registro que encontrar
+// referente ao ANO do dissidio do funcionario posicionado
+RHH->(dbSeek( SRA->RA_FILIAL + SRA->RA_MAT + cMesAnoIni, .T. ))
+
+If RHH->(Eof()) .or. ( SRA->(RA_FILIAL+RA_MAT) # RHH->(RHH_FILIAL+RHH_MAT) )
+	Aviso( STR0002, STR0030, { STR0003 } )		//"Atencao" "Não foi executado o cálculo da promoção/progressão retroativa!" "Ok"
+	Return .F.
+EndIf
+
+RestArea(aArea)
+Return lRet

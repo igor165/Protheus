@@ -1,0 +1,5 @@
+#INCLUDE "PROTHEUS.CH"
+Function PlsLoadDemo(cOpePad, aBA9,aBAA,aBF8,aBA8,aBD4,aBR4,aBKF,aBAB,aBI7,aBJA,aBX4,aBAU,aBWK,aBG3,aBG1,aBAP,aBQU,aBQS,aBH1,aBH2)
+Return
+
+	

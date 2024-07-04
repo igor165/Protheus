@@ -1,0 +1,66 @@
+#ifdef SPANISH
+	#define STR0001 "Informe de cierre de Km"
+	#define STR0002 "Este informe imprimirá el cierre de Km"
+	#define STR0003 "Fechas"
+	#define STR0004 "Estatus del viajes:"
+	#define STR0005 "SECTOR"
+	#define STR0006 "KM Prod."
+	#define STR0007 "KM Imp."
+	#define STR0008 "KM Total"
+	#define STR0009 "Promedio Mes"
+	#define STR0010 "Estilo"
+	#define STR0011 "Chasis"
+	#define STR0012 "Vehículo"
+	#define STR0013 "Cant. Vehículo(s):"
+	#define STR0014 "KM Productivo...:"
+	#define STR0015 "KM Total.......:"
+	#define STR0016 "Promedio por mes..:"
+	#define STR0017 "TOTAL DE KM"
+	#define STR0018 "KM Improductivo.:"
+	#define STR0019 'De fecha:'
+	#define STR0020 'A fecha:'
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Report of Closing Km"
+		#define STR0002 "This report prints the Closing Km"
+		#define STR0003 "Dates"
+		#define STR0004 "Trip Status:"
+		#define STR0005 "SECTOR"
+		#define STR0006 "KM Prod."
+		#define STR0007 "KM Imp."
+		#define STR0008 "Total Mileage"
+		#define STR0009 "Mth Average"
+		#define STR0010 "Style"
+		#define STR0011 "Chassis"
+		#define STR0012 "Vehicle"
+		#define STR0013 "Qty vehicle(s):"
+		#define STR0014 "Productive KM:"
+		#define STR0015 "Total KM:"
+		#define STR0016 "Average per month:"
+		#define STR0017 "TOTAL KM"
+		#define STR0018 "Unproductive KM:"
+		#define STR0019 'Date from:'
+		#define STR0020 'Date to:'
+	#else
+		#define STR0001 "Relatorio de Fechamento de Km"
+		#define STR0002 "Este relatório irá imprimir o Fechamento de Km"
+		#define STR0003 "Datas"
+		#define STR0004 "Status de Viagens: "
+		#define STR0005 "SETOR"
+		#define STR0006 "KM Prod."
+		#define STR0007 "KM Imp."
+		#define STR0008 "KM Total"
+		#define STR0009 "Média mês"
+		#define STR0010 "Estilo"
+		#define STR0011 "Chassi"
+		#define STR0012 "Veículo"
+		#define STR0013 "Qtd. veículo(s):"
+		#define STR0014 "KM Produtivo...:"
+		#define STR0015 "KM Total.......:"
+		#define STR0016 "Média por mês..:"
+		#define STR0017 "TOTAL DE KM"
+		#define STR0018 "KM Improdutivo.:"
+		#define STR0019 'Data de:'
+		#define STR0020 'Data até:'
+	#endif
+#endif

@@ -1,0 +1,1369 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+#INCLUDE "GPEI010.CH"
+
+Static cVerSend         := "2.000|2.001|2.002|2.003|2.005|3.001|3.002"  // versões disponíveis
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GPEI010
+Funcao de integracao com o adapter EAI para envio e recebimento do
+cadastro de funcionários (SRA) utilizando o conceito de mensagem unica.
+
+@param   cXML          Variavel com conteudo xml para envio/recebimento
+@param   nTypeTrans    Tipo de transacao. (Envio/Recebimento)
+@param   cTypeMessage  Tipo de mensagem. (Business Type, WhoIs, etc)
+
+@version P11
+@since   18/10/2012
+@return  aRet - Array contendo o resultado da execucao e a mensagem Xml de retorno.
+aRet[1] - (boolean) Indica o resultado da execução da função
+aRet[2] - (caracter) Mensagem Xml para envio
+
+@obs     O método irá retornar um objeto do tipo TOTVSBusinessEvent caso
+o tipo da mensagem seja EAI_BUSINESS_EVENT ou um tipo
+TOTVSBusinessRequest caso a mensagem seja do tipo TOTVSBusinessRequest.
+O tipo da classe pode ser definido com a função EAI_BUSINESS_REQUEST.
+/*/
+/*
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador³ Data   ³ BOPS  ³  Motivo da Alteracao                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Flavio Corr³20/05/14³       ³Ajustes no xml para versao 2.005 do XSD	   ³±±
+±±³Alberto M. ³23/12/14³       ³Ajustes no xml para versao 3.001 do XSD	   ³±±
+±±³Renan B.   ³24/02/15³TRPCKI ³Ajuste para ao integrar funcionários do Pro³±±
+±±³           ³        ³       ³theus via EAI para o Logix é necessário que³±±
+±±³           ³        ³       ³sejam enviadas a informação de Identidade. ³±±
+±±³Renan B.   ³06/03/15³TRUAZP ³Ajuste para ao integrar funcionários do Pro³±±
+±±³           ³        ³       ³theus via EAI é necessário emitir uma men- ³±±
+±±³           ³        ³       ³sagem ao usuário para que ele entenda o mo-³±±
+±±³           ³        ³       ³tivo para a gravação não ter sido concluída³±±
+±±³Renan B.   ³07/08/15³TSQVSS ³Ajuste p/ somente utilizar a propriedade   ³±±
+±±³           ³        ³       ³PositionCodeInternalId quando versao for   ³±±
+±±³           ³        ³       ³maior que 2.001							   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+*/
+//-------------------------------------------------------------------
+Function GPEI010(cXML, nTypeTrans, cTypeMessage, cVersao)
+
+Local aFuncionario		:= {}
+Local aAux				:= {}
+Local lRet				:= .T.
+Local cXMLRet			:= ""
+Local cError			:= ""
+Local cWarning			:= ""
+Local cMat				:= ""
+Local cEvent			:= "upsert"
+Local cValInt			:= ""
+Local cValExt			:= ""
+Local cProduct			:= ""
+Local cAlias			:= "SRA"
+Local cField			:= "RA_MAT"
+Local cAux				:= ""
+Local nI				:= 1
+Local cTurno			:= ""
+Local cIndiceSeq		:= 0
+Local dDtIniSeq			:= CTOD("")
+Local cBcoAgFGTS		:= StrTran( SuperGetMv( "MV_RHMUBCO", ,"" ), "/", "" )
+Local cContaFGTS		:= SuperGetMv( "MV_RHMUCTA", , "" )
+Local nSalario			:= 0
+Local nModAnt			:= nModulo
+Local lGPI040CC			:= ExistBlock("GPI040CC")
+Local cTpAlt			:= ""
+Local cNatural			:= ""
+Local lRMSeq			:= SuperGetMv("MV_RMSEQ",,.F.)
+Local lPropCargo		:= .F.
+
+Default cVersao        := "2.000"
+
+Private oXml           := ""
+Private lMsErroAuto    := .F.
+Private lMsHelpAuto    := .T.
+Private lAutoErrNoFile := .T.
+
+cVersao := Alltrim(cVersao)
+If nTypeTrans == TRANS_RECEIVE
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+
+		If cVersao $ cVerSend
+			// Faz o parse do xml em um objeto
+			oXml := XmlParser(cXml, "_", @cError, @cWarning)
+
+			// Se não houve erros
+			If oXml != Nil .And. Empty(cError) .And. Empty(cWarning)
+				// Verifica se o InternalId foi informado
+
+				If Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text") == "U" .Or. ;
+					 Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text)
+
+					lRet    := .F.
+					cXmlRet := STR0001 //"O código do InternalId é obrigatório!"
+
+				Else
+					cValExt := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_InternalId:Text
+
+					// Código do Produto da Integração
+					cProduct := oXml:_TOTVSMessage:_MessageInformation:_Product:_Name:Text
+
+					aAdd(aFuncionario, {"RA_FILIAL", xFilial("SRA"), Nil})
+
+					//Pesquisa o IntenalId do Funcionário
+					aAux     := IntFunInt(cValExt, cProduct, cVersao)
+
+					If aAux[1]
+						cMat := aAux[2][2] + aAux[2][3]
+					EndIf
+
+					If Upper(oXml:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "UPSERT"
+						SRA->(dbSetOrder(1))
+						If !Empty(cMat) .And. SRA->( DbSeek( cMat ) )
+							nOpcx	:= 4 //Alteração
+							cMat	:= SRA->RA_MAT
+							aAdd( aFuncionario, {"RA_MAT", cMat, Nil } )
+						Else
+							nOpcx := 3 //Inclusão
+
+							If cProduct == "RM" .And. lRMSeq	//integrar mantendo chapa RM como código de matrícula GPE
+
+								If Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text") == "U" .Or. ;
+								Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text)
+									lRet := .F.
+									cXmlRet := STR0027		//"Chapa RM não informada, verificar tag <Code>."
+								Else
+									cMat := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Code:Text
+									If Len(cMat) > 6	//limite tamanho matrícula PIMS
+										lRet	:= .F.
+										cXmlRet	:= STR0028	//"Para utilização da chapa RM na integração da matrícula Protheus, o código não deve exceder 06 dígitos."
+									else
+										If SRA->( dbSeek( xFilial("SRA") + PadR(cMat, TamSX3('RA_MAT')[1]) ))
+											lRet := .F.
+											cXmlRet := STR0029 + cMat + STR0030
+											//"Não foi possível concluir a integração mantendo mesmo código de matrícula pois o número da chapa RM: ### já está em uso por outra matrícula no Protheus."
+										EndIf
+									EndIf
+								EndIf
+								If !lRet
+									Return {lRet, EncodeUTF8(cXMLRet)}
+								EndIf
+
+							Else
+								While .T.
+									cMat := GetSXENUM( "SRA", "RA_MAT" )
+
+									If SRA->( dbSeek( xFilial("SRA")+cMat) )
+										ConfirmSX8()
+									Else
+										Exit
+									EndIf
+								End
+							EndIf
+
+							aAdd( aFuncionario, {"RA_MAT", cMat, Nil } )
+						EndIf
+
+						// Nome do Funcionário
+						If GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Name:Text","RA_NOME",lRet)
+							If cVersao <> '2.005'
+								aAdd(aFuncionario, {"RA_NOMECMP", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Name:Text, Nil})
+							EndIf
+						Else
+							lRet	:= .F.
+							cXmlRet	:= "Nome do funcionário não preenchido, envia a " + " tag Name " + " com conteúdo."
+						EndIf
+
+
+						If cVersao $ "2.005|3.001|3.002"
+
+							// Nome Completo do Funcionário
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_FullName:Text","RA_NOMECMP",lRet)
+
+							// Apelido
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ShortName:Text","RA_APELIDO",lRet)
+
+							// Cracha
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_BadgeNumber:Text","RA_CRACHA",lRet)
+
+							// Vencimento Experiencia
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ContractEnd:Text","RA_VCTOEXP",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_ContractEnd:Text, 1, 10 ), "-", "") )')
+
+							//CPF e RG
+							If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id") <> "U"
+								If Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id") != "A"
+									XmlNode2Arr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id, "_Id" )
+								EndIf
+								For nI := 1 To Len( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id )
+									If XmlChildEx( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI], "_NAME" ) <> Nil
+										If Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "CPF"
+											aAdd(aFuncionario, {"RA_CIC", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+										ElseIf Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "RG"
+											aAdd(aFuncionario, {"RA_RG", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+										EndIf
+									EndIf
+								Next nI
+							EndIf
+
+							//Documentos
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeDocument:_WorkCardStateIssuing:Text","RA_UFCP",lRet)
+
+							//Serie Carteira Trabalho
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeDocument:_WorkCardSerie:Text","RA_SERCP",lRet)
+
+							//Numero Carteira Trabalho
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeDocument:_WorkCardNumber:Text","RA_NUMCP",lRet)
+
+							//Pis
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeDocument:_PIS:Text","RA_PIS",lRet)
+
+							//Sindicato
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeDocument:_UnionCode:Text","RA_SINDICA",lRet)
+
+							//Endereço
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_Address:Text","RA_ENDEREC",lRet)
+
+							//numero
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_Number:Text","RA_NUMENDE",lRet)
+
+							//Complemento
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_Complement:Text","RA_COMPLEM",lRet)
+
+							//Cod Municipio
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_City:_Code:Text","RA_CODMUN",lRet)
+
+							//Municipio
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_City:_Description:Text","RA_MUNICIP",lRet)
+
+							//bairro
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_District:Text","RA_BAIRRO",lRet)
+
+							//estado
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_State:_Description:Text","RA_ESTADO",lRet)
+
+							//pais
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_Country:_Code:Text","RA_CPAISOR",lRet)
+
+							//cep
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_ZIPCode:Text","RA_CEP",lRet)
+
+							//caixa postal
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_AdressInformation:_POBox:Text","RA_CPOSTAL",lRet)
+
+							//Telefone
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_CommunicationInformation:_PhoneNumber:Text","RA_TELEFON",lRet)
+
+							//Email
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_CommunicationInformation:_Email:Text","RA_EMAIL",lRet)
+
+						EndIf
+
+						// Cód. Departamento
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DepartamentInternalId:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DepartamentInternalId:Text)
+
+							aAux :=  IntDeptoInt(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DepartamentInternalId:Text, cProduct)
+							If !aAux[1]
+								lRet	:= aAux[1]
+								cXmlRet := aAux[2]
+
+							Else
+								aAdd(aFuncionario, {"RA_DEPTO", aAux[2][3], Nil})
+							EndIf
+						EndIf
+
+						// Código da Função
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RoleInternalId:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RoleInternalId:Text)
+
+							cAux := CFGA070Int( cProduct, "SRJ", "RJ_FUNCAO", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_RoleInternalId:Text )
+							cAux := GPEI030Rcv( cAux, { "RJ_FILIAL", "RJ_FUNCAO" } )
+
+							If !Empty( cAux ) .And. SRJ->( DbSeek( cAux ) )
+								aAdd(aFuncionario, {"RA_CODFUNC", SRJ->RJ_FUNCAO, Nil})
+							Else
+								lRet	:= .F.
+								cXmlRet	:= STR0020 // "Função não identificada"
+							EndIf
+						Else
+							dbSelectArea("SRJ")
+							SRJ->(dbSetOrder(1))
+
+							If SRJ->(dbSeek(xFilial("SRJ") + "00001"))
+								aAdd(aFuncionario, {"RA_CODFUNC", "00001", Nil})
+							Else
+								lRet	:= .F.
+								cXmlRet	:= STR0020 // "Função não identificada"
+							EndIf
+						EndIf
+
+						// Datas Admissão e FGTS
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HiringDate:Text","RA_ADMISSA",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HiringDate:Text, 1, 10 ), "-", "") )')
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HiringDate:Text","RA_OPCAO",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HiringDate:Text, 1, 10 ), "-", "") )')
+
+						// Código Turno Trabalho
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftInternalId:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftInternalId:Text)
+
+							cTurno := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftInternalId:Text
+							cAux := CFGA070Int( cProduct, "SR6", "R6_TURNO", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftInternalId:Text )
+							cAux := GPEI080Rcv( cAux, { "R6_FILIAL", "R6_TURNO" } )
+
+							If !Empty( cAux ) .And. SR6->( DbSeek( cAux ) )
+								aAdd(aFuncionario, {"RA_TNOTRAB", SR6->R6_TURNO, Nil})
+							Else
+								lRet	:= .F.
+								cXmlRet	:= STR0021 // "Turno não identificado"
+							EndIf
+
+						ElseIf lRet
+							dbSelectArea("SR6")
+							SR6->(dbSetOrder(1))
+
+							If SR6->(dbSeek(xFilial("SR6") + "001"))
+								aAdd(aFuncionario, {"RA_TNOTRAB", "001", Nil})
+							Else
+								lRet	:= .F.
+								cXmlRet := STR0004 + cEmpAnt + "/" + cFilAnt + "." //"Código do turno 001 não cadastrado para a empresa "
+								Return {lRet, EncodeUTF8(cXMLRet)}
+							EndIf
+						EndIf
+
+						// Tipo do Salário do Funcionário
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_SalaryCategory:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_SalaryCategory:Text)
+
+							cAux := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_SalaryCategory:Text
+
+							If cAux == "6"
+								cAux := "S"
+							Else
+								cAux := "M"
+							EndIf
+
+							aAdd(aFuncionario, {"RA_TIPOPGT", cAux, Nil})
+						EndIf
+
+						// Situação do funcionário
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeSituation:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeSituation:Text)
+
+							cAux := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeeSituation:Text
+
+							If cAux == "4"
+								cAux  := "A"
+							ElseIf cAux == "2"
+								cAux := "D"
+							ElseIf cAux == "3"
+								cAux := "F"
+							Else
+								cAux := " "
+							EndIf
+
+							aAdd(aFuncionario, {"RA_SITFOLH", cAux, Nil})
+						EndIf
+
+						// Data de Demissão
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DemissionDate:Text","RA_DEMISSA",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DemissionDate:Text, 1, 10 ), "-", "") )')
+
+						// Código do Centro de Custo
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_CostCenterInternalId:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_CostCenterInternalId:Text)
+
+							If lGPI040CC
+								aAux := ExecBlock("GPI040CC", .F., .F.)
+							Else
+								aAux := IntCusInt(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_CostCenterInternalId:Text, cProduct, "2.000")
+							EndIf
+
+							If !aAux[1]
+								lRet	:= aAux[1]
+								cXmlRet := aAux[2]
+								Return {lRet, EncodeUTF8(cXMLRet)}
+							ElseIf CTT->(DbSeek(aAux[2][Len(aAux[2]) - 1] + aTail(aAux[2])))
+
+								aAdd(aFuncionario, {"RA_CC", aTail(aAux[2]), Nil})
+							EndIf
+						ElseIf lRet
+							lRet	:= .F.
+							cXmlRet := STR0005 //"O centro de custo é obrigatório!"
+							Return {lRet, EncodeUTF8(cXMLRet)}
+						EndIf
+
+						// Data de Nascimento
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_BirthDate:Text","RA_NASC",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_BirthDate:Text, 1, 10 ), "-", "") )')
+
+						// Sexo do Funcionário
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Gender:Text","RA_SEXO",lRet)
+
+						// Naturalidade Funcionario
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HomeState:Text","RA_NATURAL",lRet)
+
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HomeState:Text") != "U" .And. ;
+							!Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HomeState:Text)
+
+							 cNatural := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_HomeState:Text
+
+							If !Empty(cNatural) .And. cNatural == "EX"
+								// Nacionalidade Funcionario
+								aAdd(aFuncionario, {"RA_NACIONA", "80", Nil})
+							else
+								// Nacionalidade Funcionario
+								aAdd(aFuncionario, {"RA_NACIONA", "10", Nil})
+							Endif
+						Else
+							// Nacionalidade Funcionario
+							aAdd(aFuncionario, {"RA_NACIONA", "10", Nil})
+						Endif
+						// Documentos { CPF, NumeroCTPS, SerieCTPS }
+						If cVersao < '2.005' .And. lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id") <> "U"
+							If Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id") != "A"
+								XmlNode2Arr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id, "_Id" )
+							EndIf
+
+							For nI := 1 To Len( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id )
+
+								If XmlChildEx( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI], "_NAME" ) <> Nil
+
+									If Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "CPF"
+
+										aAdd(aFuncionario, {"RA_CIC", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+
+									ElseIf Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "NUMEROCTPS"
+
+										aAdd(aFuncionario, {"RA_NUMCP", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+
+									ElseIf Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "SERIECTPS"
+
+										aAdd(aFuncionario, {"RA_SERCP", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+									ElseIf Upper( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:_Name:Text ) == "RG"
+
+										aAdd(aFuncionario, {"RA_RG", oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_GovernmentalInformation:_Id[nI]:Text, Nil})
+
+									EndIf
+
+								EndIf
+
+							Next nI
+						EndIf
+
+							//Horas Mensais e Semanais
+							If !GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_MonthlyWorkingHours:Text","RA_HRSMES",lRet,'Val(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_MonthlyWorkingHours:Text)')
+								aAdd(aFuncionario, {"RA_HRSMES", 220.00,  Nil})
+							EndIf
+							If !GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_MonthlyWorkingHours:Text","RA_HRSEMAN",lRet,'Val(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_MonthlyWorkingHours:Text) / 5')
+								aAdd(aFuncionario, {"RA_HRSMES", 44.00,  Nil})
+							EndIf
+
+						If cVersao < '2.005'
+						// Email
+							GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Email:Text","RA_EMAIL",lRet)
+						EndIf
+
+						// Tabela Salarial
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WageTableInternalId:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WageTableInternalId:Text)
+							aAux := IntTSlInt(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WageTableInternalId:Text, cProduct)
+							If aAux[1]
+								aAdd(aFuncionario, {"RA_TABELA", aAux[2][3], Nil})
+								aAdd(aFuncionario, {"RA_NIVEL",  aAux[2][4], Nil})
+								aAdd(aFuncionario, {"RA_FAIXA",  aAux[2][5], Nil})
+							EndIf
+						EndIf
+
+						// Sequencia Inicio do Turno
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftSequence:Text") != "U" .And. ;
+							 !Empty( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftSequence:Text ) .And. ;
+							 Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DateInitialShiftSequence:Text") != "U" .And. ;
+							 !Empty( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DateInitialShiftSequence:Text )
+
+								cIndiceSeq := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_WorkShiftSequence:Text
+								dDtIniSeq  := STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DateInitialShiftSequence:Text, 1, 10), "-", "" ) )
+
+								cTurno := CFGA070INT( cProduct, "SPJ", "PJ_DIA", cTurno + "|" + cIndiceSeq + "|" + cValToChar( DOW(dDtIniSeq) ) )
+								cTurno := PI080RcvDia( cTurno, { "PJ_FILIAL", "PJ_TURNO", "PJ_SEMANA", "PJ_DIA" } )
+
+								If !Empty( cTurno )
+
+									DbSelectArea("SPJ")
+									SPJ->( DbSetOrder( 1 ) ) //PJ_FILIAL+PJ_TURNO+PJ_SEMANA+PJ_DIA
+
+									If SPJ->( DbSeek( cTurno ) )
+										aAdd( aFuncionario, { "RA_SEQTURN", SPJ->PJ_SEMANA, Nil } )
+									EndIf
+								EndIf
+
+						EndIf
+
+						//Tipo Alteracao
+
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TypeOfSalaryChange:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TypeOfSalaryChange:Text)
+
+							cTpAlt := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_TypeOfSalaryChange:Text
+							lRet := ExistCpo("SX5","41"+cTpAlt)
+							If lRet
+								aAdd(aFuncionario, {"RA_TIPOALT", cTpAlt, Nil})
+							else
+								lRet := .F.
+								cXmlRet	:= STR0026 // "Tipo de Alteração Salarial não identificado"
+							Endif
+						Endif
+
+						//data alteracao
+						GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DateOfSalaryChange:Text","RA_DATAALT",lRet,'STOD( StrTran( SubStr( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_DateOfSalaryChange:Text, 1, 10 ), "-", "" ) )')
+
+						If lRet
+
+							//Banco e Agencia FGTS validos
+							DbSelectArea("SA6")
+							SA6->( DbSetOrder( 1 ) )
+
+							If SA6->(dbSeek(xFilial("SA6") + PadR("001", TamSx3("A6_COD")[1]) + PadR("00000", TamSx3("A6_AGENCIA")[1]) + PadR("0000000000", TamSx3("A6_NUMCON")[1])))
+								aAdd(aFuncionario, {"RA_BCDPFGT", "00100000", Nil})
+								// Conta Depósito FGTS
+								aAdd(aFuncionario, {"RA_CTDPFGT", "0000000000", Nil})
+
+							ElseIf !Empty( cContaFGTS ) .And. !Empty( cBcoAgFGTS )
+
+								If SA6->( DbSeek( xFilial("SA6")+cBcoAgFGTS ) )
+									//Banco e Agencia FGTS validos
+									aAdd(aFuncionario, {"RA_BCDPFGT", cBcoAgFGTS, Nil})
+
+									// Conta Depósito FGTS
+									aAdd(aFuncionario, {"RA_CTDPFGT", cContaFGTS, Nil})
+								Else
+									lRet := .F.
+									cXmlRet := STR0022 + "MV_RHMUBCO" // "Banco e Agência não estão corretos no parâmetro "
+								EndIf
+							Else
+								lRet := .F.
+								cXmlRet := STR0006 //"Banco/Agência/NúmeroConta 001/00000/0000000000 não cadastrados para a empresa " + cEmpAnt + "/" + cFilAnt + "."
+							EndIf
+
+						EndIf
+
+						If lRet
+
+							If aScan( aFuncionario, {|x| Alltrim(x[1]) == "RA_NUMCP" } ) == 0
+								aAdd(aFuncionario, {"RA_NUMCP", "000000", Nil})
+							EndIf
+
+							If aScan( aFuncionario, {|x| Alltrim(x[1]) == "RA_SERCP" } ) == 0
+								aAdd(aFuncionario, {"RA_SERCP", "0", Nil})
+							EndIf
+
+							// Tipo Pagamento
+							aAdd(aFuncionario, {"RA_TIPOPGT", "M", Nil})
+
+							// Tipo de Admissão
+							aAdd(aFuncionario, {"RA_TIPOADM", "9B", Nil})
+
+							// Vínculo Empregatício Rais
+							aAdd(aFuncionario, {"RA_VIEMRAI", "10", Nil})
+
+							// Cod. Grau de Instrução RAIS
+							aAdd(aFuncionario, {"RA_GRINRAI", "10", Nil})
+
+							// Contrato a Tempo Parcial
+							aAdd(aFuncionario, {"RA_HOPARC", "1", Nil})
+
+							// Comp. Sábado dur. Semana
+							aAdd(aFuncionario, {"RA_COMPSAB", "1", Nil})
+
+							// Adicional Tempo de Serviço
+							aAdd(aFuncionario, {"RA_ADTPOSE", "******", Nil})
+
+							// Estado Civil
+							aAdd(aFuncionario, {"RA_ESTCIVI", "S", Nil})
+
+							//Categoria Funcionario
+							aAdd(aFuncionario, {"RA_CATFUNC", "M", Nil})
+
+							// Nacionalidade Funcionario
+							aAdd(aFuncionario, {"RA_AUTMEI ", "2", Nil})
+
+						EndIf
+
+						// Cargo
+						//A partir da mensagem Employee(3.001) a tag PositionInternalId se tornou EmployeePositionInternalId.
+						If cVersao >= "3.001"
+							If lPropCargo := ( Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeePositionCodeInternalId:Text") <> "U" )
+								cAux := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_EmployeePositionCodeInternalId:Text
+							EndIf
+						ElseIf cVersao > "2.001"
+							If lPropCargo := ( Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_PositionCodeInternalId:Text") <> "U" )
+								cAux := oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_PositionCodeInternalId:Text
+							EndIf
+						EndIf
+
+						If lRet .And. lPropCargo .And. !Empty(cAux)
+
+							cAux := CFGA070Int( cProduct, "SQ3", "Q3_CARGO", cAux )
+							cAux := GPEI370Rcv( cAux, { "Q3_FILIAL", "Q3_CARGO" } )
+
+							If !Empty( cAux ) .And. SQ3->( DbSeek( cAux ) )
+								aAdd( aFuncionario, {"RA_CARGO", SQ3->Q3_CARGO, Nil})
+							EndIf
+						EndIf
+
+						// Salário do Funcionário
+						If lRet .And. Type("oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Salary:Text") != "U" .And. ;
+							 !Empty(oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Salary:Text)
+							 nSalario := GI010DeCript( oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Salary:Text )
+
+							aAdd(aFuncionario, {"RA_SALARIO", nSalario, Nil})
+						EndIf
+
+						aAdd(aFuncionario, {"RA_PROCES", '00001', Nil})
+
+					ElseIf Upper(oXml:_TOTVSMessage:_BusinessMessage:_BusinessEvent:_Event:Text) == "DELETE" ;
+						.And. SRA->( DbSeek( cMat ) )
+
+						nOpcx := 5 //Exclusão
+
+						cMat := SRA->RA_MAT
+						ExcProgF( xFilial("SRF"), cMat )
+						ExcProgT( xFilial("SPF"), cMat )
+						aAdd( aFuncionario, { "RA_MAT", cMat, Nil } )
+
+					Else
+
+						lRet    := .F.
+						cXmlRet := STR0007 //"O Event informado é inválido!"
+
+					EndIf
+
+					If lRet
+						nModulo := 7 //sigagpe
+						BeginTran()
+						If CValtoChar(nOpcx) $ "4/5"
+						 	aadd(aFuncionario,{"INDEX",RetOrder("SRA","RA_FILIAL+RA_MAT+RA_PROCES"),""})
+						EndIf
+						// Executa comando para insert, update ou delete conforme evento
+						MSExecAuto({|x, y, z, w| GPEA010(x, y, z, w)},,, aFuncionario, nOpcx)
+
+						// Se houve erros no processamento do MSExecAuto
+						If lMsErroAuto
+							DisarmTransaction()
+							If(lRMSeq,, RollBackSX8())
+							aErro := GetAutoGRLog()
+
+							lRet := .F.
+
+							For nI := 1 To Len(aErro)
+								cXMLRet += StrTran( StrTran( StrTran( StrTran( StrTran( aErro[nI], CHR(10), "" ), CHR(13), "" ), "/", "" ), "<", "" ), ">", "" ) + "|"
+							Next nI
+							varinfo("ERRO MENSAGEM UNICA",aErro)
+						Else
+
+							cValInt := IntFunExt( , , RTrim( cMat ), cVersao )[2]
+
+							If(nOpcx != 5) // Se o evento é diferente de delete
+								// Grava o registro na tabela XXF (de/para)
+								CFGA070Mnt( cProduct, cAlias, cField, cValExt, cValInt )
+								If(lRMSeq,, ConfirmSX8())
+
+								// Monta o XML de retorno
+								cXMLRet := "<ListOfInternalId>"
+								cXMLRet +=     "<InternalId>"
+								cXMLRet +=         "<Name>Employee</Name>"
+								cXMLRet +=         "<Origin>" + cValExt + "</Origin>" // Valor recebido na tag
+								cXMLRet +=         "<Destination>" + cValInt + "</Destination>" // Valor XXF gerado
+								cXMLRet +=     "</InternalId>"
+								cXMLRet += "</ListOfInternalId>"
+
+							Else
+								// Exclui o registro na tabela XXF (de/para)
+								CFGA070Mnt(, cAlias, cField,, cValInt, .T.)
+							EndIf
+
+							EndTran()
+
+						EndIf
+						nModulo := nModAnt
+					EndIf
+
+				EndIf
+			Else
+				lRet    := .F.
+				cXmlRet := STR0008 //"Erro ao parsear xml!"
+			EndIf
+		Else
+			lRet := .F.
+			cXmlRet := STR0023 // "Versão não tratada pelo adapter"
+		EndIf
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+
+		// Faz o parse do xml em um objeto
+		oXml := XmlParser(cXml, "_", @cError, @cWarning)
+		// Se não houve erros na resposta
+		If(Upper(oXml:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_Status:Text) == "OK")
+			// Verifica se a marca foi informada
+			If(Type("oXml:_TOTVSMessage:_MessageInformation:_Product:_name:Text") != "U" .And. ;
+				 !Empty(oXml:_TOTVSMessage:_MessageInformation:_Product:_name:Text))
+
+				cProduct := oXml:_TOTVSMessage:_MessageInformation:_Product:_name:Text
+			Else
+				lRet    := .F.
+				cXmlRet := STR0009 //"Erro no retorno. O Product é obrigatório!"
+			EndIf
+
+			// Verifica se o código interno foi informado
+			If lRet .And. (Type("oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Origin:Text") != "U" .And.;
+				 !Empty(oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Origin:Text))
+
+				cValInt := oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Origin:Text
+			Else
+				lRet    := .F.
+				cXmlRet := STR0010 //"Erro no retorno. O OriginalInternalId é obrigatório!"
+				Return {lRet, EncodeUTF8(cXmlRet)}
+			EndIf
+
+			// Verifica se o código externo foi informado
+			If lRet .And. (Type("oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Destination:Text") != "U" .And. ;
+				 !Empty(oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Destination:Text))
+
+				cValExt := oXml:_TOTVSMessage:_ResponseMessage:_ReturnContent:_ListOfInternalId:_InternalId:_Destination:Text
+			Else
+				lRet    := .F.
+				cXmlRet := STR0011 //"Erro no retorno. O DestinationInternalId é obrigatório"
+			EndIf
+
+			If lRet .And. (Type("oXml:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text") != "U" .And. ;
+				 !Empty(oXml:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text))
+				// Obtém a mensagem original enviada
+				cXml := oXml:_TOTVSMessage:_ResponseMessage:_ReceivedMessage:_MessageContent:Text
+			Else
+				lRet    := .F.
+				cXmlRet := STR0012 //"Conteúdo do MessageContent vazio!"
+			EndIf
+
+			If lRet
+				// Insere / Atualiza o registro na tabela XXF (de/para)
+				CFGA070Mnt(cProduct, cAlias, cField, cValExt, cValInt, .F.,)
+			EndIf
+
+		Else
+			// Se não for array
+			If(ValType(oXml:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message) != "A")
+				// Transforma em array
+				XmlNode2Arr(oXml:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message, "_Message")
+			EndIf
+
+			// Percorre o array para obter os erros gerados
+			For nI := 1 To Len(oXml:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message)
+				cError := oXml:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message[nI]:Text + "|"
+			Next nI
+
+			lRet    := .F.
+			cXmlRet := cError
+			MsgAlert( OemToAnsi(cError), STR0025 )
+		EndIf
+	ElseIf cTypeMessage == EAI_MESSAGE_WHOIS
+		lRet := .T.
+		cXMLRet := cVerSend
+	Endif
+ElseIf nTypeTrans == TRANS_SEND
+	If (!IsInCallStack("GPEA180") .And. !Inclui .And. !Altera) .Or. (IsInCallStack("GPEA180") .And. nOpc != 3 .And. nOpc != 4)
+		cEvent := "delete"
+
+		M->RA_MAT     := SRA->RA_MAT
+		M->RA_NOME    := SRA->RA_NOME
+		M->NOMECMP	  := SRA->RA_NOMECMP
+		M->RA_DEPTO   := SRA->RA_DEPTO
+		M->RA_CODFUNC := SRA->RA_CODFUNC
+		M->RA_CARGO   := SRA->RA_CARGO
+		M->RA_ADMISSA := SRA->RA_ADMISSA
+		M->RA_TNOTRAB := SRA->RA_TNOTRAB
+		M->RA_TIPOPGT := SRA->RA_TIPOPGT
+		M->RA_SALARIO := SRA->RA_SALARIO
+		M->RA_DEMISSA := SRA->RA_DEMISSA
+		M->RA_CC      := SRA->RA_CC
+		M->RA_NASC    := SRA->RA_NASC
+		M->RA_SEXO    := SRA->RA_SEXO
+		M->RA_NATURAL := SRA->RA_NATURAL
+		M->RA_CIC     := SRA->RA_CIC
+		M->RA_EMAIL   := SRA->RA_EMAIL
+		M->RA_HRSMES  := SRA->RA_HRSMES
+		M->RA_TIPOALT := SR7->R7_TIPO
+		M->RA_DATAALT := SR7->R7_DATA
+		M->RA_SEQTURN := SRA->RA_SEQTURN
+		M->RA_SITFOLH := SRA->RA_SITFOLH
+
+		CFGA070Mnt(, cAlias, cField,, ( cEmpAnt + '|' + xFilial("SRA") + '|' + AllTrim(M->RA_MAT) ), .T.)
+
+	EndIf
+
+	cXMLRet += '<BusinessEvent>'
+	cXMLRet +=    '<Entity>Employee</Entity>'
+	cXMLRet += '<Event>' + cEvent + '</Event>'
+	cXMLRet +=    '<Identification>'
+	cXMLRet +=       '<key name="InternalID">' + cEmpAnt + '|' + xFilial("SRA") + '|' + AllTrim(M->RA_MAT) + '</key>'
+	cXMLRet +=    '</Identification>'
+	cXMLRet += '</BusinessEvent>'
+	cXMLRet += '<BusinessContent>'
+	cXMLRet +=    '<CompanyId>' + cEmpAnt + '</CompanyId>'
+	//cXMLRet +=    '<BranchId>' + xFilial("SRA") + '</BranchId>'
+	cXMLRet +=    '<BranchId>' + cFilAnt + '</BranchId>'
+	cXMLRet +=    '<CompanyInternalId>' + cEmpAnt + "|" + xFilial("SRA") + '</CompanyInternalId>'
+	cXMLRet +=    '<Code>' + AllTrim(M->RA_MAT) + '</Code>'
+	cXMLRet +=    '<InternalId>' + cEmpAnt + '|' + xFilial("SRA") + '|' + AllTrim(M->RA_MAT) + '</InternalId>'
+	cXMLRet +=    '<FullName>' + HtmlNoTags(Alltrim(M->RA_NOMECMP)) + '</FullName>'
+	cXMLRet +=    '<Name>' + HtmlNoTags(Alltrim(M->RA_NOME)) + '</Name>'
+
+	If cVersao $ "2.005|3.001|3.002"
+
+		cXMLRet +=    '<ShortName>' + HtmlNoTags(Alltrim(M->RA_APELIDO)) + '</ShortName>'
+		cXMLRet +=    '<BadgeNumber>' + AllTrim(M->RA_CRACHA) + '</BadgeNumber>'
+		If !Empty(M->RA_VCTOEXP)
+			cXMLRet +=    '<ContractEnd>' + Transform( DToS( M->RA_VCTOEXP ), "@R 9999-99-99") + '</ContractEnd>'
+		EndIf
+		cAux := M->RA_CATFUNC
+		If cAux $ "M*S"
+			cAux := "1" //Funcionario
+		ElseIf cAux $ "E*G"
+			cAux := "2" //Estagiario
+		ElseIf cAux == "P"
+			cAux := "13" //Socio
+		Else
+			cAux := "1" //Funcionario
+		EndIf
+		cXMLRet +=    '<EmployeeType>' + cAux + '</EmployeeType>'
+		cAux := ""
+
+		cXMLRet +=    '<EmployeeDocument>'
+		cXMLRet +=    '    <WorkCardStateIssuing>' + Alltrim(M->RA_UFCP) + '</WorkCardStateIssuing>'
+		cXMLRet +=    '    <WorkCardModel></WorkCardModel>'
+		cXMLRet +=    '    <WorkCardSerie>' + Alltrim(M->RA_SERCP) + '</WorkCardSerie>'
+		cXMLRet +=    '    <WorkCardNumber>' + Alltrim(M->RA_NUMCP) + '</WorkCardNumber>'
+		cXMLRet +=    '    <PIS>' + AllTrim(M->RA_PIS) + '</PIS>'
+		cXMLRet +=    '</EmployeeDocument>'
+		cXMLRet +=    '<GovernmentalInformation>'
+		If !Empty(M->RA_CIC)
+			cXMLRet +=       '<Id name="CPF" scope="Federal">' + AllTrim(M->RA_CIC) + '</Id>'
+		EndIf
+		If !Empty(M->RA_RG)
+			cXMLRet +=       '<Id name="RG" scope="Federal">' + AllTrim(M->RA_RG) + '</Id>'
+		EndIf
+		cXMLRet +=    '</GovernmentalInformation>'
+
+		cXMLRet +=    '<AdressInformation>'
+		cXMLRet +=    '    <Address>' + HtmlNoTags(Alltrim(M->RA_ENDEREC)) + '</Address>'
+		cXMLRet +=    '    <Number>' + AllTrim(M->RA_NUMENDE) + '</Number>'
+		cXMLRet +=    '    <Complement>' + AllTrim(M->RA_COMPLEM) + '</Complement>'
+		cXMLRet +=    '    <City>'
+		cXMLRet +=    '      <Code>' + AllTrim(M->RA_CODMUN) + '</Code>'
+		cXMLRet +=    '      <Description>' + HtmlNoTags(Alltrim(M->RA_MUNICIP)) + '</Description>'
+		cXMLRet +=    '    </City>'
+		cXMLRet +=    '    <District>' + HtmlNoTags(Alltrim(M->RA_BAIRRO)) + '</District>'
+		cXMLRet +=    '    <State>'
+		cXMLRet +=    '      <Code>' + AllTrim(M->RA_ESTADO	) + '</Code>'
+		cXMLRet +=    '      <Description>' + AllTrim(M->RA_ESTADO) + '</Description>'
+		cXMLRet +=    '    </State>'
+		cXMLRet +=    '    <Country>'
+		cXMLRet +=    '      <Code>' + AllTrim(M->RA_CPAISOR) + '</Code>'
+		If Type('M->RA_PAISORI')=='C' .And. !(Empty(M->RA_PAISORI))
+			cXMLRet +=    '      <Description>' + AllTrim(M->RA_PAISORI) + '</Description>'
+		EndIf
+		cXMLRet +=    '    </Country>'
+		cXMLRet +=    '    <ZIPCode>' + AllTrim(M->RA_CEP) + '</ZIPCode>'
+		cXMLRet +=    '    <Region></Region>'
+		cXMLRet +=    '    <POBox>' + AllTrim(M->RA_CPOSTAL) + '</POBox>'
+		cXMLRet +=    '  </AdressInformation>'
+		cXMLRet +=    '  <CommunicationInformation>'
+		cXMLRet +=    '    <PhoneNumber>' + AllTrim(M->RA_DDDFONE) + AllTrim(M->RA_TELEFON) + '</PhoneNumber>'
+		cXMLRet +=    '    <PhoneExtension></PhoneExtension>'
+		cXMLRet +=    '    <FaxNumber></FaxNumber>'
+		cXMLRet +=    '    <FaxNumberExtension></FaxNumberExtension>'
+		cXMLRet +=    '    <HomePage></HomePage>'
+		cXMLRet +=    '    <Email>' + AllTrim(M->RA_EMAIL) + '</Email>'
+		cXMLRet +=    '  </CommunicationInformation>'
+
+		cXMLRet +=    '  <AllocationInformation>'
+		cXMLRet +=    '     <BusinessUnit></BusinessUnit>'
+		cXMLRet +=    '     <ClockInCard></ClockInCard>
+		cXMLRet +=    '     <LaborType></LaborType>
+		cXMLRet +=    '     <UnionCode>' + AllTrim(M->RA_SINDICA) + '</UnionCode>'
+		cXMLRet +=    '     <WorkGroupCode></WorkGroupCode>'
+		cXMLRet +=    '     <MarkingPlace></MarkingPlace>'
+		cXMLRet +=    '     <EmployeeClassCode></EmployeeClassCode>'
+		cXMLRet +=    '     <Locality></Locality>'
+		cXMLRet +=    '     <AllocationPlanCode></AllocationPlanCode>'
+		cXMLRet +=    '     <CountryLocalityCode></CountryLocalityCode>'
+		cXMLRet +=    '     <WorkShiftChangeDate></WorkShiftChangeDate>'
+		cXMLRet +=    '     		<ListOfTimeTable>'
+		cXMLRet +=    '     		   <TimeTable></TimeTable>'
+		cXMLRet +=    '     		   <MealIntervalCode></MealIntervalCode>'
+		cXMLRet +=    '     		</ListOfTimeTable>'
+		cXMLRet +=    '  </AllocationInformation>'
+		cXMLRet +=    '	<RuralCarrierInformation>'
+		cXMLRet +=    '		<CarrierCode></CarrierCode>'
+		cXMLRet +=    '		<RuralGroupCode></RuralGroupCode>'
+		cXMLRet +=    '	</RuralCarrierInformation>'
+
+
+	Else //versões anteriores
+		cXMLRet +=    '<GovernmentalInformation>'
+		If !Empty(M->RA_CIC)
+			cXMLRet +=       '<Id name="CPF" scope="Federal">' + AllTrim(M->RA_CIC) + '</Id>'
+		EndIf
+		cXMLRet +=       '<Id name="NumeroCTPS" scope="Federal">' + Alltrim(M->RA_NUMCP) + '</Id>'
+		cXMLRet +=       '<Id name="SerieCTPS" scope="Federal">' + Alltrim(M->RA_SERCP) + '</Id>'
+		If !Empty(M->RA_RG)
+			cXMLRet +=       '<Id name="RG" scope="Federal">' + AllTrim(M->RA_RG) + '</Id>'
+		EndIf
+		cXMLRet +=    '</GovernmentalInformation>'
+
+		cXMLRet +=    '<Email>' + AllTrim(M->RA_EMAIL) + '</Email>'
+	EndIf
+
+	If !Empty(M->RA_DEPTO)
+		cXMLRet +=    '<DepartamentCode>' + AllTrim(M->RA_DEPTO) + '</DepartamentCode>'
+		cXMLRet +=    '<DepartamentInternalId>' + IntDeptoExt(/*cEmpresa*/, /*cFilial*/, M->RA_DEPTO)[2] + '</DepartamentInternalId>'
+	EndIf
+
+
+	If Type('M->RA_CARGO')=='C' .And. !Empty(M->RA_CARGO)
+		If cVersao >= "3.001"
+			cXMLRet +=    '<EmployeePositionCode>' + RTrim(M->RA_CARGO) + '</EmployeePositionCode>'
+			cXMLRet +=    '<EmployeePositionCodeInternalId>' + GPEI370SND( { cEmpAnt, xFilial("SQ3"), M->RA_CARGO } ) + '</EmployeePositionCodeInternalId>'
+			cXMLRet +=    '<EmployeePositionLevel></EmployeePositionLevel>'
+		Else
+			cXMLRet +=    '<PositionCode>' + RTrim(M->RA_CARGO) + '</PositionCode>'
+			cXMLRet +=    '<PositionCodeInternalId>' + GPEI370SND( { cEmpAnt, xFilial("SQ3"), M->RA_CARGO } ) + '</PositionCodeInternalId>'
+		EndIf
+	EndIf
+
+
+	//------------------------------------------------
+	//  Considera a versao 1.000 de função
+	cXMLRet +=    '<RoleCode>' + AllTrim(M->RA_CODFUNC) + '</RoleCode>'
+	cXMLRet +=    '<RoleInternalId>' + GPEI030SND({ cEmpAnt, xFilial("SRJ"), M->RA_CODFUNC} ) + '</RoleInternalId>'
+
+	If cVersao >= "3.001"
+		cXMLRet += '<RoleLevel></RoleLevel>'
+	EndIf
+
+	If !Empty(M->RA_ADMISSA)
+		cXMLRet +=    '<HiringDate>' + Transform( DToS( M->RA_ADMISSA ), "@R 9999-99-99") + '</HiringDate>'
+	Endif
+
+	//------------------------------------------------
+	//  Considera a versao 1.000 do turno de trabalho
+	cXMLRet +=    '<WorkShiftCode>' + AllTrim(M->RA_TNOTRAB) + '</WorkShiftCode>'
+	cXMLRet +=    '<WorkShiftInternalId>' + GPEI080Snd( { cEmpAnt, xFilial("SR6"), M->RA_TNOTRAB } ) + '</WorkShiftInternalId>'
+
+	// Código da sequencia de turno
+	// precisa ser passado conforme foi enviado no cadastro de horário padrão/escala
+	// ou seja, precisa ir na sequência númerica que corresponde ao dia de início
+	dDtIniSeq := dDataBase - ( DOW( dDataBase ) - 2 ) // considera sempre a segunda feira da semana
+
+	//  indica a sequência no formato em que foi enviado horário padrão
+	// portanto sempre vai converter a segunda-feria no dia 1 da semana
+	cAux := cValToChar( (Val(M->RA_SEQTURN)-1)*7 + ( DOW( dDtIniSeq ) - 1 ) )
+
+	cXmlRet +=    '<WorkShiftSequence>' + cAux + '</WorkShiftSequence>'
+	cXmlRet +=    '<DateInitialShiftSequence>' + Transform( DTOS( dDtIniSeq ), "@R 9999-99-99" ) + '</DateInitialShiftSequence>'
+
+	cAux := M->RA_TIPOPGT
+	If M->RA_CATFUNC == "T"
+		cAux := "3"
+	ElseIf M->RA_CATFUNC == "H"
+		cAux := "2"
+	Else
+		If cAux == "M"
+			cAux := "1"
+		ElseIf cAux == "S"
+			cAux := "6"
+		Else
+			cAux := "7"
+		EndIf
+	Endif
+	cXMLRet +=    '<SalaryCategory>' + cAux + '</SalaryCategory>'
+	cXMLRet +=    '<Salary>' + GI010EnCript( cValToChar(M->RA_SALARIO) ) + '</Salary>'
+
+	cAux := M->RA_SITFOLH
+	If cAux == "A"
+		cAux := "4"
+	ElseIf cAux $ "D#T"
+		cAux := "2"
+	ElseIf cAux == "F"
+		cAux := "3"
+	Else
+		cAux := "1"
+	EndIf
+
+	cXMLRet +=    '<EmployeeSituation>' + cAux + '</EmployeeSituation>'
+
+	If !Empty(M->RA_DEMISSA)
+		cXMLRet +=    '<DemissionDate>' + Transform( DToS( M->RA_DEMISSA ), "@R 9999-99-99") + '</DemissionDate>'
+	Endif
+
+	//------------------------------------------------
+	//  Considera a versao 2.000 do centro de custo
+	cXMLRet +=    '<CostCenterCode>' + AllTrim(M->RA_CC) + '</CostCenterCode>'
+	cXMLRet +=    '<CostCenterInternalId>' + IntCusExt( , xFilial("CTT"), M->RA_CC, '2.000')[2] + '</CostCenterInternalId>'
+
+	If !Empty(M->RA_NASC)
+		cXMLRet +=    '<BirthDate>' + Transform( DToS( M->RA_NASC ), "@R 9999-99-99") + '</BirthDate>'
+	Endif
+	cXMLRet +=    '<Gender>' + AllTrim(M->RA_SEXO) + '</Gender>'
+	cXMLRet +=    '<HomeState>' + AllTrim(M->RA_NATURAL) + '</HomeState>'
+	cXMLRet +=    '<NaturalCity>' + AllTrim(M->RA_NATURAL) + '</NaturalCity>'
+
+
+	cXMLRet +=    '<MonthlyWorkingHours>' + cValToChar(M->RA_HRSMES) + '</MonthlyWorkingHours>'
+
+	If cVersao != "3.001"
+		If ( Type('M->RA_TIPOALT')=='C' .AND. !Empty( M->RA_TIPOALT ) ) .And. ( Type('M->RA_DATAALT')=='D' .AND. !Empty( M->RA_DATAALT ) )
+			If cVersao $ "2.000|2.001|2.002|2.003|2.005"
+				cXmlRet +=    '<TypeOfSalaryChange>' + M->RA_TIPOALT + '</TypeOfSalaryChange>'
+				cXmlRet +=    '<DateOfSalaryChange>' + Transform( DToS( M->RA_DATAALT ), "@R 9999-99-99") + '</DateOfSalaryChange>'
+			EndIf
+			If cVersao == "3.002"
+				cXmlRet +=    '<DateOfSalaryChange>' + Transform( DToS( M->RA_DATAALT ), "@R 9999-99-99") + '</DateOfSalaryChange>'
+			EndIf
+		EndIf
+	EndIf
+
+
+	cXMLRet += '</BusinessContent>'
+EndIf
+
+cXmlRet:=FWNoAccent(cXmlRet)
+cXmlRet:=EncodeUTF8(cXmlRet)
+
+Return {lRet, cXmlRet}
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ExcProgF
+Recebe a filial e a matrícula do funcionário e exclui a programação
+de férias do mesmo.
+
+@param   cFilial    Filial do funcionário
+@param   cMatricula Matrícula do Funcionário
+
+@version P11
+@since   15/03/2013
+@return Nil
+
+/*/
+//-------------------------------------------------------------------
+Static Function ExcProgF(cFil, cMatricula)
+DbSelectArea("SRF")
+SRF->( DbSetOrder(1) )
+
+If SRF->( DbSeek(cFilial + cMatricula))
+	While SRF->RF_FILIAL + SRF->RF_MAT == cFil + cMatricula
+		RecLock("SRF", .F.)
+		SRF->( DbDelete() )
+		SRF->( MsUnlock() )
+
+		SRF->(DbSkip())
+	EndDo
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ExcProgT
+Recebe a filial e a matrícula do funcionário e exclui o primeiro
+item do histórico de alteração dos turnos
+
+@param   cFilial    Filial do funcionário
+@param   cMatricula Matrícula do Funcionário
+
+@version P11
+@since   05/09/2013
+@return Nil
+
+/*/
+//-------------------------------------------------------------------
+Static Function ExcProgT(cFil, cMatricula)
+DbSelectArea("SPF")
+SPF->( DbSetOrder(1) )
+
+If SPF->( DbSeek(cFilial + cMatricula) )
+	RecLock("SPF", .F.)
+	SPF->( DbDelete())
+	SPF->( MsUnlock())
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntFunExt
+Monta o InternalID do Funcionário de acordo com o código passado
+no parâmetro.
+
+@param   cEmpresa   Código da empresa (Default cEmpAnt)
+@param   cFil       Código da Filial (Default cFilAnt)
+@param   cMatricula Matrícula do Funcionário
+@param   cVersao    Versão da mensagem única (Default 2.001)
+
+@version P11
+@since   26/02/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+lógica indicando se o registro foi encontrado.
+No segundo parâmetro uma variável string com o InternalID
+montado.
+
+@sample  IntFunExt(, , '00001') irá retornar {.T.,'01|01|00001'}
+/*/
+//-------------------------------------------------------------------
+Function IntFunExt(cEmpresa, cFil, cMatricula, cVersao)
+Local   aResult  := {}
+Default cEmpresa := cEmpAnt
+Default cFil     := xFilial('SRA') // Cadastro compartilhado
+Default cVersao  := '2.001'
+
+If cVersao $ cVerSend
+	aAdd(aResult, .T.)
+	aAdd(aResult, cEmpresa + '|' + PadR(cFil, TamSX3('RA_FILIAL')[1]) + '|' + PadR(cMatricula, TamSX3('RA_MAT')[1]))
+Else
+	aAdd(aResult, .F.)
+	aAdd(aResult, STR0015) //'Versão não suportada. As versões suportadas são: 2.000 e 2.001'
+EndIf
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntFunInt
+Recebe um InternalID e retorna o código do Funcionário.
+
+@param   cInternalID InternalID recebido na mensagem.
+@param   cRefer      Produto que enviou a mensagem
+@param   cVersao     Versão da mensagem única (Default 2.001)
+
+@author  Roney de Oliveira
+@version P11
+@since   26/02/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+lógica indicando se o registro foi encontrado no de/para.
+No segundo parâmetro uma variável array com a empresa,
+filial e a matrícula do funcionário.
+
+@sample  IntFunInt('01|01|0001') irá retornar {.T., {'01', '01', '0001'}}
+/*/
+//-------------------------------------------------------------------
+Function IntFunInt(cInternalID, cRefer, cVersao)
+Local   aResult  := {}
+Local   aTemp    := {}
+Local   cTemp    := ''
+Local   cAlias   := 'SRA'
+Local   cField   := 'RA_MAT'
+Default cVersao  := '2.001'
+
+cTemp := CFGA070Int(cRefer, cAlias, cField, cInternalID)
+
+If Empty(cTemp)
+	aAdd(aResult, .F.)
+	aAdd(aResult, STR0016 + AllTrim(cInternalID) + STR0017)   //'Funcionário ' ### ' não encontrado no de/para!'
+Else
+	If cVersao $ cVerSend
+		aAdd(aResult, .T.)
+		aTemp := StrToKArr( cTemp, "|" )
+		aTemp[Len(aTemp)] := PadR( aTail(aTemp), TamSX3('RA_MAT')[1] )
+		aAdd(aResult, aTemp)
+	Else
+		aAdd(aResult, .F.)
+		aAdd(aResult, STR0024 + '2.000, 2.001 e 2.002' ) //"Versão não suportada. As versões suportadas são: "
+	EndIf
+EndIf
+
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntDeptoExt
+Monta o InternalID do Codigo do Departamento de acordo com o código passado
+no parâmetro.
+
+@param   cEmpresa   Código da Empresa (Default cEmpAnt)
+@param   cFil       Código da Filial (Default cFilAnt)
+@param   cFuncao    Codigo do Departamento do Funcionário
+@param   cVersao    Versão da mensagem única (Default 2.001)
+
+@author  Roney de Oliveira
+@version P11
+@since   05/03/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+lógica indicando se o registro foi encontrado.
+No segundo parâmetro uma variável string com o InternalID
+montado.
+
+@sample  IntDeptoExt( , , '000000001') irá retornar {.T., '01|01|000000001'}
+/*/
+//-------------------------------------------------------------------
+Function IntDeptoExt(cEmpresa, cFil, cFuncao, cVersao)
+Local   aResult  := {}
+
+Default cEmpresa := cEmpAnt
+Default cFil     := xFilial('SQB') // Cadastro compartilhado
+Default cVersao  := '1.000'
+
+If cVersao == '1.000'
+	aAdd(aResult, .T.)
+	aAdd(aResult, cEmpresa + '|' + PadR(cFil, TamSX3('QB_FILIAL')[1]) + '|' + PadR(cFuncao, TamSX3('QB_DEPTO')[1]))
+Else
+	aAdd(aResult, .F.)
+	aAdd(aResult, STR0024 + "1.000" ) // "Versão não suportada. As versões suportadas são: "
+EndIf
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntDeptoInt
+Recebe um InternalID e retorna o código do Departamento do Funcionário.
+
+@param   cInternalID InternalID recebido na mensagem.
+@param   cRefer      Produto que enviou a mensagem
+@param   cVersao     Versão da mensagem única (Default 1.000)
+
+@author  Roney de Oliveira
+@version P11
+@since   05/03/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+lógica indicando se o registro foi encontrado no de/para.
+No segundo parâmetro uma variável array com a filial e o Departamento do funcionário.
+
+@sample  IntDeptoInt('01|01|000000001') irá retornar {.T., {'01', '01', '000000001'}}
+/*/
+//-------------------------------------------------------------------
+Static Function IntDeptoInt(cInternalID, cRefer, cVersao)
+Local   aResult  := {}
+Local   aTemp    := {}
+Local   cTemp    := ''
+Local   cAlias   := 'SQB'
+Local   cField   := 'QB_DEPTO'
+Default cVersao  := '1.000'
+
+cTemp := CFGA070Int(cRefer, cAlias, cField, cInternalID)
+
+If Empty(cTemp)
+	aAdd(aResult, .F.)
+	aAdd(aResult, STR0018 ) //'Registro não encontrado no de/para!'
+Else
+	If cVersao == '1.000'
+		aAdd(aResult, .T.)
+		aAdd(aTemp, SubStr(cTemp, 1, 2))
+		aAdd(aTemp, SubStr(cTemp, 4, TamSX3('QB_FILIAL')[1]))
+		aAdd(aTemp, SubStr(cTemp, 4 + TamSX3('QB_FILIAL')[1] + 1, TamSX3('QB_DEPTO')[1]))
+		aAdd(aResult, aTemp)
+	Else
+		aAdd(aResult, .F.)
+		aAdd(aResult, STR0024 + "1.000" ) // "Versão não suportada. As versões suportadas são: "
+	EndIf
+EndIf
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} IntTSlInt
+Recebe um InternalID e retorna o código da tabela salarial.
+
+@param   cInternalID InternalID recebido na mensagem.
+@param   cRefer      Produto que enviou a mensagem
+@param   cVersao     Versão da mensagem única (Default 1.000)
+
+@author  Mateus Gustavo de Freitas e Silva
+@version P11
+@since   12/03/2013
+@return  aResult Array contendo no primeiro parâmetro uma variável
+lógica indicando se o registro foi encontrado no de/para.
+No segundo parâmetro uma variável array com a empresa, a
+filial, a tabela salarial, nível da tabela e faixa do nível.
+
+@sample  IntTSlInt('01|01|001|01|01', 'PROTHEUS') irá retornar
+{.T., {'01', '01', '001', '01', '01'}}
+/*/
+//-------------------------------------------------------------------
+Static Function IntTSlInt(cInternalID, cRefer, cVersao)
+Local   aResult  := {}
+Local   aTemp    := {}
+Local   cTemp    := ''
+Local   cAlias   := 'RB6'
+Local   cField   := 'RB6_TABELA'
+Default cVersao  := '1.000'
+
+cTemp := CFGA070Int(cRefer, cAlias, cField, cInternalID)
+
+If Empty(cTemp)
+	aAdd(aResult, .F.)
+	aAdd(aResult, STR0019 + AllTrim(cInternalID) + STR0017) //"Tabela Salarial " #### " não encontrado no de/para!"
+Else
+	If cVersao == '1.000'
+		aAdd(aResult, .T.)
+		aAdd(aTemp, SubStr(cTemp, 1, 2))
+		aAdd(aTemp, SubStr(cTemp, 3, TamSX3('RB6_FILIAL')[1]))
+		aAdd(aTemp, SubStr(cTemp, 3 + TamSX3('RB6_FILIAL')[1], TamSX3('RB6_TABELA')[1]))
+		aAdd(aTemp, SubStr(cTemp, 3 + TamSX3('RB6_FILIAL')[1] + TamSX3('RB6_TABELA')[1], TamSX3('RB6_NIVEL')[1]))
+		aAdd(aTemp, SubStr(cTemp, 3 + TamSX3('RB6_FILIAL')[1] + TamSX3('RB6_TABELA')[1] + TamSX3('RB6_NIVEL')[1], TamSX3('RB6_FAIXA')[1]))
+		aAdd(aResult, aTemp)
+	Else
+		aAdd(aResult, .F.)
+		aAdd(aResult, STR0024 + "1.000" ) // "Versão não suportada. As versões suportadas são: "
+	EndIf
+EndIf
+
+Return aResult
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Gi010DeCript
+	Realizar a identificação do conteúdo o salário do funcionário
+
+@param   xValor, char, valor a ser convertido
+@version P11
+@since   02/08/2013
+@return  xValor, char Base64, valor convertido em Base64
+
+@sample  Gi010DeCript( cConteudo )
+
+/*/
+//-------------------------------------------------------------------
+Static Function GI010DeCript( xValor )
+
+xValor := Val( xValor )
+
+Return xValor
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Gi010EnCript
+	Realizar a identificação do conteúdo o salário do funcionário
+
+@param   xValor, char, valor a ser convertido
+@version P11
+@since   02/08/2013
+@return  xValor, char Base64, valor convertido em Base64
+
+@sample  Gi010EnCript( cConteudo )
+
+/*/
+//-------------------------------------------------------------------
+Static Function GI010EnCript( xValor )
+
+xValor := cValToChar( xValor )
+
+Return xValor
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetField
+	Pegar Conteudo de um campo no XML e salvar no array
+
+@param   aFuncionario,oXML,cTag,cCampo,lRet,cConteudo
+@version P11
+@since   20/05/2014
+@return  lRet
+
+@sample  GetField(@aFuncionario,oXML,"oXml:_TOTVSMessage:_BusinessMessage:_BusinessContent:_Gender:Text","RA_SEXO",lRet)
+
+/*/
+//-------------------------------------------------------------------
+Static Function GetField(aFuncionario,oXML,cTag,cCampo,lRet,cConteudo)
+Default cConteudo := cTag
+
+If lRet
+	If Type(cTag) <> "U" .AND. !Empty(&(cTag))
+		aAdd(aFuncionario, {cCampo, &(cConteudo), Nil})
+	Else
+		lRet := .F.
+	Endif
+EndIf
+
+Return lRet

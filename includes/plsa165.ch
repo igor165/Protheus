@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Locales de digitación"
+	#define STR0002 "Visualizar"
+	#define STR0003 "Incluir"
+	#define STR0004 "Modificar"
+	#define STR0005 "Borrar"
+	#define STR0006 "Este código está activo en la tabla para la misma operadora."
+	#define STR0007 "Atención."
+	#define STR0008 "El valor informado esta activo en los parámetros de los locales de digitación."
+	#define STR0009 "Este código de locales de digitación se está utilizando en la tabla de Pegs."
+	#define STR0010 "Informe un código válido."
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Typing space"
+		#define STR0002 "View"
+		#define STR0003 "Add"
+		#define STR0004 "Edit"
+		#define STR0005 "Delete"
+		#define STR0006 "This code is active in the table for the same operator."
+		#define STR0007 "Attention."
+		#define STR0008 "The entered value is active in the parameters of the typing spaces."
+		#define STR0009 "This typing space code is being used in the peg table."
+		#define STR0010 "Enter a valid code."
+	#else
+		#define STR0001 "Locais de Digitação"
+		#define STR0002 "Visualizar"
+		#define STR0003 "Incluir"
+		#define STR0004 "Alterar"
+		#define STR0005 "Excluir"
+		#define STR0006 "Este código está ativo na tabela para a mesma operadora."
+		#define STR0007 "Atenção."
+		#define STR0008 "O valor informado esta ativo nos parâmetros dos locais de digitação."
+		#define STR0009 "Este código de locais de digitação esta sendo utilizado na tabela de Pegs."
+		#define STR0010 "Informe um código válido."
+	#endif
+#endif

@@ -1,0 +1,2817 @@
+#Include "FINA382.CH"
+#Include "PROTHEUS.CH"
+#Include 'FWMVCDef.ch'
+
+Static __oFI3821	:= NIL
+Static __oFI3822	:= NIL
+Static __oFI3823	:= NIL
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}FINA382
+Programa p/aglutinar titulos gerados através do Motor de Impostos
+@author Fabio Casagrande Lima
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Function FINA382(nPosArotina As Numeric, lAutomato As Logical) 
+
+	Local aColors	  As Array 
+	Local aRotina     As Array 
+		
+	Private cLote     As Character
+	Private cCadastro As Character
+	Private cAliasTrb As Character
+	Private cAliasTit As Character
+	Private cAliasTot As Character
+	Private cPrefixo  As Character
+	Private cPerg	  As Character
+	Private cFilOri   As Character
+	Private lMark	  As Logical
+	Private nTamGrpEmp As Numeric	
+
+	Default nPosArotina := 0
+	Default lAutomato := .F.
+
+	//Atribuição de variaveis
+	aRotina   := MenuDef() 
+	cPrefixo  := "AGM"
+	cPerg     := "AFI382AGL"
+	cCadastro := STR0001 //"Aglutinação de Impostos"
+	lMark	  := .F.
+	nTamGrpEmp:= Len(FWSM0Layout(,1))
+
+	Pergunte( cPerg, .F. )
+	LoteCont("FIN")	
+	SetKey( VK_F12, { |a,b| AcessaPerg( cPerg, .T. ) } )	
+
+	If !(SE5->(FieldPos("E5_AGLIMP"))) > 0 .Or. !(SE2->( FieldPos( "E2_AGLIMP" )) > 0) .AND. !lAutomato
+		MSGALERT(STR0002 )//"Somente será possível o processamento desta rotina com a criação do campo E5_AGLIMP ou E2_AGLIMP (Char/6) na tabela SE5"
+		Return
+	Endif
+
+	If !FTemMotor() //Verifica se o motor de impostos está ativo no ambiente
+		MsgAlert(STR0044+chr(13)+chr(10)+;		//"A funcao de aglutinação genérica de impostos está habilitada"
+		STR0045,cCadastro) 			//"apenas para ambientes com o Motor de Renteção ativado."
+		Return
+	Endif
+
+	DbSelectArea("FKK")
+	FKK->(dbGoTop())
+	If FKK->(Eof())
+		alert(STR0059) //Não há Tipos de Retenções cadastrados. Favor verificar.
+		Return
+	Endif
+
+	aColors	:= {}
+
+	aadd(aColors,{{||!Empty(SE2->E2_SALDO)},'BR_VERDE'	,STR0035})
+	aadd(aColors,{{||Empty(SE2->E2_SALDO)} ,'BR_VERMELHO',STR0036})
+
+	If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+		dbSelectArea("SE2")
+		If !lAutomato
+			bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+			Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+		Else
+			bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+			Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina,lAutomato)
+		Endif
+	Else
+		mBrowse( 6, 1,22,75,"SE2",,,,,,aColors)
+	Endif
+
+	Set Key VK_F12 To
+
+Return(.T.)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}MenuDef
+Menu utilizado na montagem da tela principal
+@author Protheus
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Static Function MenuDef()
+	
+	Local aRotina := {	{STR0005 ,"Fa382Gera" , 0 , 3 },;	//"Aglutinar"
+						{STR0004 ,"AxVisual"  , 0 , 2 },;   //"Visualizar"
+						{STR0006 ,"Fa382Can"  , 0 , 6 }} 	//"Cancelar"
+
+Return(aRotina)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}fa382Gera
+Programa para aglutinação de Impostos.
+@author Fabio Casagrande Lima
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Function fa382Gera(cAlias As Character,nReg As Numeric,nOpcx As Numeric,lAutomato As Logical)
+
+	Local aArea		   As Array 
+	Local cLstFKK      As Character
+	Local cTmpFil	   As Character
+	Local cProcess	   As Character
+	Local lContinua    As Logical
+	Local lEnd		   As Logical
+    Local cLayout      As Character
+	Local lGestao	   As Logical
+	Local nOpca		   As Numeric
+
+	Private aSelFil	   As Array 	
+	Private aRecImp	   As Array
+	Private aImp	   As Array	
+	Private aTits      As Array
+	Private aColumFKK  As Array
+	Private cQryTit    As Character
+	Private cCampos    As Character
+	Private oMrkImp    As Object	 
+	Private oMrkTit    As Object
+	Private Panel      As Object
+	Private lFirstPg5  As Logical
+	Private lFocoSlTit As Logical
+
+	Default cAlias := ""
+	Default nReg := 0
+	Default nOpcx := 0
+	Default lAutomato := .F.
+	
+	oFont1	    := TFont():New("Arial",,-25,,.F.,,,,,,.T.,.F.)
+	oFont2	    := TFont():New("Arial",,-18,,.F.,,,,,,.F.,.F.)
+	oFont3	    := TFont():New("Arial",,-15,,.F.,,,,,,.F.,.F.)	
+	oFont1:Bold := .T.
+	oFont1:Underline := .F.
+
+	aRecImp     := {}
+	aImp        := {}
+	aTits       := {}
+    cAliasTit   := GetNextAlias()
+    cAliasTot   := GetNextAlias()	
+	cAliasTrb   := GetNextAlias()	
+	cFilOri     := cFilAnt  
+	lEnd		:= .F.
+	nOpca		:= 0
+	aArea		:= GetArea()
+	cTmpFil		:= ""
+	cProcess	:= ""
+    //--- Tratamento Gestao Corporativa
+    cLayout     := FWSM0Layout()
+    lGestao	    := "E" $ cLayout .Or. "U" $ cLayout
+	lContinua   := .F.
+	lFirstPg5   := .T.
+	lFocoSlTit  := .T.
+	
+	IF ( nHdlLock := MSFCREATE("FINA382.L"+cEmpAnt)) < 0
+		MsgAlert(STR0007+chr(13)+chr(10)+;		//"A Funcao de Aglutinação de Impostos esta sendo utilizada por"
+		STR0008+chr(13)+chr(10)+;		        //"outro usuario. Por questoes de integridade de dados, nao"
+		STR0009+chr(13)+chr(10)+; 	            //"‚ permitida a utiliza‡„o desta rotina por mais de um usu rio"
+		STR0010,cCadastro) 				        //"simultaneamente. Tente novamente mais tarde."
+		Return
+	Endif
+
+	FWrite(nHdlLock,"Operador: "+cUserName+chr(13)+chr(10)+;
+	"Empresa.: "+cEmpAnt+chr(13)+chr(10)+;
+	"Filial..: "+cFilAnt+chr(13)+chr(10))
+
+	If !lAutomato
+		lContinua := CriaWiz(@cLstFKK)  //Monta tela do Wizard
+	Endif
+
+	If lContinua .and. Len(aImp) > 0
+
+		cFilAnt  := cFilOri //Seta filial novamente, já que na ultima pagina do Wizard o cFilAnt é alterado para validar a natureza (F382VldFil|F382LINE)
+		DbSelectArea("SE2")
+		cProcess := GetAGLIMP()
+		If !lAutomato
+			Processa({|lEnd| Fa382Result(@aImp,@aRecImp,cProcess,lAutomato)},STR0090) 	//"Processando. Aguarde..."
+		Else
+			Fa382Result(@aImp,@aRecImp,cProcess,lAutomato)
+		Endif
+		If MV_PAR05 == 1
+			Fr382Rel(aRecImp,cProcess,aImp)
+		Endif
+		If !Empty(cTmpFil)
+			CtbTmpErase(cTmpFil)
+		Endif
+	Endif
+		
+	//Deleta tabelas temporarias
+	If __oFI3821 <> Nil
+		__oFI3821:Delete()
+		__oFI3821 := Nil
+	Endif
+	If __oFI3822 <> Nil
+		__oFI3822:Delete()
+		__oFI3822 := Nil
+	Endif
+	If __oFI3823 <> Nil
+		__oFI3823:Delete()
+		__oFI3823 := Nil
+	Endif
+
+	FClose(nHdlLock)
+	Ferase("FINA382.L"+cEmpAnt)
+
+	RestArea(aArea)
+
+	If INCLUI
+		MBrChgLoop(.F.) // Evita que a operação seja reiniciada pela mBrowse
+	EndIf
+
+	If lContinua .and. Len(aTits) > 1
+		SE2->(dbGoto(aTits[1])) //Posiciona o browse com o primeiro titulo gerado
+	Endif
+
+Return(Nil)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} CriaWiz
+Função para construção da primeira página do wizard
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function CriaWiz(cLstFKK As Character) As Logical
+
+	Local oStepWiz	As Object
+	Local o1stPage	As Object
+	Local o2ndPage	As Object
+	Local o3rdPage	As Object
+	Local o4rdPage	As Object
+	Local o5rdPage	As Object
+	Local lRet      As Logical
+	Local aPergAux  As Array
+	Local aSeek     As Array
+	Local aSeekFKK  As Array
+	Local aSelFil   As Array
+	Local aCoords   As Array
+	Local nSelTit   As Numeric
+	Local nSelFil   As Numeric
+	Local nImprRel  As Numeric
+	Local nCtbOn    As Numeric
+	Local nMLcto    As Numeric
+	Local nAglut    As Numeric
+
+	Default lRet    := .F.
+	Default cLstFKK := ""
+
+	aCoords := FWGetDialogSize()
+
+	oStepWiz := FWWizardControl():New(,{aCoords[3] * 0.9, aCoords[4] * 0.9})//Instancia a classe FWWizardControl
+	oStepWiz:ActiveUISteps()
+
+	//----------------------------
+	// Pagina 1 - Apresentação
+	//----------------------------
+	o1stPage := oStepWiz:AddStep("1STSTEP",{|Panel| cria_pn1(Panel)}) // Adiciona um Step
+	o1stPage:SetStepDescription(STR0040) 							  // "Apresentação"
+	o1stPage:SetNextTitle(STR0042) 		 							  // Define o título do botão de avanço -- "Avançar"
+	o1stPage:SetNextAction({||.T.}) 	 							  // Define o bloco ao clicar no botão Próximo
+	o1stPage:SetCancelAction({|| MsgYesNo(STR0114, STR0094) })        // Define o bloco ao clicar no botão Cancelar
+
+	//----------------------------
+	// Pagina 2 - Parâmetros
+	//----------------------------
+	o2ndPage := oStepWiz:AddStep("2RDSTEP", {|Panel|cria_pn2(Panel,@aPergAux,@nSelTit,@nSelFil,@nImprRel,@nCtbOn,@nMLcto,@nAglut)})   
+	o2ndPage:SetStepDescription(STR0041)                              // "Parâmetrização"
+	o2ndPage:SetNextTitle(STR0042) 									  // "Avançar"
+	o2ndPage:SetPrevTitle(STR0043) 									  // "Retornar"
+	o2ndPage:SetNextAction({|| Valid_PG2(@aSelFil,cPerg,aPergAux,nSelTit,nSelFil,nImprRel,nCtbOn,nMLcto,nAglut,@aSeekFKK) }) 
+	o2ndPage:SetPrevWhen({|| .F. })
+	o2ndPage:SetCancelAction({|| MsgYesNo(STR0114, STR0094) })
+
+	//----------------------------
+	// Pagina 3 - Seleção de Impostos 
+	o3rdPage := oStepWiz:AddStep("3NDSTEP", {|Panel|cria_pn3(Panel,aSeekFKK)})
+	o3rdPage:SetStepDescription(STR0046) 							  // "Selecione o(s) imposto(s):"
+	o3rdPage:SetNextTitle(STR0042) 									  // "Avançar"
+	o3rdPage:SetPrevTitle(STR0043) 									  // Define o título do botão para retorno -- "Retornar"
+	o3rdPage:SetNextAction({|| Valid_PG3(@cLstFKK,aSelFil,@aSeek) }) 
+	o3rdPage:SetPrevAction({|| AltFoco()}) 							  //Define o bloco ao clicar no botão Voltar
+	o3rdPage:SetCancelAction({|| MsgYesNo(STR0114, STR0094) }) 						          // Define o bloco ao clicar no botão Cancelar
+
+	//----------------------------
+	// Pagina 4 - Seleção de títulos
+	//----------------------------
+	o4rdPage := oStepWiz:AddStep("4NDSTEP", {|Panel|cria_pn4(Panel,aSeek)})
+	o4rdPage:SetStepDescription(STR0075) 							  // "Selecione o(s) títulos(s):"
+	o4rdPage:SetNextTitle(STR0042) 									  // "Avançar"
+	o4rdPage:SetPrevTitle(STR0043) 									  // "Retornar"
+	o4rdPage:SetNextAction({|| Valid_PG4(@aRecImp,@aImp)})
+	o4rdPage:SetPrevAction({|| AtuBrw(1) })   						  //Define o bloco ao clicar no botão Voltar
+	o4rdPage:SetCancelAction({|| MsgYesNo(STR0114, STR0094)}) 								  // Define o bloco ao clicar no botão Cancelar
+
+	//----------------------------
+	// Pagina 5 - Aglutinação
+	//----------------------------
+	o5rdPage := oStepWiz:AddStep("5RDSTEP", {|Panel|cria_pn5(Panel)})
+	o5rdPage:SetStepDescription(STR0079) 					          // "Aglutinação
+	o5rdPage:SetNextTitle(STR0016) 							          // "Confirmar"
+	o5rdPage:SetPrevTitle(STR0043) 									  // "Retornar"
+	o5rdPage:SetNextAction({|| Valid_PG5(@lRet,@aImp)})
+	o5rdPage:SetPrevAction({|| VldRetur5() })
+	o5rdPage:SetCancelAction({|| MsgYesNo(STR0114, STR0094) })
+	
+	oStepWiz:Activate()
+	oStepWiz:Destroy()
+
+Return(lRet)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} cria_pn1
+Função para construção da pagina 1 do Wizard
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function cria_pn1(oPanel As Object)
+
+	Local oSay0 AS Object
+	Local oSay1 AS Object
+	Local oSay2 AS Object
+	Local oFont	AS Object
+	
+	oFont := TFont():New( ,, -25, .T., .T.,,,,, )
+	oSay0 := TSay():New(010,015, {|| STR0001 }, oPanel,,oFont ,,,,.T.,CLR_BLUE, ) //"Aglutinação de Impostos"
+	oSay1 := TSay():New(045,015, {|| STR0011 }, oPanel,,oFont3,,,,.T.,CLR_BLUE,) // "Realiza a aglutinação de impostos retidos através do Motor de Retenções (cadastro Tipos de Retenção)."
+	oSay2 := TSay():New(060,015, {|| STR0012 }, oPanel,,oFont3,,,,.T.,CLR_BLUE,) // "Clique no botão 'Avançar' e confirme os parâmetros."
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} cria_pn2
+Função para construção da pagina 2 do Wizard
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function cria_pn2(oPanel,aPergAux,nSelTit,nSelFil,nImprRel,nCtbOn,nMLcto,nAglut)
+
+	Local lHasButton  As Logical
+	Local oSayDataDe  As Object
+	Local oDataDe     As Object
+	Local oSayDataAte As Object
+	Local oDataAte    As Object
+	Local oSaySelTit  As Object
+	Local oSelTit     As Object
+	Local oSaySelFil  As Object
+	Local oSelFil     As Object
+	Local oSayImpr    As Object
+	Local oImprRel    As Object
+	Local oSayCodRet  As Object
+	Local oCodRet     As Object
+	Local oSayImpos   As Object
+	Local oImpos      As Object
+	Local oSayForn    As Object
+	Local oForn       As Object
+	Local oLoja       As Object
+	Local oSayCtbOn   As Object
+	Local oCtbOn      As Object
+	Local oSayMlcto   As Object
+	Local oMlcTo      As Object	
+	Local oSayAglut   As Object
+	Local oAglut      As Object
+
+	DEFAULT oPanel := NIL
+	DEFAULT aPergAux   := {}
+
+	lHasButton := .T.
+
+	//Chama a pergunta em memória
+	Pergunte(cPerg, .F., /*cTitle*/, /*lOnlyView*/, /*oDlg*/, /*lUseProf*/, @aPergAux)
+
+	//Data Inicial
+	oSayDataDe     := TSay():New(10,25,{|| STR0102+" *"},oPanel,,,,,,.T.,CLR_BLACK,)     //Data Inicial
+ 	oDataDe        := TGet():New(08,84,bSetGet(MV_PAR01),oPanel,60,10,"@D",,,,,,,.T.,,,,,,,,,,,,,,lHasButton)	
+	oDataDe:bHelp  := {|| ShowHelpCpo("DATA_DE", { HelpSX1(cPerg,"01") }, 1, {}, 1)} 
+
+	//Data Final 
+	oSayDataAte    := TSay():New(30,25,{|| STR0103+" *"},oPanel,,,,,,.T.,CLR_BLACK,)     //Data Final
+ 	oDataAte       := TGet():New(28,84,bSetGet(MV_PAR02),oPanel,60,10,"@D",,,,,,,.T.,,,,,,,,,,,,,,lHasButton)	
+	oDataAte:bHelp := {|| ShowHelpCpo("DATA_ATE", { HelpSX1(cPerg,"02") }, 1, {}, 1)} 
+
+	//Seleciona Titulos 
+	oSaySelTit     := TSay():New(50,25,{|| STR0104+" *"},oPanel,,,,,,.T.,CLR_BLACK,)     //Seleciona Titulos?
+	oSelTit        := TComboBox():New(48,84,bSetGet(MV_PAR03),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,{||lFocoSlTit},,,,,'nSelTit')	
+	oSelTit:bHelp  := {|| ShowHelpCpo("SELTIT", { HelpSX1(cPerg,"03") }, 1, {}, 1)}
+
+	//Seleciona Filiais  
+	oSaySelFil     := TSay():New(70,25,{|| STR0105+" *"},oPanel,,,,,,.T.,CLR_BLACK,)    //Seleciona Filiais?
+ 	oSelFil        := TComboBox():New(68,84,bSetGet(MV_PAR04),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,,,,,,,)					
+ 	oSelFil:bHelp  := {|| ShowHelpCpo("SELFIL", { HelpSX1(cPerg,"04") }, 1, {}, 1)} 
+
+	 //Impr. Relatorio     
+	oSayImpr       := TSay():New(90,25,{|| STR0106+" *"},oPanel,,,,,,.T.,CLR_BLACK,)   //Impr. Relatorio?
+	oImprRel       := TComboBox():New(88,84,bSetGet(MV_PAR05),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,,,,,,'nImprRel')
+ 	oImprRel:bHelp := {|| ShowHelpCpo("IMPRREL", { HelpSX1(cPerg,"05") }, 1, {}, 1)} 
+
+ 	//Cod. Retencao  
+	oSayCodRet     := TSay():New(110,25,{|| STR0107},oPanel,,,,,,.T.,CLR_BLACK,)        //Cod. Retencao
+ 	oCodRet        := TGet():New(108,84,bSetGet(MV_PAR06),oPanel,60,12,,{||Empty(MV_PAR06).Or.ExistCpo("SX5","37"+MV_PAR06)},,,,,,.T.,,,,,,,,,"37",,,,,lHasButton)
+ 	oCodRet:bHelp  := {|| ShowHelpCpo("CODRET", { HelpSX1(cPerg,"06") }, 1, {}, 1)} 
+
+ 	//Imposto
+	oSayImpos      := TSay():New(130,25,{|| STR0108},oPanel,,,,,,.T.,CLR_BLACK,) 	    //Imposto
+ 	oImpos         := TGet():New(128,84,bSetGet(MV_PAR07),oPanel,60,12,,{||Empty(MV_PAR07).Or.ExistCpo("SX5","0C"+MV_PAR07)},,,,,,.T.,,,,,,,,,"0C",,,,,lHasButton)
+ 	oImpos:bHelp   := {|| ShowHelpCpo("IMPOS", { HelpSX1(cPerg,"07") }, 1, {}, 1)} 
+
+  	//Fornecedor 
+	oSayForn       := TSay():New(150,25,{|| STR0109},oPanel,,,,,,.T.,CLR_BLACK,) 		 //Fornecedor
+ 	oForn          := TGet():New(148,84 ,bSetGet(MV_PAR08),oPanel,60,12,,{||Empty(MV_PAR08).Or.ExistCpo("SA2",MV_PAR08+MV_PAR09)},,,,,,.T.,,,,,,,,,"SA2A",,,,,lHasButton)
+ 	oLoja          := TGet():New(148,146,bSetGet(MV_PAR09),oPanel,15,12,,{||(Empty(MV_PAR08).and.Empty(MV_PAR09)).Or.ExistCpo("SA2",MV_PAR08+MV_PAR09)},,,,,,.T.,,,,,,,,,,,,,,lHasButton)
+  	oForn:bHelp    := {|| ShowHelpCpo("FORN", { HelpSX1(cPerg,"08") }, 1, {}, 1)} 
+
+    //Contabiliza Online
+	oSayCtbOn      := TSay():New(10,300,{|| STR0111+" *"},oPanel,,,,,,.T.,CLR_BLACK,)    //Contabiliza Online?
+	oCtbOn         := TComboBox():New(08,370,bSetGet(MV_PAR10),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,,,,,,'nCtbOn')
+ 	oCtbOn:bHelp   := {|| ShowHelpCpo("CTBON", { HelpSX1(cPerg,"10") }, 1, {}, 1)} 
+
+    //Mostra lancamento
+	oSayMlcto      := TSay():New(30,300,{|| STR0112+" *"},oPanel,,,,,,.T.,CLR_BLACK,)   //Mostra Lançamento?
+	oMlcTo         := TComboBox():New(28,370,bSetGet(MV_PAR11),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,,,,,,'nMLcto')
+ 	oMlcTo:bHelp   := {|| ShowHelpCpo("MLCTO", { HelpSX1(cPerg,"11") }, 1, {}, 1)} 
+
+	//Aglutina Lancamento
+	oSayAglut      := TSay():New(50, 300,{|| STR0113+" *"},oPanel,,,,,,.T.,CLR_BLACK,)    //Aglutina Lançamento?
+	oAglut         := TComboBox():New(48,370,bSetGet(MV_PAR12),{"1=Sim","2=Não"},,,oPanel,,,,,,.T.,,,,,,,,,'nAglut')
+ 	oAglut:bHelp   := {|| ShowHelpCpo("AGLUT", { HelpSX1(cPerg,"12") }, 1, {}, 1)} 
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} cria_pn3
+
+Função para construção da pagina 3 do wizard
+(Tela de seleção dos impostos - Tabela FKK)
+
+@param oPanel
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function cria_pn3(oPanel, aSeekFKK)
+
+	Local lInverte   As Logical 
+
+	Default oPanel := NIL
+	Default aSeekFKK := {}
+
+	lInverte    := .F.
+
+	oMrkImp:= FWMarkBrowse():New()
+	oMrkImp:AddLegend("FKK_ATIVO=='1'" , "GREEN", STR0047 ) // Ativo
+	oMrkImp:AddLegend("FKK_ATIVO=='2'" , "RED" 	, STR0048 ) // Inativo
+	oMrkImp:SetFieldMark("FKK_OK")
+	oMrkImp:SetOwner(oPanel)
+	oMrkImp:SetAlias(cAliasTrb)
+	oMrkImp:bMark	:= {|| MrkDblClk(oMrkImp,lInverte,cAliasTrb,"FKK_OK")}
+	oMrkImp:SetAllMark({|| SetMrkAll(oMrkImp,cAliasTrb,"FKK_OK") })
+	oMrkImp:SetDescription(STR0046) //"Seleção dos Impostos"
+	oMrkImp:SetUseFilter(.T.)
+	oMrkImp:SetColumns(aColumFKK)
+	oMrkImp:SetMenuDef("FINM382")
+	oMrkImp:SetSeek(.T.,aSeekFKK)	
+	oMrkImp:SetTemporary(.T.)
+	oMrkImp:DisableConfig()
+	oMrkImp:Activate()		
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} cria_pn4
+
+Função para construção da pagina 4 do Wizard
+(Tela de seleção dos títulos)
+
+@param oPanel
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function cria_pn4(oPanel, aSeek)
+
+	Local aStru	     As Array
+	Local aColumns   As Array
+	Local nX		 As Numeric
+	Local lInverte   As Logical
+	Local lE2Excl    As Logical
+	Local aObsFields As Array
+	
+	Default aSeek := {}
+
+	lMark    	:= .F.
+	lInverte 	:= .F.
+	lE2Excl 	:= FWModeAccess("FKK", 1) == "E" 
+	aObsFields	:= {}
+
+	If MV_PAR03 == 1 //Exibe tela apenas se o parametro "Seleciona Titulos" = Sim
+
+		aColumns    := {}
+		nX			:= 0
+		aStru		:= SE2->(dbStruct())
+
+		dbSelectArea(cAliasTit)
+		If !(cAliasTit)->(EOF())
+			For nX := 1 To Len(aStru)
+				If (lE2Excl .and. aStru[nX][1] $ "E2_FILIAL") .or. (aStru[nX][1] $ cCampos)
+					AAdd(aColumns,FWBrwColumn():New())
+					aColumns[Len(aColumns)]:SetData( &("{||"+aStru[nX][1]+"}") )
+					aColumns[Len(aColumns)]:SetTitle(RetTitle(aStru[nX][1])) 
+					aColumns[Len(aColumns)]:SetSize(aStru[nX][3]) 
+					aColumns[Len(aColumns)]:SetDecimal(aStru[nX][4])
+					aColumns[Len(aColumns)]:SetPicture(PesqPict("SE2",aStru[nX][1]))
+					If RetGlbLGPD(aStru[nX][1])
+						aColumns[Len(aColumns)]:lObfuscate := .T.
+						AAdd(aObsFields, aStru[nX][1])
+					EndIf
+				EndIf
+			Next nX	
+
+			oMrkTit:= FWMarkBrowse():New()
+			oMrkTit:SetFieldMark("E2_OK")
+			oMrkTit:SetOwner(oPanel)
+			oMrkTit:SetAlias(cAliasTit)
+			oMrkTit:bMark	:= {|| MrkDblClk(oMrkTit,lInverte,cAliasTit,"E2_OK")}
+			oMrkTit:SetAllMark({|| SetMrkAll(oMrkTit,cAliasTit,"E2_OK") })
+			oMrkTit:SetDescription(STR0046) //"Seleção dos Impostos"
+
+			If GetFinLGPD() .And. Len(aObsFields) > 0
+				oMrkTit:oBrowse:SetObfuscFields(aObsFields)
+			Endif
+
+			oMrkTit:SetColumns(aColumns)
+			oMrkTit:SetMenuDef("FINM382")
+			oMrkTit:SetUseFilter(.F.)
+			oMrkTit:SetTemporary(.T.)
+			oMrkTit:SetSeek(.T.,aSeek)
+			oMrkTit:DisableConfig()
+			oMrkTit:Activate()
+		
+		Else
+			alert(STR0049) //"Não há registros a serem selecionados. Favor cadastrar os tipos de retenção."
+		Endif
+	Else
+		TSay():New(085,140,{|| STR0077 },oPanel,,oFont3,,,,.T.,CLR_BLUE,) // "Opção de selecionar títulos desabilitada nos parâmetros."
+		TSay():New(110,115,{|| STR0078 },oPanel,,oFont3,,,,.T.,CLR_BLUE,) // "Clique em 'Avançar' ou cancele a operação para reconfigurar os parâmetros."
+	Endif
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} cria_pn5
+Função para construção da pagina 5 (Aglutinação)
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function cria_pn5(oPanel As Object)
+
+	FINM382(@aImp,oPanel,.T.)
+	
+Return	
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Valid_PG2
+
+Ações no botão 'Avançar' da pagina 2 do Wizard
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function Valid_PG2(aSelFil,cPerg,aPergAux,nSelTit,nSelFil,nImprRel,nCtbOn,nMLcto,nAglut,aSeekFKK) As Logical
+
+
+	Local lRet	  As Logical
+	Local lGestao As Logical
+	Local cLayout As Charactere
+
+	lRet	 := .T.
+	//--- Tratamento Gestao Corporativa
+    cLayout     := FWSM0Layout()
+    lGestao	    := "E" $ cLayout .Or. "U" $ cLayout
+
+	//Armazena parametros com Combobox para serem convertidos para caracter antes de salva-los na função SavePar()
+	nSelTit  := If (ValType(MV_PAR03) == 'N',MV_PAR03, VAL(MV_PAR03))
+	nSelFil  := If (ValType(MV_PAR04) == 'N',MV_PAR04, VAL(MV_PAR04))
+	nImprRel := If (ValType(MV_PAR05) == 'N',MV_PAR05, VAL(MV_PAR05))
+	nCtbOn   := If (ValType(MV_PAR10) == 'N',MV_PAR10, VAL(MV_PAR10))
+	nMLcto   := If (ValType(MV_PAR11) == 'N',MV_PAR11, VAL(MV_PAR11))
+	nAglut   := If (ValType(MV_PAR12) == 'N',MV_PAR12, VAL(MV_PAR12))
+
+	If Empty(MV_PAR01) .or. empty(MV_PAR02)
+		lRet := .F.
+		alert(STR0051) //"Perguntas 'Data Inicial' e 'Data Final' devem estar preenchidas. Favor definir um intervalo valido."
+	Endif
+	
+	If MV_PAR02 > dDataBase
+		lRet := .F.
+		alert(STR0115) //"Pergunta 'Data Final' deve estar com a data menor ou igual a data base do sistema. Favor definir uma data valida."
+	Endif	
+
+	If MV_PAR01 > MV_PAR02
+		lRet := .F.
+		alert(STR0013) //'Data Inicial' deve estar com uma data menor que 'Data Final'. Favor definir um intervalo valido."
+	Endif	
+	
+	If lRet
+		SavePar(cPerg, aPergAux,nSelTit,nSelFil,nImprRel,nCtbOn,nMLcto,nAglut) //Salva opções selecionadas nos parâmetros
+
+		/* Seleção de filial */
+		aSelFil		:= {}
+		If MV_PAR04 == 1 //Seleciona filiais = Sim
+			If FindFunction("AdmSelecFil")
+				AdmSelecFil(,,.F.,@aSelFil,"SE2",.T.)
+			Else
+				aSelFil := AdmGetFil(.F.,.F.,"SE2")
+				If Empty(aSelFil)
+					Aadd(aSelFil,cFilAnt)
+				Endif
+			Endif
+		Else
+			Aadd(aSelFil,cFilAnt)
+		Endif
+	
+		lRet := F382PrcFKK(@aSeekFKK) //Localiza cadastros de tipos de retenção que atendam os parâmetros
+
+	Endif
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Valid_PG3
+
+Ações no botão 'Avançar' da pagina 3 do Wizard
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function Valid_PG3(cLstFKK,aSelFil,aSeek) As Logical
+
+	Local lRet    As Logical
+	Local cQryTit As Character
+	Local aImp    As Array 
+	Local aRecImp As Array 
+
+	Default cLstFKK := ""
+	Default aSelFil := {}
+	Default aSeek   := {}
+
+	lRet    := .F.
+	aRecImp := {}
+	aImp    := {}
+	
+	(cAliasTrb)->(dbGoTop())
+	
+	While !(cAliasTrb)->(Eof())
+		If (cAliasTrb)->FKK_OK == oMrkImp:cMark
+			lRet := .T.
+		EndIf
+		(cAliasTrb)->(DbSkip())
+	EndDo
+	
+	If !lRet
+		alert(STR0053) //Selecione ao menos 1 imposto para prosseguir.
+	Endif
+
+	If lRet
+		cLstFKK := ""
+		//Identifica e armazena os códigos dos Tipos de Retenção selecionados na pagina 2
+		(cAliasTrb)->(DbGoTop())
+		While !(cAliasTrb)->(Eof())
+			If !Empty((cAliasTrb)->FKK_OK)
+				cLstFKK += (cAliasTrb)->FKK_CODIGO+"|"
+			EndIf
+			(cAliasTrb)->(DbSkip())
+		End
+	
+		//Localiza títulos de impostos com base nos parâmetros informados
+		Processa({|lEnd| Fa382Calc(cLstFKK,aSelFil,@cQryTit,@aImp,@aRecImp,@aSeek)},STR0076) 	//"Localizando títulos..."
+		
+		If (cAliasTit)->(Eof())
+			lRet := .F.
+			alert(STR0061) //"Não foram localizados títulos de impostos com base nos parâmetros informados."
+		Endif		
+
+		(cAliasTit)->(dbGoTop())	
+
+	Endif
+	
+	//Atualiza objeto do browse caso já exista
+	If oMrkTit <> nil
+		oMrkTit:Refresh()
+		(cAliasTit)->(dbGoTop())
+	Endif		
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Valid_PG4
+
+Ações no botão 'Avançar' da pagina 4 do Wizard
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+@version 12.1.019
+/*/
+//-------------------------------------------------------------------
+
+Static Function Valid_PG4(aRecImp As Array, aImp As Array) As Logical
+
+	Local lRet    As Logical
+
+	Default aRecImp := {}
+	Default aImp := {}
+
+	lRet := .F.
+
+	F382GrvArray(1,@aRecImp,@lRet) //Armazena recno dos títulos a serem baixados
+
+	If !lRet
+		alert(STR0080) //Selecione ao menos 1 imposto para prosseguir.
+	Else
+		F382GrvArray(2,@aImp,@lRet) //Aglutina impostos e armazena em array
+	Endif	
+
+	If !lFirstPg5
+		F382Reload(@aImp)
+	Endif
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Valid_PG4
+
+Ações no botão 'Avançar' da pagina 5 do Wizard
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function Valid_PG5(lRet As Logical,aImp As Array) As Logical
+
+	Local nX	   As Numeric
+	Local cNatur   As Character
+	Local cFilDest As Character
+	Local cFilAtu  As Character
+	
+	lRet := .T.
+	
+	cFilAtu := cFilAnt //Controle da filial ativa
+
+	For nX := 1 To Len(aImp)
+
+		cFilDest := aImp[nX,9] //Filial Destino
+		cNatur   := aImp[nX,7] //Natureza
+
+		cFilAnt := cFilDest //Seta filial informada em tela para poder validar corretamente
+
+		If !SED->(MsSeek(xFilial('SED',cFilDest)+cNatur))
+			lRet := .F.
+			HELP(' ',1,"VLDNAT382" ,,STR0084,2,0,,,,,, {STR0085}) //"A natureza informada não é válida." ###""Por favor, informe uma natureza valida de acordo com a filial destino.
+		Endif
+	
+	Next nX
+
+	If lRet
+		lRet := MsgYesNo(STR0093, STR0094) //#"Deseja realmente iniciar o processamento da aglutinação?"
+	Endif
+
+	cFilAnt := cFilAtu		
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MrkDblClk
+Função para validação de Marca.
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function MrkDblClk(oObjTmp As Object,lInverte As Logical,cAliasMrk As Character,cFlag As Character)
+	
+	Local cMarca As Character
+
+	cMarca := oObjTmp:cMark
+
+	If IsMark(cFlag,cMarca,lInverte)
+		RecLock((cAliasMrk),.F.)
+		If !lInverte
+			(cAliasMrk)->&(cFlag) := cMarca
+		Else
+			(cAliasMrk)->&(cFlag) := "  "
+		Endif
+		MsUnlock()
+	Else
+		RecLock((cAliasMrk),.F.)
+		If !lInverte
+			(cAliasMrk)->&(cFlag) := "  "
+		Else
+			(cAliasMrk)->&(cFlag) := cMarca
+		Endif
+		MsUnlock()
+	Endif
+
+	If oObjTmp <> nil
+		oObjTmp:Refresh()
+	Endif
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetMrkAll
+Função para execução do MarkAll da MarkBrowse
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function SetMrkAll(oObjTmp As Object,cAliasMrk As Character,cFlag As Character)
+
+	cMarca := oObjTmp:cMark
+
+	(cAliasMrk)->(dbGotop()) 
+
+	While (cAliasMrk)->(!Eof())
+		RecLock(cAliasMrk,.F.)
+		If Empty((cAliasMrk)->&(cFlag))
+			(cAliasMrk)->&(cFlag)	:= cMarca
+		Else
+			(cAliasMrk)->&(cFlag)	:= "  "
+		Endif
+		MsUnlock()
+		(cAliasMrk)->(dbSkip())
+	EndDo
+	
+	(cAliasMrk)->(dbGotop()) 
+
+	If oObjTmp <> nil
+		oObjTmp:Refresh()
+	Endif
+
+Return
+
+//----------------------------------------------------------------------------------
+/*/{Protheus.doc}Fa382Calc
+Programa que localiza os impostos a serem aglutinados com base nos parametros.
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//----------------------------------------------------------------------------------
+
+Static Function Fa382Calc(cLstFKK,aSelFil,cTmpFil,aImp,aRecImp,aSeek,lAutomato)
+
+	Local lContinua As Logical
+	Local lInverte  As Logical
+	Local lE2Comp   As Logical
+	Local lK4Comp   As Logical
+	Local aCampos   As Array 
+	Local aArea     As Array 
+	Local aCposBase	As Array  
+	Local aIndices	As Array
+	Local cInsert 	As Character
+	Local cMarca  	As Character
+	Local cQryTit   As Character
+	Local cTable    As Character
+	Local cColuna   As Character
+	Local cMsg      As Character
+	Local cLayout   As Character
+	Local nQtde     As Numeric
+	Local nOpca     As Numeric
+	Local nTamNat   As Numeric
+	Local nX 	  	As Numeric 
+	Local nProcQry  As Numeric
+	Local nTamFOO   As Numeric
+	Local lAutChv   As Logical
+
+	Private nValor  As Numeric
+	Private nQtdTit As Numeric
+
+	Default aSeek     := {}
+	Default lAutomato := .F.
+
+	aArea     := GetArea()
+	lInverte  := .T.
+    //--- Tratamento Gestao Corporativa
+    cLayout   := FWSM0Layout()
+    lGestao	  := "E" $ cLayout .Or. "U" $ cLayout
+   	lInverte  := .F.
+   	lContinua := .T.
+	lAutChv   := IIF(MV_PAR03 <> 1 .or. lAutomato,.T.,.F.)
+    lE2Comp   := FWModeAccess("SE2", 1) == "C"
+    lK4Comp   := FWModeAccess("FK4", 1) == "C"
+	nQtde     := 0
+	nOpca     := 0
+	nQtdTit   := 0
+	nValor    := 0
+	nTamNat   := TAMSX3("E2_NATUREZ")[1]
+	nTamFOO   := TamSX3("FOO_CODIGO")[1]
+	nTamOK    := TamSX3("E2_OK")[1]
+    cMarca    := GetMark()
+    cFilFwSE2 := IIF( lGestao, FwFilial("SE2") , xFilial("SE2")) 
+    cCampos   := ""
+	cMsg      := STR0086 + CRLF + STR0087 //"Selecione os índices que deseja usar na pesquisa de seleção de títulos." ###"Caso nenhum seja selecionado, será considerado o primeiro da lista."
+	aCampos   := {}
+	aEstruct  := {}
+	aChave	  := {}
+	aIndices  := {}
+	aCposBase := {}
+
+	//---------------------------------------------------------------------------------------------------------
+	// Montagem de array para tratamento na MarkBrowse com o arquivo TRB 
+	//---------------------------------------------------------------------------------------------------------	
+	dbSelectArea("SX3")
+	SX3->(dbSetOrder(1))
+	SX3->(dbSeek ("SE2"))
+
+	//Adiciona o campo E2_FILIAL no browse somente se o SE2 estiver exclusivo ou em uso.
+	If !Empty( cFilFwSE2 ) .Or. X3USO(x3_usado) .And. cNivel >= x3_nivel
+		AADD(aCampos,{X3_CAMPO,"",X3Titulo(),X3_PICTURE})
+		AADD(aEstruct,{X3_CAMPO,X3_TIPO,X3_TAMANHO,X3_DECIMAL})
+		SX3->(dbSkip())
+	EndIf
+
+	AADD(aEstruct,{"E2_OK","C",nTamOK,0})
+	AADD(aEstruct,{"RECNO","N",16,0})
+	AADD(aEstruct,{"IMPOSTO","C",nTamFOO,0})
+	AADD(aCampos,{"E2_OK","","  ",""})
+			
+	aCposBase := {"E2_FILIAL","E2_PREFIXO","E2_NUM","E2_PARCELA","E2_TIPO","E2_FORNECE","E2_LOJA","E2_SALDO","E2_VALOR","E2_VENCTO","E2_VENCREA","E2_CODRET","E2_ACRESC","E2_DECRESC","E2_NATUREZ","E2_FILORIG","E2_NOMFOR"}
+
+	FinCposSix("SE2",@aIndices,@aCposBase,cMsg,,lAutChv)
+
+	For nX := 1 To Len(aCposBase)
+		If nX > 1
+			cCampos += ","
+		Endif
+		cCampos += aCposBase[nX]
+	Next
+
+	//Ponto de entrada para adicionar campos da SE2 na tela de seleção de títulos
+	IF ExistBlock("F382ADD")
+  		cCampos += ","+ExecBlock("F382ADD",.F.,.F.)
+	Endif
+		
+	While SX3->(!EOF()) .And. (x3_arquivo == "SE2")
+		IF X3_CONTEXT != "V" .and. X3_TIPO != "M" .and. Trim(X3_CAMPO) # "E2_OK" .AND. Trim(X3_CAMPO) $ cCampos
+			AADD(aCampos,{X3_CAMPO,"",X3Titulo(),X3_PICTURE})
+			AADD(aEstruct,{X3_CAMPO,X3_TIPO,X3_TAMANHO,X3_DECIMAL})
+		Endif
+		SX3->(dbSkip())
+	Enddo
+	
+	//-----------------------------------------------
+	// Query base para buscar os títulos de impostos e os totalizadores
+	//-----------------------------------------------	
+	cQryTit := "SELECT SE2.R_E_C_N_O_ RECNO, FK4_IMPOS IMPOSTO, "+cCampos+" FROM "+RetSqlName("FK4")+" FK4 "
+	cQryTit += "INNER JOIN "+RetSqlName("FK0")+" FK0 "
+	cQryTit += "ON FK0_IDFK4 = FK4_IDFK4 AND FK0_FILORI = FK4_FILORI AND FK0.D_E_L_E_T_ =' ' "
+	cQryTit += "INNER JOIN "+RetSqlName("FK7")+" FK7 "
+	cQryTit += "ON FK7_IDDOC = FK0_IDDOC AND FK7_FILIAL = FK0_FILIAL AND FK7.D_E_L_E_T_ =' ' "
+	cQryTit += "INNER JOIN "+RetSqlName("SE2")+" SE2 "
+	cQryTit += "ON SE2.D_E_L_E_T_ = ' ' AND FK7_CHAVE = E2_FILIAL||'|'||E2_PREFIXO||'|'||E2_NUM||'|'||E2_PARCELA||'|'||E2_TIPO||'|'||E2_FORNECE||'|'||E2_LOJA "
+	cQryTit += "WHERE FK4.D_E_L_E_T_ = ' ' AND E2_TIPO <> 'TXA' "
+	cQryTit += "AND FK4_CODFKM IN "+ FORMATIN(cLstFKK,'|')+" AND FK4_DATA BETWEEN '"+DTOS(MV_PAR01)+"' AND '"+DTOS(MV_PAR02)+"' "
+	cQryTit += "AND FK4_RECPAG = 'P' AND FK4_STATUS = '1' AND E2_SALDO > 0 "
+	
+	If !lK4Comp 
+		lK4Comp := !Empty(aSelFil) .And. FWModeAccess("FK4", 3) == "C"
+	EndIf
+
+	If !lE2Comp 
+		lE2Comp := !Empty(aSelFil) .And. FWModeAccess("SE2", 3) == "C"
+	EndIf
+
+	//Filtra pelo FILORIG caso selecionado 'n' filiais e haja compartilhamento por filial
+	If ((lK4Comp .and. lE2Comp) .Or. Empty(aSelFil)) 
+		cQryTit += "AND "+ FinSelFil(aSelFil,"FK4")+" " 	
+		cQryTit += "AND "+ FinSelFil(aSelFil,"SE2")
+	Elseif lK4Comp .and. !lE2Comp
+		cQryTit += "AND "+ FinSelFil(aSelFil,"FK4")+" " 
+		cQryTit += "AND E2_FILIAL "+ GetRngFil(aSelFil,"SE2",.T., @cTmpFil)
+	Elseif !lK4Comp .and. lE2Comp
+		cQryTit += "AND FK4_FILIAL "+ GetRngFil(aSelFil,"FK4",.T., @cTmpFil)+" " 	
+		cQryTit += "AND "+ FinSelFil(aSelFil,"SE2")
+	Else
+		cQryTit += "AND FK4_FILIAL "+ GetRngFil(aSelFil,"FK4",.T., @cTmpFil)+" " 	
+		cQryTit += "AND E2_FILIAL "+ GetRngFil(aSelFil,"SE2",.T., @cTmpFil)
+	EndIf		
+
+	cQryTit := ChangeQuery(cQryTit)
+
+	//----------------------------
+	//Criação da tabela temporaria
+	//----------------------------
+	If __oFI3822 <> Nil
+		__oFI3822:Delete()
+		__oFI3822 := Nil
+	Endif
+	
+	__oFI3822 := FWTemporaryTable():New( cAliasTit )  
+	__oFI3822:SetFields(aEstruct) 	
+
+	//Adiciono o índice da tabela temporária
+	If Len(aIndices) == 0
+		__oFI3822:AddIndex("1",{"RECNO"})			
+	Else
+		For nX := 1 To Len(aIndices)
+			Aadd(aSeek,{aIndices[nX,1],aindices[nX,2],nX})
+			cTmpIdx := "Tmp_Idx_"+StrZero(nX,2)
+			aChave	:= StrToKarr(Alltrim(aindices[nX,3]),"+")
+			__oFI3822:AddIndex(cTmpIdx,aChave)	
+		Next
+	Endif	
+
+	__oFI3822:Create()	
+
+	//Obtenho o nome "verdadeiro" da tabela no BD (criada como temporária)
+	cTable := __oFI3822:GetRealName()
+
+	//Preparo o comando para alimentar a tabela temporária
+	cColuna := "RECNO,IMPOSTO,"+cCampos
+
+	cInsert := " INSERT "
+	If AllTrim(TcGetDb()) == "ORACLE"
+		cInsert += " /*+ APPEND */ "
+	EndIf
+
+	If AllTrim(TcGetDb()) == "DB2"
+		cQryTit := STRTRAN( cQryTit, "FOR READ ONLY", "" )
+	EndIf
+
+	cInsert += " INTO " + cTable + " ("+cColuna+" ) " + cQryTit
+
+	//Executo o comando para alimentar a tabela temporária
+	Processa({|| nProcQry := TcSQLExec(cInsert)})
+
+	If nProcQry != 0
+		UserException( TCSqlError() )
+	EndIf
+
+	DbSetOrder(1)
+				
+	(cAliasTit)->(dbGoTop())
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}Fa382Result
+Programa que processa os titulos envolvidos na aglutinação
+@author Fabio Casagrande Lima
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+Static Function Fa382Result(aImp As Array,aRecImp As Array,cProcess As Character,lAutomato As Logical)
+
+	Local nLaco		As Numeric
+	Local nTotal	As Numeric
+	Local nHdlPrv	As Numeric
+	Local lHdlPrv	As Logical
+	Local lDigita   As Logical
+	Local lAglutina As Logical
+	Local cFilAtu   As Character
+	Local cArquivo  As Character
+
+	Private aFlagCTB  As Array
+	Private lUsaFlag  As Logical
+
+	Default aImp := {}
+	Default aRecImp := {}
+	Default cProcess := {}
+	Default lAutomato := .F.
+
+	nLaco	  := 0
+	nTotal	  := 0
+	nHdlPrv	  := 0
+	lHdlPrv	  := .F.
+	lDigita   := IIF(MV_PAR11==1,.T.,.F.)
+	lAglutina := IIF(MV_PAR12==1,.T.,.F.)
+	cFilAtu   := cFilAnt
+	cLote	  := ""
+	aFlagCTB  := {}
+	lUsaFlag  := SuperGetMV( "MV_CTBFLAG" , .T. /*lHelp*/, .F. /*cPadrao*/)
+
+	LoteCont("FIN")
+
+	BEGIN TRANSACTION
+
+		If !lAutomato
+			ProcRegua(Len(aImp))
+		Endif			
+
+		//Gera titulos aglutinadores
+		For nLaco:=1 To Len(aImp)
+			If aImp[nLaco,4] <> 0
+				Fa382GrvE2(@aImp,nLaco,cProcess,@nTotal,@nHdlPrv,@lHdlPrv,@cArquivo,aTits,lAutomato)
+				If !lAutomato
+					IncProc(STR0023)	//"Gerando títulos... "
+				Endif	
+			EndIf
+		Next
+
+		//Baixa titulos de impostos
+		cFilAnt := cFilAtu
+		Fa382BxE2(@aRecImp,cProcess,@nTotal,@nHdlPrv,@lHdlPrv,@cArquivo,lAutomato)
+
+		If nHdlPrv > 0 .and. nTotal > 0
+
+			If !lAutomato
+				ProcRegua(2)
+				IncProc(STR0101) //Contabilizando
+			Endif	
+
+			RodaProva( nHdlPrv, nTotal )
+
+			cA100Incl( cArquivo,;
+			nHdlPrv,;
+			3 /*nOpcx*/,;
+			cLote,;
+			lDigita,;
+			lAglutina,;
+			/*cOnLine*/,;
+			/*dData*/,;
+			/*dReproc*/,;
+			@aFlagCTB,;
+			/*aDadosProva*/,;
+			/*aDiario*/ )
+
+			If !lAutomato
+				IncProc(STR0090)//"Processando. Aguarde...
+			Endif			
+
+			aFlagCTB := {}  // Limpa o coteudo apos a efetivacao do lancamento
+		Endif
+
+		ConfirmSX8()
+
+	END TRANSACTION
+	
+	If !lAutomato
+		MsgInfo(STR0088+STR0091+cProcess) //Processamento concluído.
+	Endif
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}Fa382GrvE2
+Programa que gera o novo título de imposto com o valor aglutinado
+@author Fabio Casagrande Lima
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Static Function Fa382GrvE2(aImp As Array,nLaco As Numeric,cProcess As Character,nTotal As Numeric,nHdlPrv As Numeric,lHdlPrv As Logical,cArquivo As Character,aTits As Array,lAutomato As Logical)
+
+	Local cParcela	 As Character
+	Local cNatureza	 As Character
+	Local cPadrao	 As Character
+	Local cFilFwSE2  As Character
+	Local cFilNewT	 As Character
+	Local cNomFor    As Character
+	Local cLayout    As Character
+	Local lPadrao	 As Logical
+	Local lDigita	 As Logical
+	Local lGestao    As Logical
+	Local nA		 As Numeric
+	Local nTamEmp    As Numeric
+	Local dDataVenc	 As Date
+	Local dVencRea	 As Date
+	Local dData 	 As Date
+	Local aModAc 	 As Array
+	Local aLayoutGC  As Array
+	Local aTamParc	 As Array
+	Local aMotRet    As Array
+	Local aGetFKK    As Array
+
+	cParcela    := TamParcela("E2_PARCELA",Space(1),Space(2),Space(3))
+	cNatureza	:= ""
+	cPadrao		:= "510"
+	lPadrao		:= .T.
+	lDigita		:= IIf(MV_PAR11==1,.T.,.F.)
+	nA			:= 0
+	aTamParc	:= TamSx3("E2_PARCELA")
+	nTamEmp   	:= TAMSX3("E2_FILIAL")[1]
+	dDataVenc	:=  dDataBase
+	dData 		:= CtoD("//")
+	aModAc 		:= {}
+	aMotRet     := {}
+	aGetFKK     := {}
+	aLayoutGC 	:= {} //leiaute do gestao corporativa
+    //--- Tratamento Gestao Corporativa
+    cLayout		:= FWSM0Layout()
+    lGestao		:= "E" $ cLayout .Or. "U" $ cLayout
+	cFilFwSE2 	:= IIF( lGestao , FwFilial("SE2") , xFilial("SE2") )
+	cFilNewT	:= ""
+	cNomFor     := POSICIONE("SA2",1,xFilial("SA2")+aImp[nLaco][2]+aImp[nLaco][3],"A2_NREDUZ")
+	dData       := dDatabase
+	cNatureza   := aImp[nLaco][7]
+	dDataVenc   := aImp[nLaco][8]
+	dVencRea    := DataValida(dDataVenc)
+
+	DbSelectArea("SE2")
+	DbSetOrder(1)
+	cParcela := Soma1(cParcela,aTamParc[1])
+
+	If !Empty(aImp[nLaco][9])
+		If ("E" $ FWSM0Layout() .or. "U" $ FWSM0Layout())
+			aLayoutGC := FWLoadSM0()
+			nPosGC := Ascan(aLayoutGC,{ |x| x[2] == aImp[nLaco][9] } )
+			If nPosGC > 0
+				AAdd( aModAc, FWModeAccess("SE2",1) )
+				AAdd( aModAc, FWModeAccess("SE2",2) )
+				AAdd( aModAc, FWModeAccess("SE2",3) )
+				cFilNewT := If( aModAc[1] = 'E', aLayoutGC[nPosGC][3], Space( Len( aLayoutGC[nPosGC][3] ) ) ) //empresa
+				cFilNewT += If( aModAc[2] = 'E', aLayoutGC[nPosGC][4], Space( Len( aLayoutGC[nPosGC][4] ) ) ) //unidade de negócio
+				cFilNewT += If( aModAc[3] = 'E', aLayoutGC[nPosGC][5], Space( Len( aLayoutGC[nPosGC][5] ) ) ) //filial
+			Else
+				cFilNewT := aImp[nLaco][9]
+			EndIf
+		EndIf
+		cFilAnt := aImp[nLaco][9]
+	Else
+		aImp[nLaco][9] := cFilAnt
+	EndIf
+
+	While .T.
+		If SE2->( DbSeek( xFilial("SE2", aImp[nLaco][9]) + Pad(cPrefixo,Len(E2_PREFIXO)) + Pad(cProcess,Len(E2_NUM)) + Pad(cParcela,Len(E2_PARCELA)) + Pad(aImp[nLaco][6],Len(E2_TIPO)) + Pad(aImp[nLaco][2],Len(E2_FORNECE)) + Pad(aImp[nLaco][3],Len(E2_LOJA))))
+			cParcela := Soma1( cParcela, aTamParc[1] )
+		Else
+			Exit
+		Endif
+	EndDo
+
+	RecLock("SE2",.T.)
+	SE2->E2_FILIAL	:= xFilial("SE2",aImp[nLaco][9])
+	SE2->E2_PREFIXO	:= cPrefixo
+	SE2->E2_NUM		:= cProcess
+	SE2->E2_PARCELA	:= cParcela
+	SE2->E2_TIPO	:= aImp[nLaco][6]
+	SE2->E2_EMISSAO	:= dDataBase
+	SE2->E2_VALOR	:= ABS(aImp[nLaco,4])
+	SE2->E2_VENCREA	:= DataValida(dDataVenc,.T.)
+	SE2->E2_SALDO	:= ABS(aImp[nLaco,4])
+	SE2->E2_VENCTO	:= dDataVenc
+	SE2->E2_VENCORI	:= dDataVenc
+	SE2->E2_MOEDA	:= 1
+	SE2->E2_EMIS1	:= dDataBase
+	SE2->E2_FORNECE	:= aImp[nLaco][2]
+	SE2->E2_LOJA	:= aImp[nLaco][3]
+	SE2->E2_NOMFOR	:= cNomFor
+	SE2->E2_VLCRUZ	:= ABS(aImp[nLaco,4])
+	SE2->E2_ORIGEM	:= "FINA382"
+	SE2->E2_LA		:= "N"
+	SE2->E2_NATUREZ	:= cNatureza
+	SE2->E2_NUMTIT	:= "FINA382"
+	SE2->E2_CODRET	:= aImp[nLaco,5]
+	SE2->E2_DIRF	:= "2" // O titulo gerado pela aglutinacao nao deve ir para DIRF, para nao ocorrer duplicidade
+	// com o titulo de origem (na DIRF e na impressao da DARF).
+	SE2->E2_MULTNAT	:= "2"
+	SE2->E2_FILORIG	:= cFilOri
+	MsUnlock()
+
+	AADD( aTits, SE2->(RECNO()) )
+
+	lPadrao		:= VerPadrao(cPadrao)
+
+	If lPadrao .and. MV_PAR10 == 1  // Contabiliza On-Line
+		If nHdlPrv <= 0
+			nHdlPrv := HeadProva( cLote,;
+			"FINA382",;
+			substr( cUsuario, 7, 6 ),;
+			@cArquivo )
+		Endif
+
+		//Atribui valor as variáveis de contabilização do motor de retenção
+		If nHdlPrv != 0 
+			aGetFKK := GetFKK(,SE2->E2_FORNECE,SE2->E2_LOJA,SE2->E2_CODRET,cFilAnt) //Busca informações do cadastro de típo de retenção (Retorna 1-Tipo Titulo / 2-Natureza / 3-Variavel CTB)
+			If Len(aGetFKK) > 0
+				Aadd(aMotRet, {,,,, SE2->E2_VALOR, , , ,"1", , , 0,,,,,,,,, aGetFKK[3]})
+				If Len(aMotRet) > 0 .and. Len(aGetFKK) > 0
+					FinCarVarE(aMotRet)
+				Endif
+			Endif
+		EndIf			
+		
+		If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil
+			aAdd( aFlagCTB, { "E2_LA", "S", "SE2", SE2->( RecNo() ), 0, 0, 0} )
+		Endif
+
+		If nHdlPrv > 0
+			nTotal += DetProva( nHdlPrv,;
+			cPadrao,;
+			"FINA382" /*cPrograma*/,;
+			cLote,;
+			/*nLinha*/,;
+			/*lExecuta*/,;
+			/*cCriterio*/,;
+			/*lRateio*/,;
+			/*cChaveBusca*/,;
+			/*aCT5*/,;
+			/*lPosiciona*/,;
+			@aFlagCTB,;
+			/*aTabRecOri*/,;
+			/*aDadosProva*/ )
+			If Len(aGetFKK) > 0
+				&(aGetFKK[3]) :=  0 //Reseta variavel de contabilização
+			Endif
+		EndIf
+
+		If nTotal > 0 .AND. !lUsaFlag
+			DbSelectArea("SE2")
+			RecLock("SE2")
+			SE2->E2_LA := "S"
+			MsUnlock()
+		EndIf
+	EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}Fa382BxE2
+Programa que baixa os títulos de imposto envolvidos na aglutinação
+@author Protheus
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Static Function Fa382BxE2(aRecImp As Array,cProcess As Character,nTotal As Numeric,nHdlPrv As Numeric,lHdlPrv As Logical,cArquivo As Character,lAutomato As Logical)
+
+	Local cPadrao	 As Character
+	Local lPadrao	 As Logical
+	Local nA		 As Numeric
+	Local cSeqBx     As Character
+	Local cFilAtu    As Character
+	Local aRecSE5    As Array
+	Local aMotRet    As Array
+	Local aGetFKK    As Array
+	Local oModAgBxP  As Object
+	Local oSubFKA    As Object
+	Local oSubFK2    As Object
+	Local oSubFK7	 As Object
+	Local cLog       As Character
+	Local cChaveTit  As Character
+	Local cChaveFK7  As Character
+	Local cCamposE5  As Character
+	Local nRecSE5    As Numeric
+
+	cPadrao	  := "530"
+	lPadrao	  := VerPadrao(cPadrao)
+	nA		  := 0
+	aMotRet   := {}
+	aGetFKK   := {}
+	cFilAtu   := cFilAnt
+	aRecSE5   := {} //Array que armazena os RECNO do SE5 gerado na baixa de impostos
+	cLog      := ""
+	cChaveTit := ""
+	cChaveFK7 := ""
+	cCamposE5 := ""
+	nRecSE5   := 0
+	
+	If !lAutomato
+		ProcRegua(Len(aRecImp))
+	Endif			
+
+	For nA := 1 to Len(aRecImp)
+		dbSelectArea("SE2")
+		dbGoto(aRecImp[nA])
+		cSeqBx := FaNxtSeqBx("SE2")  // Sequencia da baixa do adiantamento + 1
+		RecLock("SE2")
+		SE2->E2_BAIXA	 := iif(SE2->E2_BAIXA <= dDataBase, dDataBase, SE2->E2_BAIXA)
+		SE2->E2_MOVIMEN  := dDataBase
+		SE2->E2_VALLIQ   := SE2->E2_SALDO
+		SE2->E2_AGLIMP	 := cProcess
+
+		MsUnLock()
+
+		cFilAnt := FXRetFil( "SE2", SE2->E2_FILIAL ) //Retorna o Codigo da filial completo
+
+		cCamposE5 := "{"
+		cCamposE5 += "{'E5_DTDIGIT'	,STOD('" + DTOS(dDataBase) + "')}"
+		cCamposE5 += ",{'E5_PREFIXO'	,'"+SE2->E2_PREFIXO+ "'}"
+		cCamposE5 += ",{'E5_NUMERO'		,'"+SE2->E2_NUM+ "'}"
+		cCamposE5 += ",{'E5_PARCELA'	,'"+SE2->E2_PARCELA+ "'}"
+		cCamposE5 += ",{'E5_CLIFOR'		,'"+SE2->E2_FORNECE+ "'}"
+		cCamposE5 += ",{'E5_FORNECE'	,'"+SE2->E2_FORNECE+ "'}"
+		cCamposE5 += ",{'E5_LOJA'		,'"+SE2->E2_LOJA+ "'}"
+		cCamposE5 += ",{'E5_BENEF'		,'"+SE2->E2_NOMFOR+ "'}"
+		cCamposE5 += ",{'E5_TIPO'		,'"+SE2->E2_TIPO+ "'}"
+		cCamposE5 += ",{'E5_DTDISPO'	,STOD('" + DTOS(dDataBase) + "')}"
+		cCamposE5 += ",{'E5_AGLIMP'		,'"+cProcess+"'}"
+		cCamposE5 += "}"
+
+		cChaveTit := xFilial("SE2") + "|" + SE2->E2_PREFIXO + "|" + SE2->E2_NUM + "|" + SE2->E2_PARCELA + "|" + ;
+		SE2->E2_TIPO + "|" + SE2->E2_FORNECE + "|" + SE2->E2_LOJA
+
+		oModAgBxP := FWLoadModel("FINM020") //Model de Baixas a Pagar
+		oModAgBxP:SetOperation(MODEL_OPERATION_INSERT) //Inclusao
+		oModAgBxP:Activate()
+		oModAgBxP:SetValue("MASTER","NOVOPROC",.T.)
+		oModAgBxP:SetValue("MASTER","E5_GRV",.T.) //Informa se vai gravar SE5 ou nao
+		oModAgBxP:SetValue("MASTER","E5_CAMPOS",cCamposE5) //Informa os campos da SE5 que serão gravados
+
+		//Dados do Processo
+		oSubFKA := oModAgBxP:GetModel("FKADETAIL")
+		If !oSubFKA:IsEmpty()
+			oSubFKA:AddLine()
+			oSubFKA:GoLine(oSubFKA:Length())
+		Endif
+		oSubFKA:SetValue("FKA_IDORIG",FWUUIDV4())
+		oSubFKA:SetValue("FKA_TABORI","FK2")
+
+		oSubFK2	:= oModAgBxP:GetModel("FK2DETAIL")
+		oSubFK7	:= oModAgBxP:GetModel("FK7DETAIL")
+		cChaveFK7	:= FINGRVFK7("SE2",cChaveTit)
+
+		//Dados da Baixa
+		oSubFK2:SetValue("FK2_DATA",dDataBase)
+		oSubFK2:SetValue("FK2_VALOR",SE2->E2_SALDO)
+		oSubFK2:SetValue("FK2_HISTOR",STR0024 ) //"Baixa Titulo Aglut.Impostos"
+		oSubFK2:SetValue("FK2_NATURE",SE2->E2_NATUREZ)
+		oSubFK2:SetValue("FK2_RECPAG","P")
+		oSubFK2:SetValue("FK2_TPDOC","BA")
+		oSubFK2:SetValue("FK2_MOTBX","NOR")
+		oSubFK2:SetValue("FK2_SEQ",cSeqBx)
+		oSubFK2:SetValue("FK2_FILORI",SE2->E2_FILORIG)
+		oSubFK2:SetValue("FK2_MOEDA",cValToChar(SE2->E2_MOEDA))
+		oSubFK2:SetValue("FK2_VLMOE2",SE2->E2_SALDO)
+		oSubFK2:SetValue("FK2_IDDOC",cChaveFK7)
+
+		If oModAgBxP:VldData()
+			oModAgBxP:CommitData()
+			nRecSE5 := oModAgBxP:GetValue( "MASTER", "E5_RECNO" )
+			SE5->( dbGoTo(nRecSE5) )
+			oModAgBxP:DeActivate()
+		Else
+			cLog := cValToChar(oModAgBxP:GetErrorMessage()[4]) + ' - '
+			cLog += cValToChar(oModAgBxP:GetErrorMessage()[5]) + ' - '
+			cLog += cValToChar(oModAgBxP:GetErrorMessage()[6])
+			Help(,,"M020BXE201",,cLog,1,0)
+		Endif
+
+		aAdd(aRecSE5,SE5->(Recno())) //RECNO no registro gerado na baixa de imposto
+
+		If lPadrao .and. MV_PAR10== 1    // Contabiliza On-Line
+			If nHdlPrv <= 0
+				nHdlPrv	:= HeadProva(cLote,"FINA382",Substr(cUsuario,7,6),@cArquivo)
+			Endif
+			//Atribui valor as variáveis de contabilização do motor de retenção
+			If nHdlPrv != 0 
+				aGetFKK := GetFKK(,SE2->E2_FORNECE,SE2->E2_LOJA,SE2->E2_CODRET,cFilAnt) //Busca informações do cadastro de típo de retenção (Retorna 1-Tipo Titulo / 2-Natureza / 3-Variavel CTB)
+				If Len(aGetFKK) > 0 
+					aMotRet := {}
+					Aadd(aMotRet, {,,,, SE2->E2_SALDO, , , ,"1", , , 0,,,,,,,,, aGetFKK[3]})
+					If Len(aMotRet) > 0	.and. Len(aGetFKK) > 0	
+						FinCarVarE(aMotRet)
+					Endif
+				Endif
+			EndIf		
+			If nHdlPrv > 0
+				nTotal	+= DetProva(nHdlPrv,cPadrao,"FINA382",cLote)
+				If Len(aGetFKK) > 0 
+					&(aGetFKK[3]) :=  0 //Reseta variavel de contabilização
+				Endif
+			Endif
+
+			If nTotal > 0
+				DbSelectArea("SE5")
+				//Reestruturação SE5 - Início
+
+				cCamposE5 += "{"
+				cCamposE5 +=  "{'E5_LA','S'}"
+				cCamposE5 += "}"
+
+				oModAgBxP := FWLoadModel("FINM020")
+				oModAgBxP:SetOperation(MODEL_OPERATION_UPDATE) //Alteracao
+				oModAgBxP:Activate()
+				oModAgBxP:SetValue("MASTER","E5_GRV",.T.)
+				oModAgBxP:SetValue("MASTER","E5_CAMPOS",cCamposE5) //Informa os campos da SE5 que serão gravados
+
+				oSubFKA := oModAgBxP:GetModel("FKADETAIL")
+				oSubFKA:SeekLine({{"FKA_IDORIG",SE5->E5_IDORIG}})
+				oSubFKA:SetValue("FKA_TABORI","FK2")
+
+				oSubFK2 := oModAgBxP:GetModel("FK2DETAIL")
+				oSubFK2:SetValue("FK2_LA",'S')
+
+				If oModAgBxP:VldData()
+					oModAgBxP:CommitData()
+					oModAgBxP:DeActivate()
+				Else
+					cLog := cValToChar(oModAgBxP:GetErrorMessage()[4]) + ' - '
+					cLog += cValToChar(oModAgBxP:GetErrorMessage()[5]) + ' - '
+					cLog += cValToChar(oModAgBxP:GetErrorMessage()[6])
+					Help(,,"M020BXE202",,cLog,1,0)
+				Endif
+			EndIf
+		EndIf
+		RecLock("SE2")
+		SE2->E2_SALDO := 0
+		MsUnlock()
+
+		If !lAutomato
+			Incproc(STR0092) //"Baixando títulos... "
+		Endif
+	Next
+
+	cFilAnt := cFilAtu
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}Fa382Fil
+Validacao da filial para qual serao gerados os novos títulos
+@author Protheus
+@since  17/04/2018
+@version 12
+/*/
+//-------------------------------------------------------------------
+Static Function Fa382Fil() As Logical
+
+	Local nTamEmp	As Numeric
+	Local lRet		As Logical
+	Local lGestao   As Logical
+	Local cFilFwSE2 As Character
+	Local cLayout	As Character
+
+	nTamEmp	  := 0
+	lRet	  := .T.
+    //--- Tratamento Gestao Corporativa
+    cLayout		:= FWSM0Layout()
+    lGestao		:= "E" $ cLayout .Or. "U" $ cLayout
+	cFilFwSE2 := IIF( lGestao , FwFilial("SE2") , xFilial("SE2") )	
+
+	If !Empty( cFilFwSE2 ) .and. Empty(aPerg[1])
+		lRet := .F.
+	Endif
+
+	If lRet .and. !Empty(aPerg[1]) .and. !(ExistCpo("SM0",cEmpAnt+aPerg[1]))
+		lRet := .F.
+	Endif
+
+	If lRet .And. !Empty(aPerg[1])
+		nTamEmp := Len(FWSM0LayOut(,1))
+		lRet := (Substr(aPerg[1],1,nTamEmp) == FwCompany())
+	Endif
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}GETAGLIMP
+Programa que Pesquisa por um codigo nao utilizado na tabela de
+movimentacao SE5
+@author Fabio Casagrande Lima
+@version 12
+/*/
+//-------------------------------------------------------------------
+Static Function GetAGLIMP() As Character
+
+	Local aArea	  As Array
+	Local nTamSeq As Numeric
+	Local cAglImp As Character
+	Local cQuery  As Character
+
+	aArea	:= GetArea()
+	nTamSeq	:= TamSX3("E5_AGLIMP")[1]
+	cAglImp	:= StrZero(1,nTamSeq)
+	cQuery	:= ""
+
+	cQuery := "SELECT MAX(E5_AGLIMP) MAXNUMPRC FROM " + RetSqlName("SE5") + " "
+	cQuery += "WHERE D_E_L_E_T_ = '' "
+	cQuery := ChangeQuery(cQuery)
+
+	dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), "DBTMP" , .T., .T.)
+	If DBTMP->(!EOF())
+		cAglImp := DBTMP->MAXNUMPRC
+	EndIf
+	DBTMP->(dbCloseArea())
+
+	cAglImp := Soma1( cAglImp, nTamSeq )
+	While !MayIUseCode( "E5_AGLIMP "+ cAglImp )
+		cAglImp := Soma1( cAglImp, nTamSeq )
+	EndDo
+
+	RestArea(aArea)
+
+Return cAglImp
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}fa382Can
+Programa que Cancela o titulo gerado pela aglutinação.
+@author Fabio Casagrande Lima
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Function fa382Can(cAlias As Character,nReg As Numeric,nOpcx As Numeric, lAutomato As Logical)
+
+	Local lEnd	    As Logical
+	Local nOpct		As Numeric
+	Local nA		As Numeric
+	Local nTotal	As Numeric
+	Local lRet		As Logical
+	Local cProcCan	As Character
+	Local cLog		As Character
+
+	Default lAutomato	:= .F.
+
+	lEnd        := .F.
+	cProcCan	:= CriaVar("E5_AGLIMP")
+	nOpct		:= 0
+	nA		    := 0
+	nTotal	    := 0
+	lRet		:= .T.
+	cLog		:= ""
+
+	IF ( nHdlLock := MSFCREATE("FINA382.L"+cEmpAnt)) < 0
+		MsgAlert(STR0007+chr(13)+chr(10)+;		//"A Funcao de Aglutinação de Impostos esta sendo utilizada por"
+		STR0008+chr(13)+chr(10)+;		//"outro usuario. Por questoes de integridade de dados, nao"
+		STR0009+chr(13)+chr(10)+; 	//"‚ permitida a utiliza‡„o desta rotina por mais de um usu rio"
+		STR0010,cCadastro) 				//"simultaneamente. Tente novamente mais tarde."
+		Return
+	Endif
+
+	FWrite(nHdlLock,"Operador: "+cUserName+chr(13)+chr(10)+;
+	"Empresa.: "+cEmpAnt+chr(13)+chr(10)+;
+	"Filial..: "+cFilAnt+chr(13)+chr(10))
+
+	While .T.
+		If !lAutomato
+			nEspLarg := 0
+			nEspLin  := 0
+			DEFINE MSDIALOG oDlg FROM	20,1 TO 120,340 TITLE STR0025 PIXEL //"Cancelamento de Aglutinacao de Impostos"
+
+			oDlg:lMaximized := .F.
+			oPanel := TPanel():New(0,0,'',oDlg,, .T., .T.,, ,20,20)
+			oPanel:Align := CONTROL_ALIGN_ALLCLIENT
+
+			@ 006+nEspLin, 011+nEspLarg TO 036+nEspLin, 125+nEspLarg OF oPanel PIXEL
+			@ 021+nEspLin, 014+nEspLarg MSGET cProcCan SIZE 49, 11 OF oPanel PIXEL
+			@ 011+nEspLin, 014+nEspLarg SAY STR0026 SIZE 70, 07 OF oPanel PIXEL //"Processo a Cancelar"
+
+			DEFINE SBUTTON FROM 10, 133 TYPE 1 ACTION (nOpct:=1, oDlg:End()) ENABLE OF oDlg
+			DEFINE SBUTTON FROM 23, 133 TYPE 2 ACTION oDlg:End() ENABLE OF oDlg
+			ACTIVATE MSDIALOG oDlg CENTERED
+		Else
+			//adicionar numeração de cancelamento
+			If FindFunction("GetParAuto")
+				aRetAuto 		:= GetParAuto("FINA382TESTCASE")
+				cProcCan 		:= aRetAuto[1]
+				nOpct			:= 1
+			Endif
+		EndIf
+
+		If !lRet
+			Return
+		Endif
+
+		If nOpct == 1 .And. Empty(cProcCan)
+			Loop
+		Endif
+		Exit
+	Enddo
+
+	If nOpct == 1
+		If !lAutomato
+			Processa({|lEnd| ProcCancel(cAlias,nReg,nOpcx,lAutomato,cProcCan)},STR0090) 	//"Processando. Aguarde..."
+		Else
+			ProcCancel(cAlias,nReg,nOpcx,lAutomato,cProcCan)
+		Endif
+	Endif
+
+	Set Key VK_F12 To
+	fclose(nHdlLock)
+	Ferase("FINA382.L"+cEmpAnt)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ProcCancel
+Processa o cancelamento do titulo gerado pela aglutinação.
+@author Fabio Casagrande Lima
+@version 12
+/*/
+//-------------------------------------------------------------------
+
+Static Function ProcCancel(cAlias As Character,nReg As Numeric,nOpcx As Numeric, lAutomato As Logical, cProcCan As Character)
+
+	Local nTotReg 	  As Numeric
+	Local nOpct		  As Numeric
+	Local nA		  As Numeric
+	Local nTotal	  As Numeric
+	Local nHdlPrv	  As Numeric
+	Local lContinua	  As Logical
+	Local lPadrao515  As Logical
+	Local lPadrao531  As Logical
+	Local lDigita	  As Logical
+	Local lAglutina	  As Logical
+	Local lRet		  As Logical
+	Local lExistFJU   As Logical
+	Local lTemBx      As Logical
+	Local aRegsGer	  As Array
+	Local aRegsBxd	  As Array
+	Local aArea		  As Array
+	Local aRegsSE2	  As Array
+	Local aMotRet     As Array
+	Local aGetFKK     As Array
+	Local oModAgBxP   As Object
+	Local oSubFKA     As Object
+	Local cAliasSE5	  As Character
+	Local cArquivo 	  As Character
+	Local cAliasSE2	  As Character
+	Local cFilAtu	  As Character
+	Local cLog		  As Character
+	Local cCamposE5	  As Character
+	Local cFilSE5	  As Character
+
+	Default lAutomato	:= .F.
+
+	nOpct		:= 0
+	nA		    := 0
+	aRegsGer	:= {}
+	aRegsBxd	:= {}
+	aArea		:= GetArea()
+	aMotRet     := {}
+	aGetFKK     := {}
+	lContinua	:= .T.
+	lPadrao515  := Verpadrao("515")
+	lPadrao531  := Verpadrao("531")
+	lTemBx      := .F.
+	cAliasSE5	:= "SE5"
+	nTotal	    := 0
+	nHdlPrv	    := 0
+	lDigita	    := IIF(MV_PAR11==1,.T.,.F.)
+	lAglutina	:= If(MV_PAR12==1,.T.,.F.)
+	lRet		:= .T.
+	aRegsSE2	:= {}
+	cAliasSE2	:= ""
+	cFilAtu	    := cFilAnt
+	cLog		:= ""
+	cCamposE5	:= ""
+	lExistFJU	:= FJU->(ColumnPos("FJU_RECPAI")) >0 .and. FindFunction("FinGrvEx")
+	cFilSE5	    := ""
+	cLote		:= ""
+
+	LoteCont("FIN")
+
+	lContinua := .T.
+	DbSelectArea("SE2")
+	dbSetOrder(1)
+
+	cQuery := "SELECT R_E_C_N_O_ RECNO FROM " + RetSQLname("SE2")
+	cQuery += " WHERE "
+	cQuery += "E2_PREFIXO = '"+cPrefixo+ "' AND "
+	cQuery += "E2_NUM = '"+Pad(cProcCan,Len(E2_NUM))+ "' AND "
+	cQuery += "E2_NUMTIT LIKE 'FINA382%' AND "
+	cQuery += "D_E_L_E_T_ = '' "
+	cQuery := ChangeQuery(cQuery)
+
+	If Select("SE2TRB") > 0
+		dbSelectArea("SE2TRB")
+		DbCloseArea()
+	EndIf
+
+	dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), "SE2TRB", .F., .T.)
+	cAlias:="SE2TRB"
+
+	dbSelectArea(cAlias)
+
+	If !lAutomato
+		nTotReg := Contar(cAlias,"!Eof()")
+		ProcRegua((cAlias)->(nTotReg))
+	Endif
+
+	(cAlias)->(DbGoTop())
+
+	If (cAlias)->(Bof()) .And. (cAlias)->(Eof())
+		lContinua := .F.
+	EndIf
+
+	While (cAlias)->(!Eof()) .and. lContinua
+
+		dbSelectArea("SE2")
+		dbGoto(SE2TRB->RECNO)
+
+		If SE2->E2_SALDO > 0 .and. STR(SE2->E2_SALDO,17,3) == STR(SE2->E2_VALOR,17,3) .and. ;
+		Empty(SE2->E2_PORTADO) .and. SE2->E2_IMPCHEQ != "S" .and. ;
+		If(SE2->( FieldPos( "E2_IDDARF" )) > 0,AllTrim(SE2->E2_IDDARF) == "",.T.)
+			AADD(aRegsGer,SE2->(Recno()))
+		Else
+			lContinua := .F.
+			lTemBx    := .T.
+		Endif
+		dbSelectArea(cAlias)
+		dbSkip()
+
+		If !lAutomato
+			Incproc(STR0090) //"Processando. Aguarde... "
+		Endif
+
+	Enddo
+
+	If lContinua
+		DbSelectArea("SE5")
+		dbSetOrder(7)
+
+		cQuery := "SELECT R_E_C_N_O_ RECNO FROM " + RetSQLname("SE5")
+		cQuery += " WHERE "
+		cQuery += "E5_AGLIMP = '"+ cProcCan + "' AND "
+		cQuery += "D_E_L_E_T_ = '' "
+		cQuery := ChangeQuery(cQuery)
+
+		dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), "SE5TRB", .F., .T.)
+		cAliasSE5:="SE5TRB"
+
+		dbSelectArea(cAliasSE5)
+
+		If !lAutomato
+			nTotReg := Contar(cAliasSE5,"!Eof()")
+			ProcRegua((cAliasSE5)->(nTotReg))			
+		Endif
+
+		(cAliasSE5)->(DbGoTop())
+
+		If Bof() .And. Eof()
+			lContinua := .F.
+		EndIf
+
+		While !Eof() .and. lContinua
+			dbSelectArea("SE5")
+			dbGoto(SE5TRB->RECNO)
+
+			AADD(aRegsBxd,SE5->(Recno()))
+			dbSelectArea(cAliasSE5)
+			dbSkip()
+
+			If !lAutomato
+				IncProc(STR0050)//"Selecionado titulos de impostos"
+			Endif
+		Enddo
+
+		cQuery := "SELECT R_E_C_N_O_ RECNO FROM " + RetSQLname("SE2")
+		cQuery += " WHERE "
+		cQuery += "E2_AGLIMP = '"+ cProcCan + "' AND "
+		cQuery += "D_E_L_E_T_ = '' "
+		cQuery := ChangeQuery(cQuery)
+
+		dbUseArea(.T., "TOPCONN", TCGenQry(,,cQuery), "SE2CAN", .F., .T.)
+		cAliasSE2:="SE2CAN"
+
+		dbSelectArea(cAliasSE2)
+
+		If !lAutomato
+			nTotReg := Contar(cAliasSE2,"!Eof()")
+			ProcRegua((cAliasSE2)->(nTotReg))			
+		Endif
+
+		(cAliasSE2)->(DbGoTop())
+
+		If Bof() .And. Eof()
+			lContinua := .F.
+		EndIf
+		While !Eof() .and. lContinua
+			dbSelectArea("SE2")
+			dbGoto(SE2CAN->RECNO)
+
+			AADD(aRegsSE2,SE2->(Recno()))
+			dbSelectArea(cAliasSE2)
+			dbSkip()
+			If !lAutomato
+				IncProc(STR0050)//"Selecionado titulos de impostos"
+			Endif
+		Enddo
+		If Select("SE2TRB") > 0
+			dbSelectArea("SE2TRB")
+			dbCloseArea()
+			dbSelectArea("SE2")
+			dbSetOrder(1)
+		Endif
+		If Select("SE2CAN") > 0
+			dbSelectArea("SE2CAN")
+			dbCloseArea()
+			dbSelectArea("SE2")
+			dbSetOrder(1)
+		Endif
+		If Select("SE5TRB") > 0
+			dbSelectArea("SE5TRB")
+			dbCloseArea()
+			dbSelectArea("SE5")
+			dbSetOrder(1)
+		Endif
+
+		BEGIN TRANSACTION
+
+			If !lAutomato
+				ProcRegua(Len(aRegsBxd))
+			Endif
+
+			//Cancela Baixas
+			For nA := 1 to Len(aRegsBxd)
+				dbSelectArea("SE5")
+				dbGoto(aRegsBxd[nA])
+				cFilAnt := SE5->E5_FILORIG
+				If SE5->E5_SITUACA != "C"
+
+					dbSelectArea("SE2")
+					SE2->(DbSetOrder(1))
+
+					If F382DifFil( "SE2", "SE5" )
+						cFilSE5 := FXRetFil( "SE2", SE5->E5_FILIAL, .F. )
+					Else
+						cFilSE5 := SE5->E5_FILIAL
+					EndIf
+
+					If SE2->( MsSeek( cFilSE5 + SE5->(E5_PREFIXO+E5_NUMERO+E5_PARCELA+E5_TIPO+E5_CLIFOR+E5_LOJA) ) )
+						RecLock("SE2")
+						SE2->E2_SALDO += SE5->E5_VALOR
+						SE2->E2_BAIXA := IIF( Str(E2_SALDO,17,2) == Str(E2_VALOR,17,2),CtoD(""), E2_BAIXA )
+						MSUnlock()
+					EndIf
+
+					cCamposE5 := "{"
+					cCamposE5 +=  "{'E5_SITUACA','C'}"
+					cCamposE5 += "}"
+
+					oModAgBxP := FWLoadModel("FINM020")
+					oModAgBxP:SetOperation(MODEL_OPERATION_UPDATE) //Alteracao
+					oModAgBxP:Activate()
+					oModAgBxP:SetValue("MASTER","E5_GRV",.T.)
+					oModAgBxP:SetValue("MASTER","E5_CAMPOS",cCamposE5) //Informa os campos da SE5 que serão gravados
+					oModAgBxP:SetValue( "MASTER", "HISTMOV", STR0096 )
+					//E5_OPERACAO 1 = Altera E5_SITUACA da SE5 para 'C' e gera estorno na FK5
+					//E5_OPERACAO 2 = Grava E5 com E5_TIPODOC = 'ES' e gera estorno na FK5
+					//E5_OPERACAO 3 = Deleta da SE5 e gera estorno na FK5
+					oModAgBxP:SetValue("MASTER","E5_OPERACAO",1)
+
+					oSubFKA := oModAgBxP:GetModel("FKADETAIL")
+					oSubFKA:SeekLine({{"FKA_IDORIG",SE5->E5_IDORIG}})
+					oSubFKA:SetValue("FKA_TABORI","FK2")
+
+					If oModAgBxP:VldData()
+						oModAgBxP:CommitData()
+						oModAgBxP:DeActivate()
+					Else
+						cLog := cValToChar(oModAgBxP:GetErrorMessage()[4]) + ' - '
+						cLog += cValToChar(oModAgBxP:GetErrorMessage()[5]) + ' - '
+						cLog += cValToChar(oModAgBxP:GetErrorMessage()[6])
+						Help(,,"M020CAN01",,cLog,1,0)
+					Endif
+
+					If SE5->E5_LA == "S " .and. lPadrao531
+						If nHdlPrv	 <= 0
+							nHdlPrv:=HeadProva(cLote,"FINA382",Substr(cUsuario,7,6),@cArquivo)
+						Endif
+						//Atribui valor as variáveis de contabilização do motor de retenção
+						If nHdlPrv != 0 
+							aGetFKK := GetFKK(,SE2->E2_FORNECE,SE2->E2_LOJA,SE2->E2_CODRET,cFilAnt) //Busca informações do cadastro de típo de retenção (Retorna 1-Tipo Titulo / 2-Natureza / 3-Variavel CTB)
+							If Len(aGetFKK) > 0
+								Aadd(aMotRet, {,,,, SE2->E2_VALOR, , , ,"1", , , 0,,,,,,,,, aGetFKK[3]})
+								If Len(aMotRet) > 0 .and. Len(aGetFKK) > 0
+									FinCarVarE(aMotRet)
+								Endif
+							Endif
+						EndIf		
+						If nHdlPrv > 0
+							nTotal+=DetProva(nHdlPrv,"531","FINA382",cLote)
+							If Len(aGetFKK) > 0
+								&(aGetFKK[3]) :=  0 //Reseta variavel de contabilização
+							Endif
+						Endif
+					Endif
+				Endif
+
+				If !lAutomato
+					IncProc(STR0090)//"Processando. Aguarde...
+				Endif
+
+			Next
+
+			If SE2->( FieldPos( "E2_AGLIMP" )) > 0
+				For nA := 1 to Len(aRegsSE2)
+					dbSelectArea("SE2")
+					dbGoto(aRegsSE2[nA])
+					RecLock("SE2",.F.)
+					SE2->E2_AGLIMP := ""
+					MsUnlock()
+				Next nA
+			Endif
+
+			If !lAutomato
+				ProcRegua(Len(aRegsGer))
+			Endif
+
+			//Exclui titulos gerados
+			For nA := 1 to Len(aRegsGer)
+				dbSelectArea("SE2")
+				dbGoto(aRegsGer[nA])
+				If SE2->E2_LA == "S" .and. lPadrao515
+					If nHdlPrv <= 0
+						nHdlPrv:=HeadProva(cLote,"FINA382",Substr(cUsuario,7,6),@cArquivo)
+					Endif
+					//Atribui valor as variáveis de contabilização do motor de retenção
+					If nHdlPrv != 0 
+						aGetFKK := GetFKK(,SE2->E2_FORNECE,SE2->E2_LOJA,SE2->E2_CODRET,cFilAnt) //Busca informações do cadastro de típo de retenção (Retorna 1-Tipo Titulo / 2-Natureza / 3-Variavel CTB)
+						If Len(aGetFKK) > 0
+							aMotRet := {}
+							Aadd(aMotRet, {,,,, SE2->E2_VALOR, , , ,"1", , , 0,,,,,,,,, aGetFKK[3]})
+							If Len(aMotRet) > 0 .and. Len(aGetFKK) > 0
+								FinCarVarE(aMotRet)
+							Endif
+						Endif
+					EndIf	
+					If nHdlPrv > 0
+						nTotal+=DetProva(nHdlPrv,"515","FINA382",cLote)
+						If Len(aGetFKK) > 0
+							&(aGetFKK[3]) := 0 //Reseta variavel de contabilização
+						Endif
+					Endif
+				Endif
+				If lExistFJU
+					FinGrvEx("P")
+				Endif
+
+				RecLock("SE2")
+				dbDelete()
+				MsUnlock()
+
+				If !lAutomato
+					IncProc(STR0090)//"Processando. Aguarde...
+				Endif
+
+			Next
+			If nHdlPrv > 0 .and. nTotal > 0
+				If !lAutomato
+					ProcRegua(2)
+					IncProc(STR0101) //Contabilizando
+				Endif				
+				RodaProva(nHdlPrv,nTotal)
+				cA100Incl(cArquivo,nHdlPrv,3,cLote,lDigita,lAglutina)
+				If !lAutomato
+					IncProc(STR0090)//"Processando. Aguarde...
+				Endif
+			Endif
+		END TRANSACTION
+	
+		If !lAutomato
+			MsgInfo(STR0089) //Cancelamento finalizado.
+		Endif
+	Else
+		IF lTemBx
+			HELP(' ',1,"VLDCANC382A" ,,STR0094,2,0,,,,,, {STR0095}) //"O processo não pode ser cancelado. Verifique se há títulos baixados, com cheque impresso ou com guia DARF emitida."
+		Else
+			HELP(' ',1,"VLDCANC382B" ,,STR0099,2,0,,,,,, {STR0100}) //"Não foi possivel localizar o processo informado." ## Verifique o código do processo.	"
+		Endif
+	Endif
+
+	RestArea(aArea)
+
+	cFilAnt := cFilAtu
+
+Return(Nil)
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc}Fr382Rel
+Programa que Relatorio de titulos baixados
+@author Protheus
+@since  17/04/2018
+@version 11
+
+Obs: Função replicada da FINA381 (Fabio Casagrande Lima)
+
+/*/
+//-------------------------------------------------------------------
+
+Static Function Fr382Rel(aRecImp As Array,cProcess As Character,aImp As Array)
+
+	Local cDesc1	:= STR0027 //"Este relatorio irÁ  demonstrar os titulos que foram utilizados para "
+	Local cDesc2	:= STR0028 //"para a aglutinação de impostos bem como os titulos gerados"
+	Local cDesc3	:= ""
+	Local wNrel
+	Local Tamanho	:= "G"
+	Local nA		:= 0
+	Local CbCont	:= 0
+	Local CbTxt		:= Space(10)
+	Local cString	:= "SE2"
+	Local nColPrefixo
+	Local nColNumero
+	Local nColParcela
+	Local nColTipo
+	Local nColEmissao
+	Local nColVencto
+	Local nColVencRea
+	Local nColValor
+	Local nColNaturez
+	Local nSubTot	:= 0
+	Local nTamFil 	:= FWSizeFilial()
+
+	Private Li			:= 80
+	Private M_pag		:= 1
+	Private Titulo		:= STR0029+ cProcess //"Relatorio de Aglutinacao de Impostos - Processo Nr. "
+	Private cabec1		:= ""
+	Private cabec2		:= ""
+	Private aReturn	:= {STR0030, 1, STR0031, 2, 2, 1, "",1 } //"Zebrado"###"Administracao"
+	Private nomeprog	:= "FINA382"
+	Private nLastKey	:= 0
+
+	wnrel := "FR382Rel"
+	wnrel := SetPrint(cString,wNrel,,titulo,cDesc1,cDesc2,cDesc3,.F.,"",.T.,Tamanho,"",.F.)
+	If nLastKey == 27
+		Return(Nil)
+	EndIf
+
+	SetDefault(aReturn,cString)
+	If nLastKey == 27
+		Return(Nil)
+	EndIf
+
+	nColPrefixo	:= 9
+	nColNumero	:= 18
+	nColParcela	:= 32
+	nColTipo	:= 38
+	nColEmissao	:= 44
+	nColVencto	:= 56
+	nColVencRea	:= 68
+	nColNaturez := 80
+	nColValor	:= 91
+
+	If nTamFil > 6
+		nColPrefixo		:= nColPrefixo   + (nTamFil - 5)
+		nColNumero		:= nColNumero   + (nTamFil - 5)
+		nColParcela		:= nColParcela   + (nTamFil - 5)
+		nColTipo			:= nColTipo   + (nTamFil - 5)
+		nColEmissao	:= nColEmissao   + (nTamFil - 5)
+		nColVencto		:= nColVencto   + (nTamFil - 5)
+		nColVencRea	:= nColVencRea   + (nTamFil - 5)
+		nColNaturez 	:= nColNaturez   + (nTamFil - 5)
+		nColValor			:= nColValor   + (nTamFil - 5)
+
+		Cabec1 := STR0032//" Filial  Prefixo  Numero        Parc  Tipo  Emissao     Vencimento  Venc Real   Natureza           Valor"
+	Else
+		Cabec1 := STR0032//" Filial  Prefixo  Numero        Parc  Tipo  Emissao     Vencimento  Venc Real   Natureza           Valor"
+	EndIf
+	//"     Filial  Prefixo  Numero        Parc  Tipo  Emissao     Vencimento  Venc Real   Natureza           Valor"
+	//      12      123      9999999999999 1     123   99/99/9999  99/99/9999  99/99/9999  xxxxxxxxxx 99,999,999.99
+	//      1       9        32            38    38    44          56          68          80         91
+
+	Cabec2 := ""
+	If Len(aRecImp) > 0
+		nSubTot := 0
+		For nA:=1 To Len(aRecImp)
+			If Li >= 58
+				Cabec(Titulo,Cabec1,Cabec2,NomeProg,Tamanho,Iif(aReturn[4]==1,15,18))
+				Li := Prow()+1
+			EndIf
+			DbSelectArea("SE2")
+			DbSetOrder(1)
+			DbGoTo(aRecImp[nA])
+			@Li,001 PSAY SE2->E2_FILIAL
+			@Li,nColPrefixo	PSAY SE2->E2_PREFIXO
+			@Li,nColNumero		PSAY SE2->E2_NUM
+			@Li,nColParcela	PSAY SE2->E2_PARCELA
+			@Li,nColTipo		PSAY SE2->E2_TIPO
+			@Li,nColEmissao	PSAY SE2->E2_EMIS1
+			@Li,nColVencto		PSAY SE2->E2_VENCTO
+			@Li,nColVencRea	PSAY SE2->E2_VENCREA
+			@Li,nColNaturez	PSAY SE2->E2_NATUREZ
+			@Li,nColValor		PSAY SE2->E2_VALLIQ Picture "@e 99,999,999.99"
+			nSubTot += SE2->E2_VALLIQ
+			Li++
+		Next
+		If Li >= 55
+			Cabec(Titulo,Cabec1,Cabec2,NomeProg,Tamanho,Iif(aReturn[4]==1,15,18))
+			Li := Prow()+1
+		EndIf
+		@Li,001					PSAY STR0033 +" -->> " //"Total de Titulos Baixados"
+		@Li,nColValor			PSAY nSubTot		Picture "@e 99,999,999.99"
+
+		Li +=2
+		@ Li,000 PSAY __PrtThinLine()
+		Li += 2
+
+		Roda(CbCont,CbTxt,Tamanho)
+
+	Endif
+
+	If aReturn[5] = 1
+		Set Printer To
+		DbCommitAll()
+		OurSpool(wnrel)
+	EndIf
+
+	MS_FLUSH()
+
+Return(Nil)
+
+//------------------------------------------------------------------------
+/*/{Protheus.doc}F382DifFil
+Programa para retornar a filial completa para trocar o conteudo da variavel
+cFilAnt.
+Quando a filial está compartilhada e realizavam a troca do conteudo da cFilAnt
+usando os campos E2_FILIAL ou E5_FILIAL ocorriam erros de validação em tabelas
+onde a filial não é compartilhada.
+@author	Rodrigo Pirolo
+@since		23/11/2017
+@version	12
+@param		cTabela	-	Tabela para a qual os modos de acessos serão feitos
+@param		aLayoutGC	-	Array contendo o retorno da função FWLoadSM0()
+@param		cFil		-	Filial que deverá ser pesquizada para retornar
+@param						a filial completa
+/*/
+//------------------------------------------------------------------------
+
+Static Function F382DifFil( cTabela1 As Character, cTabela2 As Character) As Logical
+
+	Local aModC1	 As Array
+	Local aModC2	 As Array
+	Local aLayoutGC	 As Array
+	Local nPosGC	 As Numeric
+	Local lTudoExc1	 As Logical
+	Local lFilComp1	 As Logical
+	Local lUFilCom1	 As Logical
+	Local lTudoExc2	 As Logical
+	Local lFilComp2	 As Logical
+	Local lUFilCom2	 As Logical
+	Local lRet		 As Logical
+	Local lComDif    As Logical
+
+	aModC1	  := {}
+	aModC2	  := {}
+	aLayoutGC := {}
+	nPosGC	  := 0
+	lTudoExc1 := .F.
+	lFilComp1 := .F.
+	lUFilCom1 := .F.
+	lTudoExc2 := .F.
+	lFilComp2 := .F.
+	lUFilCom2 := .F.
+	lRet	  := .F.
+	lComDif   := .F.
+
+	Default cTabela1 := "SE2"
+	Default cTabela2 := "SE5"
+
+	If ( "E" $ FWSM0Layout() .OR. "U" $ FWSM0Layout() )
+
+		aLayoutGC	:= FWLoadSM0()
+
+		AAdd( aModC1, FWModeAccess( cTabela1, 1 ) )
+		AAdd( aModC1, FWModeAccess( cTabela1, 2 ) )
+		AAdd( aModC1, FWModeAccess( cTabela1, 3 ) )
+
+		AAdd( aModC2, FWModeAccess( cTabela2, 1 ) )
+		AAdd( aModC2, FWModeAccess( cTabela2, 2 ) )
+		AAdd( aModC2, FWModeAccess( cTabela2, 3 ) )
+
+		// Verifico o compartilhamento da cTabela1
+		If ( aModC1[1] == "E" .AND. aModC1[2] == "E" .AND. aModC1[3] == "E" )
+			lTudoExc1 := .T.																	// Tudo Compartilhado
+		ElseIf ( aModC1[1] == "E" .AND. aModC1[2] == "E" .AND. aModC1[3] == "C" )
+			lFilComp1 := .T.																	// Apenas Filial Compartilhado
+		ElseIf ( aModC1[1] == "E" .AND. aModC1[2] == "C" .AND. aModC1[3] == "C" )
+			lUFilCom1 := .T.																	// Apenas Empresa Compartilhado
+		EndIf
+
+		// Verifico o compartilhamento da cTabela2
+		If ( aModC2[1] == "E" .AND. aModC2[2] == "E" .AND. aModC2[3] == "E" )
+			lTudoExc2 := .T.																	// Tudo Compartilhado
+		ElseIf ( aModC2[1] == "E" .AND. aModC2[2] == "E" .AND. aModC2[3] == "C" )
+			lFilComp2 := .T.																	// Apenas Filial Compartilhado
+		ElseIf ( aModC2[1] == "E" .AND. aModC2[2] == "C" .AND. aModC2[3] == "C" )
+			lUFilCom2 := .T.																	// Apenas Empresa Compartilhado
+		EndIf
+
+		// Comparo o Compartilhamento entre cTabela1 e cTabela2
+		If lTudoExc1
+
+			If lTudoExc2
+				lComDif	:= .F.
+			ElseIf lFilComp2
+				lComDif	:= .T.
+			ElseIf lUFilCom2
+				lComDif	:= .T.
+			EndIf
+
+		ElseIf lFilComp1
+
+			If lTudoExc2
+				lComDif	:= .T.
+			ElseIf lFilComp2
+				lComDif	:= .F.
+			ElseIf lUFilCom2
+				lComDif	:= .T.
+			EndIf
+
+		ElseIf lUFilCom1
+
+			If lTudoExc2
+				lComDif	:= .T.
+			ElseIf lFilComp2
+				lComDif	:= .T.
+			ElseIf lUFilCom2
+				lComDif	:= .F.
+			EndIf
+		EndIf
+	Else
+		lComDif := .F.
+	EndIf
+
+Return lComDif
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SavePar
+Salva opções selecionadas nos parâmetros no Profile do usuário
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function SavePar(cPerg As Character,aPergAux As Array,nSelTit As Numeric,nSelFil As Numeric,nImprRel As Numeric,nCtbOn As Numeric,nMLcto As Numeric,nAglut As Numeric)
+
+	//Seta parametros Combobox como numericos para gravação no Profile
+	MV_PAR03 := nSelTit
+	MV_PAR04 := nSelFil
+	MV_PAR05 := nImprRel
+	MV_PAR10 := nCtbOn
+	MV_PAR11 := nMLcto
+	MV_PAR12 := nAglut
+
+	//Salva os parâmetros selecionados no Profile do usuário
+	__SaveParam(cPerg, aPergAux)
+
+Return
+
+//-------------------------------------------------------------------------------
+/*/{Protheus.doc} GetFKK
+Função para retornar 'Tipo do Título', 'Natureza' e 'Variavel CTB'. 
+A rotina tentará localizar algum registro na FKK que possa atender os requisitos por
+'Imposto+Fornecedor+Loja+Cod.Retenção'
+
+Obs: Caso seja localizado mais de um cadastro, será priozizado um que esteja ativo
+e que seja da filial corrente (cFIlAnt)
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------------------
+
+Static Function GetFKK(cImpFoo As Character, cForFKK As Character, cLojaFKK As Character, cCdRtFKK As Character, cFil As Character) As Array
+
+	Local cAliasTmp  As Character
+	Local cNatTit    As Character
+	Local cTpTit     As Character
+	Local aRet       As Array
+	Local lCont 	 As Logical
+	Local lFilExcl   As Logical
+	Local lEmpExcl   As Logical
+
+	Default cImpFoo  := ""
+	Default cForFKK  := ""
+	Default cLojaFKK := ""
+	Default cCdRtFKK := ""
+	Default cFil     := ""
+
+	cAliasTmp  := GetNextAlias()
+	aRet       := {}
+	lCont      := .T.
+	lEmpExcl   := FWModeAccess("FKK",1) == "E" //Compartilhamento por empresa
+	lFilExcl   := FWModeAccess("FKK",3) == "E" //Compartilhamento por filial
+
+	cQry := "SELECT FKK_FILIAL,FKK_FATGER,FKK_IDFKL,FKK_IDFKO,FKL_NATUR,FKL_TIPO, FKK_VARCTB, FKL_CARTMV, FKL_PARTIC, FKL_LOJA  "
+	cQry += "FROM " + RetSqlName("FKK") + " FKK "
+	cQry += "INNER JOIN " + RetSqlName("FOO") + " FOO ON FOO_FILIAL = FKK_FILIAL AND FOO_IDRET = FKK_IDFKO AND FOO_TIPIMP = '1' AND FOO.D_E_L_E_T_ = ' ' "
+	cQry += "INNER JOIN " + RetSqlName("FKL") + " FKL ON FKL_FILIAL = FKK_FILIAL AND FOO_IDRET = FKK_IDRET AND FOO_TIPIMP = '1' AND FOO.D_E_L_E_T_ = ' ' "
+
+	cQry += "WHERE FKK.D_E_L_E_T_ = ' ' " 
+
+	If !Empty(cImpFoo)
+		cQry += "AND FOO_CODIGO = '"+cImpFoo+"' " 
+	Endif
+	
+	cQry += "AND FKL_PARTIC = '" + cForFKK  + "' "
+	cQry += "AND FKL_LOJA = '"   + cLojaFKK + "' "
+	cQry += "AND FKK_CODRET = '" + cCdRtFKK + "' "		
+
+	If lEmpExcl 
+		cQry += "AND SUBSTRING(FKK.FKK_FILIAL,1,"+Str(nTamGrpEmp)+") = '"+Subs(cFil,1,nTamGrpEmp)+"' " //Considera os Tipos de Retenção da empresa corrente
+	Else 
+		cQry += "AND FKK.FKK_FILIAL = ' ' "
+	Endif
+
+	cQry += "ORDER BY FKK_ATIVO, FKK_FILIAL " //Ordena para que possa dar preferencia a um cadastro ativo
+
+	cQry := ChangeQuery(cQry)
+
+	dbUseArea(.T.,"TOPCONN",TCGENQRY(,,cQry),cAliasTmp,.F.,.T.)	
+	dbSelectArea(cAliasTmp)
+	(cAliasTmp)->(dbGoTop())
+
+	If lFilExcl
+		//Verifica se há registro da filial corrente e prioriza
+		While !(cAliasTmp)->(Eof()) .and. lCont
+			If (cAliasTmp)->FKK_FILIAL == cFil
+				cTpTit  := (cAliasTmp)->FKL_TIPO
+				cNatTit := (cAliasTmp)->FKL_NATUR
+
+				Aadd(aRet,IIF(!Empty(cTpTit),cTpTit,"TX"))
+				Aadd(aRet,IIF(!Empty(cNatTit),cNatTit,"IRF"))
+				Aadd(aRet,(cAliasTmp)->FKK_VARCTB)
+				
+				lCont := .F.
+			EndIf
+			(cAliasTmp)->(DbSkip())
+		EndDo
+	Endif
+
+	If lCont
+		(cAliasTmp)->(dbGoTop())	
+		cTpTit  := (cAliasTmp)->FKL_TIPO
+		cNatTit := (cAliasTmp)->FKL_NATUR
+
+		Aadd(aRet,IIF(!Empty(cTpTit),cTpTit,"TX"))
+		Aadd(aRet,IIF(!Empty(cNatTit),cNatTit,"IRF"))
+		Aadd(aRet,(cAliasTmp)->FKK_VARCTB)
+	Endif
+
+	(cAliasTmp)->(dbCloseArea())
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F382PrcFKK
+Localiza cadastros de tipos de retenção que atendam os parâmetros
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function F382PrcFKK(aSeekFKK) As Logical
+
+	Local cQry 		 As Character
+	Local cTmpFil	 As Character
+	Local cColuna    As Character
+	Local cInsert    As Character
+	Local cTmpIdx    As Character
+	Local nX		 As Numeric 
+	Local nProcQry   As Numeric
+	Local lRet       As Logical
+	Local lE2Excl    As Logical
+	Local aStruFKK   As Array
+	Local aIndices   As Array
+	Local aChave     As Array
+
+	nX			:= 0
+	aStruFKK	:= FKK->(dbStruct())
+	aColumFKK   := {}
+	cColuna     := ""
+	lRet        := .T.
+	aSeekFKK    := {}
+	lE2Excl     := FWModeAccess("FKK", 1) == "E" 
+	nTamFOO     := TamSX3("FOO_CODIGO")[1]
+	nTamIDRet   := TamSX3("FKL_IDRET")[1]
+	nTamCart	:= TamSX3("FKL_CARTMV")[1]
+
+	Aadd(aStruFKK,{"FOO_CODIGO","C",nTamFOO,0})
+	Aadd(aStruFKK,{"FKL_IDRET","C",nTamIDRet,0})
+	Aadd(aStruFKK,{"FKL_CARTMV","C",nTamCart,0})
+
+	//Seleciono os registros que serão exibidos na MarkBrowse
+	cQry := " SELECT "
+	For nX:= 1 to Len(aStruFKK)
+		cQry    += aStruFKK[nX,1]+", "
+		cColuna += aStruFKK[nX,1]+", "
+	Next
+	cQry += " FKK.R_E_C_N_O_ RECNO"
+	cQry += " FROM " + RetSqlName("FKK") + " FKK"
+	cQry += " INNER JOIN " + RetSqlName("FOO") + " FOO ON FOO_FILIAL = FKK_FILIAL AND FOO_IDRET = FKK_IDRET AND FOO_TIPIMP = '1' AND FOO.D_E_L_E_T_ = ' '"
+	cQry += " INNER JOIN " + RetSqlName("FKL") + " FKL ON FKL_FILIAL = FKK_FILIAL AND FKL_IDRET = FKK_IDFKL  AND FKL.D_E_L_E_T_ = ' ' "
+	cQry += " WHERE FKK.D_E_L_E_T_ = ' ' AND "	
+	cQry += " ((FKK_FATGER = '2' AND FKL_CARTMV = '1') OR (FKK_FATGER = '1' AND FKL_CARTMV = '1' )) AND "	
+
+	If FWModeAccess("SE2", 1) == "E" 	  
+		cQry += " FKK.FKK_FILIAL " + GetRngFil( aSelFil, "FKK", .T., @cTmpFil ) 
+	Else 
+		 cQry += " FKK.FKK_FILIAL = ' '"
+	Endif
+
+	//Filtra por código de retenção
+	If !Empty(MV_PAR06)
+		cQry += " AND FKK_CODRET = '"+MV_PAR06+"'"
+	Endif
+	
+	//Filtra por Fornecedor/Loja
+	If !Empty(MV_PAR08)
+		cQry += "AND FKL_PARTIC = '" + MV_PAR08 + "' "
+		cQry += "AND FKL_LOJA = '"   + MV_PAR09 + "' "
+	Endif
+
+	//Filtra por imposto
+	If !Empty(MV_PAR07)
+		cQry += " AND FOO_CODIGO = '"+ MV_PAR07 + "'"
+	Endif
+
+	//Filtra somente cadastros ativos (FKK_ATIVO = 1) ou bloqueados (FKK_ATIVO = 2 e que não possua versões posteriores)
+	cQry += " AND (FKK_ATIVO = '1' OR (FKK_ATIVO = '2' AND FKK_VERSAO = (SELECT MAX(FKK2.FKK_VERSAO) FROM " + RetSqlName("FKK") + " FKK2 WHERE FKK2.FKK_FILIAL = FKK.FKK_FILIAL AND FKK2.FKK_CODIGO = FKK.FKK_CODIGO ))) "
+
+	cQry := ChangeQuery(cQry)
+		
+	Aadd(aStruFKK,{"FKK_OK","C",1,0})
+	Aadd(aStruFKK,{"RECNO","C",16,0})
+
+	For nX := 1 To Len(aStruFKK)
+		If (lE2Excl .and. aStruFKK[nX][1] $ "FKK_FILIAL") .or. (aStruFKK[nX][1] $ "FKK_CODIGO|FKK_DESCR|FKK_VERSAO|FKK_CODRET")
+			AAdd(aColumFKK,FWBrwColumn():New())
+			aColumFKK[Len(aColumFKK)]:SetData( &("{||"+aStruFKK[nX][1]+"}") )
+			aColumFKK[Len(aColumFKK)]:SetTitle(RetTitle(aStruFKK[nX][1])) 
+			aColumFKK[Len(aColumFKK)]:SetSize(aStruFKK[nX][3]) 
+			aColumFKK[Len(aColumFKK)]:SetDecimal(aStruFKK[nX][4])
+			aColumFKK[Len(aColumFKK)]:SetPicture(PesqPict("FKK",aStruFKK[nX][1])) 
+		Endif
+	Next nX	
+
+	//------------------
+	//Criação da tabela temporaria 
+	//------------------
+	If __oFI3821 <> Nil
+		__oFI3821:Delete()
+		__oFI3821 := Nil
+	Endif
+
+	If SELECT(cAliasTrb) <> 0
+		(cAliasTrb)->(dbCloseArea())
+	EndIf
+	
+	__oFI3821 := FWTemporaryTable():New( cAliasTrb )  
+	__oFI3821:SetFields(aStruFKK) 	
+
+	aCposBase := {"FKK_CODIGO","FKK_DESCR","FKK_VERSAO","FKK_CODRET"}
+
+	FinCposSix("FKK",@aIndices,@aCposBase,,,.T.)
+
+	//Adiciono o índice da tabela temporária
+	If Len(aIndices) == 0
+		__oFI3821:AddIndex("1", {"FKK_FILIAL","FKK_CODIGO","FKK_VERSAO"})	
+	Else
+		For nX := 1 To Len(aIndices)
+			Aadd(aSeekFKK,{aIndices[nX,1],aindices[nX,2],nX})
+			cTmpIdx := "Tmp_Idx_"+StrZero(nX,2)
+			aChave	:= StrToKarr(Alltrim(aindices[nX,3]),"+")
+			__oFI3821:AddIndex(cTmpIdx,aChave)	
+		Next
+	Endif	
+
+	__oFI3821:Create()	
+
+	//Obtenho o nome "verdadeiro" da tabela no BD (criada como temporária)
+	cTable := __oFI3821:GetRealName()
+
+	//Preparo o comando para alimentar a tabela temporária
+	cColuna := cColuna+" RECNO"
+
+	cInsert := " INSERT "
+	If AllTrim(TcGetDb()) == "ORACLE"
+		cInsert += " /*+ APPEND */ "
+	EndIf
+
+	If AllTrim(TcGetDb()) == "DB2"
+		cQry := STRTRAN( cQry, "FOR READ ONLY", "" )
+	EndIf
+
+	cInsert += " INTO " + cTable + " ("+cColuna+" ) " + cQry
+
+	//Executo o comando para alimentar a tabela temporária
+	Processa({|| nProcQry := TcSQLExec(cInsert)})
+
+	If nProcQry != 0
+		UserException( TCSqlError() )
+	EndIf
+
+	(cAliasTrb)->(dbGoTop())
+
+	If (cAliasTrb)->(EOF())
+		lRet := .F.
+		alert(STR0049) //"Não há registros a serem selecionados. Favor cadastrar os tipos de retenção."
+	Endif
+
+	//Atualiza objeto do browse caso já exista
+	If oMrkImp <> nil
+		oMrkImp:Refresh()
+		(cAliasTrb)->(dbGoTop())
+	Endif	
+
+Return lRet
+
+//-------------------------------------------------------------------------
+/*/{Protheus.doc} F382GrvArray
+Grava arrays que serão utilizados para processamento da aglutinação
+
+nAction = 1 -> Armazena array com os títulos que irão compor a aglutinação
+nAction = 2 -> Armazena array com os impostos aglutinados 
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------------
+
+Static Function F382GrvArray(nAction As Numeric,aArray As Array,lRet As Logical,lAutomato As Logical)
+
+	Local nTotReg  As Numeric
+	Local nTamFOO  As Numeric
+	Local nTamA2a  As Numeric
+	Local nTamA2B  As Numeric
+	Local nTamCrt  As Numeric
+	Local nProcQry AS Numeric
+	Local aEstruct As Array
+	Local cQryTot  As Character
+
+	Default nAction := .F.
+	Default aArray := .F.
+	Default lRet := .T.
+	Default lAutomato := .F.
+
+	aArray    := {}
+	aEstruct  := {}
+	nTamFOO   := TamSX3("FOO_CODIGO")[1]
+	nTamA2a   := TamSX3("E2_FORNECE")[1]	
+	nTamA2B   := TamSX3("E2_LOJA")[1]	
+	nTamCrt   := TamSX3("E2_CODRET")[1]	
+	nE2Ok     := TamSX3("E2_OK")[1]
+
+	If nAction == 1
+		dbSelectArea(cAliasTit)
+		nTotReg := Contar(cAliasTit,"!Eof()")
+		ProcRegua((cAliasTit)->(nTotReg))	
+
+		(cAliasTit)->(dbGoTop())
+
+		Do While (cAliasTit)->(!Eof())   
+			If (MV_PAR03 <> 1) .or. (MV_PAR03 == 1 .and. (cAliasTit)->E2_OK == oMrkTit:cMark)
+				lRet := .T.
+				TCSetField(cAliasTit, "RECNO"          ,"N", 16,0)
+				aAdd(aArray , (cAliasTit)->RECNO  ) //Linha para titulo de Imposto
+			Endif
+			IncProc(STR0090) //"Processando. Aguarde..."
+			(cAliasTit)->(dbSkip())
+		EndDo
+	Elseif nAction == 2
+		//Calcula totalizadores
+		cQryTot := "SELECT E2_FORNECE,E2_LOJA,IMPOSTO,E2_CODRET,SUM(E2_SALDO) VALOR FROM " +__oFI3822:GetRealName() 
+		If MV_PAR03 == 1 //Seleciona títulos = Sim
+			cQryTot += " WHERE E2_OK <> '"+SPACE(nE2Ok)+"' "
+		Endif
+		cQryTot += " GROUP BY E2_FORNECE, E2_LOJA, IMPOSTO,E2_CODRET"	
+		
+		cQryTot := ChangeQuery(cQryTot)
+
+		//----------------------------
+		//Criação da tabela temporaria
+		//----------------------------
+		If __oFI3823 <> Nil
+			__oFI3823:Delete()
+			__oFI3823 := Nil
+		Endif
+
+		AADD(aEstruct,{"IMPOSTO","C",nTamFOO,0})
+		AADD(aEstruct,{"E2_FORNECE","C",nTamA2a,0})
+		AADD(aEstruct,{"E2_LOJA","C",nTamA2B,0})
+		AADD(aEstruct,{"E2_CODRET","C",nTamCrt,0})
+		AADD(aEstruct,{"VALOR","N",16,2})
+		
+		__oFI3823 := FWTemporaryTable():New( cAliasTot )  
+		__oFI3823:SetFields(aEstruct) 	
+		__oFI3823:AddIndex("1",{"IMPOSTO","E2_FORNECE","E2_LOJA","E2_CODRET"})	
+		__oFI3823:Create()	
+
+		//Obtenho o nome "verdadeiro" da tabela no BD (criada como temporária)
+		cTable := __oFI3823:GetRealName()
+
+		cInsert := " INSERT "
+		If AllTrim(TcGetDb()) == "ORACLE"
+			cInsert += " /*+ APPEND */ "
+		EndIf
+
+		If AllTrim(TcGetDb()) == "DB2"
+			cQryTot := STRTRAN( cQryTot, "FOR READ ONLY", "" )
+		EndIf
+
+		cInsert += " INTO " + cTable + " ( E2_FORNECE,E2_LOJA,IMPOSTO,E2_CODRET,VALOR ) " + cQryTot
+
+		//Executo o comando para alimentar a tabela temporária
+		Processa({|| nProcQry := TcSQLExec(cInsert)})
+
+		If nProcQry != 0
+			UserException( TCSqlError() )
+		EndIf		
+		
+		dbSelectArea(cAliasTot)
+		nTotReg := Contar(cAliasTot,"!Eof()")
+		ProcRegua((cAliasTot)->(nTotReg))	
+		(cAliasTot)->(dbGoTop())
+		Do While (cAliasTot)->(!Eof())
+			aGetFKK := GetFKK((cAliasTot)->IMPOSTO,(cAliasTot)->E2_FORNECE,(cAliasTot)->E2_LOJA,(cAliasTot)->E2_CODRET,cFilAnt) //Retorna 1-Tipo Titulo / 2-Natureza
+			TCSetField(cAliasTot, "VALOR"     ,"N", 16,2)
+			aAdd(aArray, {(cAliasTot)->IMPOSTO,(cAliasTot)->E2_FORNECE, (cAliasTot)->E2_LOJA, (cAliasTot)->VALOR, (cAliasTot)->E2_CODRET, aGetFKK[1], aGetFKK[2], dDatabase, cFilAnt } ) //Linha para cada Imposto
+			aGetFKK := {}		
+			IncProc(STR0090) //"Processando. Aguarde..."
+			(cAliasTot)->(dbSkip())
+		EndDo
+	Endif
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} AtuBrw
+Atualiza browse do wizard quando voltar alguma pagina
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  17/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function AtuBrw(nId) As Logical
+
+	If nId == 1
+		If oMrkImp <> nil
+			(cAliasTrb)->(dbGoTop())
+			oMrkImp:Refresh()
+		Endif	
+	Elseif nId == 2
+		If oMrkTit <> nil
+			(cAliasTit)->(dbGoTop())
+			oMrkTit:Refresh()
+		Endif	
+	Endif
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} AltFoco
+Atualiza o foco das perguntas para permitir se poderão ser editadas
+ao voltar as páginas do Wizard
+
+@author Fabio Casagrande Lima
+@since  25/04/2018
+/*/
+//-------------------------------------------------------------------
+
+Static Function AltFoco() As Logical
+
+	lFocoSlTit := .F.
+
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} VldRetur5
+Ação no botão 'Retornar' da pagina 5
+
+@param oPanel
+
+@author Fabio Casagrande Lima
+@since  12/04/2018
+@version 12.1.019
+/*/
+//-------------------------------------------------------------------
+
+Static Function VldRetur5() As Logical
+
+	AtuBrw(2) //Refresh na pagina 4
+
+	lFirstPg5 := .F. //Seta variavel de controle para recarregar model da pagina 5
+
+Return .T.

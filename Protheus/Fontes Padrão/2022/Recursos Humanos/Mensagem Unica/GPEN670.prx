@@ -1,0 +1,207 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FWADAPTEREAI.CH"
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ GPEN670 ³ Autor ³ Edna Dalfovo   ³ Data ³ 16/04/12 ³        ±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Inclusão, Exclusão e Alteração de Arquivo Financeiro                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Function GPEN670(cXML, nTypeTrans, cTypeMessage)
+Local lRet       	:= .T.
+Local cXMLRet  	 	:= ""
+Local cError     	:= ""
+Local cWarning   	:= ""
+Local nCount     	:= 0
+Local n				:= 0
+Local aRatTit		:= {}
+Local lRatItm		:= SuperGetMV("MV_RATITM",,.F.)
+Local lLog			:= .F.
+Local aLogs			:= {}
+Local cfile			:= ""
+Local nPos1			:= 0
+Local nPos2			:= 0
+Private oXmlM670  	:= ""
+
+If nTypeTrans == TRANS_RECEIVE
+	
+	If cTypeMessage == EAI_MESSAGE_BUSINESS
+		cXMLRet := 'TESTE DE RECEPCAO BUSINESS MESSAGE' + time()
+	ElseIf cTypeMessage == EAI_MESSAGE_RESPONSE
+		oXmlM670 := XmlParser(cXml, "_", @cError, @cWarning)
+		// Caso não haja erro no parser do xml
+		If oXmlM670 <> Nil .And. Empty(cError) .And. Empty(cWarning)
+			
+			If Alltrim(Upper(oXmlM670:_TOTVSMESSAGE:_MESSAGEINFORMATION:_DELIVERYTYPE:TEXT)) == "ASYNC"
+				lLog := .T.
+			EndIf
+			If Alltrim(Upper(oXmlM670:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_Status:Text)) == "OK"
+				If ValType("oXmlM670:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DocumentNumber:Text") <> "U" .And. !Empty(oXmlM670:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DocumentNumber:Text)
+					
+					cCodTit := CFGA070Ext(oXmlM670:_TOTVSMessage:_MessageInformation:_Product:_Name:Text,"RC1","RC1_NUMTIT", oXmlM670:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DocumentNumber:Text)
+					If cCodTit = Nil .Or. Empty(cCodTit)
+						CFGA070Mnt(oXmlM670:_TOTVSMessage:_MessageInformation:_Product:_Name:Text,"RC1","RC1_NUMTIT", oXmlM670:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DocumentNumber:Text,ALLTRIM(M->cEmpAnt)+'|' + ALLTRIM(RC1->RC1_FILTIT) +'|'+ ALLTRIM(RC1->RC1_CODTIT) +'|'+ ALLTRIM(RC1->RC1_PREFIX) +'|'+ ALLTRIM(RC1->RC1_NUMTIT), .F. )											
+					EndIF
+					pIntegr := '1'
+					cChvExt := oXmlM670:_TOTVSMessage:_ResponseMessage:_ReturnContent:_DocumentNumber:Text					
+				EndIf
+			Else
+				lRet := .F.
+				pIntegr := '2'
+				If ValType(oXmlM670:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message) <> "A"
+					XmlNode2Arr(oXmlM670:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message, "_Message")
+				EndIf
+				cCodTit := oXmlM670:_TOTVSMESSAGE:_RESPONSEMESSAGE:_RECEIVEDMESSAGE:_MESSAGECONTENT:TEXT
+				nPos1 := at('<DocumentNumber>',cCodTit)+16
+				If nPos1 > 0
+					nPos2 := at('</DocumentNumber>',cCodTit)
+					If nPos2 > 0 .And. nPos2 > nPos1
+						cCodTit := Substr(cCodTit,nPos1,nPos2-nPos1)	
+					EndIf 
+				EndIf
+				
+				For nCount := 1 To Len(oXmlM670:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message)
+					cXMLRet += oXmlM670:_TOTVSMessage:_ResponseMessage:_ProcessingInformation:_ListOfMessages:_Message[nCount]:Text 
+				Next nCount
+				If lLog
+					aadd(aLogs,cCodTit + " --> " + cXMLRet)
+					GeraLog(__RelDir + "GPEN670_" + dtos(date()) + ".##R" ,aLogs)
+				EndIf
+			Endif
+		Else
+			lRet := .F.
+			cXMLRet := "Erro ao fazer o parse da mensagem!"
+		EndIf
+	ElseIf cTypeMessage == EAI_MESSAGE_WHOIS
+		cXMLRet := '1.000'
+	EndIf
+ElseIf nTypeTrans == TRANS_SEND
+
+	If lRatItm
+		aRatTit := fCargaRat()
+	EndIf
+	cXMLRet += '<BusinessEvent>'
+	cXMLRet +=     '<Entity>AccountPayableDocument</Entity>'
+	cXMLRet +=     '<Event>upsert</Event>'
+	cXMLRet +=     '<Identification>'
+	cXMLRet +=         '<key name="NumTit">' +   RC1->RC1_NUMTIT + '</key>'
+	cXMLRet +=     '</Identification>'
+	cXMLRet +='</BusinessEvent>'
+	cXMLRet +='<BusinessContent>'
+	cXMLRet +='<CompanyId>'  +  M->cEmpAnt  + '</CompanyId>'
+	cXMLRet += '<BranchId>'  + RC1->RC1_FILTIT + '</BranchId>'
+	cXMLRet +='<DocumentPrefix>' +"U"+'</DocumentPrefix>'
+	cXMLRet += '<DocumentNumber>' + ALLTRIM(M->cEmpAnt)+'|' + ALLTRIM(RC1->RC1_FILTIT) +'|'+ ALLTRIM(RC1->RC1_CODTIT) +'|'+ ALLTRIM(RC1->RC1_PREFIX) +'|'+ ALLTRIM(RC1->RC1_NUMTIT) + '</DocumentNumber>'
+	cXMLRet +='<DocumentParcel>' +  RC1->RC1_PARC + '</DocumentParcel>'
+	cXMLRet +='<IssueDate>'	+ substr((DTOC(RC1->RC1_EMISSA)),7,4)+ '-' +substr((DTOC(RC1->RC1_EMISSA)),4,2)+'-'+ substr((DTOC(RC1->RC1_EMISSA)),1,2) + '</IssueDate>'
+	cXMLRet +='<RealDueDate>' + substr((DTOC(RC1->RC1_VENREA)),7,4)+ '-' +substr((DTOC(RC1->RC1_VENREA)),4,2)+'-'+ substr((DTOC(RC1->RC1_VENREA)),1,2) + '</RealDueDate>'
+	cXMLRet +='<VendorCode>' +  ALLTRIM(RC1->RC1_FORNEC) + ALLTRIM(RC1->RC1_LOJA) + '</VendorCode>'
+	cXMLRet +='<GrossValue>' +  CVALTOCHAR(RC1->RC1_VALOR) + '</GrossValue>'
+	cXMLRet +='<ApportionmentDistribution>'
+	If Len(aRatTit) > 0
+		For n := 1 to Len(aRatTit)
+			cXMLRet +='<Apportionment>'
+			cXMLRet +='<CostCenterCode>'+ aRatTit[n][1] +'</CostCenterCode>'
+			cXMLRet +='<Value>'+ CVALTOCHAR(aRatTit[n][2]) + '</Value>'
+			cXMLRet +='<FinancialCode>'+ RC1->RC1_TIPO + '</FinancialCode>'
+			cXMLRet +='</Apportionment>'
+		Next n
+	Else
+		cXMLRet +='<Apportionment>'
+		cXMLRet +='<CostCenterCode>'+'0'+'</CostCenterCode>'
+		cXMLRet +='<Value>'+ CVALTOCHAR(RC1->RC1_VALOR) + '</Value>'
+		cXMLRet +='<FinancialCode>'+ RC1->RC1_TIPO + '</FinancialCode>'
+		cXMLRet +='</Apportionment>'
+	EndIf
+	cXMLRet +='</ApportionmentDistribution>'
+	cXMLRet +='<Origin>' + 'PROTHEUS_GPE'+ '</Origin>'
+	cXMLRet += '</BusinessContent>'
+	
+EndIf
+
+cXmlRet:=FWNoAccent(cXmlRet)
+cXmlRet:=EncodeUTF8(cXmlRet)
+
+Return { lRet, cXMLRet }
+
+/*/{Protheus.doc} fCargaRat()
+Rotina para carga dos valores rateados por item a serem inseridos na mensagem.
+@author esther.viveiro
+@since 17/02/2016
+@version 11.80.15
+@return aRet, array contendo cada Item Contábil e seu respectivo valor a ser incluso na mensagem.
+/*/
+Static Function fCargaRat()
+	Local aArea := GetArea()
+	Local aRet := {}
+	Local cFil := RC1->RC1_FILTIT
+	Local cNumTit := RC1->RC1_NUMTIT
+	
+	DbSelectArea("SQF")
+	DbSeek( xFilial("SQF",cFil) + cFil + cNumTit )
+	While !(EOF()) .AND. SQF->QF_FILTIT == cFil .AND. SQF->QF_NUMTIT == cNumTit
+		aAdd(aRet,{SQF->QF_ITEM, SQF->QF_VALOR})
+		SQF->(DbSkip())
+	EndDo
+	RestArea(aArea)
+Return (aRet)
+
+
+Function GeraLog(cPathFile ,aLog)
+Local cPathOldLog 	:= StrTran( cPathFile , ".##R" , ".OLD"  )
+Local aAllString	:= {}
+Local nX
+Local nFornX
+Local nHandle2
+Local cFile
+Local nError
+
+IF File( cPathFile ) // Validação feita apenas para impressões em disco.
+	
+	IF File( cPathOldLog )
+		fErase( cPathOldLog )
+	EndIF
+
+	If !(( nError := fRename( cPathFile , cPathOldLog ) ) == -1) 
+		If (nHandle2 := MSFCreate(cPathFile,0)) == -1
+			Return
+		EndIf
+	EndIF
+	
+	If File( cPathOldLog ) 
+		IF !( ( nHandleOld := fOpen( cPathOldLog , 0 )) == -1 )
+			RetBytes( cPathOldLog , nHandleOld )
+			aAllString := GetAllTxtFile( nHandleOld )
+			nX := 0
+			nFornX := Len( aAllString )
+			While ( ++nX <= nFornX )
+				If Substr(aAllString[ nX ],1,1) <> "*"
+					aadd(aLog,aAllString[ nX ])
+				EndIf
+			End While
+			fClose( nHandleOld )
+			fErase( cPathOldLog )
+		EndIF	
+	EndIf
+Else
+	If (nHandle2 := MSFCreate(cPathFile,0)) == -1
+		Return
+	EndIf
+EndIf
+FSeek(nHandle2,0,2)
+FWrite(nHandle2,"******************************************************"+chr(13)+chr(10))
+FWrite(nHandle2,"************ LOG Integração EAI - GPEN670 ************"+chr(13)+chr(10))
+FWrite(nHandle2,"******************************************************"+chr(13)+chr(10))
+For nx := 1 to Len(aLog)
+	FWrite(nHandle2,aLog[nx]+chr(13)+chr(10))
+Next nX
+FClose(nHandle2)
+ Return

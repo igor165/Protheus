@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 "Atenção"
+	#define STR0002 "Instrução de Embarque não possui quantidade remetida para retorno das remessas."
+	#define STR0003 "Tot. Rem."
+	#define STR0004 "Qtd. Sel."
+	#define STR0005 "Saldo a ret."
+	#define STR0006 "Aguarde. Carregando a tela"
+	#define STR0007 "Aguarde. Selecionando notas fiscais de remessa disponíveis para retorno"
+	#define STR0008 "Retornar NFs de Remessa"
+	#define STR0009 "Filiais"
+	#define STR0010 "Remessas"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Attention"
+		#define STR0002 "Shipping Instruction does not have amount sent for remittance returning."
+		#define STR0003 "Rem Tot"
+		#define STR0004 "Sel Amnt"
+		#define STR0005 "Balance to ret."
+		#define STR0006 "Wait. Loading screen"
+		#define STR0007 "Wait. Selecting remittance invoices available for return"
+		#define STR0008 "Return remittance invoices"
+		#define STR0009 "Branches"
+		#define STR0010 "Remittances"
+	#else
+		#define STR0001 "Atenção"
+		#define STR0002 "Instrução de Embarque não possui quantidade remetida para retorno das remessas."
+		#define STR0003 "Tot. Rem."
+		#define STR0004 "Qtd. Sel."
+		#define STR0005 "Saldo a ret."
+		#define STR0006 "Aguarde. Carregando a tela"
+		#define STR0007 "Aguarde. Selecionando notas fiscais de remessa disponíveis para retorno"
+		#define STR0008 "Retornar NFs de Remessa"
+		#define STR0009 "Filiais"
+		#define STR0010 "Remessas"
+	#endif
+#endif

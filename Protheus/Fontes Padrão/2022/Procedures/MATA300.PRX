@@ -1,0 +1,2262 @@
+#INCLUDE "MATA300.CH"
+#INCLUDE "PROTHEUS.CH"
+#Include 'Fwlibversion.ch'
+#INCLUDE "FWEVENTVIEWCONSTS.CH"
+
+#DEFINE DEF_DB_POSTGRES             "POSTGRES"
+#DEFINE DEF_DB_INFORMIX             "INFORMIX"
+#DEFINE DEF_DB_SYBASE               "SYBASE"
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ MATA300  ³ Autor ³ Eveli Morasco         ³ Data ³ 05/03/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Calcula os saldos atuais de estoque e atualiza o arquivo   ³±±
+±±³          ³ SB2 quando houver diferenca.                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+*/
+Function MATA300(lBat,aListaFil)
+
+Local aSays      :={}
+Local aButtons   :={}
+
+TCInternal(5,"*OFF")   // Desliga Refresh no Lock do Top
+
+Default lBat := .F.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ mv_par01 - Almoxarifado De   ?                                  ³
+//³ mv_par02 - Almoxarifado Ate  ?                                  ³
+//³ mv_par03 - Do produto                                           ³
+//³ mv_par04 - Ate o produto                                        ³
+//³ mv_par05 - Zera o Saldo da MOD?  Sim/Nao/Recalcula              ³
+//³ mv_par06 - Zera o CM da MOD?  Sim/Nao/Recalcula                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Colocado o Return porque se o usuario clicasse no botao de    ³
+//³ cancelar ele nao retornava ao menu, ele continuava o processo.|
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If !Pergunte("MTA300",If(lBat .Or. IsBlind(),.F.,.T.)) .And. !( lBat .Or. IsBlind() )
+	Return
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Inicializa o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogIni(aButtons)
+
+AADD(aSays,STR0047) // "Este programa tem o objetivo de recalcular o saldo atual de todos os itens do Estoque"
+AADD(aSays,STR0048) // "(em Quantidade e Valor). Ele partirá do saldo inicial do período e considerará todas as"
+AADD(aSays,STR0049) // "Notas Fiscais de Entrada, Notas Fiscaisde Saída, Requisiçöes,Devoluçöes e Produçöes"
+AADD(aSays,STR0050) // "feitas até o momento."
+
+AADD(aButtons, { 5,.T.,{|o| nOpcA:= 0 ,Pergunte("MTA300",.T.)} } )
+AADD(aButtons, { 1,.T.,{ || Processa({|lEnd| If(MA300Process(lBat,@lEnd,aListaFil),FechaBatch(),.F.)},OemToAnsi(STR0007),OemToAnsi(STR0011),.F.)} } )
+AADD(aButtons, { 2,.T.,{|| FechaBatch() }} )
+
+If FtVldJobFt()
+	IF MTA300TOk ()
+		If !lBat
+			If !IsBlind()
+				If Getmv("MV_CUSTEXC") == "N"
+					cMens := OemToAnsi(STR0001)+chr(13) //"Esta rotina ser  executada em modo"
+					cMens += OemToAnsi(STR0002)+chr(13) //"compartilhado , conforme indicado"
+					cMens += OemToAnsi(STR0003)+chr(13) //"pelo parƒmetro MV_CUSTEXC."
+					cMens += OemToAnsi(STR0004)+chr(13) //"As movimenta‡”es que ocorrerem durante"
+					cMens += OemToAnsi(STR0005)+chr(13) //"o processo podem influir no c lculo."
+					If !MsgYesNo(cMens,OemToAnsi(STR0006))    //"ATEN€O"
+						Return
+					EndIf
+				Else
+					cMens := OemToAnsi(STR0012)+chr(13) //"Esta  rotina  exige  que  os   arquivos"
+					cMens += OemToAnsi(STR0013)+chr(13) //"associados a ela n†o estejam em uso por"
+					cMens += OemToAnsi(STR0014)+chr(13) //"outras esta‡”es."
+					cMens += OemToAnsi(STR0015)+chr(13) //"Fa‡a com que os outros usu rios saiam do"
+					cMens += OemToAnsi(STR0016)+chr(13) //"sistema."
+					If !MsgYesNo(cMens,OemToAnsi(STR0006)) //"ATEN€O"
+						Return
+					EndIf
+				EndIf
+				FormBatch(STR0007,aSays,aButtons,,220,560)
+			Else
+				BatchProcess(STR0007,OemToAnsi(STR0008)+OemToAnsi(STR0009)+OemToAnsi(STR0010),"MTA300",{ || Processa({|lEnd| MA300Process(lBat,@lEnd,aListaFil)},OemToAnsi(STR0007),OemToAnsi(STR0011),.F.)})     //"Recalculo dos Saldos"###"Efetuando Rec lculo dos Saldos..."
+			EndIf
+		Else
+			MA300Process(lBat,,aListaFil)
+		EndIf
+	EndIf
+EndIf
+RETURN
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MA300Process³ Autor ³ Rodrigo de A. Sartorio³ Data ³28/11/95³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Processa os saldos atuais de estoque e atualiza o arquivo  ³±±
+±±³          ³ SB2 quando houver diferenca.                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA300                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MA300Process(lBat,lEnd,aListaFil)
+Local cDoc       := ''
+Local cLoja      := ''
+Local cSeek      := ''
+Local cSeek1     := ''
+Local cAlmox     := ''
+Local cSerie     := ''
+Local cCliFor    := ''
+Local cLoteCtl   := ''
+Local cNumLote   := ''
+Local cLoteFor   := ''
+Local cOrigLan   := ''
+Local cTempo     := ''
+Local cLocProc   := ''
+Local cDepTran   := ''
+Local cLocal     := ''
+Local cJobFile   := ''
+Local cTexto     := ''
+Local nQuant     := 0
+Local nQuant2    := 0
+Local nAchou     := 0
+Local nTempoIni  := 0
+Local nTempoFim  := 0
+Local nVAtu      := 0
+Local nVFF       := 0
+Local nX         := 0
+Local nY         := 0
+Local nRecnoSBK  := 0
+Local nThreads   := 0
+Local nRetry_0   := 0
+Local nRetry_1   := 0
+Local nPos       := 0
+Local nTotRegs   := 0
+Local lContinua  := .T.
+Local lProcessa  := .F.
+Local lSaldoIni  := .F.
+Local l300SalNeg := .T.
+Local lTranSB2   := .F.
+Local lCustNeg   := .F.
+Local lThrSeq    := .F.
+Local lProcesProc:= .F.
+Local lD3Servico := .F.
+Local aProcsOk   := {}
+Local aJobAux    := {}
+Local aDeleSBF   := {{}}
+Local aPriori    := {{}}
+Local dData      := CTOD('  /  /  ')
+Local dDtValid   := CTOD('  /  /  ')
+Local dUsai      := CTOD("01/01/80","ddmmyy")
+Local lM300SBF   := ExistBlock('M300SBF')
+Local lM300SB8 	:= ExistBlock('M300SB8')
+Local nTamLocal  := TamSX3("B2_LOCAL")[1]
+Local lSD1,lSD2,lSD3,lSB2
+Local lSB9,aSaldo,xLocal
+Local ni
+Local nRegSB2,cChaveSB2
+Local oDlgOcorr, oOcorr
+Local dUlMes
+Local nCntFil 	 := 0
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Variavel codeblock                                     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local bBloco     := { |nV,nX| Trim(nV)+IIf(Valtype(nX)='C',"",Str(nX,1)) }
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ lFFOnLine - Verifica se utiliza Custo FIFO On-Line     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lFFonLine  := IsFifoOnLine()
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Abertura de tabelas em modo exclusivo ou compartilhado. |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lArqExcl   := IIf(GetMV("MV_CUSTEXC")!="N",.T.,.F.)
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Diretorio do servidor protheus                         |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local cStartPath := GetSrvProfString("Startpath","")
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se utiliza contabilizacao On-Line             |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lCstOnLine := (AllTrim(SuperGetMv("MV_CUSMED",.F.,"M")) == "O" .Or. SuperGetMV("MV_AGCUSTO",.F.,.F.))
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se utiliza custo por Filial                   |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lCusFil    := AllTrim(SuperGetMV('MV_CUSFIL',.F.,"A")) == "F"
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se utiliza custo por Empresa                  |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lCusEmp    := AllTrim(SuperGetMv('MV_CUSFIL',.F.,"A")) == "E"
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se utiliza processamento nas 5 moedas         |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local cMoeda300C := SuperGetMv('MV_MOEDACM',.F.,"2345")
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se deve travar os registros do SB2            |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local lLockSB2   := mv_par07 == 1 .And. !lArqExcl
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Variaveis utilizadas para processamento de Filiais     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local aFilsCalc  := {}
+Local cFilBack   := cFilAnt
+Local nForFilial := 0
+Local cSPMAT040  := GetSPName("MAT040","18")
+Local cSPMAT044  := GetSPName("MAT044","18")
+Local cSPMAT053  := GetSPName("MAT053","18")
+Local cSPMAT055  := GetSPName("MAT055","18")
+Local lUsaD2DIG  := UsaD2DTDIG()
+Local lWmsNew    := SuperGetMV("MV_WMSNEW",.F.,.F.)
+Local lMvNegatBF := SuperGETMV("MV_NEGATBF",.F.,.F.)
+Local cArqProd	 := SuperGetMV('MV_ARQPROD',.F.,"SB1")
+Local nElaptime
+Local dData1Ini
+Local dData1Fim
+Local cTitle
+Local cMessage
+Local cSubRotina as Character
+Local cQBB2COD
+Local cQBB9COD
+Local cQBD1COD
+Local cQBD2COD
+Local cQBD3COD
+Local cQBLocB2
+Local cQBLocB9
+Local cQBLocD1
+Local cQBLocD2
+Local cQBLocD3
+Local AareaSBJ
+Local cMsgError
+Local aMsgErro := {}
+Private cSavFil	:= cFilAnt
+Private l300Pri	 := .T.
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Carrega as filiais a serem processadas                 ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lCstOnLine .And. lCusEmp
+	aFilsCalc := MatFilCalc( .F. )
+ElseIf lBat .Or. IsBlind()
+	If Empty(aListaFil)
+		aFilsCalc := MatFilCalc( .F. )
+	Else
+		aFilsCalc := aListaFil
+	EndIf
+Else
+	aFilsCalc := MatFilCalc( mv_par08 == 1 )
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atraves do parametro MV_CUSTEXC, verifica se a abertura de   ³
+//³ arquivos e' exclusiva ou compartilhada.                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lArqExcl
+	If !LockTable(1)
+		OpenFile(SubStr(cNumEmp,1,2))
+		Return .T.
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Desenha o cursor e o salva para poder movimenta'-lo          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nTempoIni :=Seconds()
+dData1Ini := Date()
+dbSelectArea("SB1")
+nTotRegs := nTotRegs + LastRec()
+If !lBat
+	ProcRegua(nTotRegs,21,05)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Pega a data do Recalculo do custo medio , vinda do SX1       ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dDataIni := GETMV("MV_ULMES")
+dDataFim := CTOD("31/12/49","ddmmyy")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Custo por Empresa OnLine - Processar todas as Filiais        ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lCusEmp .And. lCstOnLine
+	Help(" ",1,"A300EMP")
+	For nForFilial := 1 to Len(aFilsCalc)
+		aFilsCalc[nForFilial,1] :=.T.
+	Next nForFilial
+	mv_par01 := Space(nTamLocal)
+	mv_par02 := Replicate('z',nTamLocal)
+EndIf
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Custo por Filial OnLine - Processar todos armazens           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lCusFil .And. lCstOnLine
+	Help(" ",1,"A300FIL")
+	mv_par01 := Space(nTamLocal)
+	mv_par02 := Replicate('z',nTamLocal)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("INICIO")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("MENSAGEM",STR0021,STR0021) //"Iniciando recalculo do saldo atual"
+
+If ExistProc( cSPMAT040,VerIDProc(),lBat ) .And. ExistProc( cSPMAT044, VerIDProc(),lBat ) .And. ExistProc( cSPMAT053, VerIDProc(),lBat )
+
+	cSubRotina := "PROCEDURE"
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Habilita processamento de thread em sequencia          |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	lThrSeq    := SuperGetMV("MV_THRSEQ",.F.,.F.)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ MV_A300THR parametro utilizado para informar o numero  |
+	//| de threads para o processamento.                       |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	nThreads   := IIF(SuperGetMv('MV_A300THR',.F.,1) == 0, 1,SuperGetMv('MV_A300THR',.F.,1))
+
+	dbSelectArea("SB2")
+	dbSetOrder(1)
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ PROCESSAMENTO PADRAO                                         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ SQL2000 - Quando utilizado banco de dados SQL2000 ou versoes |
+	//|           anteriores nao sera possivel utilizar a execucao   |
+	//|           em mult-threads, somente processamento padrao.     |
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If nThreads == 1 .Or. lArqExcl .Or. ( GetSQLVersion() == "8" )
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ aFilsCalc - Array com filiais a serem processadas            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty(aFilsCalc)
+
+			For nForFilial := 1 To Len( aFilsCalc )
+
+				If aFilsCalc[ nForFilial, 1 ]
+					nCntFil += 1
+					If nCntFil > 1 .and. Empty(xFilial("SB2")) 
+						l300Pri := .F.
+					EndIf
+					cFilAnt    := aFilsCalc[ nForFilial, 2 ]
+					lD3Servico := GetMV('MV_D3SERVI', .F., 'N')=='S'
+					l300SalNeg := GetMV("MV_MT300NG",.F.,.T.)
+					lCustNeg   := (SuperGetMV('MV_CUSTNEG', .F., 'S')=='S')
+					cTexto     := STR0045+cFilAnt+" - "
+					aResult:= TCSPExec(	xProcedures(cSPMAT040)		,;  // Chamada da procedure MAT040
+										cFilAnt						,;	// 01. Codigo da filial corrente
+										mv_par01					,;	// 02. Almoxarifado de
+										mv_par02					,;	// 03. Almoxarifado ate
+										GetMvNNR('MV_LOCPROC','99')	,;	// 04. Armazem de processo
+										dtos( GetMV( "MV_ULMES" ))	,;	// 05. Data do ultimo fechamento
+										GetMV( "MV_RASTRO" )		,;	// 06. Verifica se utiliza rastreabilidade
+										mv_par03					,;	// 07. Do produto
+										mv_par04					,;	// 08. Ate o produto
+										mv_par05					,;	// 09. Zera saldo da MOD
+										mv_par06					,;	// 10. Zera CM da MOD
+										If( l300SalNeg, '1', '0' )  ,;	// 11. Permite saldo negativo
+										If( lCstOnLine, '1', '0' )  ,;	// 12. Verifica se devera utilizar o custo ON-LINE.
+										If( lCusFil   , '1', '0' )  ,;	// 13. Verifica se o sistema utiliza o custo unificado por Filial
+										If( lCusEmp   , '1', '0' )	,;	// 14. Verifica se o sistema utiliza o custo unificado por Empresa
+										cMoeda300C					,;	// 15. Parametro MV_MOEDACM
+										If(lD3Servico,'1','0')		,;	// 16. Considera o parametro MV_D3SERVI
+										If(IntDL(),'1','0')			,;  // 17. Verifica a integracao com WMS
+										GetMvNNR('MV_CQ','98')		,;	// 18. Codigo do Armazem de CQ
+										If( lWmsNew,'1','0')		,;	// 19. Novo WMS
+										cArqProd					,;  // 20. Verifica se utiliza controle pela SB1 ou SBZ
+										If( lCustNeg, '1', '0' )    ,;  // 21. Verifica se permite custo negativo
+										If( l300Pri , '1', '0' ) )		// 22. Controle de uso SB2 Compartilhada
+
+					If !lBat
+						If Empty(aResult)
+							lProcessa := .F.
+							cMsgError := TCSqlError()
+							aAdd(aProcsOk,cTexto+STR0017) // 'Erro na chamada do processo: Refaz saldos em estoque.'
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Atualiza o log de processamento			    ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							ProcLogAtu("MENSAGEM",cTexto+STR0017,cTexto+STR0017+cMsgError,,,cSavFil) // 'Erro na chamada do processo: Refaz saldos em estoque.'
+							A280Alert(cTexto+STR0017,,cMsgError)
+						ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+							lProcessa := .T.
+							aAdd(aProcsOk,cTexto+STR0036) //"Processamento Refaz Saldos em Estoque - Ok"
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Atualiza o log de processamento			    ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							ProcLogAtu("MENSAGEM",cTexto+STR0036,cTexto+STR0036) //"Processamento Refaz saldos em Estoque - Ok"
+						Else
+							lProcessa := .F.
+							aAdd(aProcsOk,cTexto+STR0019) //'Refaz saldos em estoque com Erro'
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Atualiza o log de processamento			    ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							ProcLogAtu("MENSAGEM",cTexto+STR0019,cTexto+STR0019) //'Refaz saldos em estoque com Erro'
+						EndIf
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ MAT053 - Executa o acerto do campo BE_STATUS                 ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If lProcessa
+
+						aResult:= TCSPExec(	xProcedures(cSPMAT053)		,;  // Chamada da procedure MAT053
+											cFilAnt						,;	// 01. Codigo da filial corrente
+											mv_par01					,;	// 02. Almoxarifado de
+											mv_par02					,;	// 03. Almoxarifado ate
+											mv_par03					,;	// 07. Do produto
+											mv_par04					,;  // 08. Ate o produto
+											If( l300SalNeg, '1', '0' ) 	,;  // 09. Permite saldo negativo
+											If(lWmsNew,'1','0')			,; 	// 10. Controla novo Wms
+											If(lMvNegatBF,'1','0') 		,;	// 11. Controla novoWms
+											cArqProd)						// 12. Verifica se o sistema controla por SB1 ou SBZ
+						If !lBat
+							If Empty(aResult)
+								cMsgError := TCSqlError()
+								aAdd(aProcsOk,cTexto+STR0037) // "Erro na chamada do processo: Acerto no status dos enderecos"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0037,cTexto+STR0037+cMsgError,,,cSavFil) // "Erro na chamada do processo: Acerto no status dos enderecos"
+								A280Alert(cTexto+STR0037,, cMsgError)
+							ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+								aAdd(aProcsOk,cTexto+STR0038) //"Processamento Acerto no Status dos Enderecos - Ok"
+								aAdd(aProcsOk,cTexto+STR0018) //"Processamento Ok"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0038,cTexto+STR0038) //"Processamento do Acerto no Status dos Enderecos - Ok"
+							Else
+								aAdd(aProcsOk,cTexto+STR0039) //"Acerto no status dos endereco com Erro"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0039,cTexto+STR0039) //"Acerto no status dos endereco com Erro"
+							EndIf
+						EndIf
+
+					EndIf
+
+				EndIf
+
+			Next nForFilial
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ MAT055 - Atualiza o custo unificado on-line por Empresa      ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lProcessa .And. lCusEmp .And. lCstOnLine
+
+				aResult:= TCSPExec(	xProcedures(cSPMAT055)		,;  // Chamada da procedure MAT055
+									cFilAnt						,;	// 01. Codigo da filial corrente
+									mv_par03					,;	// 02. Do produto
+									mv_par04					,;	// 03. Ate o Produto
+									If( lCstOnLine, '1', '0' )  ,;	// 04. Verifica se devera utilizar o custo ON-LINE.
+									If( lCusFil   , '1', '0' )  ,;	// 05. Verifica se o sistema utiliza o custo unificado por Filial
+									If( lCusEmp   , '1', '0' )	,;	// 06. Verifica se o sistema utiliza o custo unificado por Empresa
+									cMoeda300C ) 					// 07. Parametro MV_MOEDACM
+
+				If !lBat
+					If Empty(aResult)
+						lProcessa := .F.
+						cMsgError := TCSqlError()
+						aAdd(aProcsOk,cTexto+STR0042) // "Erro na chamada do processo: Custo Unificado On-Line por Empresa"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0042,STR0042+cMsgError,,,cSavFil) // "Erro na chamada do processo: Custo Unificado On-Line por Empresa"
+						A280Alert(STR0042,, cMsgError)
+					ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+						lProcessa := .T.
+						aAdd(aProcsOk,STR0043) //"Processamento do Custo Unificado On-Line por Empresa - Ok"
+						aAdd(aProcsOk,STR0018) //"Processamento Ok"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0043,STR0043) //"Processamento do Custo Unificado On-Line por Empresa - Ok"
+					Else
+						lProcessa := .F.
+						aAdd(aProcsOk,STR0044) //"Custo Unificado On-Line por Empresa com Erro"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0044,STR0044) //"Custo Unificado On-Line por Empresa com Erro"
+					EndIf
+				EndIf
+			EndIf
+			//-- Restaura Filial Original
+			cFilAnt := cFilBack
+		EndIf
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ PROCESSAMENTO MULT-THREAD                                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	Else
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ aFilsCalc - Array com filiais a serem processadas            ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If !Empty(aFilsCalc)
+
+			For nForFilial := 1 To Len( aFilsCalc )
+
+				If aFilsCalc[ nForFilial, 1 ]
+					nCntFil += 1
+					If nCntFil > 1 .and. Empty(xFilial("SB2")) 
+						l300Pri := .F.
+					EndIf
+					cFilAnt    := aFilsCalc[ nForFilial, 2 ]
+					cTexto     := STR0045+cFilAnt+" - "
+					lD3Servico := GetMV('MV_D3SERVI', .F., 'N')=='S'
+					l300SalNeg := GetMV("MV_MT300NG",.F.,.T.)
+					lCustNeg   := (SuperGetMV('MV_CUSTNEG', .F., 'S')=='S')
+					nRetry_0   := 0
+					nRetry_1   := 0
+					//-- Calcula a quantidade de Threads
+					aThreads := A300QtdThread(mv_par03,mv_par04)
+					aJobAux := {}
+
+					For nX :=1 to Len(aThreads)
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",cTexto+STR0046 + StrZero(nX,3),cTexto+STR0046 + StrZero(nX,3)) //"Procedures: Iniciando Thread: ### "
+
+						// Informacoes do semaforo
+						cJobFile:= cStartPath + CriaTrab(Nil,.F.)+".job"
+
+						// Adiciona o nome do arquivo de Job no array aJobAux
+						aAdd(aJobAux,{StrZero(nX,2),cJobFile})
+
+						// Inicializa variavel global de controle de thread
+						cJobAux:="c300P"+cEmpAnt+cFilAnt+StrZero(nX,2)
+						PutGlbValue(cJobAux,"0")
+						GlbUnLock()
+
+						aDataProc := {	cFilAnt						,;	// 01. Codigo da filial corrente
+										mv_par01					,;	// 02. Almoxarifado de
+										mv_par02					,;	// 03. Almoxarifado ate
+										GetMvNNR('MV_LOCPROC','99')	,;	// 04. Armazem de processo
+										dtos( GetMV( "MV_ULMES" ))	,;	// 05. Data do ultimo fechamento
+										GetMV( "MV_RASTRO" )		,;	// 06. Verifica se utiliza rastreabilidade
+										aThreads[nX,1]				,;	// 07. Do produto
+										aThreads[nX,2]				,;	// 08. Ate o produto
+										mv_par05					,;	// 09. Zera saldo da MOD
+										mv_par06					,;	// 10. Zera CM da MOD
+										If( l300SalNeg, '1', '0' )  ,;	// 11. Permite saldo negativo
+										If( lCstOnLine, '1', '0' )  ,;	// 12. Verifica se devera utilizar o custo ON-LINE.
+										If( lCusFil   , '1', '0' )  ,;	// 13. Verifica se o sistema utiliza o custo unificado por Filial
+										If( lCusEmp   , '1', '0' )	,;	// 14. Verifica se o sistema utiliza o custo unificado por Empresa
+										cMoeda300C 					,;	// 15. Parametro MV_MOEDACM
+										If(lD3Servico,'1','0')		,;	// 16. Considera o parametro MV_D3SERVI
+										If(IntDL(),'1','0')			,;  // 17. Verifica a integracao com WMS
+										GetMvNNR('MV_CQ','98')		,;	// 18. Codigo do Armazem de CQ
+										If(lWmsNew,'1','0')			,;	// 19. Controla novoWms
+										cArqProd					,;  // 20. Verifica se utiliza controle pela SB1 ou SBZ
+										If( lCustNeg, '1', '0' )    ,;  // 21. Verifica se permite custo negativo
+										If( l300Pri , '1', '0' ) }		// 22. Controle de uso SB2 Compartilhada
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Dispara thread para Stored Procedure        ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						cMsgError := StartJob("A300JOB",GetEnvServer(),lThrSeq,cEmpAnt,cFilAnt,cSPMAT040,aDataProc,cJobFile,StrZero(nX,2),cSavFil)
+						Aadd(aMsgErro, cMsgError)
+					Next nX
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Controle de Seguranca para MULTI-THREAD                                   ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					For nX :=1 to Len(aThreads)
+
+						nPos := ASCAN(aJobAux,{|x| x[1] == StrZero(nX,2)})
+
+						// Informacoes do semaforo
+						cJobFile:= aJobAux[nPos,2]
+
+						// Inicializa variavel global de controle de thread
+						cJobAux:="c300P"+cEmpAnt+cFilAnt+StrZero(nX,2)
+
+						aDataProc := {	cFilAnt						,;	// 01. Codigo da filial corrente
+										mv_par01					,;	// 02. Almoxarifado de
+										mv_par02					,;	// 03. Almoxarifado ate
+										GetMvNNR('MV_LOCPROC','99')	,;	// 04. Armazem de processo
+										dtos( GetMV( "MV_ULMES" ))	,;	// 05. Data do ultimo fechamento
+										GetMV( "MV_RASTRO" )		,;	// 06. Verifica se utiliza rastreabilidade
+										aThreads[nX,1]				,;	// 07. Do produto
+										aThreads[nX,2]				,;	// 08. Ate o produto
+										mv_par05					,;	// 09. Zera saldo da MOD
+										mv_par06					,;	// 10. Zera CM da MOD
+										If( l300SalNeg, '1', '0' )  ,;	// 11. Permite saldo negativo
+										If( lCstOnLine, '1', '0' )  ,;	// 12. Verifica se devera utilizar o custo ON-LINE.
+										If( lCusFil   , '1', '0' )  ,;	// 13. Verifica se o sistema utiliza o custo unificado por Filial
+										If( lCusEmp   , '1', '0' )	,;	// 14. Verifica se o sistema utiliza o custo unificado por Empresa
+										cMoeda300C 					,;	// 15. Parametro MV_MOEDACM
+										If(lD3Servico,'1','0')		,;	// 16. Considera o parametro MV_D3SERVI
+										If(IntDL(),'1','0')			,;  // 17. Verifica a integracao com WMS
+										GetMvNNR('MV_CQ','98')		,;	// 18. Codigo do Armazem de CQ
+										If(lWmsNew,'1','0')			,;	// 19. Controla novoWms
+										cArqProd					,;  // 20. Verifica se utiliza controle pela SB1 ou SBZ
+										If( lCustNeg, '1', '0' )    ,;  // 21. Verifica se permite custo negativo
+										If( l300Pri , '1', '0' ) }		// 22. Controle de uso SB2 Compartilhada
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Analise das Threads em Execucao                              ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						While .T.
+							Do Case
+								// TRATAMENTO PARA ERRO DE SUBIDA DE THREAD
+								Case GetGlbValue(cJobAux) == '0'
+									If nRetry_0 > 50
+										Conout(Replicate("-",65))							 	//"-----------------------------------------------------"
+										Conout("MATA300: "+ STR0023 + " " + StrZero(nX,3) )	//"MATA300: Não foi possivel realizar a subida da thread"
+										Conout(Replicate("-",65))  								//"-----------------------------------------------------"
+										//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										//³ Atualiza o log de processamento			    ³
+										//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+										ProcLogAtu("MENSAGEM",STR0024,STR0024)	//"Não foi possivel realizar a subida da thread"
+										Final(STR0024) 							//"Não foi possivel realizar a subida da thread"
+									Else
+										nRetry_0 ++
+									EndIf
+								// TRATAMENTO PARA ERRO DE CONEXAO
+								Case GetGlbValue(cJobAux) == '1'
+									If FCreate(cJobFile) # -1
+										If nRetry_1 > 5
+											Conout(Replicate("-",65))  //"------------------------------------------------"
+											Conout(STR0025) 			//"MATA300: Erro de conexao na thread de procedures"
+											Conout(STR0026 + cJobAux )	//"Thread numero : "
+											Conout(STR0027)				//"Numero de tentativas excedidas"
+											Conout(Replicate("-",65))  //"------------------------------------------------"
+											//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+											//³ Atualiza o log de processamento			    ³
+											//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+											ProcLogAtu("MENSAGEM",STR0028,STR0028)	//"MATA300: Erro de conexao na thread de procedures"
+											Final(STR0028)				   			//"MATA300: Erro de conexao na thread de procedures"
+										Else
+											// Inicializa variavel global de controle de Job
+											PutGlbValue(cJobAux, "0" )
+											GlbUnLock()
+											// Reiniciar thread de contabilizacao
+											Conout(Replicate("-",65))					//"------------------------------------------------"
+											Conout(STR0028) 							//"MATA300: Erro de conexao na thread de procedures"
+											Conout(STR0027+StrZero(nRetry_1,2))			//"Tentativa numero: "
+											Conout(STR0029+cJobAux )					//"Reiniciando a thread : "
+											Conout(Replicate("-",65))                  //"------------------------------------------------"
+											//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+											//³ Atualiza o log de processamento			    ³
+											//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+											ProcLogAtu("MENSAGEM",STR0029+cJobAux,STR0029+cJobAux)	//"Reiniciando a thread : "
+											//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+											//³ Dispara thread para Stored Procedure        ³
+											//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+											StartJob("A300JOB",GetEnvServer(),lThrSeq,cEmpAnt,cFilAnt,cSPMAT040,aDataProc,cJobFile,StrZero(nX,2))
+										EndIf
+										nRetry_1 ++
+									EndIf
+								// TRATAMENTO PARA ERRO DE APLICACAO
+								Case GetGlbValue(cJobAux) == '2'
+									If FCreate(cJobFile) # -1
+										Conout(Replicate("-",65))	//"-------------------------------------------------"
+										Conout(STR0030)				//"MATA300: Erro de aplicacao na thread de procedures"
+										Conout(STR0026+cJobAux)		//"Thread numero : "
+										Conout(Replicate("-",65))  //"--------------------------------------------------"
+										lProcessa := .F.
+										//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+										//³ Atualiza o log de processamento			    ³
+										//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+										ProcLogAtu("MENSAGEM",STR0030,STR0030)	//"MATA300: Erro de aplicacao na thread de procedures"
+										Final(STR0030) 							//"MATA300: Erro de aplicacao na thread de procedures"
+									EndIf
+								// THREAD PROCESSADA CORRETAMENTE
+								Case GetGlbValue(cJobAux) == '3'
+									lProcessa := .T.
+									//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									//³ Atualiza o log de processamento			    ³
+									//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+									ProcLogAtu("MENSAGEM",STR0041 + cJobAux + " - Ok ",STR0041 + cJobAux + " - Ok ")	//"Processamento Thread : #### - Ok "
+									aAdd(aProcsOk,STR0041 + cJobAux + " - Ok ") 										//"Processamento Thread : #### - Ok "
+									// Fecha arquivo de controle de semaforo
+									fClose(cJobFile)
+									sleep(1000)
+									// Apaga arquivo de semaforo
+									If File(cJobFile)
+										fErase(cJobFile)
+									EndIf
+									Exit
+								// THREAD PROCESSADA COM ERRO NA CHAMADA DO PROCESSO
+								Case GetGlbValue(cJobAux) == '4'
+									lProcessa := .F.
+									//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									//³ Atualiza o log de processamento			    ³
+									//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+									ProcLogAtu("MENSAGEM",cTexto+STR0017,STR0026+StrZero(nX,3)+CHR(13)+CHR(10)+aMsgErro[nX],,,cSavFil)	//"Erro na chamada do processo"
+									A280Alert(cTexto+STR0017,STR0026+StrZero(nX,3),aMsgErro[nX]) 										//"Erro na chamada do processo"								
+								// THREAD PROCESSADA POREM REPROCESSAMENTO COM ERRO
+								Case GetGlbValue(cJobAux) == '5'
+									lProcessa := .F.
+									//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+									//³ Atualiza o log de processamento			    ³
+									//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+									ProcLogAtu("MENSAGEM",cTexto+STR0031,cTexto+STR0031)	//"Reprocessamento com Erro"
+									Final(cTexto+STR0031)									//"Reprocessamento com Erro"
+							EndCase
+							Sleep(2500)
+						End
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",cTexto+STR0032 + StrZero(nX,3),cTexto+STR0032 + StrZero(nX,3)) //"Termino do recalculo do saldo atual - Thread: "
+					Next nX
+					
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ MAT053 - Executa o acerto do campo BE_STATUS                 ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If lProcessa
+						aResult:= TCSPExec(	xProcedures(cSPMAT053)		,;  // Chamada da procedure MAT053
+											cFilAnt						,;	// 01. Codigo da filial corrente
+											mv_par01					,;	// 02. Almoxarifado de
+											mv_par02					,;	// 03. Almoxarifado ate
+											mv_par03					,;	// 07. Do produto
+											mv_par04					,;  // 08. Ate o produto
+											If( l300SalNeg, '1', '0' )	,; 	// 09. Permite saldo negativo
+											If(lWmsNew,'1','0')			,; 	// 10. Controla novo Wms
+											If(lMvNegatBF,'1','0')		,;	// 11. Controla novoWms
+											cArqProd)						// 12. Verifica se o sistema controla por SB1 ou SBZ
+						If !lBat
+							If Empty(aResult)
+								cMsgError := TCSqlError()
+								aAdd(aProcsOk,cTexto+STR0037) // "Erro na chamada do processo: Acerto no status dos enderecos"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0037,cTexto+STR0037+cMsgError,,,cSavFil) // "Erro na chamada do processo: Acerto no status dos enderecos"
+								A280Alert(, , cMsgError)
+							ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+								aAdd(aProcsOk,cTexto+STR0038) //"Processamento Acerto no Status dos Enderecos - Ok"
+								aAdd(aProcsOk,cTexto+STR0018) //"Processamento Ok"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0038,cTexto+STR0038) //"Processamento do Acerto no Status dos Enderecos - Ok"
+							Else
+								aAdd(aProcsOk,cTexto+STR0039) //"Acerto no status dos endereco com Erro"
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Atualiza o log de processamento			    ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								ProcLogAtu("MENSAGEM",cTexto+STR0039,cTexto+STR0039) //"Acerto no status dos endereco com Erro"
+							EndIf
+						EndIf
+
+					EndIf
+
+				EndIf
+			Next nForFilial
+
+			//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			//³ MAT055 - Atualiza o custo unificado on-line por Empresa      ³
+			//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+			If lProcessa .And. lCusEmp .And. lCstOnLine
+
+				aResult:= TCSPExec(	xProcedures(cSPMAT055)		,;  // Chamada da procedure MAT055
+									cFilAnt						,;	// 01. Codigo da filial corrente
+									mv_par03					,;	// 02. Do produto
+									mv_par04					,;	// 03. Ate o Produto
+									If( lCstOnLine, '1', '0' )  ,;	// 04. Verifica se devera utilizar o custo ON-LINE.
+									If( lCusFil   , '1', '0' )  ,;	// 05. Verifica se o sistema utiliza o custo unificado por Filial
+									If( lCusEmp   , '1', '0' )	,;	// 06. Verifica se o sistema utiliza o custo unificado por Empresa
+									cMoeda300C ) 					// 07. Parametro MV_MOEDACM
+
+				If !lBat
+					If Empty(aResult)
+						lProcessa := .F.
+						cMsgError := TCSqlError()
+						aAdd(aProcsOk,cTexto+STR0042) // "Erro na chamada do processo: Custo Unificado On-Line por Empresa"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0042,STR0042+cMsgError,,,cSavFil) // "Erro na chamada do processo: Custo Unificado On-Line por Empresa"
+						A280Alert(, , cMsgError)
+					ElseIf aResult[1] == "01" .Or. aResult[1] == "1"
+						lProcessa := .T.
+						aAdd(aProcsOk,STR0043) //"Processamento do Custo Unificado On-Line por Empresa - Ok"
+						aAdd(aProcsOk,STR0018) //"Processamento Ok"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0043,STR0043) //"Processamento do Custo Unificado On-Line por Empresa - Ok"
+					Else
+						lProcessa := .F.
+						aAdd(aProcsOk,STR0044) //"Custo Unificado On-Line por Empresa com Erro"
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Atualiza o log de processamento			    ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						ProcLogAtu("MENSAGEM",STR0044,STR0044) //"Custo Unificado On-Line por Empresa com Erro"
+					EndIf
+				EndIf
+			EndIf
+			//-- Restaura Filial Original
+			cFilAnt := cFilBack
+		EndIf
+	EndIf
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Refresh executado no TopConnect             ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	DbSelectArea("SX2")
+	Set Filter to
+	DbSetOrder(1)
+	DbSeek("SB2")
+	TcRefresh(RetSqlName("SB2"))
+	dbSelectArea("SB2")
+Else
+
+	cSubRotina := "ADVPL"
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ aFilsCalc - Array com filiais a serem processadas            ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !Empty(aFilsCalc)
+
+		For nForFilial := 1 To Len( aFilsCalc )
+
+			If aFilsCalc[ nForFilial, 1 ]
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Controle de uso da SB2 Compartilhada                   |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				cFilAnt := aFilsCalc[ nForFilial, 2 ]
+				nCntFil += 1
+				If nCntFil > 1 .and. Empty(xFilial("SB2")) 
+					l300Pri := .F.
+				EndIf
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Verifica a ultima data de fechamento                   |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dUlMes     := GetMV('MV_ULMES')
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Verifica qual o armazem de processo                    |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				cLocProc   := GetMvNNR('MV_LOCPROC','99')
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Indica se permite saldo negativo                       ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				l300SalNeg := GetMV("MV_MT300NG",.F.,.T.)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Codigo do Deposito de Transito                         ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				cDepTran   := SuperGetMv("MV_DEPTRANS",.F.,"95")
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Indica se atualiza saldos atual do armazem de transito ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				lTranSB2   := SuperGetMv("MV_TRANSB2",.F.,.F.)
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Parametro que impede a gravacao do "Valor Atual" e dos |
+				//| "Custos" com valores negativos (Default="Sim")         |
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				lCustNeg   := (SuperGetMV('MV_CUSTNEG', .F., 'S')=='S')
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Seta os indices para chaves correspondentes                  ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SB8")
+				dbSetOrder(3)
+				dbSelectArea("SB9")
+				dbSetOrder(1)
+				dbSelectArea("SB2")
+				dbSetOrder(1)
+				dbSelectArea("SD1")
+				dbSetOrder(5)
+				dbSelectArea("SD2")
+				dbSetOrder(1)
+				dbSelectArea("SD3")
+				dbSetOrder(3)
+				dbSelectArea("SD5")
+				dbSetOrder(2)
+				dbSelectArea("SBF")
+				dbSetOrder(1)
+				dbSelectArea("SDB")
+				dbSetOrder(2)
+
+				dbSelectArea("SB1")
+				dbSeek(xFilial()+mv_par03,.T.)
+				While !Eof() .And. B1_FILIAL == xFilial() .And. B1_COD <= mv_par04
+					If !lBat
+						IncProc()
+					EndIf
+					If IsProdMod(SB1->B1_COD) .And. (mv_par05 == 2 .And. mv_par06 == 2)
+						//-- Verifica se devera recalcular o custo da MOD
+						If !(mv_par05==3 .And. mv_par06 == 3)
+							dbSkip()
+							Loop
+						EndIf
+					EndIf
+					cLocal := Replicate("z",nTamLocal+1)  // Pega o Menor Local
+					dUsai  := ""
+					lFim   :=.F.
+					
+					dbSelectArea("SB2")
+					dbSeek(xFilial()+SB1->B1_COD)
+					lSB2:=!EOF()
+					If lSB2
+						cLocal:= IIF(SB2->B2_LOCAL< cLocal,SB2->B2_LOCAL,cLocal)
+					EndIf
+					dbSelectArea("SD1")
+					dbSeek(xFilial()+SB1->B1_COD)
+					lSD1:=!EOF()
+					If lSD1
+						cLocal:= IIF(SD1->D1_LOCAL< cLocal,SD1->D1_LOCAL,cLocal)
+					EndIf
+
+					dbSelectArea("SD2")
+					dbSeek(xFilial()+SB1->B1_COD)
+					lSD2:=!EOF()
+					If lSD2
+						cLocal:= IIF(SD2->D2_LOCAL< cLocal,SD2->D2_LOCAL,cLocal)
+					EndIf
+
+					dbSelectArea("SD3")
+					dbSeek(xFilial()+SB1->B1_COD)
+					lSD3:=!EOF()
+					If lSD3
+						cLocal:= IIF(SD3->D3_LOCAL< cLocal,SD3->D3_LOCAL,cLocal)
+					EndIf
+
+					dbSelectArea("SB9")
+					dbSeek(xFilial()+SB1->B1_COD)
+					lSB9:=!EOF()
+					If lSB9
+						cLocal:= IIF(SB9->B9_LOCAL< cLocal,SB9->B9_LOCAL,cLocal)
+					EndIf
+
+					lProcesProc	:=.F.
+					nRegSB2 	:= 0
+
+					Do While  lSb2 .Or. lSB9 .Or. lSd1 .Or. lSd2 .Or. lSd3
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Verifica se devera atualizar o saldo atual do armazem de  |
+						//| transito ("MV_DEPTRAN")                                   |
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If cPaisLoc <> "BRA"
+							lContinua := IIf(cDepTran==cLocal,lTranSB2,.T.)
+						EndIf
+
+						If lContinua .And. cLocal >= mv_par01 .And. cLocal <= mv_par02
+							If cLocal == cLocProc
+								lProcesProc:=.T.
+							EndIf
+							aSaldo  := CalcEst(SB1->B1_COD,cLocal,dDataFim)
+							If lFFonLine
+								aSaldoFF:= CalcEstFF(SB1->B1_COD,cLocal,dDataFim)
+							EndIf
+							dbSelectArea("SB9")
+							dbSetOrder(1)
+							dbSelectArea("SB2")
+							dbSetOrder(1)
+							dbSelectArea("SD1")
+							dbSetOrder(5)
+							dbSelectArea("SD2")
+							dbSetOrder(1)
+							dbSelectArea("SD3")
+							dbSetOrder(3)
+							dbSelectArea("SB2")
+							dbSeek(xFilial()+SB1->B1_COD+cLocal)
+
+							If !Eof()   // Apaga SB2 Duplicado
+								nRegSB2   := Recno()
+								cChaveSB2 := SB2->B2_FILIAL+SB2->B2_COD+SB2->B2_LOCAL
+								dbSkip()
+								While !Eof() .And. B2_FILIAL+B2_COD+B2_LOCAL == cChaveSB2
+									RecLock("SB2",.F.)
+									dbDelete()
+									MsUnlock()
+									dbSkip()
+								End
+								dbGoto(nRegSB2)
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Cria Almoxarifado no SB2                                     ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							Else
+								CriaSB2(SB1->B1_COD,cLocal)
+							EndIf
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Trava o registro do SB2 para evitar divergencia de saldos	 ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							If lLockSB2
+								nRegSB2 := SB2->(Recno())
+								RecLock("SB2",.F.)
+							EndIf
+
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Pesquisa £ltima saida no SD3                                 ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							dUsai := CtoD('01/01/80',"ddmmyy")
+							dbSelectArea('SD3')
+							dbSetOrder(7)
+							dbSeek(xFilial('SD3')+SB1->B1_COD+cLocal+'zz', .T.)
+							dbSkip(-1)
+							Do While !Bof() .And. xFilial('SD3')+SB1->B1_COD+cLocal == D3_FILIAL+D3_COD+D3_LOCAL
+								If D3_TM > '500' .And. D3_EMISSAO > dUsai
+									dUsai := D3_EMISSAO
+									Exit
+								EndIf
+								dbSkip(-1)
+							EndDo
+							dbSetOrder(3)
+
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Pesquisa £ltima saida no SD2                                 ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							dbSelectArea('SD2')
+							dbSetOrder(6)
+							dbSeek(xFilial('SD2')+SB1->B1_COD+cLocal+'zz', .T.)
+							dbSkip(-1)
+							Do While !Bof() .And. xFilial('SD2')+SB1->B1_COD+cLocal == D2_FILIAL+D2_COD+D2_LOCAL
+								If SF4->(dbSeek(xFilial('SF4')+SD2->D2_TES, .F.))
+									If SF4->F4_ESTOQUE == 'S' .And. IIf(lUsaD2DIG, D2_DTDIGIT, D2_EMISSAO) > dUsai
+										dUsai := IIf(lUsaD2DIG, D2_DTDIGIT, D2_EMISSAO)
+										Exit
+									EndIf
+								EndIf
+								dbSkip(-1)
+							EndDo
+							dbSetOrder(1)
+
+							//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+							//³ Efetua a Grava‡ao da Data da ultima Saida                    ³
+							//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+							If dUsai > Ctod('01/01/80',"ddmmyy")
+								RecLock('SB2', .F.)
+								Replace B2_USAI With dUsai
+								If !lLockSB2
+									MsUnlock()
+								EndIf
+							Else
+								dbSelectArea('SB2')
+							EndIf
+
+							// Verifica se o local tem que ser considerado
+							RecLock("SB2",.F.)
+							If IsProdMod(SB1->B1_COD) .And. !(mv_par05==3 .And. mv_par06 == 3)
+								// Zera o saldo da MOD (mv_par05 == 1 (Sim))
+								If mv_par05 == 1
+									Replace B2_QATU With 0, B2_QTSEGUM With 0
+									For ni := 1 to 5
+										Fieldput(FieldPos(Eval(bBloco,"B2_VATU",ni)),0)
+									Next ni
+								EndIf
+								// Zera o CM da MOD (mv_par06 == 1 (Sim))
+								If mv_par06 == 1
+									For ni := 1 to 5
+										FieldPut(FieldPos(Eval(bBloco,"B2_CM",ni)),0)
+									Next ni
+								EndIf
+							Else
+								cFilAnt := aFilsCalc[ nForFilial, 2 ]
+								//Flag de controle para ambientes com SB2 não exclusiva e atualizar aglutinado
+								If  l300Pri
+									Replace B2_QATU With aSaldo[1] , B2_QTSEGUM With aSaldo[7]
+									If !Empty(SB1->B1_CONV) .And. QtdComp(ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)) # QtdComp(B2_QTSEGUM)
+										Replace B2_QTSEGUM With ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)
+									EndIf
+									If lFFonLine
+										Replace B2_QFIMFF  With aSaldoFF[1]
+									EndIf
+
+									// Verifica as divergencias entre a quantidade da primeira e da segunda UM
+									MatQtdZero(.T.,.F.,.T.)
+									For ni := 1 to 5
+										//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+										If lCustNeg
+											nVAtu := aSaldo[ni+1]
+										Else
+											nVAtu := If(QtdComp(aSaldo[ni+1])>0, aSaldo[ni+1], 0)
+										EndIf
+										Fieldput(FieldPos(Eval(bBloco,"B2_VATU",ni)),nVAtu)
+										If B2_QATU > 0.000001
+											FieldPut(FieldPos(Eval(bBloco,"B2_CM",ni)),nVAtu / B2_QATU)
+										EndIf
+										If lFFOnLine
+											//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+											If lCustNeg
+												nVFF := aSaldo[ni+1]
+											Else
+												nVFF := If(QtdComp(aSaldoFF[ni+1])>0, aSaldoFF[ni+1], 0)
+											EndIf
+											Fieldput(FieldPos(Eval(bBloco,"B2_VFIMFF",ni)),nVFF)
+											If B2_QFIMFF > 0.000001
+												FieldPut(FieldPos(Eval(bBloco,"B2_CMFF",ni)),nVFF / B2_QFIMFF)
+											EndIf
+										EndIf
+									Next ni
+								else
+									Replace B2_QATU With B2_QATU + aSaldo[1] , B2_QTSEGUM With B2_QTSEGUM + aSaldo[7]
+									If !Empty(SB1->B1_CONV) .And. QtdComp(ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)) # QtdComp(B2_QTSEGUM)
+										Replace B2_QTSEGUM With ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)
+									EndIf
+									If lFFonLine
+										Replace B2_QFIMFF  With B2_QFIMFF + aSaldoFF[1]
+									EndIf
+
+									// Verifica as divergencias entre a quantidade da primeira e da segunda UM
+									MatQtdZero(.T.,.F.,.T.)
+									For ni := 1 to 5
+										//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+										If lCustNeg
+											nVAtu := FieldGet(FieldPos(Eval(bBloco,"B2_VATU",ni))) + aSaldo[ni+1]
+										Else
+											nVAtu := If(QtdComp(aSaldo[ni+1])>0, FieldGet(FieldPos(Eval(bBloco,"B2_VATU",ni))) + aSaldo[ni+1], FieldGet(FieldPos(Eval(bBloco,"B2_VATU",ni))))
+										EndIf
+										Fieldput(FieldPos(Eval(bBloco,"B2_VATU",ni)),nVAtu)
+										If B2_QATU > 0.000001
+											FieldPut(FieldPos(Eval(bBloco,"B2_CM",ni)),nVAtu / B2_QATU)
+										EndIf
+										If lFFOnLine
+											//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+											If lCustNeg
+												nVFF := FieldGet(FieldPos(Eval(bBloco,"B2_VFIMFF",ni))) + aSaldo[ni+1]
+											Else
+												nVFF := If(QtdComp(aSaldoFF[ni+1])>0, FieldGet(FieldPos(Eval(bBloco,"B2_VFIMFF",ni))) + aSaldoFF[ni+1], FieldGet(FieldPos(Eval(bBloco,"B2_VFIMFF",ni))))
+											EndIf
+											Fieldput(FieldPos(Eval(bBloco,"B2_VFIMFF",ni)),nVFF)
+											If B2_QFIMFF > 0.000001
+												FieldPut(FieldPos(Eval(bBloco,"B2_CMFF",ni)),nVFF / B2_QFIMFF)
+											EndIf
+										EndIf
+									Next ni
+								EndIf
+								If !lLockSB2
+									MsUnlock()
+								EndIf
+							EndIf
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Procura o proximo local nos 5 arquivos ( o menor e' que vale)³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						nByte := ASC(Subs(cLocal,nTamLocal,1))+1      // Correcao do ADSLOCAL
+						If nByte >= 58 .and. nByte <= 64
+							nByte := 65
+						EndIf
+						xLocal:= Subs(cLocal,1,nTamLocal-1)+Chr(nByte)
+
+						cLocal:="zzz"
+						dbSelectArea("SB2")
+						dbSeek(xFilial()+SB1->B1_COD+xLocal,.T.)
+						lSb2:=IIF(Eof(),.F.,SB2->B2_FILIAL+SB2->B2_COD == xFilial("SB2")+SB1->B1_COD)
+						If lSb2
+							cLocal:= IIF(SB2->B2_LOCAL< cLocal,SB2->B2_LOCAL,cLocal)
+						EndIf
+						If lSb2 .And. cQBB2COD == SB2->B2_COD .And. cQBLocB2 == SB2->B2_LOCAL
+							lSb2 := .F.
+						else
+							cQBB2COD := SB2->B2_COD
+							cQBLocB2 := SB2->B2_LOCAL
+						Endif
+						dbSelectArea("SD1")
+						dbSeek(xFilial()+SB1->B1_COD+xLocal,.T.)
+						lSd1:=IIF(Eof(),.F.,SD1->D1_FILIAL+SD1->D1_COD == xFilial("SD1")+SB1->B1_COD)
+						If lSd1
+							cLocal:= IIF(SD1->D1_LOCAL< cLocal,SD1->D1_LOCAL,cLocal)
+						EndIf
+						If lSd1 .And. cQBD1COD == SD1->D1_COD .And. cQBLocD1 == SD1->D1_LOCAL
+							lSd1 := .F.
+						else
+							cQBD1COD := SD1->D1_COD
+							cQBLocD1 := SD1->D1_LOCAL
+						Endif
+						dbSelectArea("SD2")
+						dbSeek(xFilial()+SB1->B1_COD+xLocal,.T.)
+						lSd2:=IIF(Eof(),.F.,SD2->D2_FILIAL+SD2->D2_COD == xFilial("SD2")+SB1->B1_COD)
+						If lSd2
+							cLocal:= IIF(SD2->D2_LOCAL< cLocal,SD2->D2_LOCAL,cLocal)
+						EndIf
+						If lSd2 .And. cQBD2COD == SD2->D2_COD .And. cQBLocD2 == SD2->D2_LOCAL
+							lSd2 := .F.
+						else
+							cQBD2COD := SD2->D2_COD
+							cQBLocD2 := SD2->D2_LOCAL
+						Endif
+						dbSelectArea("SD3")
+						dbSeek(xFilial()+SB1->B1_COD+xLocal,.T.)
+						lSd3:=IIF(Eof(),.F.,SD3->D3_FILIAL+SD3->D3_COD == xFilial("SD3")+SB1->B1_COD)
+						If lSd3
+							cLocal:= IIF(SD3->D3_LOCAL< cLocal,SD3->D3_LOCAL,cLocal)
+						EndIf
+						If lSd3 .And. cQBD3COD == SD3->D3_COD .And. cQBLocD3 == SD3->D3_LOCAL
+							lSd3 := .F.
+						else
+							cQBD3COD := SD3->D3_COD
+							cQBLocD3 := SD3->D3_LOCAL
+						Endif
+						dbSelectArea("SB9")
+						dbSeek(xFilial()+SB1->B1_COD+xLocal,.T.)
+						lSB9:=IIF(Eof(),.F.,SB9->B9_FILIAL+SB9->B9_COD == xFilial("SB9")+SB1->B1_COD)
+						If lSB9
+							cLocal:= IIF(SB9->B9_LOCAL< cLocal,SB9->B9_LOCAL,cLocal)
+						EndIf
+						If lSB9  .And. cQBB9COD == SB9->B9_COD .And. cQBLocB9 == SB9->B9_LOCAL
+							lSB9 := .F.
+						else
+							cQBB9COD := SB9->B9_COD
+							cQBLocB9 := SB9->B9_LOCAL
+						Endif
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Recompoe saldo do almoxarifado de processo caso necessario.  ³
+						//³ (se o usuario apagar o SB2 e nao houverem requisicoes nao    ³
+						//³ existem registros que se referenciem a este almoxarido).     ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If !lSb2 .And. !lSB9 .And. !lSd1 .And. !lSd2 .And. !lSd3 .And. !lProcesProc .And. cLocProc >= mv_par01 .And. cLocProc <= mv_par02
+							aSaldo:= CalcEst(SB1->B1_COD,cLocProc,dDataFim)
+							If lFFOnLine
+								aSaldoFF:= CalcEstFF(SB1->B1_COD,cLocProc,dDataFim)
+							EndIf
+							If QtdComp(aSaldo[1]) > QtdComp(0)
+								dbSelectArea("SB2")
+								If !dbSeek(xFilial()+SB1->B1_COD+cLocProc)
+									CriaSB2(SB1->B1_COD,cLocProc)
+								EndIf
+								RecLock("SB2",.F.)
+								Replace B2_QATU With aSaldo[1] , B2_QTSEGUM With aSaldo[7]
+								If !Empty(SB1->B1_CONV) .And. QtdComp(ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)) # QtdComp(B2_QTSEGUM)
+									Replace B2_QTSEGUM With ConvUm(SB1->B1_COD,B2_QATU,B2_QTSEGUM,2)
+								EndIf
+								If lFFOnLine
+									Replace B2_QFIMFF With aSaldoFF[1]
+								EndIf
+								// Verifica as divergencias entre a quantidade da primeira e da segunda UM
+								MatQtdZero(.T.,.F.,.T.)
+								For ni := 1 to 5
+									//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+									If lCustNeg
+										nVAtu := aSaldo[ni+1]
+									Else
+										nVAtu := If(QtdComp(aSaldo[ni+1])>0, aSaldo[ni+1], 0)
+									EndIf
+									Fieldput(FieldPos(Eval(bBloco,"B2_VATU",ni)),nVAtu)
+									If B2_QATU > 0.000001
+										FieldPut(FieldPos(Eval(bBloco,"B2_CM",ni)),nVAtu / B2_QATU)
+									EndIf
+									If lFFOnLine
+										//-- Parametro que impede a gravacao do "Valor Atual" e dos "Custos" com valores negativos (Default="Sim")
+										If lCustNeg
+											nVFF := aSaldoFF[ni+1]
+										Else
+											nVFF := If(QtdComp(aSaldoFF[ni+1])>0, aSaldoFF[ni+1], 0)
+										EndIf
+										Fieldput(FieldPos(Eval(bBloco,"B2_VFIMFF",ni)),nVFF)
+										If B2_QFIMFF > 0.000001
+											FieldPut(FieldPos(Eval(bBloco,"B2_CMFF",ni)),nVFF / B2_QFIMFF)
+										EndIf
+									EndIf
+								Next ni
+								If !lLockSB2
+									MsUnlock()
+								EndIf
+							EndIf
+						EndIf
+					EndDo
+
+					If lLockSB2 .And. nRegSB2 > 0
+						dbSelectArea("SB2")
+						dbGoTo(nRegSB2)
+						MsUnLock()
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³Atualiza o custo unificado ON-LINE por Filial          ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If lCstOnLine .And. lCusFil
+						B2AtuUnif(SB1->B1_COD)
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³>>>Recompoe Saldo Atual da Rastreabilidade (SB8)<<<³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If Rastro(SB1->B1_COD)
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Zera os Valores do Produto no SB8³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						dbSelectArea('SB8')
+						dbSetOrder(3)
+						If dbSeek(cSeek:=xFilial('SB8')+SB1->B1_COD,.F.)
+							Do While !Eof() .And. cSeek == B8_FILIAL+B8_PRODUTO
+								If B8_LOCAL<mv_par01 .Or. B8_LOCAL>mv_par02
+									dbSkip()
+									Loop
+								EndIf
+								RecLock('SB8', .F.)
+								Replace B8_SALDO   With 0
+								Replace B8_SALDO2  With 0
+								MsUnlock()
+								dbSkip()
+							EndDo
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Pega Saldo Inicial de Rastreabilidade no SBJ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						lSaldoIni := .F.
+						dbSelectArea('SBJ')
+						dbSetOrder(1)
+						If dbSeek(cSeek:=xFilial('SBJ')+SB1->B1_COD, .F.)
+							cAlmox    := ''
+							cLoteCtl  := ''
+							cNumLote  := ''
+							dData     := CtoD('  /  /  ')
+							dDtValid  := CtoD('  /  /  ')
+							nQuant    := 0
+							nQuant2   := 0
+							Do While !Eof() .And. cSeek == BJ_FILIAL+BJ_COD
+								If BJ_LOCAL<mv_par01 .Or. BJ_LOCAL>mv_par02
+									dbSkip()
+									Loop
+								EndIf
+								If BJ_DATA < dUlMes
+									dbSkip()
+									Loop
+								EndIf
+								cSeek1 := cSeek+BJ_LOCAL+BJ_LOTECTL+BJ_NUMLOTE
+								Do While !Eof() .And. cSeek1 == BJ_FILIAL+BJ_COD+BJ_LOCAL+BJ_LOTECTL+BJ_NUMLOTE
+									cAlmox    := BJ_LOCAL
+									cLoteCtl  := BJ_LOTECTL
+									cNumLote  := BJ_NUMLOTE
+									dData     := BJ_DATA
+									dDtValid  := BJ_DTVALID
+									nQuant    := BJ_QINI
+									nQuant2   := BJ_QISEGUM
+									dbSkip()
+								EndDo
+								If dData <= dUlMes
+									lSaldoIni := .T.
+									AareaSBJ := SBJ->(GetArea())
+									dbSelectArea('SB8')
+									dbSetOrder(3)
+									If !dbSeek(xFilial('SB8')+SB1->B1_COD+cAlmox+cLoteCtl+cNumLote, .F.)
+										RecLock('SB8', .T.)
+										Replace  B8_FILIAL  With xFilial('SB8')
+										Replace  B8_PRODUTO With SB1->B1_COD
+										Replace  B8_LOCAL   With cAlmox
+										Replace  B8_LOTECTL With cLoteCtl
+										Replace  B8_NUMLOTE With cNumLote
+										Replace  B8_DATA    With dData
+										If Empty(dDtValid)
+											dDtValid:=dDataBase
+										EndIf
+										Replace B8_DTVALID With dDtValid
+									Else
+										RecLock('SB8', .F.)
+									EndIf
+									Replace B8_ORIGLAN with ''
+									Replace B8_SALDO   With nQuant
+									Replace B8_SALDO2  With nQuant2
+									Replace B8_QTDORI  With Max(nQuant,B8_QTDORI)
+									Replace B8_QTDORI2 With Max(nQuant2,B8_QTDORI2)
+									If !Empty(SB1->B1_CONV)
+										If QtdComp(ConvUm(SB1->B1_COD,B8_SALDO,B8_SALDO2,2)) # QtdComp(B8_SALDO2)
+											Replace B8_SALDO2 With ConvUm(SB1->B1_COD,B8_SALDO,B8_SALDO2,2)
+										Endif
+										If QtdComp(ConvUm(SB1->B1_COD,B8_QTDORI,B8_QTDORI2,2)) # QtdComp(B8_QTDORI2)
+											Replace B8_QTDORI2 With ConvUm(SB1->B1_COD,B8_QTDORI,B8_QTDORI2,2)
+										Endif
+									EndIf
+									MsUnlock()
+									RestArea(AareaSBJ)
+									dbSkip()
+								EndIf
+							EndDo
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Pega Movimentacoes de Rastreabilidade no SD5³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						dbSelectArea('SD5')
+						dbSetOrder(2)
+						If dbSeek(cSeek:=xFilial('SD5')+SB1->B1_COD, .F.)
+							cDoc     := ''
+							cLoja    := ''
+							cAlmox   := ''
+							cSerie   := ''
+							cCliFor  := ''
+							cCampos  := ''
+							cCompara := ''
+							cOrigLan := ''
+							cLoteCtl := ''
+							cNumLote := ''
+							cLoteFor := ''
+							dData    := CtoD('  /  /  ')
+							dDtValid := CtoD('  /  /  ')
+							nQuant   := 0
+							nQuant2  := 0
+							Do While !Eof() .And. cSeek == SD5->D5_FILIAL+SD5->D5_PRODUTO
+								dbSelectArea('SD5')
+								If D5_LOCAL<mv_par01 .Or. D5_LOCAL>mv_par02 .Or. D5_ESTORNO == "S"
+									dbSkip()
+									Loop
+								EndIf
+								If lSaldoIni .And. D5_DATA<=dUlMes
+									dbSkip()
+									Loop
+								EndIf
+								nQuant   := 0
+								nQuant2  := 0
+								cCompara := D5_PRODUTO+D5_LOCAL+D5_LOTECTL+D5_NUMLOTE
+								cCampos  := 'D5_FILIAL+D5_PRODUTO+D5_LOCAL+D5_LOTECTL+D5_NUMLOTE'
+								Do While !Eof() .And. &cCampos == xFilial('SD5')+cCompara
+									If D5_LOCAL<mv_par01 .Or. D5_LOCAL>mv_par02 .Or. D5_ESTORNO == "S"
+										dbSkip()
+										Loop
+									EndIf
+									If lSaldoIni .And. D5_DATA<=dUlMes
+										dbSkip()
+										Loop
+									EndIf
+									cAlmox      := D5_LOCAL
+									cLoteCtl    := D5_LOTECTL
+									cNumLote    := D5_NUMLOTE
+									cLoteFor    := D5_LOTEFOR
+									dData       := IIf(Empty(dData),D5_DATA,Min(D5_DATA,dData))
+									dDtValid    := D5_DTVALID
+									If !(Substr(D5_ORIGLAN,1,1)$'DúR')
+										cOrigLan := If(Val(D5_ORIGLAN)>500,'DV','CP')
+										cDoc     := D5_DOC
+										cSerie   := D5_SERIE
+										cCliFor  := D5_CLIFOR
+										cLoja    := D5_LOJA
+									Else
+										cOrigLan := ''
+										cDoc     := CriaVar('B8_DOC')
+										cSerie   := CriaVar('B8_SERIE')
+										cCliFor  := CriaVar('B8_CLIFOR')
+										cLoja    := CriaVar('B8_LOJA')
+									EndIf
+									If D5_ORIGLAN<='500' .Or. D5_ORIGLAN $ 'DE·PR·MAN'
+										nQuant   += D5_QUANT
+										nQuant2  += D5_QTSEGUM
+									Else
+										nQuant   -= D5_QUANT
+										nQuant2  -= D5_QTSEGUM
+									EndIf
+									dbSkip()
+								EndDo
+								dbSelectArea('SB8')
+								dbSetOrder(3)
+								If !dbSeek(xFilial('SB8')+cCompara, .F.)
+									RecLock('SB8', .T.)
+									Replace B8_FILIAL  With xFilial('SB8')
+									Replace B8_PRODUTO With SB1->B1_COD
+									Replace B8_LOCAL   With cAlmox
+									Replace B8_LOTECTL With cLoteCtl
+									Replace B8_NUMLOTE With cNumLote
+									Replace B8_DATA    With dData
+									Replace B8_ORIGLAN With cOrigLan
+									Replace B8_LOTEFOR With cLoteFor
+									Replace B8_DOC     With cDoc
+									Replace B8_SERIE   With cSerie
+									Replace B8_CLIFOR  With cCliFor
+									Replace B8_LOJA    With cLoja
+									Replace B8_DTVALID With dDtValid
+								Else
+									RecLock('SB8', .F.)
+								EndIf
+								Replace B8_SALDO   With If(QtdComp(B8_SALDO +nQuant )>QtdComp(0).Or.l300SalNeg,(B8_SALDO +nQuant ),0)
+								Replace B8_SALDO2  With If(QtdComp(B8_SALDO2+nQuant2)>Qtdcomp(0).Or.l300SalNeg,(B8_SALDO2+nQuant2),0)
+								Replace B8_QTDORI  With If(QtdComp(Max(B8_SALDO,B8_QTDORI))>QtdComp(0).Or.l300SalNeg,Max(B8_SALDO ,B8_QTDORI ),0)
+								Replace B8_QTDORI2 With If(QtdComp(Max(B8_SALDO2,B8_QTDORI2))>QtdComp(0).Or.l300SalNeg,Max(B8_SALDO2,B8_QTDORI2),0)
+								If !Empty(SB1->B1_CONV)
+									If QtdComp(ConvUm(SB1->B1_COD,B8_SALDO,B8_SALDO2,2)) # QtdComp(B8_SALDO2)
+										Replace B8_SALDO2 With ConvUm(SB1->B1_COD,B8_SALDO,B8_SALDO2,2)
+									Endif
+									If QtdComp(ConvUm(SB1->B1_COD,B8_QTDORI,B8_QTDORI2,2)) # QtdComp(B8_QTDORI2)
+										Replace B8_QTDORI2 With ConvUm(SB1->B1_COD,B8_QTDORI,B8_QTDORI2,2)
+									EndIf
+								Endif
+								MsUnlock()
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³Utilizar ExeBlock para grava campos especificos em SB8.³
+								//³Lucas 01/09/99 Argentina                               ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								If lM300SB8
+									ExecBlock('M300SB8',.F.,.F.)
+								EndIf
+							EndDo
+						EndIf
+					EndIf
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³>>>Recompoe Saldo Atual das Localizacoes (SBF)<<<³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					If Localiza(SB1->B1_COD)
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Zera o Saldo deste Produto no SBF³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						aDeleSBF := {{}}
+						dbSelectArea('SBF')
+						dbSetOrder(2)
+						If MsSeek(cSeek:=xFilial('SBF')+SB1->B1_COD, .F.)
+							Do While !Eof() .And. cSeek == BF_FILIAL+BF_PRODUTO
+								If BF_LOCAL < mv_par01 .Or. ;
+									BF_LOCAL > mv_par02
+									dbSkip()
+									Loop
+								EndIf
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Adiciona registro em array de prioridade. ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								For ni:=1 to Len(aPriori)
+									If (nAchou:=aScan(aPriori[ni],{|x| x[1] == SBF->BF_PRODUTO+SBF->BF_LOCAL+SBF->BF_LOTECTL+SBF->BF_NUMLOTE+SBF->BF_LOCALIZ+SBF->BF_NUMSERI })) > 0
+										Exit
+									EndIf
+								Next ni
+								If nAchou == 0
+									If Len(aPriori[Len(aPriori)]) > 4095
+										aAdd(aPriori,{})
+									EndIf
+									aAdd(aPriori[Len(aPriori)], {SBF->BF_PRODUTO+SBF->BF_LOCAL+SBF->BF_LOTECTL+SBF->BF_NUMLOTE+SBF->BF_LOCALIZ+SBF->BF_NUMSERI,SBF->BF_PRIOR,SBF->BF_EMPENHO })
+								EndIf
+								//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+								//³ Adiciona registro em array para Exclusao Posterior ³
+								//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+								If Len(aDeleSBF) > 4095
+									aAdd(aDeleSBF, {})
+								EndIf
+								aAdd(aDeleSBF[Len(aDeleSBF)], Recno())
+								dbSkip()
+							EndDo
+						EndIf
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Exclui os registros do SBF ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						For nX := 1 to Len(aDeleSBF)
+							For nY := 1 to Len(aDeleSBF[nX])
+								dbGoto(aDeleSBF[nX, nY])
+								RecLock('SBF', .F.)
+								Replace BF_QUANT   With 0
+								Replace BF_QTSEGUM With 0
+								MsUnlock()
+								GravaSBF('SBF') //-- Exclui o Registro do SBF quando BF_QUANT MENOR OU IGUAL A ZERO
+								DelSBF(aDeleSBF[nX, nY]) //-- Exclui os registros da SBF marcados como deletados (D_E_L_E_T_ = '*') para manter o mesmo comportamento da procedure
+							Next nY
+						Next nX
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³M300SBF - Ponto de Entrada utilizado antes de iniciar  ³
+						//³a reconstrucao do arquivo SBF.                         ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						If lM300SBF
+							ExecBlock('M300SBF',.F.,.F.)
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³ Pega Saldo Inicial da Localizacao no SBK ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						lSaldoIni := .F.
+						dData     := CtoD('  /  /  ')
+						nRecnoSBK := 0
+						dbSelectArea('SBK')
+						dbSetorder(1)
+						If dbSeek(cSeek:=xFilial('SBK')+SB1->B1_COD, .F.)
+							Do While !Eof() .And. cSeek == BK_FILIAL+BK_COD
+								dbSelectArea('SBK')
+								If BK_LOCAL < mv_par01 .Or. ;
+									BK_LOCAL > mv_par02
+									dbSkip()
+									Loop
+								EndIf
+								If BK_DATA < dUlMes
+									dbSkip()
+									Loop
+								EndIf
+								
+								cSeek1 := cSeek+BK_LOCAL+BK_LOTECTL+BK_NUMLOTE+BK_LOCALIZ+BK_NUMSERI
+								Do While !Eof() .And. cSeek1 == BK_FILIAL+BK_COD+BK_LOCAL+BK_LOTECTL+BK_NUMLOTE+BK_LOCALIZ+BK_NUMSERI
+									If BK_LOCAL < mv_par01 .Or. ;
+										BK_LOCAL > mv_par02
+										dbSkip()
+										Loop
+									EndIf
+									dData     := BK_DATA
+									nRecnoSBK := Recno()
+									dbSkip()
+								EndDo
+								If nRecnoSBK > 0 .And. !Empty(dData) .And. dData <= dUlMes
+									dbGoto(nRecnoSBK)
+									GravaSBF('SBK') //-- Efetua a inclusao dos Saldos com base no SBK atual
+									SBF->(dbSetorder(1))
+									If SBF->(MsSeek(xFilial("SBF")+SBK->(BK_LOCAL+BK_LOCALIZ+BK_COD+BK_NUMSERI+BK_LOTECTL+BK_NUMLOTE)))
+										If SBF->BF_QUANT > 0 .And. !Empty(SB1->B1_CONV)
+											If QtdComp(ConvUm(SB1->B1_COD,SBF->BF_QUANT,SBF->BF_QTSEGUM,2)) # QtdComp(SBF->BF_QTSEGUM)
+												Reclock('SBF', .F.)
+												Replace SBF->BF_QTSEGUM With ConvUm(SB1->B1_COD,SBF->BF_QUANT,SBF->BF_QTSEGUM,2)
+												MsUnlock()
+											EndIf
+										EndIf
+										//-- Grava a Prioridade anteriormente atribuida no SBF
+										For ni:=1 to Len(aPriori)
+											If (nAchou:=aScan(aPriori[ni],{|x|x[1]==SBF->BF_PRODUTO+SBF->BF_LOCAL+SBF->BF_LOTECTL+SBF->BF_NUMLOTE+SBF->BF_LOCALIZ+SBF->BF_NUMSERI})) > 0
+												If !(SBF->BF_PRIOR==aPriori[ni, nAchou, 2]) .Or. !(SBF->BF_EMPENHO==aPriori[ni, nAchou, 3])
+													Reclock('SBF', .F.)
+													Replace SBF->BF_PRIOR   With aPriori[ni, nAchou, 2]
+													Replace SBF->BF_EMPENHO With Min(SBF->BF_QUANT,aPriori[ni, nAchou, 3])
+													MsUnlock()
+												EndIf
+												Exit
+											EndIf
+										Next ni
+									EndIf
+									lSaldoIni := .T.
+									dData     := CtoD('  /  /  ')
+									nRecnoSBK := 0
+									dbSelectArea('SBK')
+									dbSkip()
+								EndIf
+							EndDo
+						EndIf
+
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Pega Movimentacoes de Localizacao no SDB³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						dbSelectArea('SDB')
+						dbSetOrder(2)
+						If dbSeek(cSeek:=xFilial('SDB')+SB1->B1_COD, .F.)
+							cCampos   := ''
+							cCompara  := ''
+							Do While !Eof() .And. cSeek == SDB->DB_FILIAL+SDB->DB_PRODUTO
+								dbSelectArea('SDB')
+								If DB_LOCAL < mv_par01 .Or. ;
+									DB_LOCAL > mv_par02 .Or. ;
+									DB_ESTORNO == 'S' .Or. ;
+									DB_ATUEST == 'N' .Or. ;
+									(lSaldoIni .And. DB_DATA <= dUlMes)
+									dbSkip()
+									Loop
+								EndIf
+								cCompara := DB_PRODUTO+DB_LOCAL+DB_LOTECTL+DB_NUMLOTE+DB_NUMSERI+DB_LOCALIZ
+								cCampos  := 'DB_FILIAL+DB_PRODUTO+DB_LOCAL+DB_LOTECTL+DB_NUMLOTE+DB_NUMSERI+DB_LOCALIZ'
+								Do While !Eof() .And. &cCampos == xFilial('SDB')+cCompara
+									If DB_LOCAL < mv_par01 .Or. ;
+										DB_LOCAL > mv_par02 .Or. ;
+										DB_ESTORNO == 'S' .Or. ;
+										DB_ATUEST == 'N' .Or. ;
+										(lSaldoIni .And. DB_DATA <= dUlMes)
+										dbSkip()
+										Loop
+									EndIf
+									GravaSBF('SDB',, .F.)  //-- Efetua a inclusao dos Saldos com base no SBB atual SEM DELETAR OS REG. ZERADOS
+									SBF->(dbSetorder(1)) //"BF_FILIAL+BF_LOCAL+BF_LOCALIZ+BF_PRODUTO+BF_NUMSERI+BF_LOTECTL+BF_NUMLOTE"
+									If SBF->(MsSeek(xFilial("SBF")+SDB->(DB_LOCAL+DB_LOCALIZ+DB_PRODUTO+DB_NUMSERI+DB_LOTECTL+DB_NUMLOTE)))
+										//-- Grava a Prioridade anteriormente atribuida no SBF
+										If SBF->BF_QUANT > 0 .And. !Empty(SB1->B1_CONV)
+											If QtdComp(ConvUm(SB1->B1_COD,SBF->BF_QUANT,SBF->BF_QTSEGUM,2)) # QtdComp(SBF->BF_QTSEGUM)
+												Reclock('SBF', .F.)
+												Replace SBF->BF_QTSEGUM With ConvUm(SB1->B1_COD,SBF->BF_QUANT,SBF->BF_QTSEGUM,2)
+												MsUnlock()
+											Endif
+										Endif
+										For ni:=1 to Len(aPriori)
+											If (nAchou:=aScan(aPriori[ni],{|x|x[1]==SBF->BF_PRODUTO+SBF->BF_LOCAL+SBF->BF_LOTECTL+SBF->BF_NUMLOTE+SBF->BF_LOCALIZ+SBF->BF_NUMSERI})) > 0
+												If !(SBF->BF_PRIOR==aPriori[ni, nAchou, 2]) .Or. !(SBF->BF_EMPENHO==aPriori[ni, nAchou, 3])
+													Reclock('SBF', .F.)
+													Replace SBF->BF_PRIOR With aPriori[ni, nAchou, 2]
+													Replace SBF->BF_EMPENHO With Min(SBF->BF_QUANT,aPriori[ni, nAchou, 3])
+													MsUnlock()
+												EndIf
+												Exit
+											EndIf
+										Next ni
+									EndIf
+									dbSelectArea('SDB')
+									dbSkip()
+								EndDo
+							EndDo
+						EndIf
+					EndIf
+
+					If !lMvNegatBF
+						//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//³Vare o SBF e Deleta Saldos Zerados ou negativos ³
+						//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						aDeleSBF := {{}}
+						dbSelectArea('SBF')
+						dbSetOrder(2)
+						If MsSeek(cSeek:=xFilial('SBF')+SB1->B1_COD, .F.)
+							Do While !Eof() .And. cSeek == BF_FILIAL+BF_PRODUTO
+								If BF_LOCAL < mv_par01 .Or. ;
+									BF_LOCAL > mv_par02
+									dbSkip()
+									Loop
+								EndIf
+								If (QtdComp(BF_QUANT) < QtdComp(0) .And. !l300SalNeg) .Or. (QtdComp(BF_QUANT) == QtdComp(0))
+									If Len(aDeleSBF) > 4095
+										aAdd(aDeleSBF, {})
+									EndIf
+									aAdd(aDeleSBF[Len(aDeleSBF)], Recno())
+								EndIf
+								dbSkip()
+							EndDo
+						EndIf
+						For nX := 1 to Len(aDeleSBF)
+							For nY := 1 to Len(aDeleSBF[nX])
+								dbGoto(aDeleSBF[nX, nY])
+								If QtdComp(BF_QUANT) < QtdComp(0)
+									RecLock('SBF', .F.)
+									Replace BF_QUANT   With 0
+									Replace BF_QTSEGUM With 0
+									MsUnlock()
+								EndIf
+								GravaSBF('SBF') //-- Exclui o Registro do SBF quando BF_QUANT MENOR OU IGUAL A ZERO
+								DelSBF(aDeleSBF[nX, nY]) //-- Exclui os registros da SBF marcados como deletados (D_E_L_E_T_ = '*') para manter o mesmo comportamento da procedure
+							Next nY
+						Next nX
+					EndIf
+
+					dbSelectArea('SB1')
+					dbSkip()
+				EndDo
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Restaura indices para ordem original                         ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				dbSelectArea("SD1")
+				dbSetOrder(1)
+				dbSelectArea("SD2")
+				dbSetOrder(1)
+				dbSelectArea("SD3")
+				dbSetOrder(1)
+				dbSelectArea("SB9")
+				dbSetOrder(1)
+			EndIf
+		Next nForFilial
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Atualiza o custo unificado ON-LINE por Empresa         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lCstOnLine .And. lCusEmp
+			dbSelectArea("SB1")
+			dbSetOrder(1)
+			dbGoTop()
+			Do While !Eof()
+				If SB1->B1_COD >= mv_par03 .And. SB1->B1_COD <= mv_par04
+					If !IsProdMod(SB1->B1_COD)
+						B2AtuUnif(SB1->B1_COD)
+					EndIf
+				EndIf
+				dbSkip()
+				Loop
+			EndDo
+		EndIf
+	EndIf
+EndIf
+
+//????????????????????????????????????????????????????????????????
+// Telemetria - Uso da classe FwCustomMetrics                   //
+// Metrica - setAverageMetric                                   //
+//????????????????????????????????????????????????????????????????
+If FWLibVersion() >= "20210628"
+
+	FWCustomMetrics():setAverageMetric(	cSubRotina /*cSubRoutine*/,;
+									"estoque/custos-protheus_saldo-atual-stored-procedures_count" /*cIdMetric*/,;
+									1/*nValue*/,;
+									/*dDateSend*/,;
+									/*nLapTime*/,;
+									"MATA300"/*cRotina*/)
+EndIf
+
+//-- Restaura Filial Original
+cFilAnt := cFilBack
+
+MsUnlockAll()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Fecha todos os arquivos e reabre-os de forma compartilhada   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+nTempoFim:=Seconds()
+If lArqExcl
+	If !LockTable(2)
+		OpenFile(SubStr(cNumEmp,1,2))
+	EndIf
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Envia mensagem de aviso apos termino da rotina               ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cTempo:=StrZero((nTempoFim-nTempoIni)/60,5,0)
+MEnviaMail("022",{Substr(cUsuario,7,15),SubStr(cNumEmp,1,2),SubStr(cNumEmp,3,2),cTempo})
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ EventViewer						  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cTitle	 := STR0051 // "Término de processamento do saldo atual "
+cMessage := STR0052+cTempo+STR0053+CRLF // "Tempo de Execução: "###" Min"
+cMessage += STR0054+cUserName+CRLF // "Usuário: "
+EventInsert( FW_EV_CHANEL_ENVIRONMENT, FW_EV_CATEGORY_MODULES, "022", FW_EV_LEVEL_INFO, "", cTitle, cMessage, .T. )
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento			    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("MENSAGEM",STR0033,STR0033) //"Termino do recalculo do saldo atual"
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Atualiza o log de processamento   ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+ProcLogAtu("FIM")
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Calcula a duracao do processamento em segundos para Telemetria     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+dData1Fim := Date()
+nElaptime := ((Seconds()+((dData1Fim-dData1Ini)*86400))-nTempoIni)
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+// Telemetria - Uso da classe FwCustomMetrics                   //
+// Metrica - setAverageMetric                                   //
+// Grava o tempo medio de processamento do Saldo Atual          //
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If FWLibVersion() >= "20210517"
+	FWCustomMetrics():setAverageMetric(	"MATA300"/*cSubRoutine*/,;
+										"estoque-protheus_saldo-atual-tempo-medio-processamento-mensal_total" /*cIdMetric*/,;
+										nElaptime /*nValue*/,/*dDateSend*/,/*nLapTime*/)
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Apresenta mensagens relacionas a execucao das procedures.    ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If Len(aProcsOk) > 0 .And. !lBat .And. !IsBlind()
+	DEFINE MSDIALOG oDlgOcorr TITLE OemToAnsi(STR0040) From 8,05 To 20,65 OF oMainWnd	//"Log de processamento das STORED PROCEDURES"
+	@ 1,001 LISTBOX oOcorr Fields HEADER Space(63) SIZE 190,70
+	oOcorr:SetArray(aProcsOk)
+	oOcorr:bLine := { || {aProcsOk[oOcorr:nAT]} }
+	DEFINE SBUTTON FROM 18,202 TYPE 1 ACTION oDlgOcorr:End() ENABLE OF oDlgOcorr
+	ACTIVATE MSDIALOG oDlgOcorr
+EndIf
+
+Return .T.
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³MTA300TOK ³ Autor ³Lucas                  ³ Data ³ 12/02/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Valida se pode efetuar o recalculo dos saldos               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA300                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+Static Function MTA300TOk()
+Local lRet:=.T.
+If ExistBlock("MA300OK")
+	lRet:=ExecBlock("MA300OK",.F.,.F.)
+	If ValType(lRet) # "L"
+		lRet:=.T.
+	EndIf
+EndIf
+RETURN lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³VerIDProc ³ Autor ³ Marcelo Pimentel      ³ Data ³24.07.2007³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Identifica a sequencia de controle do fonte ADVPL com a     ³±±
+±±³          ³stored procedure, qualquer alteracao que envolva diretamente³±±
+±±³          ³a stored procedure a variavel sera incrementada.            ³±±
+±±³          ³Procedure MAT040                                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao Efetuada                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function VerIDProc()
+Return '003'
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³A300JOB   ³ Autor ³ Marcos V. Ferreira    ³ Data ³13.02.2008³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Funcao utilizada para executar a procedure MAT040 em        ³±±
+±±³          ³mult-thread.                                                ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³cEmp         - Empresa                                      ³±±
+±±³          ³cFil         - Filial                                       ³±±
+±±³          ³cProcNam     - Nome da procedure a ser executada            ³±±
+±±³          ³aDataProc    - Dados enviados para chamada da procedure     ³±±
+±±³          ³cJobFile     - Nome do arquivo para controle do JOB         ³±±
+±±³          ³cThread      - Numero da Thread em execucao                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA300                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function A300JOB(cEmp,cFil,cProcNam,aDataProc,cJobFile,cThread,cSavFil)
+Local nHd1	    :=	0
+Local aResult
+Local cMsgError
+
+// Apaga arquivo ja existente
+If File(cJobFile)
+	fErase(cJobFile)
+EndIf
+
+// Criacao do arquivo de controle de jobs
+nHd1 := MSFCreate(cJobFile)
+
+// STATUS 1 - Iniciando execucao do Job
+PutGlbValue("c300P"+cEmp+cFil+cThread, "1" )
+GlbUnLock()
+
+// Seta job para nao consumir licensas
+RpcSetType(3)
+
+// Seta job para empresa filial desejada
+RpcSetEnv( cEmp, cFil,,,'EST')
+
+// STATUS 2 - Conexao efetuada com sucesso
+PutGlbValue("c300P"+cEmp+cFil+cThread, "2" )
+GlbUnLock()
+
+ConOut(dtoc(Date())+" "+Time()+" "+STR0034+" "+cJobFile) //" Inicio do job de geração do saldo atual do MATA300 "
+
+aResult:= TCSPExec(	xProcedures(cProcNam)		,;  // Chamada da procedure MAT040
+					aDataProc[01]				,;	// 01. Codigo da filial corrente
+					aDataProc[02]				,;	// 02. Almoxarifado de
+					aDataProc[03]				,;	// 03. Almoxarifado ate
+					aDataProc[04]				,;	// 04. Armazem de processo
+					aDataProc[05]				,;	// 05. Data do ultimo fechamento
+					aDataProc[06]				,;	// 06. Verifica se utiliza rastreabilidade
+					aDataProc[07]				,;	// 07. Do produto
+					aDataProc[08]				,;	// 08. Ate o produto
+					aDataProc[09]				,;	// 09. Zera saldo da MOD
+					aDataProc[10]				,;	// 10. Zera CM da MOD
+					aDataProc[11]				,;	// 11. Permite saldo negativo
+					aDataProc[12]			    ,;	// 12. Verifica se devera utilizar o custo ON-LINE.
+					aDataProc[13]				,;	// 13. Verifica se o sistema utiliza o custo unificado por Filial
+					aDataProc[14]				,;	// 14. Verifica se o sistema utiliza o custo unificado por Empresa
+					aDataProc[15]				,;	// 15. Parametro MV_MOEDACM
+					aDataProc[16]				,;	// 15. Parametro MV_MOEDACM
+					aDataProc[17]				,;	// 15. Parametro MV_MOEDACM
+					aDataProc[18]				,;  // 15. Parametro MV_MOEDACM
+					aDataProc[19]				,;	// 19. Novo WMS
+					aDataProc[20]				,;  // 20. Verifica se utiliza controle pela SB1 ou SBZ	
+					aDataProc[21])				    // 21. Verifica se permite custo negativo
+
+ConOut(dtoc(Date())+" "+Time()+" "+STR0035+" "+cJobFile) //" Final do job de geração do saldo atual do MATA300 "
+
+If Empty(aResult)
+	cMsgError := TCSqlError()
+	ProcLogAtu("MENSAGEM",STR0017+cThread,STR0017+" Thread: "+cThread+" - "+cMsgError,,,cSavFil)
+	// STATUS 4 - 'Erro na chamada do processo'
+	PutGlbValue("c300P"+cEmp+cFil+cThread,"4")
+	GlbUnLock()
+Return cMsgError
+ElseIf aResult[1] == "0"
+	// STATUS 5 - 'Reprocessamento com Erro'
+	PutGlbValue("c300P"+cEmp+cFil+cThread,"5")
+	GlbUnLock()
+ElseIf aResult[1] == "1"
+	// STATUS 3 - Processamento efetuado com sucesso
+	PutGlbValue("c300P"+cEmp+cFil+cThread,"3")
+	GlbUnLock()
+EndIf
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³A300QtdThread ³ Autor ³ Marcos V. Ferreira ³ Data ³13.02.08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Funcao utilizada para calcular a quantidade de threads a    ³±±
+±±³          ³serem executadas em paralelo.                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ MATA300                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function A300QtdThread(cProdIni,cProdFim)
+Local aAreaAnt  := GetArea()
+Local aProdutos := {}
+Local aThreads  := {}
+Local cQuery    := ''
+Local nX        := 0
+Local nInicio   := 0
+Local nRegProc  := 0
+Local cAliasSB1 := GetNextAlias()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ MV_A300THR parametro utilizado para informar o numero |
+//| de threads para o processamento.                      |
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Local nThreads  := SuperGetMv('MV_A300THR',.F.,1)
+
+Default cProdIni := ''
+Default cProdFim := ''
+
+//-- Define a string da query a ser processada
+cQuery := "SELECT SB1.B1_COD "
+cQuery += "FROM "
+cQuery += RetSqlName("SB1") + " SB1 "
+cQuery += "WHERE "
+cQuery += "B1_FILIAL = '" + xFilial("SB1") + "' AND "
+cQuery += "B1_COD >= '" + cProdIni + "' AND "
+cquery += "B1_COD <= '" + cProdFim + "' AND "
+cQuery += "D_E_L_E_T_ = ' ' "
+cQuery += "ORDER BY "
+cQuery += "B1_FILIAL, B1_COD "
+cQuery := ChangeQuery(cQuery)
+
+//-- Verifica se o alias esta em uso
+If Select( cAliasSB1 ) > 0
+	dbSelectArea( cAliasSB1 )
+	dbCloseArea()
+EndIf
+
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasSB1,.F.,.T.)
+
+//-- Carrega Array aProdutos
+Do While (cAliasSB1)->(!Eof())
+	aAdd(aProdutos,(cAliasSB1)->B1_COD)
+	(cAliasSB1)->(dbSkip())
+EndDo
+
+//-- Verifica Limite Maximo de 20 Threads
+If nThreads > 20
+	nThreads := 20
+EndIf
+
+//-- Analisa a quantidade de Threads X nRegistros
+If Len(aProdutos) == 0
+	aThreads := {}
+ElseIf Len(aProdutos) < nThreads
+	aThreads := ARRAY(1)			// Processa somente em uma thread
+Else
+	aThreads := ARRAY(nThreads)		// Processa com o numero de threads informada
+EndIf
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Calcula o registro original de cada thread e     ³
+//³ aciona thread gerando arquivo de fila.           ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+For nX:=1 to Len(aThreads)
+
+	aThreads[nX]:={"","",1}
+
+	// Registro inicial para processamento
+	nInicio  := IIf( nX == 1 , 1 , aThreads[nX-1,3]+1 )
+
+	// Quantidade de registros a processar
+	nRegProc += IIf( nX == Len(aThreads) , Len(aProdutos) - nRegProc, Int(Len(aProdutos)/Len(aThreads)) )
+
+	aThreads[nX,1] := aProdutos[nInicio]
+	aThreads[nX,2] := aProdutos[nRegProc]
+	aThreads[nX,3] := nRegProc
+
+Next nX
+
+//-- Encerra cAliasSB1
+dbSelectArea(cAliasSB1)
+dbCloseArea()
+
+RestArea(aAreaAnt)
+Return aThreads
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao    ³GetSQLVersion ³ Autor ³ Marcos V. Ferreira ³ Data ³31.02.08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Funcao utilizada para verificar a versao do SQL Server      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ GENERICO                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function GetSQLVersion()
+Local cVersao	:= ""
+Local cDataBase := TcGetDb()
+Local cQuery	:= ""
+
+If "MSSQL" $ cDataBase
+	cQuery :=" SELECT CONVERT(VARCHAR,SERVERPROPERTY('PRODUCTVERSION')) AS VERSAO "
+	cVersao := MpSysExecScalar(cQuery,"VERSAO")
+	cVersao := SubStr(cVersao,1,At('.',cVersao)-1)
+EndIf
+
+Return cVersao
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±º Function  ³ IntegDef º Autor ³ Rodrigo M. Pontes    º Data ³  13/11/13   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Descricao ³ Funcao de tratamento para o envio de mensagem unica de       º±±
+±±º           ³ atualização de custo do produto.                             º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±º Uso       ³ MATA300                                                      º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function IntegDef( cXML, nTypeTrans, cTypeMessage, cVersion )
+Local aRet := {}
+
+aRet := MATI300(cXml, nTypeTrans, cTypeMessage, AllTrim(cVersion))
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} DelSBF
+ Exclui os registros da SBF marcados como deletados
+ (D_E_L_E_T_ = '*') para manter o mesmo comportamento da procedure
+
+@author Flavio Lopes Rasta
+@since  19/09/2018
+@version 1.0
+@return NIL
+/*/
+//-------------------------------------------------------------------
+
+Static Function DelSBF(nRecno)
+Local cQuery := ""
+
+If !Empty(nRecno)
+	cQuery := " DELETE FROM " +RetSQLName("SBF")
+	cQuery += " WHERE R_E_C_N_O_ = '" + AllTrim(Str(nRecno)) + "'"
+
+	TCSqlExec( cQuery )
+Endif
+
+Return
+
+
+/*/{Protheus.doc} LockTable
+	Controla a abertura exclusiva e/ou fechamento das tabelas utilizadas no processsamento
+	@type  Function
+	@author Reynaldo Miyashita
+	@since 10/01/2020
+	@version 1.0
+	@param nProcess, numerico, Define se abre exclusivo(1) ou fecha(2) a tabelas
+	@return lOk, Logico, Verdadeiro a execução teve sucesso
+/*/
+Static Function LockTable(nProcess)
+Local aAlias := {}
+Local nCount
+Local cAliasCurrent := ""
+Local lOk := .T.
+
+	If nProcess == 1 .or. nProcess == 2
+		// define as tabelas
+		aAlias := {"SB1" ,"SB2" ,"SB8" ,"SB9" ,"SBF" ,"SD1" ,"SD2" ,"SD3" ,"SD5" ,"SDB" ,"SF4"}
+
+		nCount := 0
+		For nCount := 1 to len(aAlias)
+
+			cAliasCurrent := aAlias[nCount]
+
+			// efetua a abertura dos alias(tabelas)
+			If nProcess == 1
+
+				// Se abertura exclusiva da tabela e atribuicao dos respectivos indices
+				If MA280FLock(cAliasCurrent)
+					OpenIndx(cAliasCurrent)
+				// deve fechar todas as tabelas do array aAlias
+				Else
+					lOk := .F.
+					Exit
+				EndIf
+
+			// efetua o fechamento alias(tabelas)
+			ElseIf nProcess == 2
+				(cAliasCurrent)->(DbCloseArea())
+			EndIf
+
+		Next nCount
+
+		// falhou a abertura das tabelas, fechar todas as tabelas do array aAlias
+		If ! lOk
+			LockTable(2)
+		EndIf
+	Else
+		lOk := .F.
+	EndIf
+
+Return lOk
+
+/*/{Protheus.doc} EngPos18Compile
+Funcao executada depois da compilacao da procedure (Pos-Compile)
+@type function
+@version 1.0
+@author Squad Entradas
+@since 29/10/2021
+@param cProcesso, character, Codigo do processo
+@param cEmpresa, character, Codigo da empresa
+@param cProcName, character, Nome da stored procedure
+@param cLocalDB, character, Nome do Banco de Dados
+@param cBuffer, character, Codigo original da procedure (corpo da procedure)
+@param cError, character, Passada por referencia, deve conter a mensagem de erro caso ocorra
+@return logical, .T. caso tudo ok
+/*/
+// Processo 18 - SALDO ATUAL
+Function EngPos18Compile(cProcesso as character, cEmpresa as character, cProcName as character, cLocalDB as character, cBuffer as character, cError as character)
+
+	Do Case
+
+		Case cLocalDB == DEF_DB_SYBASE 
+			
+			If cProcName == "MAT053"
+				cBuffer := StrTran(cBuffer, "SET BE_STATUS  = '1' SBE", "SET BE_STATUS  = '1' FROM SBE")
+			EndIf
+
+		Case cLocalDB == DEF_DB_INFORMIX
+
+			If cProcName == "MAT006"
+				cBuffer := StrTran(cBuffer, 'MAX ( SUBSTR ( B9_DATA , 1 , 8 ))', 'MAX ( B9_DATA ) ')
+			EndIf
+
+		Case cLocalDB == DEF_DB_POSTGRES
+
+			If cProcName == "MAT040"
+				cBuffer	:= StrTran( cBuffer, 'CLOSE CUR_SBK;', 'CLOSE CUR_SBK; fim_CUR := 0;' )
+				cBuffer	:= StrTran( cBuffer, 'CLOSE CUR_LOCAL;', 'CLOSE CUR_LOCAL; fim_CUR := 0;' )
+			EndIf
+
+	EndCase
+
+Return  .T.
+
+/*/{Protheus.doc} EngSPS18Signature
+Funcao executada durante a exibicao de informacoes detalhadas do processo na
+interface de gestao de procedures.
+Faz a execucao da funcao static VerIdProc
+@type function
+@version 1.0
+@author Squad Entradas
+@since 14/01/2021
+@param cProcesso, character, Codigo do processo
+@return character, Retorna a assinatura do processo
+/*/
+Function EngSPS18Signature(cProcess as character)
+
+	Local cAssinatura as character
+
+	cAssinatura := VerIDProc()
+
+Return cAssinatura

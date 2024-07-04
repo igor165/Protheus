@@ -1,0 +1,3481 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "FINA473A.CH"
+#include "fileio.ch"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "FWLIBVERSION.CH"
+
+Static __lConManual := .F.
+Static __nHdlPrv	:= 0
+Static __cArquivo
+Static __nTotal		:= 0
+Static __cLote		:= ""
+Static __aFlagCTB	:= {}
+Static __aSelFIL	:= {}
+Static __aRecCtb	:= {}
+Static __lFA473Co	:= ExistBlock("FA473CON")
+Static __lFA47301	:= ExistBlock("FA473001")
+Static __lFA47302	:= ExistBlock("FA473002")
+Static __lFA47303	:= ExistBlock("FA473003")
+Static __lFA47304	:= ExistBlock("FA473004")
+Static __lFA47305	:= ExistBlock("FA473005")
+Static __lFA47306	:= ExistBlock("FA473006")
+Static __lFA47311	:= ExistBlock("FA473011")
+
+Static __lFA47313	:= ExistBlock("FA473013")
+Static _lF473VIEW	:= ExistBlock("F473VIEW")
+Static _lFA473MOD	:= ExistBlock("FA473MOD")
+
+Static __aRetE5E1	:= {}
+Static __lMetric    := .F.
+Static __lGrvMetri  := .F.
+Static __nMedEntra  := 0
+Static __nMedGrava  := 0
+Static __oFinA473	:= Nil
+Static __oPrepSt1	:= Nil
+Static __oPrepSt2	:= Nil
+Static __oPrepSt3	:= Nil
+Static __oPrepSt4	:= Nil
+Static __oPreStPE	:= Nil
+Static __oTBxCanc	:= Nil
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FINA473A
+Rotina de Conciliação Bancária - Tela de Conciliação
+
+Essa rotina é chamada pela rotina FINA473 na opção conciliação
+@author	Alvaro Camillo Neto
+@since		30/09/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+
+Function FINA473A()
+
+Local aArea	:= GetArea()
+
+Pergunte("FINA473",.F.)
+
+RestArea(aArea)
+Return()
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473IniCTB()
+Rotina de Conciliação Bancária - Tela de Conciliação
+
+Essa rotina é chamada pela rotina FINA473 na opção conciliação
+@author	Alvaro Camillo Neto
+@since		30/09/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+Function FI473IniCTB(aSelFil)
+
+Default aSelFil := { cFilAnt }
+
+__lConManual := .F.
+__nHdlPrv	 := 0
+__cArquivo	 := ""
+__nTotal	 := 0
+__cLote		 := ""
+__aFlagCTB	 := {}
+__aSelFil	 := aSelFil
+__aRecCtb	 := {}
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ModelDef
+Função de definição do modelo do extrato bancário
+
+@author	Alvaro Camillo Neto
+@since		25/09/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+Static Function ModelDef()
+Local oModel
+Local oStr1		:= MontaSCab()
+Local oStr2		:= FWFormStruct(1,'SIG')
+Local oStr3		:= MontaSRec()
+Local oStr4 	:= MontaSPag()
+Local oStr6 	:= MontaSSal()
+Local nY		:= 0
+Local aAux		:= {}
+Local aRetMod	:= {}
+Local nI		:= 0
+
+If !__lMetric
+	__lMetric := __lGrvMetri := FwLibVersion() >= "20210517"
+EndIf
+
+//Ponto de Entrada permite incluir 02 campos na query da função FI473CSIG
+//01 Campo tabela SIG e 01 Campo tabela SE5
+If __lFA473Co
+	__aRetE5E1 := ExecBlock("FA473CON",.F.,.F.)
+	For nY := 1 To Len(__aRetE5E1)
+	                              // Titulo do Campo                        Nome do Campo                  Tamanho do Campo
+		AAdd(aAux, {Posicione("SX3", 2, __aRetE5E1[1][1], "X3_TITULO" ), AllTrim(__aRetE5E1[1][1]), "C", TamSX3(__aRetE5E1[1][1])[1] }) // Tabela SIG
+		AAdd(aAux, {Posicione("SX3", 2, __aRetE5E1[1][2], "X3_TITULO" ), AllTrim(__aRetE5E1[1][2]), "C", TamSX3(__aRetE5E1[1][2])[1] }) // Tabela SE5
+	Next nY
+	__aRetE5E1 := aClone(aAux)
+EndIf
+
+oModel := MPFormModel():New('FINA473A',,{|oModel|FI473Pos(oModel)},{|oModel| FI473Grv(oModel) } )
+oModel:addFields('CONMASTER',,oStr1,,,{|oModel| FI473LCab(oModel) } )
+
+oStr2:AddField(STR0001, STR0001, 'BANCO',     'C',  3)     //Banco / Banco
+oStr2:AddField(STR0002, STR0002, 'COR',       'BT', 30)    //Cor / Cor
+oStr2:AddField(STR0003, STR0004, 'SEQDIG',    'C',  5)     //Seq Dig
+oStr2:AddField(STR0104, STR0105, 'RECSE5',    'N',  16, 0) //RecnoSE5 / Recno SE5
+oStr2:AddField(STR0106, STR0106, 'DESCONC',   'C',  1,  0) //Desconciliado / Desconciliado
+oStr2:AddField(STR0107, STR0108, 'NREGDESCO', 'N',  16, 0) //CONSEMEF / Con. sem efetivação
+
+oStr2:SetProperty('IG_STATUS', MODEL_FIELD_VALID,  {|| .T.})
+oStr2:SetProperty('IG_STATUS', MODEL_FIELD_VALUES,  {})
+
+If __lFA473Co
+	oStr2:AddField('','', __aRetE5E1[2][2], __aRetE5E1[2][3],__aRetE5E1[2][4],0 )
+EndIf
+
+If _lFA473MOD
+	aRetMod	:= ExecBlock("FA473MOD",.F.,.F.)
+
+	For nI := 1 to len(aRetMod)
+		If aRetMod[nI][1] == "oModel"
+			If !Empty(aRetMod[nI][2]) .And. AllTrim(aRetMod[nI][2]) == 'AddUserButton'
+				oModel:AddUserButton( aRetMod[nI][3], aRetMod[nI][4]	, aRetMod[nI][5]	)
+			EndIf
+		ElseIF aRetMod[nI][1] == "oStr2"
+			If !Empty(aRetMod[nI][2]) .And. AllTrim(aRetMod[nI][2]) == 'AddField'
+				oStr2:AddField(  aRetMod[nI][3], aRetMod[nI][4], aRetMod[nI][5], aRetMod[nI][6], aRetMod[nI][7])
+			EndIf
+		EndIf
+	Next nI
+
+EndIf
+
+oModel:addGrid('CONDETAIL','CONMASTER',oStr2,{|| F473LinePre()},,,, {|oModel| FI473LItem(oModel) })
+oModel:addGrid('TOTREC','CONMASTER',oStr3,,,,,{|oModel| FI473LRec(oModel) })
+oModel:addGrid('TOTPAG','CONMASTER',oStr4,,,,,{|oModel| FI473LPag(oModel) })
+oModel:addGrid('TOTSAL','CONMASTER',oStr6,,,,,{|oModel| FI473LSal(oModel) })
+
+oModel:SetRelation('CONDETAIL', { { 'IG_FILIAL', 'FILIAL' }, { 'BANCO', 'BANCO' } }, SIG->(IndexKey(1)) )
+oModel:SetRelation('TOTSAL', { { 'FILIAL', 'FILIAL' }, { 'BANCO', 'BANCO' } }, '' )
+oModel:SetRelation('TOTREC', { { 'FILIAL', 'FILIAL' }, { 'BANCO', 'BANCO' } }, '' )
+oModel:SetRelation('TOTPAG', { { 'FILIAL', 'FILIAL' }, { 'BANCO', 'BANCO' } }, '' )
+
+oModel:getModel('CONMASTER'):SetDescription(STR0005)//'Parâmetros da Conciliação'
+oModel:SetDescription(STR0006)//'Conciliação Bancária'
+oModel:getModel('CONDETAIL'):SetDescription(STR0007)//'Movimentos'
+oModel:getModel('CONDETAIL'):SetMaxLine(9990)
+oModel:getModel('TOTREC'):SetDescription(STR0008)//'Recebimentos'
+oModel:getModel('TOTPAG'):SetDescription(STR0009)//'Pagamentos'
+oModel:getModel('TOTSAL'):SetDescription(STR0010)//'Saldos Bancários'
+oModel:getModel('TOTSAL'):SetOptional(.T.)
+oModel:getModel('TOTPAG'):SetOptional(.T.)
+oModel:getModel('TOTREC'):SetOptional(.T.)
+oModel:getModel('CONDETAIL'):SetOptional(.T.)
+
+oModel:SetActivate({|oModel| FI473ACTMD(oModel,.T.) } )
+
+oModel:getModel('TOTREC'):SetNoDeleteLine(.T.)
+oModel:getModel('TOTPAG'):SetNoDeleteLine(.T.)
+oModel:getModel('TOTSAL'):SetNoDeleteLine(.T.)
+oModel:getModel('TOTREC'):SetNoInsertLine(.T.)
+oModel:getModel('TOTPAG'):SetNoInsertLine(.T.)
+oModel:getModel('TOTSAL'):SetNoInsertLine(.T.)
+oModel:getModel('CONDETAIL'):SetNoInsertLine(.T.)
+
+Return oModel
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473Grv
+Realiza a gravação da conciliação, atualizando os saldos bancarios.
+
+@author	Alvaro Camillo Neto
+@since		02/10/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+Static Function FI473Grv(oModel)
+Local aArea		:= GetArea()
+Local oModelDet	:= oModel:GetModel('CONDETAIL')
+Local oModelCab	:= oModel:GetModel('CONMASTER')
+Local nLinha	:= 0
+Local cSeqCon	:= ""
+Local nRECSE5	:= 0
+Local nValor	:= 0
+Local lF473AtuDt:= ExistBlock("F473ATUDT")
+Local cStatus	:= ""
+Local lAtuDtDisp:= .T.
+Local aProcesso	:= {}
+Local lDigita	:= If( oModelCab:GetValue('MOSTRACTB') == '1', .T., .F. )
+Local lAglutina	:= If( oModelCab:GetValue('AGLUTINA' ) == '1', .T., .F. )
+Local cFilX		:= cFilAnt
+Local cAux		:= ""
+Local lUsaFlag	:= SuperGetMV( "MV_CTBFLAG" , .T. /*lHelp*/, .F. /*cPadrao*/)
+Local lDesconc	:= .F.
+Local dDataExt	:= CTOD("")
+Local dDataMov	:= CTOD("")
+Local dDataNova	:= CTOD("")
+Local lFK5		:= .F.
+Local lFKs		:= .T.
+Local aSeek		:= {}
+Local nVlrSE5	:= 0
+Local lGrvSIG	:= .T.
+Local cFilFKA	:= ''
+Local cIdOrig	:= ''
+Local lConSemEf := .F.
+Local nRecDesco := 0
+Local oTimer 	:= Nil
+Local nTimer    := 0
+Local nTotalReg := 0
+
+DbSelectArea("FKA")
+DbSelectArea("FK5")
+FK5->( DbSetOrder(1) )
+SIF->( DbSetOrder(1) ) //IF_FILIAL+IF_IDPROC
+SIG->( DbSetOrder(2) ) //IG_SEQMOV
+SE5->( DbSetOrder(20)) //E5_FILIAL+E5_SEQCON
+SA6->( DbSetOrder(1) )
+
+If __lMetric
+	oTimer := FwMarkTimer():New()
+	oTimer:StartTimer()
+EndIf
+
+//Atualização da SIG apenas dos movimentos conciliados
+For nLinha := 1 To oModelDet:Length()
+	oModelDet:GoLine(nLinha)
+
+	If oModelDet:IsDeleted()
+		Loop
+	EndIf
+	
+	nTotalReg += 1
+	cStatus	 := oModelDet:GetValue("IG_STATUS")
+	lDesconc := oModelDet:GetValue("DESCONC") == "1"
+
+	If cStatus == "4" .And. !lDesconc
+		Loop
+	EndIf
+
+	lGrvSIG   := .T.
+	aSeek	  := {}
+	cSeqCon	  := oModelDet:GetValue("IG_SEQMOV")
+	dDataExt  := oModelDet:GetValue("IG_DTEXTR")
+	dDataMov  := oModelDet:GetValue("IG_DTMOVI")
+	nValor    := 0
+	nVlrSE5	  := If(oModelDet:GetValue("IG_VLREXT") > 0, oModelDet:GetValue("IG_VLREXT"), oModelDet:GetValue("IG_VLRMOV"))
+	nRECSE5	  := oModelDet:GetValue("RECSE5")
+	lConSemEf := .F.
+	nRecDesco := 0
+
+	//Se a Sequencia da Conciliacao estiver selecionada para gravacao em outro item, nao faz a gravacao
+	If cStatus == "1"
+		aSeek := {}
+		AAdd(aSeek, {"IG_SEQMOV", cSeqCon})
+		AAdd(aSeek, {"IG_STATUS", "2"})
+
+		If oModelDet:SeekLine(aSeek) .And. oModelDet:GetLine() <> nLinha
+			lGrvSIG := .F.
+		EndIf
+
+		aSeek	:= {}
+		AAdd(aSeek, {"IG_SEQMOV", cSeqCon})
+		AAdd(aSeek, {"IG_STATUS", "4"})
+
+		If oModelDet:SeekLine(aSeek) .And. oModelDet:GetLine() <> nLinha
+			lGrvSIG := .F.
+		EndIf
+	EndIf
+
+	//Retorna para a Linha Original
+	oModelDet:GoLine(nLinha)
+
+	If __lFA47311
+		lGrvSIG := ExecBlock("FA473011",.F.,.F.,{cSeqCon,nRECSE5,lGrvSIG,cStatus,nLinha})
+	EndIf
+
+	If !lGrvSIG
+		Loop
+	EndIf
+	
+	If SIG->(DbSeek(cSeqCon)) .And. SIG->IG_STATUS <> cStatus
+		nPos := AScan(aProcesso,{|aItem| aItem[1]+aItem[2] == SIG->IG_FILIAL + SIG->IG_IDPROC })
+		
+		If nPos <= 0
+			AAdd(aProcesso, {SIG->IG_FILIAL, SIG->IG_IDPROC})
+		EndIf
+
+		RecLock("SIG", .F. )
+			nValor			:= oModelDet:GetValue("IG_VLRMOV")
+			SIG->IG_VLRMOV	:= oModelDet:GetValue("IG_VLRMOV")
+			SIG->IG_DTMOVI	:= oModelDet:GetValue("IG_DTMOVI")
+			SIG->IG_DOCMOV	:= oModelDet:GetValue("IG_DOCMOV")
+			SIG->IG_AGEMOV	:= oModelDet:GetValue("IG_AGEMOV")
+			SIG->IG_CONMOV	:= oModelDet:GetValue("IG_CONMOV")
+
+			If cStatus $ '5|6'
+				SIG->IG_STATUS	:= cStatus
+			ElseIf nValor > 0
+				SIG->IG_STATUS := "4"
+			Else
+				If (lConSemEf := (lDesconc .And. SIG->IG_STATUS == "4" .And. Empty(SIG->IG_EFETIVA)))
+					nRecDesco := oModelDet:GetValue("NREGDESCO")
+				EndIf
+
+				SIG->IG_STATUS := "1"
+			EndIf
+
+			SIG->IG_HISMOV	:= oModelDet:GetValue("IG_HISMOV")
+			SIG->IG_NATMOV	:= oModelDet:GetValue("IG_NATMOV")
+			SIG->IG_EFETIVA	:= oModelDet:GetValue("IG_EFETIVA")
+
+			If __lFA47306
+				ExecBlock("FA473006",.F.,.F.)
+			EndIf
+		SIG->( MsUnLock() )
+	EndIf
+
+	//Ponto de entrada para que não se atulize a data de disponibilidade do movimento bancario no sistema.
+	If lF473AtuDt
+		lAtuDtDisp := ExecBlock("F473ATUDT",.F.,.F.)
+	EndIf
+	
+	//Atualiza SE5 e atualiza o Saldo
+	If ((nRECSE5 > 0 .And. !cStatus $ "1|5|6") .Or. (lConSemEf .And. nRecDesco > 0))
+		nRECSE5 := IIf(nRECSE5 == 0, nRecDesco, nRECSE5)
+		SE5->(DbGoTo(nRECSE5))
+		FKA->(DbSetOrder(3))
+
+		If SE5->E5_TABORI == "FK1"
+			FKA->( DbSeek( SE5->E5_FILIAL + "FK1" + SE5->E5_IDORIG ) )
+			lFK5 := .F. // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+			lFKs := .T. // Possui dados migrados
+		ElseIf SE5->E5_TABORI == "FK2"
+			FKA->( DbSeek( SE5->E5_FILIAL + "FK2" + SE5->E5_IDORIG ) )
+			lFK5 := .F. // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+			lFKs := .T. // Possui dados migrados
+		ElseIf SE5->E5_TABORI == "FK5"
+			FKA->( DbSeek( SE5->E5_FILIAL + "FK5" + SE5->E5_IDORIG ) )
+			lFK5 := .T. // NÃO PRECISA fazer o loop na FKA procurando o registro de Movimentação Bancaria, pois esse é o registro de movimentação
+			lFKs := .T. // Possui dados migrados
+			cIdOrig := FKA->FKA_IDORIG
+			cFilFKA := FKA->FKA_FILIAL
+		ElseIf Empty(SE5->E5_TABORI)
+			lFKs := .F. // NÃO POSSUI dados migrados
+		EndIf
+
+		If lFKs //Possui dados migrados
+			cIdProc := FKA->FKA_IDPROC
+
+			If !lFK5 // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+				FKA->( DbSetOrder(2) )
+				FKA->( DbSeek( FKA->FKA_FILIAL + cIdProc ) )
+
+				While FKA->(!EoF()) .And. FKA->FKA_IDPROC == cIdProc
+					If FKA->FKA_TABORI == "FK5"
+						cIdOrig := FKA->FKA_IDORIG
+						cFilFKA := FKA->FKA_FILIAL
+					EndIf
+					FKA->(DbSkip())
+				Enddo
+			EndIf
+
+			If FK5->(DbSeek(cFilFKA + cIdOrig ) )
+				If !lDesconc //Conciliou
+					Reclock("SE5", .F.)
+						SE5->E5_RECONC := 'x'
+						SE5->E5_SEQCON := cSeqCon
+					SE5->( MsUnLock() )
+
+					Reclock("FK5", .F.)
+						FK5->FK5_DTCONC	:= dDataBase
+						FK5->FK5_SEQCON	:= cSeqCon
+					FK5->( MsUnLock() )
+				Else //Desconciliou
+					Reclock("SE5", .F.)
+						SE5->E5_RECONC	:= ' '
+						SE5->E5_SEQCON	:= ' '
+					SE5->( MsUnLock() )
+
+					Reclock("FK5", .F.)
+						FK5->FK5_DTCONC	:= CTOD("")
+						FK5->FK5_SEQCON	:= ""
+					FK5->( MsUnLock() )
+				EndIf
+			Else
+				cLog := STR0087 + cFilFKA + "' " + STR0088 + cIdOrig + "' "//"Registro não localizado na tabela FK5. Filial: '"
+				Help( ,,"MF473GRV1",,cLog, 1, 0 )
+			EndIf
+		Else //Registro da SE5 não possui dados nas Tabelas FKs, não foi migrado.
+			If !lDesconc //Conciliou
+				Reclock( "SE5", .F. )
+					SE5->E5_RECONC	:= 'x'
+					SE5->E5_SEQCON	:= cSeqCon
+				SE5->( MsUnLock() )
+			Else //Desconciliou
+				Reclock( "SE5", .F. )
+					SE5->E5_RECONC	:= ' '
+					SE5->E5_SEQCON	:= ' '
+				SE5->( MsUnLock() )
+			EndIf
+		EndIf
+
+		If lDesconc
+			dDataNova := dDataMov
+		Else
+			dDataNova := dDataExt
+		EndIf
+
+		//Acerto E5_DTDISPO dos titulos baixados
+		If dDataNova !=  SE5->E5_DTDISPO .and. lAtuDtDisp
+			dOldDispo := SE5->E5_DTDISPO
+
+			If lFKs // Possui dados migrados
+				//Posiciona a FK5 com base no IDORIG da SE5 posicionada
+				DbSelectArea("FK5")
+				FK5->( DbSetOrder(1) )
+
+				If FK5->(DbSeek(xFilial("SE5")+cIdOrig))
+					Reclock("FK5", .F.)
+						FK5->FK5_DTDISP	:= SE5->E5_DTDISPO
+					FK5->(MsUnlock())
+
+					If SE5->E5_RECPAG == "P"
+						AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, dOldDispo, SE5->E5_VALOR, "+", lDesconc )
+						AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, SE5->E5_DTDISPO, SE5->E5_VALOR, "-", !lDesconc )
+					Else
+						AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, dOldDispo, SE5->E5_VALOR, "-", lDesconc )
+						AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, SE5->E5_DTDISPO, SE5->E5_VALOR, "+", !lDesconc )
+					EndIf
+
+				Else
+					cLog := STR0087 + cFilFKA + "' " + STR0088 + cIdOrig + "' " //"Registro não localizado na tabela FK5. Filial: '"
+					Help( , , "MF473GRV2", , STR0089 + CRLF + cLog, 1, 0 ) // "Não foi possivel atualizar o Saldo do Banco."
+				EndIf
+
+			Else // Registro da SE5 não possui dados nas Tabelas FKs, dados não foram migrados.
+				If SE5->E5_RECPAG == "P"
+					AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, dOldDispo, SE5->E5_VALOR, "+", lDesconc )
+					AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, SE5->E5_DTDISPO, SE5->E5_VALOR, "-", !lDesconc )
+				Else
+					AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, dOldDispo, SE5->E5_VALOR, "-", lDesconc )
+					AtuSalBco( SE5->E5_BANCO, SE5->E5_AGENCIA, SE5->E5_CONTA, SE5->E5_DTDISPO, SE5->E5_VALOR, "+", !lDesconc )
+				EndIf
+			EndIf
+
+		Else
+			//Atualiza apenas o saldo reconciliado
+			If lDesconc	    //Desconciliou
+				AtuSalBco(SE5->E5_BANCO,SE5->E5_AGENCIA,SE5->E5_CONTA,SE5->E5_DTDISPO,SE5->E5_VALOR,If(SE5->E5_RECPAG == "P","+","-"),.T.,.F.)
+			Else //Conciliou
+				AtuSalBco(SE5->E5_BANCO,SE5->E5_AGENCIA,SE5->E5_CONTA,SE5->E5_DTDISPO,SE5->E5_VALOR,If(SE5->E5_RECPAG == "P","-","+"),.T.,.F.)
+			EndIf
+		EndIf
+	EndIf
+Next nLinha
+
+//Atualiza os Status da tabela SIF
+For nLinha := 1 to Len(aProcesso)
+	If SIF->(dbSeek(aProcesso[nLinha][1] + aProcesso[nLinha][2] ))
+		cStatus := SIFStatus(aProcesso[nLinha][2],aProcesso[nLinha][1])
+
+		RecLock("SIF",.F.)
+			SIF->IF_STATUS := cStatus
+		MsUnLock()
+	EndIf
+Next nLinha
+
+// Contabilizacao
+If Len(__aRecCtb) > 0
+
+	ASort(__aRecCtb,,,{|x,y| x[3] < y[3] })
+
+	cAux		:= __aRecCtb[1][3]
+	cFilAnt	:= __aRecCtb[1][3]
+
+	For nLinha:= 1 to Len(__aRecCtb)
+
+		cPadrao := __aRecCtb[nLinha][2]
+
+		SE5->(dbGoTo(__aRecCtb[nLinha][1]))
+
+		SA6->(MSSeek(xFilial("SA6")+SE5->E5_BANCO+SE5->E5_AGENCIA+SE5->E5_CONTA))
+
+		If __nHdlPrv <= 0
+			//Inicializa Lancamento Contabil
+			__cLote := LoteCont("FIN")
+			__nHdlPrv := HeadProva( __cLote,"FINA470" /*cPrograma*/,Substr( cUsuario, 7, 6 ),@__cArquivo )
+		EndIf
+
+		If __nHdlPrv > 0
+
+			DbSelectArea("SED")
+			SED->(DbSetOrder(1))
+			SED->(MsSeek(xfilial("SED")+SE5->E5_NATUREZ))
+
+			//Prepara Lancamento Contabil
+			If lUsaFlag  // Armazena em aFlagCTB para atualizar no modulo Contabil
+				AAdd( __aFlagCTB, {"E5_LA", "S", "SE5", SE5->( Recno() ), 0, 0, 0} )
+			EndIf
+
+			__nTotal += DetProva(	__nHdlPrv, cPadrao, "FINA470" /*cPrograma*/, __cLote,/*nLinha*/,/*lExecuta*/,/*cCriterio*/,/*lRateio*/,;
+                    					/*cChaveBusca*/, /*aCT5*/, /*lPosiciona*/, @__aFlagCTB, /*aTabRecOri*/,/*aDadosProva*/ )
+
+			If !lUsaFlag
+
+				//Posiciona a FKA com base no IDORIG da SE5 posicionada
+				FKA->( DbSetOrder(3) )
+				If SE5->E5_TABORI == "FK1"
+					FKA->( DbSeek( SE5->E5_FILIAL + "FK1" + SE5->E5_IDORIG ) )
+					lFK5 := .F. // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+					lFKs := .T. // Possui dados migrados
+				ElseIf SE5->E5_TABORI == "FK2"
+					FKA->( DbSeek( SE5->E5_FILIAL + "FK2" + SE5->E5_IDORIG ) )
+					lFK5 := .F. // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+					lFKs := .T. // Possui dados migrados
+				ElseIf SE5->E5_TABORI == "FK5"
+					FKA->( DbSeek( SE5->E5_FILIAL + "FK5" + SE5->E5_IDORIG ) )
+					lFK5 := .T. // NÃO PRECISA fazer o loop na FKA procurando o registro de Movimentação Bancaria, pois esse é o registro de movimentação
+					lFKs := .T. // Possui dados migrados
+					cIdOrig := FKA->FKA_IDORIG
+					cFilFKA := FKA->FKA_FILIAL
+				ElseIf Empty(SE5->E5_TABORI)
+					lFKs := .F. // NÃO POSSUI dados migrados
+				EndIf
+
+				If lFKs // Possui dados migrados
+
+					cIdProc := FKA->FKA_IDPROC
+
+					If !lFK5 // Precisa fazer o loop na FKA procurando o registro de Movimentação Bancaria
+						FKA->( DbSetOrder(2) )
+						FKA->( DbSeek( FKA->FKA_FILIAL + cIdProc ) )
+
+						While FKA->(!EoF()) .AND. FKA->FKA_IDPROC == cIdProc
+
+							If FKA->FKA_TABORI == "FK5"
+								cIdOrig := FKA->FKA_IDORIG
+								cFilFKA := FKA->FKA_FILIAL
+							EndIf
+							FKA->(DbSkip())
+						Enddo
+					EndIf
+
+					If FK5->( DbSeek( cFilFKA + cIdOrig ) )
+						Reclock("FK5", .F.)
+							FK5->FK5_LA	:= "S"
+						FK5->(MsUnlock())
+
+						Reclock("SE5", .F.)
+							SE5->E5_LA	:= "S"
+						SE5->(MsUnlock())
+					Else
+						cLog := STR0087 + cFilFKA + "' " + STR0088 + cIdOrig + "' "//"Não foi possivel localizar o registro na tabela FK5. Filial: '"
+						Help( ,,"MF473GRV1",,cLog, 1, 0 )
+					EndIf
+				Else
+					Reclock("SE5", .F.)
+						SE5->E5_LA	:= "S"
+					SE5->( MsUnlock() )
+				EndIf
+
+			EndIf
+		EndIf
+
+		If (__nHdlPrv > 0 .And. __nTotal > 0 ) .And. ( nLinha == Len(__aRecCtb)  .Or. AllTrim(__aRecCtb[nLinha+1][3]) != AllTrim(cFilAnt) )
+			//Efetiva Lancamento Contabil
+			RodaProva( __nHdlPrv, __nTotal)
+
+			cA100Incl(	__cArquivo,;
+						__nHdlPrv,;
+						3 /*nOpcx*/,;
+						__cLote,;
+						lDigita,;
+						lAglutina,;
+						/*cOnLine*/,;
+						/*dData*/,;
+						/*dReproc*/,;
+						@__aFlagCTB,;
+						/*aDadosProva*/,;
+						/*aDiario*/ )
+
+			__nTotal 		:= 0
+			__nHdlPrv 		:= 0
+			__aFlagCTB 	:= {}
+
+			If nLinha < Len(__aRecCtb)
+				cFilAnt := __aRecCtb[nLinha+1][3]
+			EndIf
+		EndIf
+
+	Next nLinha
+EndIf
+
+cFilAnt := cFilX
+
+FI473IniCTB()
+
+RestArea(aArea)
+
+If __lMetric
+	If nTotalReg > 0
+		nTimer := oTimer:ElapseTime(.T.)
+		__nMedGrava := (nTimer/nTotalReg)
+	EndIf
+	
+	oTimer:Destroy()
+	oTimer := Nil
+EndIf
+Return .T.
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SIFStatus
+Realiza a validação de pre linha.
+
+@author	Alvaro Camillo Neto
+@since		02/10/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+Static Function SIFStatus(cProcesso,cFilSIG)
+Local cStatus  := "1"
+Local cQuery   := ""
+Local cTabSIF  := "SIFCONTA"
+Local nTotal   := 0
+Local nNaoConc := 0
+
+Default cFilSIG := xFilial("SIG")
+
+cQuery := " "
+cQuery += " SELECT "
+cQuery += "     COUNT(*) SIGCONT "
+cQuery += " FROM "+RetSQLName("SIG")+" SIG "
+cQuery += " WHERE "
+cQuery += "     IG_FILIAL = '"+cFilSIG+"'  AND "
+cQuery += "     IG_IDPROC = '"+cProcesso+"'        AND "
+cQuery += "     SIG.D_E_L_E_T_ = ' ' "
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSIF,.T.,.T.)
+
+If (cTabSIF)->(!EoF())
+	nTotal := (cTabSIF)->SIGCONT
+EndIf
+(cTabSIF)->(dbCloseArea())
+
+cQuery := " "
+cQuery += " SELECT "
+cQuery += "     COUNT(*) SIGCONT "
+cQuery += " FROM "+RetSQLName("SIG")+" SIG "
+cQuery += " WHERE "
+cQuery += "     IG_FILIAL = '"+cFilSIG+"'  AND "
+cQuery += "     IG_IDPROC = '"+cProcesso+"'        AND "
+cQuery += "     IG_STATUS = '1'        		AND "
+cQuery += "     SIG.D_E_L_E_T_ = ' ' "
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSIF,.T.,.T.)
+
+If (cTabSIF)->(!EoF())
+	nNaoConc := (cTabSIF)->SIGCONT
+EndIf
+(cTabSIF)->(dbCloseArea())
+
+If nNaoConc == 0 // Totalmente conciliado
+	cStatus := '3'
+ElseIf nNaoConc < nTotal // Conciliado Parcialmente
+	cStatus := '2'
+EndIf
+
+Return cStatus
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F473LinePre
+Realiza a validação de pre linha.
+
+@author	Alvaro Camillo Neto
+@since		02/10/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+
+Static Function F473LinePre()
+Local lRet := __lConManual
+
+If !lRet
+	Help(" ",1,"FIN473ALINPRE",,STR0011, 1, 0 ) //"Não é possível a edição da linha"
+EndIf
+
+
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473ACTMD
+Realiza a validação do modelo de dados do MVC antes de iniciar a rotina
+
+@author	Alvaro Camillo Neto
+@since		02/10/2013
+@version	MP11.90
+
+/*/
+//-------------------------------------------------------------------
+Static Function FI473ACTMD(oModel,lFirst)
+Local aSaveLines:= FWSaveRows()
+Local oMdCab	:= oModel:GetModel("CONMASTER")
+Local oMdItem	:= oModel:GetModel("CONDETAIL")
+Local oMdTotRec	:= oModel:GetModel("TOTREC")
+Local oMdTotPag	:= oModel:GetModel("TOTPAG")
+Local oMdTotSal	:= oModel:GetModel("TOTSAL")
+Local nLinha	:= 0
+Local nItErro	:= 0
+Local lRet		:= .T.
+Local cBanco	:= oMdCab:GetValue("BANCO")
+Local cAgencia	:= oMdCab:GetValue("AGENCIA")
+Local cConta	:= oMdCab:GetValue("CONTA")
+Local dDataIni	:= oMdCab:GetValue("DATADE")
+Local dDataFim  := oMdCab:GetValue("DATAATE")
+Local aSaldos	:= {}
+Local aTotRec := {}
+Local aTotPag := {}
+Local aTotSal := {}
+Local nTimer  := 0
+Local oTimer  := Nil
+Local nQtdMov := 0
+
+Default lFirst := .F.
+
+AAdd(aTotRec,{STR0012,0})//"Documentos a Conciliar"
+AAdd(aTotRec,{STR0013,0})//"Valor a Conciliar"
+AAdd(aTotRec,{STR0014,0})//"Documentos Conciliados"
+AAdd(aTotRec,{STR0015,0})//"Valor Conciliado"
+
+
+AAdd(aTotPag,{STR0012,0})//"Documentos a Conciliar"
+AAdd(aTotPag,{STR0013,0})//"Valor a Conciliar"
+AAdd(aTotPag,{STR0014,0})//"Documentos Conciliados"
+AAdd(aTotPag,{STR0015,0})//"Valor Conciliado"
+
+AAdd(aTotSal,{STR0016,0})//"Saldo Anterior(Bancário) "
+AAdd(aTotSal,{STR0017,0})//"Saldo Anterior(Reconciliado)"
+AAdd(aTotSal,{STR0018,0})//"Saldo Atual(Bancário) "
+AAdd(aTotSal,{STR0019,0})//"Saldo Atual(Reconciliado)"
+
+If (nQtdMov := oMdItem:Length()) > 0
+	If __lMetric
+		oTimer:= FwMarkTimer():New()
+		oTimer:StartTimer()
+	EndIf
+	
+	For nLinha := 1 to nQtdMov
+		oMdItem:GoLine( nLinha )
+		If !oMdItem:IsDeleted()
+			If oMdItem:GetValue("IG_CARTER") == "1" .And. oMdItem:GetValue("IG_STATUS") != "1"
+				aTotRec[3][2] += 1 									// Documentos Conciliados
+				aTotRec[4][2] += oMdItem:GetValue("IG_VLREXT")		// Valor Conciliado
+			ElseIF oMdItem:GetValue("IG_CARTER") == "2" .And. oMdItem:GetValue("IG_STATUS") != "1"
+				aTotPag[3][2] += 1 									// Documentos Conciliados
+				aTotPag[4][2] += oMdItem:GetValue("IG_VLREXT")		// Valor Conciliado
+			EndIf
+
+			If oMdItem:GetValue("IG_CARTER") == "1" .And. oMdItem:GetValue("IG_STATUS") == "1"
+				aTotRec[1][2] += 1 									// Total de Documentos
+				aTotRec[2][2] += oMdItem:GetValue("IG_VLREXT")		// Total Conciliado
+			ElseIF oMdItem:GetValue("IG_CARTER") == "2" .And. oMdItem:GetValue("IG_STATUS") == "1"
+				aTotPag[1][2] += 1 									// Total de Documentos
+				aTotPag[2][2] += oMdItem:GetValue("IG_VLREXT")		// Total Conciliado
+			EndIf
+		EndIf
+	Next nLinha
+EndIf
+
+//Carregando o Modelo
+If oMdTotRec:Length() < 3
+	For nLinha := 1 To Len( aTotRec )
+		If nLinha > 1
+			// Incluimos uma nova linha de item
+			If  ( nItErro := oMdTotRec:AddLine(.T.) ) != nLinha
+				lRet    := .F.
+				Exit
+			EndIf
+		EndIf
+		oMdTotRec:LoadValue( "TEXTO" , Left(aTotRec[nLinha][1],23) )
+		oMdTotRec:LoadValue( "VALOR" , aTotRec[nLinha][2] )
+	Next nLinha
+Else
+	For nLinha := 1 To Len( aTotRec )
+		oMdTotRec:GoLine(nLinha)
+		oMdTotRec:LoadValue( "TEXTO" , Left(aTotRec[nLinha][1],23) )
+		oMdTotRec:LoadValue( "VALOR" , aTotRec[nLinha][2] )
+	Next nLinha
+EndIf
+
+If oMdTotPag:Length() < 3
+	For nLinha := 1 To Len( aTotPag )
+		If nLinha > 1
+			// Incluimos uma nova linha de item
+			If  ( nItErro := oMdTotPag:AddLine(.T.) ) != nLinha
+				lRet    := .F.
+				Exit
+			EndIf
+		EndIf
+		oMdTotPag:LoadValue( "TEXTO" , Left(aTotPag[nLinha][1],23) )
+		oMdTotPag:LoadValue( "VALOR" , aTotPag[nLinha][2] )
+	Next nLinha
+Else
+	For nLinha := 1 To Len( aTotPag )
+		oMdTotPag:GoLine(nLinha)
+		oMdTotPag:LoadValue( "TEXTO" , Left(aTotPag[nLinha][1],23) )
+		oMdTotPag:LoadValue( "VALOR" , aTotPag[nLinha][2] )
+	Next nLinha
+EndIf
+
+If oMdTotSal:Length() < 4
+	//Saldos
+	aSaldos := FI473GetSal(cBanco,cAgencia,cConta,dDataIni,dDataFim)
+	aTotSal[1][2] := aSaldos[1]
+	aTotSal[2][2] := aSaldos[2]
+	aTotSal[3][2] := aSaldos[3]
+	aTotSal[4][2] := aSaldos[4]
+	For nLinha := 1 To Len( aTotSal )
+		If nLinha > 1
+			// Incluimos uma nova linha de item
+			If  ( nItErro := oMdTotSal:AddLine(.T.) ) != nLinha
+				lRet    := .F.
+				Exit
+			EndIf
+		EndIf
+		oMdTotSal:LoadValue( "TEXTO" , Left(aTotSal[nLinha][1],28) )
+		oMdTotSal:LoadValue( "VALOR" , aTotSal[nLinha][2] )
+	Next nLinha
+EndIf
+
+
+FWRestRows(aSaveLines)
+
+If lFirst
+	oMdItem:GoLine(1)
+EndIf
+
+oMdTotRec:GoLine(1)
+oMdTotPag:GoLine(1)
+oMdTotSal:GoLine(1)
+
+If __lMetric .And. __lGrvMetri .And. nQtdMov > 0
+	nTimer      := oTimer:ElapseTime(.T.)
+	__nMedEntra := (nTimer/nQtdMov)
+	oTimer:Destroy()
+	oTimer := nil
+	__lGrvMetri := .F.
+EndIf
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473GetSal()
+Retorna os saldos da conta contábil.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FI473GetSal(cBanco,cAgencia,cConta,dDataIni,dDataFim)
+Local aSaldo 	:= {0,0,0,0}
+Local cQuery 	:= ""
+Local dDataAnt	:= CTOD("")
+Local dDataAtu	:= CTOD("")
+Local cTabSal   := "SALCONTRB"
+
+SE8->(dbSetOrder(1))//E8_FILIAL+E8_BANCO+E8_AGENCIA+E8_CONTA+DToS(E8_DTSALAT)
+
+//Ultimo saldo anterior a data inicial
+cQuery := ""
+cQuery += " SELECT "
+cQuery += "     MAX(E8_DTSALAT) E8_DTSALAT "
+cQuery += " FROM "+RetSQLName("SE8")+" SE8 "
+cQuery += " WHERE "
+cQuery += "     E8_FILIAL = '"+xFilial("SE8")+"'  AND "
+cQuery += "     E8_BANCO = '"+cBanco+"'        AND "
+cQuery += "     E8_AGENCIA = '"+cAgencia+"'     AND "
+cQuery += "     E8_CONTA = '"+cConta+"' AND "
+cQuery += "     E8_DTSALAT < '"+DToS(dDataIni)+"' AND "
+cQuery += "     SE8.D_E_L_E_T_ = ' ' "
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSal,.T.,.T.)
+
+If (cTabSal)->(!EoF())
+	dDataAnt := STOD((cTabSal)->E8_DTSALAT)
+EndIf
+(cTabSal)->(dbCloseArea())
+
+cQuery := ""
+cQuery += " SELECT "
+cQuery += "     MAX(E8_DTSALAT) E8_DTSALAT "
+cQuery += " FROM "+RetSQLName("SE8")+" SE8 "
+cQuery += " WHERE "
+cQuery += "     E8_FILIAL = '"+xFilial("SE8")+"'  AND "
+cQuery += "     E8_BANCO = '"+cBanco+"'        AND "
+cQuery += "     E8_AGENCIA = '"+cAgencia+"'     AND "
+cQuery += "     E8_CONTA = '"+cConta+"' AND "
+cQuery += "     E8_DTSALAT <= '"+DToS(dDataFim)+"' AND "
+cQuery += "     SE8.D_E_L_E_T_ = ' ' "
+cQuery := ChangeQuery(cQuery)
+
+DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSal,.T.,.T.)
+
+If (cTabSal)->(!EoF())
+	dDataAtu := STOD((cTabSal)->E8_DTSALAT)
+EndIf
+(cTabSal)->(dbCloseArea())
+
+If SE8->(dbSeek(xFilial("SE8") + cBanco + cAgencia + cConta + DToS(dDataAnt)  ))
+	aSaldo[1] := SE8->E8_SALATUA
+	aSaldo[2] := SE8->E8_SALRECO
+EndIf
+
+If SE8->(dbSeek(xFilial("SE8") + cBanco + cAgencia + cConta + DToS(dDataAtu)  ))
+	aSaldo[3] := SE8->E8_SALATUA
+	aSaldo[4] := SE8->E8_SALRECO
+EndIf
+
+Return aSaldo
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaSCab
+Retorna estrutura do tipo FWformModelStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static function MontaSCab()
+
+Local oStruct := FWFormModelStruct():New()
+
+oStruct:AddTable('CABCON',{'FILIAL', 'BANCO'},STR0024)//'Cabecalho Conciliacao'
+
+oStruct:AddField(STR0020,STR0021 , 'FILIAL', 'C',TamSx3("A6_FILIAL")[1],,,,,,,.T. )//'Filial'##"Filial do Sistema"
+oStruct:AddField(STR0022,STR0023 , 'BANCO', 'C',TamSx3("A6_COD")[1],,,,,,,.T.,.F. )//'Banco'##'Banco Conciliacao'
+oStruct:AddField(STR0025,STR0026 , 'AGENCIA', 'C',TamSx3("A6_AGENCIA")[1],,,,,,,.T.,.F. )//'Agencia'##'Agencia Conciliação'
+oStruct:AddField(STR0027,STR0028 , 'CONTA', 'C',TamSx3("A6_NUMCON")[1],,,,,,,.T.,.F. )//'Conta'##'Conta Conciliação'
+oStruct:AddField(STR0029,STR0029 , 'DATADE', 'D',8 )//'Data De'
+oStruct:AddField(STR0030,STR0030 , 'DATAATE', 'D',8 )//'Data Até'
+oStruct:AddField(STR0030,STR0030 , 'AGLUTINA', 'C',1,,,,{STR0031, STR0032} )//'Aglut Lanc'##'1=Sim'
+oStruct:AddField(STR0033,STR0033 , 'MOSTRACTB', 'C',1,,,,{STR0031, STR0032} )//'Mostra Lanc'
+oStruct:AddField(STR0034,STR0034 , 'CTBONLINE', 'C',1,,,,{STR0031, STR0032} )//'Contb On Line'
+oStruct:AddField("Seleciona Filial","Seleciona Filial" , 'SELFIL', 'C',1,,,,{STR0031, STR0032} )//'Contb On Line'
+
+
+Return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaSRec
+Retorna estrutura do tipo FWformModelStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function MontaSRec()
+
+Local oStruct := FWFormModelStruct():New()
+
+oStruct:AddTable('REC',,STR0035)//'Total de Recebimentos'
+oStruct:AddField(STR0020,STR0021 , 'FILIAL', 'C',TamSx3("A6_FILIAL")[1],,,,,,,.T. )//'Filial'##"Filial do Sistema"
+oStruct:AddField(STR0022,STR0023 , 'BANCO', 'C',TamSx3("A6_COD")[1],,,,,,,.T.,.F. )//'Banco'##'Banco Conciliacao'
+oStruct:AddField(STR0036,STR0036 , 'TEXTO', 'C',23 )//'Titulo'
+oStruct:AddField(STR0037,STR0037 , 'VALOR', 'N',16,2 )//'Valor'
+
+Return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaSPag
+Retorna estrutura do tipo FWformModelStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function MontaSPag()
+
+Local oStruct := FWFormModelStruct():New()
+
+oStruct:AddTable('PAG',,STR0038)//'Total Pagamentos'
+oStruct:AddField(STR0020,STR0021 , 'FILIAL', 'C',TamSx3("A6_FILIAL")[1],,,,,,,.T. )//'Filial'##"Filial do Sistema"
+oStruct:AddField(STR0022,STR0023 , 'BANCO', 'C',TamSx3("A6_COD")[1],,,,,,,.T.,.F. )//'Banco'##'Banco Conciliacao'
+oStruct:AddField(STR0036,STR0036 , 'TEXTO', 'C',23 )//'Titulo'
+oStruct:AddField(STR0037,STR0037 , 'VALOR', 'N',16,2 )//'Valor'
+
+Return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaSSal
+Retorna estrutura do tipo FWformModelStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function MontaSSal()
+
+Local oStruct := FWFormModelStruct():New()
+
+oStruct:AddTable('SAL',,STR0039)//'Total Saldo'
+oStruct:AddField(STR0020,STR0021 , 'FILIAL', 'C',TamSx3("A6_FILIAL")[1],,,,,,,.T. )//'Filial'##"Filial do Sistema"
+oStruct:AddField(STR0022,STR0023 , 'BANCO', 'C',TamSx3("A6_COD")[1],,,,,,,.T.,.F. )//'Banco'##'Banco Conciliacao'
+oStruct:AddField(STR0036,STR0036 , 'TEXTO', 'C',28 )//'Titulo'
+oStruct:AddField(STR0037,STR0037 , 'VALOR', 'N',16,2 )//'Valor'
+
+Return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473LCab
+Função que retorna a carga de dados do cabeçalho da conciliação
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function FI473LCab(oModel)
+Local aRet		:= {}
+Local aAux		:= {}
+
+Pergunte("FINA473",.F.)
+
+AAdd(aAux,xFilial("SIG"))
+AAdd(aAux,MV_PAR01)
+AAdd(aAux,MV_PAR02)
+AAdd(aAux,MV_PAR03)
+AAdd(aAux,MV_PAR04)
+AAdd(aAux,MV_PAR05)
+AAdd(aAux,cValtoChar(MV_PAR06))
+AAdd(aAux,cValtoChar(MV_PAR07))
+AAdd(aAux,cValtoChar(MV_PAR08))
+AAdd(aAux,cValtoChar(MV_PAR09))
+
+aRet := {aAux,0}
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473LItem
+Função que retorna a carga de dados dos movimentos da conciliação
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+Static Function FI473LItem(oModelItem)
+
+	Local aItConc		:= {}
+	Local cBanco  		:= ""
+	Local cAgencia 		:= ""
+	Local cConta   		:= ""
+	Local dDataDe 		:= cTod("")
+	Local dDataAte		:= cTod("")
+	Local lAglutina		:= .F.
+	Local lMostra  		:= .F.
+	Local lCtbOnline	:= .F.
+	Local aCpoSIG		:= {}
+	Local aArea			:= GetArea()
+	Local nSeqDig		:= 0
+	Local nY			:= 0
+	Local nZ            := 0
+	Local nPosCor 		:= 0
+	Local nPosStatus 	:= 0
+	Local nPosSeq 		:= 0
+	Local aFields		:= oModelItem:GetStruct():GetFields()
+	Local cStatus		:= ""
+	Local cItem			:= ""
+	Local nPosRec		:= 0
+	Local aAreaSE5		:= SE5->(GetArea())
+	Local nPosSeqCon	:= 0
+	Local cQrySeq       := ""
+	Local aSeq          := {}
+	Local aCpoTmpSIG	As Array
+	Local aSIGxTMP		As Array
+	Local nCampo		As Numeric
+	Local cAliasTMP		As Character
+	Local lInTemp		As Logical
+	Local bProc			As Block
+
+	Pergunte("FINA473", .F.)
+
+	cBanco  		:= MV_PAR01
+	cAgencia 		:= MV_PAR02
+	cConta   		:= MV_PAR03
+	dDataDe 		:= MV_PAR04
+	dDataAte		:= MV_PAR05
+	lAglutina		:= MV_PAR06 == 1
+	lMostra  		:= MV_PAR07 == 1
+	lCtbOnline		:= MV_PAR08 == 1
+
+	aCpoTmpSIG		:= {}
+	aSIGxTMP		:= {}
+	nCampo			:= 1
+
+	// Posição no Array - Atenção a ordem deve ser a mesma do model
+	For nCampo := 1 to Len(aFields)
+		lInTemp	:= .F.
+		If aFields[nCampo][4] $ "N|C|D|L"
+			AAdd(aCpoTmpSIG, {aFields[nCampo][3], aFields[nCampo][4], aFields[nCampo][5], aFields[nCampo][6]})
+			lInTemp := .T.
+		EndIf
+		AAdd(aCpoSIG, AllTrim(aFields[nCampo][3]))
+		AAdd(aSIGxTMP, lInTemp)
+	Next nCampo
+
+	//ALIAS->CAMPO
+	AAdd(aSIGxTMP, .T.)
+
+	F473TempTb(aCpoTmpSIG)
+
+	cAliasTMP := __oFinA473:GetAlias()
+
+	//Retorna os movimentos do extrato
+	FI473CSIG(@aItConc, aCpoSIG, cBanco, cAgencia, cConta, dDataDe, dDataAte, cAliasTMP, aSIGxTMP)
+
+	If IsBlind()
+		//Retorna os movimentos do SE5
+		FI473CSE5(@aItConc, aCpoSIG, cBanco, cAgencia, cConta, dDataDe, dDataAte, aSIGxTMP)
+	Else
+		bProc := {|| FI473CSE5(@aItConc, aCpoSIG, cBanco, cAgencia, cConta, dDataDe, dDataAte, aSIGxTMP)}
+		Processa(bProc, STR0109, STR0110)
+	EndIf
+
+	If __lFA47301
+		aItConc	:= ExecBlock("FA473001",.F.,.F.,{aItConc,aCpoSIG,cBanco,cAgencia,cConta,dDataDe,dDataAte})
+	EndIf
+
+	SE5->(DbSetOrder(20)) //E5_FILIAL+E5_SEQCON
+
+	nPosCor 	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "COR" } )
+	nPosStatus 	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_STATUS" } )
+	nPosSeq 	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "SEQDIG" } )
+	nPosRec		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "RECSE5" } )
+	nPosSeqCon	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_SEQMOV" } )
+
+	For nY := 1 To Len(aItConc)
+		nSeqDig++
+
+		cStatus := aItConc[nY][2][nPosStatus]
+		aItConc[nY][2][nPosCor] := F473COR(cStatus)
+
+		aItConc[nY][2][nPosSeq] := CValToChar(nSeqDig)
+
+		If Empty(aItConc[nY][2][nPosRec])
+			If !(Empty(aItConc[nY][2][nPosSeqCon]))
+				cQrySeq += "|" + aItConc[nY][2][nPosSeqCon]
+			EndIf
+		EndIf
+	Next nY
+
+	If !(Empty(cQrySeq))
+		cQrySeq := FormatIn(SubStr(cQrySeq, 2), "|")
+		aSeq 	:= F473SE5Rec(cQrySeq)
+	EndIf
+
+	If Len(aSeq) > 0
+		nY := 1
+		For nZ := 1 To Len(aSeq)
+			For nY := 1 To Len(aItConc)
+				If aItConc[nY][2][nPosSeqCon] == aSeq[nZ][2]
+					aItConc[nY][2][nPosRec] := aSeq[nZ][1]
+				EndIf
+			Next nY
+		Next nZ
+	EndIf
+
+	RestArea(aAreaSE5)
+	RestArea(aArea)
+	FwFreeArray(aCpoTmpSIG)
+	FwFreeArray(aSIGxTMP)
+
+Return aItConc
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473CSIG
+Função que busca os dados do Extrato e dos registros já conciliados
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FI473CSIG(aRet, aCpoSIG, cBanco, cAgencia, cConta, dDataDe, dDataAte, cAliasTMP, aSIGxTMP)
+
+	Local aAux 			:= {}
+	Local cQuery		:= ""
+	Local cTabSIG   	:= "SIGCONTRB"
+	Local aStru			:= {}
+	Local nX			:= 0
+	Local cCampo		:= ""
+	Local aArea			:= GetArea()
+	Local cTipoCH		:= IIf(Type("MVCHEQUES")== "C",MVCHEQUES,MVCHEQUE)
+	Local lSIGEmpExc	:= .F.
+	Local lSIGUniExc	:= .F.
+	Local lSIGFilExc	:= .F.
+	Local lSE5EmpExc	:= .F.
+	Local lSE5UniExc	:= .F.
+	Local lSE5FilExc	:= .F.
+	Local cNoCampos  	:= ''
+	Local nLenSIG		As Numeric
+	Local nLenSIG2		As Numeric
+
+	//Movimentos de Extratos não conciliados
+	cQuery +=     " SELECT  DISTINCT "
+	cQuery +=     " IG_FILIAL ,"
+	cQuery +=     " IG_IDPROC ,"
+	cQuery +=     " IG_ITEM   ,"
+	cQuery +=     " IG_DTEXTR ,"
+	cQuery +=     " IG_AGEEXT ,"
+	cQuery +=     " IG_CONEXT ,"
+	cQuery +=     " IG_DOCEXT ,"
+	cQuery +=     " IG_VLREXT ,"
+	cQuery +=     " IG_HISTEXT,"
+	cQuery +=     " IG_TIPEXT ,"
+	cQuery +=     " IG_CARTER ,"
+	cQuery +=     " IG_DTMOVI ,"
+	cQuery +=     " IG_AGEMOV ,"
+	cQuery +=     " IG_CONMOV ,"
+	cQuery +=     " IG_DOCMOV ,"
+	cQuery +=     " IG_VLRMOV ,"
+	cQuery +=     " IG_HISMOV ,"
+	cQuery +=     " IG_NATMOV ,"
+	cQuery +=     " IG_SEQMOV ,"
+	cQuery +=     " IG_STATUS ,"
+	cQuery +=     " IG_EFETIVA,"
+	cQuery +=     " IF_BANCO BANCO, 	"
+	cQuery +=     " COALESCE(E5_RECONC,'') RECONC, 	"
+	cQuery +=     " IG_FILORIG 	"
+
+	If __lFA473Co
+		cQuery +=     " , " + __aRetE5E1[1][2] + ", "
+		cQuery +=     "   " + __aRetE5E1[2][2] + "  "
+	EndIf
+
+	cQuery += " FROM "+RetSQLName("SIG") +" SIG		"
+
+	cQuery += " INNER JOIN "+RetSQLName("SIF") +" SIF ON	"
+	cQuery +=      " IF_FILIAL = IG_FILIAL AND	"
+	cQuery +=      " IF_IDPROC = IG_IDPROC AND "
+	cQuery +=      " IF_BANCO = '"+cBanco+"' AND "
+	cQuery +=      " SIF.D_E_L_E_T_ = ' '	"
+
+	cQuery += " LEFT  JOIN " + RetSQLName("SE5") + " SE5 ON	"
+
+	If __lFA473Co
+		cQuery += 	 " " + __aRetE5E1[2][2] + " = " + __aRetE5E1[1][2] + " AND "
+	EndIf
+
+	cQuery += 		 " E5_DTDISPO = IG_DTEXTR AND "
+	cQuery += 		 " E5_BANCO = '" + cBanco + "' AND "
+	cQuery += 		 " E5_AGENCIA = '" + cAgencia + "' AND "
+	cQuery += 		 " E5_CONTA   = '" + cConta + "' AND "
+	cQuery += 		 " E5_SITUACA <> 'C' AND "
+
+	cQuery += " E5_TIPODOC NOT IN " + FormatIn("BA/DC/JR/MT/CM/D2/J2/M2/C2/V2/CP/TL","/") + " AND "
+	cQuery += " E5_VALOR = IG_VLREXT AND "
+	cQuery += "(E5_MOEDA NOT IN " + FormatIn("C1/C2/C3/C4/C5/CH","/") + " OR (E5_MOEDA IN " + FormatIn("C1/C2/C3/C4/C5/CH","/") + " AND E5_NUMCHEQ <> ' ')) AND "
+	cQuery += "(E5_NUMCHEQ <> '*' OR (E5_NUMCHEQ = '*' AND E5_RECPAG <> 'P')) AND "
+	cQuery += "((E5_TIPODOC  IN "+ FormatIn(cTipoCH,"|") + "AND  E5_DTDISPO BETWEEN  '" + DToS(dDataDe)+ "' AND '"  + DToS(dDataAte) +"' ) OR "
+	cQuery += "(E5_TIPODOC   NOT IN "+ FormatIn(cTipoCH,"|") + "AND  E5_DTDISPO BETWEEN  '" + DToS(dDataDe)+ "' AND '"  + DToS(dDataAte) +"' )) AND "
+	cQuery +=		"(E5_NUMCHEQ <> '*' OR (E5_NUMCHEQ = '*' AND E5_RECPAG <> 'P')) AND "
+	cQuery += " E5_SEQCON = IG_SEQMOV AND "
+	cQuery += " SE5.D_E_L_E_T_ = ' ' "
+
+	lGestaoEmp	:= !(Empty(FwSM0Layout(, 1)))
+	lGestaoUni	:= !(Empty(FwSM0Layout(, 2)))
+	lSIGEmpExc	:= FwModeAccess("SIG", 1) == "E"
+	lSIGUniExc	:= FwModeAccess("SIG", 2) == "E"
+	lSIGFilExc	:= FwModeAccess("SIG", 3) == "E"
+	lSE5EmpExc	:= FwModeAccess("SE5", 1) == "E"
+	lSE5UniExc	:= FwModeAccess("SE5", 2) == "E"
+	lSE5FilExc	:= FwModeAccess("SE5", 3) == "E"
+
+	If !lGestaoEmp
+		lSIGEmpExc := lSIGFilExc
+		lSE5EmpExc := lSE5FilExc
+	EndIf
+
+	If !lGestaoUni
+		lSIGUniExc := lSIGFilExc
+		lSE5UniExc := lSE5FilExc
+	EndIf
+
+	If lSE5FilExc //Filial E E E
+		cQuery += " AND " + FinSelFil(__aSelFil, "SE5", .F., .T., 30) //FILIAL
+	ElseIf !lSE5EmpExc //Filial C C C
+		cQuery += " AND E5_FILIAL = ' ' "
+	Else //Filial E E C ou E C C
+		cQuery += " AND " + FinSelFil(__aSelFil, "SE5", .T., .F.) //FILORIG
+		cQuery += " AND " + FinSelFil(__aSelFil, "SE5", .F., .T., 30) //FILIAL
+	EndIf
+
+	cQuery += " WHERE
+
+	If lSIGFilExc //Filial exclusiva = E E E
+		cQuery += " IG_FILIAL " + FinSelFil(__aSelFil, "SIG", .F., .F.) + " AND " //FILIAL
+	ElseIf !lSIGEmpExc //Filial exclusiva = C C C
+		cQuery += " IG_FILIAL = ' ' AND "
+	Else //Filial E E C ou E C C C
+		cQuery += " IG_FILORIG " + FinSelFil(__aSelFil, "SIG", .T., .F.) + " AND " //FILORIG
+		cQuery += " IG_FILIAL " +  FinSelFil(__aSelFil, "SIG", .F., .F.) + " AND " //FILIAL
+	EndIf
+
+	cQuery +=    " IG_AGEEXT = '" 	+ cAgencia 			+ "' AND "
+	cQuery +=    " IG_CONEXT = '"	+ cConta 			+ "' AND "
+	cQuery +=    " IG_DTEXTR >= '" 	+ DToS(dDataDe)		+ "' AND "
+	cQuery +=    " IG_DTEXTR <= '" 	+ DToS(dDataAte) 	+ "' AND "
+	cQuery +=    " SIG.D_E_L_E_T_ = ' '	"
+
+	If __lFA47304
+		cQuery := ExecBlock("FA473004",.F.,.F.,cQuery)
+	EndIf
+
+	cQuery += " ORDER BY "
+	cQuery += " IG_FILIAL , "
+	cQuery += " BANCO , "
+	cQuery += " IG_AGEEXT , "
+	cQuery += " IG_CONEXT , "
+	cQuery += " IG_DTEXTR , "
+	cQuery += " IG_VLREXT "
+
+	cQuery := ChangeQuery(cQuery)
+
+	DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSIG,.T.,.T.)
+
+	aStru := SIG->(DbStruct())
+
+	For nX :=  1 To Len(aStru)
+		If aStru[nX][2] <> "C" .And. SIG->(FieldPos(aStru[nX][1])) > 0
+			TcSetField(cTabSIG,aStru[nX][1],aStru[nX][2],aStru[nX][3],aStru[nX][4])
+		EndIf
+
+		If (cTabSIG)->(FieldPos(aStru[nX][1])) == 0
+			cNoCampos += '/' + aStru[nX][1]
+		EndIf
+
+	Next nX
+
+	nLenSIG		:= Len(aCpoSIG)
+	nLenSIG2	:= nLenSIG + 1
+
+	While (cTabSIG)->(!EoF())
+		aAux := Nil
+		aAux := Array(nLenSIG2)
+		aAux[nLenSIG2] := 0
+
+		RecLock(cAliasTMP, .T.)
+
+		For nX := 1 to Len(aCpoSIG)
+			If !(aCpoSIG[nX] $ ("COR/SEQDIG/RECSE5/DESCONC/IG_TIPMOV/IG_TIPDSC/IG_USERLGI/NREGDESCO"))
+				cCampo   := aCpoSIG[nX]
+				If cCampo == 'IG_STATUS' .AND. !Empty((cTabSIG)->RECONC) // Caso o movimento tenha sido Reconciliado anteriormente
+					If __lFA47301 //Considera o status do ponto de entada FA473001
+						aAux[nX] := (cTabSIG)->&(cCampo)
+					Else
+						aAux[nX] := '4'
+					EndIf
+				Else
+					If !Empty(cNoCampos)
+						If !(cCampo $ cNoCampos)
+							aAux[nX] := (cTabSIG)->&(cCampo)
+						EndIf
+					Else
+						aAux[nX] := (cTabSIG)->&(cCampo)
+					EndIf
+				EndIf
+			ElseIf  AllTrim(aCpoSIG[nX]) == "RECSE5"
+				aAux[nX] := 0
+			ElseIf  AllTrim(aCpoSIG[nX]) == "IG_TIPMOV"
+				aAux[nX] :=  GetAdvFVal("SEJ","EJ_OCORSIS", xFilial("SEJ",(cTabSIG)->IG_FILORIG) + (cTabSIG)->BANCO + (cTabSIG)->IG_TIPEXT ,1)
+			ElseIf  AllTrim(aCpoSIG[nX]) == "IG_TIPDSC"
+				aAux[nX] :=  GetAdvFVal("SEJ","EJ_DESCR", xFilial("SEJ",(cTabSIG)->IG_FILORIG) + (cTabSIG)->BANCO + (cTabSIG)->IG_TIPEXT ,1)
+			ElseIf AllTrim(aCpoSIG[nX]) == "NREGDESCO"
+				aAux[nX] := 0
+			Else
+				aAux[nX] := ""
+			EndIf
+
+			If aSIGxTMP[nX]
+				(cAliasTMP)->&(aCpoSIG[nX]) := aAux[nX]
+			EndIf
+		Next nX
+
+		AAdd(aRet, {0, aAux})
+
+		(cAliasTMP)->CAMPO := aAux[nLenSIG2]
+
+		(cAliasTMP)->(MsUnlock())
+
+		(cTabSIG)->(DbSkip())
+	EndDo
+
+	(cTabSIG)->(DbCloseArea())
+
+	If FindFunction("FinEraseTmpFil")
+		FinEraseTmpFil()
+	EndIf
+
+	RestArea(aArea)
+
+Return
+
+/*/{Protheus.doc} FI473CSE5
+Função que busca os dados do Extrato e dos registros já conciliados
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+Static Function FI473CSE5(aRet, aCpoSIG, cBanco, cAgencia, cConta, dDataDe, dDataAte, aSIGxTMP)
+
+	Local aAux 			:= {}
+	Local cQuery		:= ""
+	Local cTabSE5   	:= "SE5CONTRB"
+	Local aStru			:= {}
+	Local nX			:= 0
+	Local aArea			:= GetArea()
+	Local cChave  		:= ""
+	Local aCpoSE5		:= {}
+	Local nPos			:= 0
+	Local cCampoSIG		:= ""
+	Local cItem			:= ""
+	Local nPosSIGPE		:= 0
+
+	Local nSIGRecNo		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "RECSE5"    } )
+	Local nSIGPEN		:= 0
+
+	Local nSE5Age		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_AGEMOV" } )
+	Local nSE5Conta		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_CONMOV" } )
+	Local nSE5Num		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_DOCMOV" } )
+	Local nSE5Data		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_DTMOVI" } )
+	Local nSE5Valor		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_VLRMOV" } )
+	Local nSE5Deb		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_CARTER" } )
+	Local nSE5Recno		:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "RECSE5"    } )
+	Local nSE5PEN		:= 0
+	Local nPosSIG		:= 0
+	Local cTipoCH		:= IIf(Type("MVCHEQUES")== "C",MVCHEQUES,MVCHEQUE)
+	Local cSE5Emp	 	:= FwModeAccess("SE5",1)
+	Local cSE5UNe	 	:= FwModeAccess("SE5",2)
+	Local cSE5Fil	 	:= FwModeAccess("SE5",3)
+	Local aPergunte		As Array
+	Local lMVPAR10		As Logical
+	Local oFwSX1Util    As Object
+	Local nStruSE5      := 0
+	Local lGestaoEmp	:= !(Empty(FwSM0Layout(, 1)))
+	Local lGestaoUni	:= !(Empty(FwSM0Layout(, 2)))
+	Local lSE5EmpExc	:= cSE5Emp == "E"
+	Local lSE5UniExc	:= cSE5UNe == "E"
+	Local lSE5FilExc	:= cSE5Fil == "E"
+	Local cAliasTMP		As Character
+	Local cStatus		As Character
+	Local cTable		As Character
+	Local lInsert		As Logical
+	Local lUsaRegua		As Logical
+	Local nQtdReg		As Numeric
+	Local nLenSIG2		As Numeric
+
+	If !lGestaoEmp
+		lSE5EmpExc := lSE5FilExc
+	EndIf
+
+	If !lGestaoUni
+		lSE5UniExc := lSE5FilExc
+	EndIf
+
+	aPergunte	:= {}
+	lMVPAR10	:= .F.
+	oFwSX1Util	:= Nil
+	__oTBxCanc	:= FwPreparedStatement():New("")
+
+	If __lFA473Co
+		nSIGPEN	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == __aRetE5E1[1][2]})
+		nSE5PEN	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == __aRetE5E1[2][2]})
+	EndIf
+
+	AAdd(aCpoSE5, {"IG_FILIAL","E5_FILIAL" } )
+	AAdd(aCpoSE5, {"IG_CARTER","E5_RECPAG" } )
+	AAdd(aCpoSE5, {"IG_DTMOVI","E5_DTDISPO"} )
+	AAdd(aCpoSE5, {"BANCO"    ,"E5_BANCO"  } )
+	AAdd(aCpoSE5, {"IG_AGEMOV","E5_AGENCIA"} )
+	AAdd(aCpoSE5, {"IG_CONMOV","E5_CONTA"  } )
+	AAdd(aCpoSE5, {"IG_DOCMOV","E5_NUMCHEQ"} )
+	AAdd(aCpoSE5, {"IG_VLRMOV","E5_VALOR"  } )
+	AAdd(aCpoSE5, {"IG_HISMOV","E5_HISTOR" } )
+
+	If __lFA473Co
+		AAdd(aCpoSE5, {__aRetE5E1[1][2], __aRetE5E1[2][2]})
+	EndIf
+
+	If __lFA47313
+		aCpoSE5 	:= ExecBlock("FA473013",.F.,.F.,{aCpoSE5} )
+	EndIf
+
+	cChave := "E5_FILIAL+E5_BANCO+E5_AGENCIA+E5_CONTA+DTOS(E5_DTDISPO)"
+
+	cQuery += " SELECT      "   + CRLF
+	cQuery += " E5_FILIAL , "   + CRLF
+	cQuery += " E5_RECPAG , "   + CRLF
+	cQuery += " E5_DTDISPO,	"   + CRLF
+	cQuery += " E5_BANCO  , "   + CRLF
+	cQuery += " E5_AGENCIA,	"   + CRLF
+	cQuery += " E5_CONTA  ,	"   + CRLF
+	cQuery += " E5_NUMCHEQ,	"   + CRLF
+	cQuery += " E5_VALOR  ,	"   + CRLF
+	cQuery += " E5_HISTOR ,	"   + CRLF
+	cQuery += " E5_MOTBX  ,	"   + CRLF
+	cQuery += " E5_TIPODOC,	"   + CRLF
+	cQuery += " E5_PREFIXO, "   + CRLF
+	cQuery += " E5_NUMERO , "   + CRLF
+	cQuery += " E5_PARCELA, "   + CRLF
+	cQuery += " E5_TIPO   , "   + CRLF
+	cQuery += " E5_CLIFOR , "   + CRLF
+	cQuery += " E5_LOJA   , "   + CRLF
+	cQuery += " E5_SEQ    , "   + CRLF
+	cQuery += " E5_SITUACA, "   + CRLF
+	cQuery += " SE5.R_E_C_N_O_ RECONSE5 ,   "   + CRLF
+	cQuery += " E5_NUMCHEQ   "   + CRLF
+
+	If __lFA473Co
+		cQuery +=     " , " + __aRetE5E1[2][2] + "  " + CRLF
+	EndIf
+
+	cQuery += " FROM " + RetSqlName("SE5") + " SE5 " + CRLF
+	cQuery += " WHERE " + CRLF
+
+	If lSE5FilExc //Filial E E E
+		cQuery += FinSelFil(__aSelFil, "SE5", .F., .T., 30) + " AND "//FILIAL
+	ElseIf !lSE5EmpExc //Filial C C C
+		cQuery += " E5_FILIAL = ' ' AND " 
+	Else //Filial E E C ou E C C
+		cQuery += FinSelFil(__aSelFil, "SE5", .T., .F.) + " AND " //FILORIG
+		cQuery += FinSelFil(__aSelFil, "SE5", .F., .T., 30) + " AND " //FILIAL
+	EndIf
+
+	cQuery += " E5_DTDISPO >= '" + DToS(dDataDe) + "' AND " + CRLF
+	cQuery += " E5_DTDISPO <= '" + DToS(dDataAte) + "' AND " + CRLF
+	cQuery += " E5_BANCO = '" + cBanco + "' AND " + CRLF
+	cQuery += " E5_AGENCIA = '" + cAgencia + "' AND " + CRLF
+	cQuery += " E5_CONTA   = '" + cConta + "' AND " + CRLF
+	cQuery += " E5_SITUACA <> 'C' AND " + CRLF
+	cQuery += " E5_RECONC = ' ' AND " + CRLF
+
+	cQuery += " E5_TIPODOC NOT IN " + FormatIn("BA/DC/JR/MT/CM/D2/J2/M2/C2/V2/CP/TL","/") + " AND " + CRLF
+	cQuery += " E5_VALOR > 0 AND " + CRLF
+	cQuery += "(E5_MOEDA NOT IN " + FormatIn("C1/C2/C3/C4/C5/CH","/") + " OR (E5_MOEDA IN " + FormatIn("C1/C2/C3/C4/C5/CH","/") + " AND E5_NUMCHEQ <> ' ')) AND "
+	cQuery += "(E5_NUMCHEQ <> '*' OR (E5_NUMCHEQ = '*' AND E5_RECPAG <> 'P')) AND "   + CRLF
+	cQuery += "((E5_TIPODOC  IN "+ FormatIn(cTipoCH,"|") + "AND  E5_DTDISPO BETWEEN  '" + DToS(dDataDe)+ "' AND '"  + DToS(dDataAte) +"' ) OR "   + CRLF
+	cQuery += "(E5_TIPODOC   NOT IN "+ FormatIn(cTipoCH,"|") + "AND  E5_DTDISPO BETWEEN  '" + DToS(dDataDe)+ "' AND '"  + DToS(dDataAte) +"' )) AND "   + CRLF
+	cQuery += "(E5_NUMCHEQ <> '*' OR (E5_NUMCHEQ = '*' AND E5_RECPAG <> 'P')) AND "   + CRLF
+	cQuery += "D_E_L_E_T_ = ' ' " + CRLF
+
+	//Ponto de entrada para manipular a query
+	If __lFA47302
+		cQuery := ExecBlock("FA473002",.F.,.F.,cQuery )
+	EndIf
+
+	cQuery += "ORDER BY " + SqlOrder(cChave)
+
+	cQuery := ChangeQuery(cQuery)
+
+	DbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cTabSE5,.T.,.T.)
+
+	If (cTabSE5)->(!(EoF()))
+		aStru  := SE5->(DbStruct())
+		nStruSE5 := Len(aStru)
+
+		For nX := 1 To nStruSE5
+			If aStru[nX][2] <> "C" .And. SE5->(FieldPos(aStru[nX][1])) > 0
+				TcSetField(cTabSE5,aStru[nX][1],aStru[nX][2],aStru[nX][3],aStru[nX][4])
+			EndIf
+		Next nX
+
+		FwFreeArray(aStru)
+	EndIf
+
+	oFwSX1Util := FwSX1Util():New()
+
+	//Valida se ambiente está atualizado e possuí o MV_PAR10
+	oFwSX1Util:AddGroup("FINA473")
+	oFwSX1Util:SearchGroup()
+	aPergunte := oFwSX1Util:GetGroup("FINA473")
+
+	If Len(aPergunte) > 1 .And. Len(aPergunte[2]) >= 10 .And. Upper(AllTrim(aPergunte[2][10]:CX1_VAR01)) == "MV_PAR10"
+		lMVPAR10 := .T.
+	EndIf
+
+	FwFreeArray(aPergunte)
+	FwFreeObj(oFwSX1Util)
+	aPergunte := Nil
+
+	cTable		:= __oFinA473:GetRealName()
+	cAliasTMP	:= __oFinA473:GetAlias()
+
+	nLenCpoSIG	:= Len(aCpoSIG)
+	aCpoSIG2	:= AClone(aCpoSIG)
+	AAdd(aCpoSIG2, "CAMPO")
+	nLenSIG2	:= nLenCpoSIG + 1
+
+	If lUsaRegua := !IsBlind()
+		Count To nQtdReg
+		cQtdReg := CValToChar(nQtdReg)
+		(cTabSE5)->(DbGoTop())
+		ProcRegua(nQtdReg)
+	EndIf
+
+	//Inicia a leitura do arquivo de movimentacao do SE5
+	While (cTabSE5)->(!(EoF()))
+
+		If lUsaRegua
+			IncProc()
+		EndIf
+
+		If !Empty( (cTabSE5)->E5_MOTBX ) .and. !MovBcoBx((cTabSE5)->E5_MOTBX)
+			(cTabSE5)->(DbSkip())
+			Loop
+		EndIf
+
+		cChaveBx := (cTabSE5)->E5_PREFIXO+(cTabSE5)->E5_NUMERO+(cTabSE5)->E5_PARCELA+(cTabSE5)->E5_TIPO+(cTabSE5)->E5_CLIFOR+(cTabSE5)->E5_LOJA+(cTabSE5)->E5_SEQ
+
+		//MV_PAR10 - Caso o parâmetro tenha o valor 1, permite exibição dos movimentos de baixa e seus estornos, caso não, efetua validação pré-existente para exclusão dos mesmos
+		If (cTabSE5)->E5_SITUACA $ "E|X|C" .Or.;
+			IIf(lMVPAR10 .And. MV_PAR10 == 1, .F., (!Empty(cChaveBx) .And. Empty((cTabSE5)->E5_NUMCHEQ) .And. TemBxCanc(cChaveBx,,(cTabSE5)->E5_FILIAL, __oTBxCanc)))
+			(cTabSE5)->( DbSkip())
+			Loop
+		EndIf
+
+		If (cTabSE5)->E5_TIPODOC = "CH"    //Emissão de Cheque
+			If SEF->(DbSeek((cTabSE5)->E5_FILIAL +(cTabSE5)->E5_BANCO+(cTabSE5)->E5_AGENCIA+(cTabSE5)->E5_CONTA+(cTabSE5)->E5_NUMCHEQ))
+				If SEF->EF_IMPRESS = "C"
+					(cTabSE5)->(DbSkip())
+					Loop
+				EndIf
+			EndIf
+		EndIf
+
+		aAux := Nil
+		aAux := Array(nLenSIG2)
+		aAux[nLenSIG2] := 0
+
+		For nX := 1 to Len(aCpoSIG)
+			cCampoSIG := aCpoSIG[nX]
+			nPos := AScan(aCpoSE5, { | aItem | AllTrim(aItem[1]) == AllTrim(cCampoSIG) } )
+
+			If !(aCpoSIG[nX] $ ("COR/SEQDIG/DESCONC/NREGDESCO"))
+				If nPos > 0
+					If AllTrim(aCpoSE5[nPos][2]) == "E5_RECPAG"
+						aAux[nX] := IIf((cTabSE5)->E5_RECPAG == "R", "1","2")
+					ElseIf __lFA473Co
+						If AllTrim(aCpoSE5[nPos][2]) == AllTrim(__aRetE5E1[2][2])
+							aAux[nSE5PEN] := (cTabSE5)->&(aCpoSE5[nPos][2])
+						Else
+							aAux[nX] := (cTabSE5)->&(aCpoSE5[nPos][2])
+						EndIf
+					Else
+						aAux[nX] := (cTabSE5)->&(aCpoSE5[nPos][2])
+					EndIf
+				Else
+					If SIG->(FieldPos(cCampoSIG)) > 0
+						aAux[nX] := CriaVar(cCampoSIG)
+					ElseIf AllTrim(cCampoSIG) == "RECSE5"
+						aAux[nX] := (cTabSE5)->RECONSE5
+					EndIf
+				EndIf
+			ElseIf AllTrim(aCpoSIG[nX]) == "NREGDESCO"
+				aAux[nX] := 0
+			Else
+				aAux[nX] := ""
+			EndIf
+		Next nX
+
+		cStatus := ""
+		lInsert := .T.
+
+		// Tento pre-reconciliacao dentro da Data + Agencia + Conta + Numero + Valor + Tipo
+		If (nPosSIG := F473Qry1(cTable, {aAux[nSE5Data], aAux[nSE5Age], aAux[nSE5Conta], aAux[nSE5Num], aAux[nSE5Valor], aAux[nSE5Deb]})) > 0
+			cStatus := "3"
+			lInsert := .F.
+		// Tento pre-reconcilizacao por Numero + Valor + Tipo
+		ElseIf (nPosSIG := F473Qry2(cTable, {aAux[nSE5Age], aAux[nSE5Conta], aAux[nSE5Num], aAux[nSE5Valor], aAux[nSE5Deb]})) > 0
+			cStatus := "2"
+			lInsert := .F.
+		//Tento pre-reconcilizacao dentro da data + valor + tipo
+		ElseIf (nPosSIG := F473Qry3(cTable, {aAux[nSE5Age], aAux[nSE5Conta], aAux[nSE5Data], aAux[nSE5Valor], aAux[nSE5Deb]})) > 0
+			If aRet[nPosSIG][2][nSE5Recno] <> 0 .And. aRet[nPosSIG][2][nSE5Recno] <> aAux[nSIGRecNo]
+				If (nPosSIG := F473Qry4(cTable, {aAux[nSE5Age], aAux[nSE5Conta], aAux[nSE5Data], aAux[nSE5Valor], aAux[nSE5Deb], aAux[nSIGRecNo]})) > 0
+					cStatus := "2"
+					lInsert := .F.
+				EndIf
+			Else
+				cStatus := "2"
+				lInsert := .F.
+			EndIf
+		EndIf
+
+		//Somente executa PE quando SIG for encontrada
+		If nPosSIG > 0 .And. __lFA473Co
+			If !(Empty(aAux[nSE5PEN]))
+				If (nPosSIGPE := F473QryPE(cTable, {aAux[nSE5PEN]})) > 0
+					nPosSIG		:= nPosSIGPE
+					nPosSIGPE	:= 0
+				Else
+					lInsert := .T.
+				EndIf
+			EndIf
+		EndIf
+
+		If lInsert
+			F473Insert(cAliasTMP, aAux, aCpoSIG, aSIGxTMP, @aRet)
+		Else
+			FI473Array(cAliasTMP, @aRet[nPosSIG][2], aAux, aCpoSIG2, cStatus, aSIGxTMP, nPosSIG)
+		EndIf
+
+		(cTabSE5)->(DbSkip())
+		If nPosSIG > 0
+			aRet[nPosSIG][2][nLenSIG2] := 1
+			(cAliasTMP)->(DbGoTo(nPosSIG))
+			Reclock(cAliasTMP, .F.)
+			(cAliasTMP)->CAMPO := 1
+			(cAliasTMP)->(MsUnlock())
+		EndIf
+	EndDo
+
+	(cTabSE5)->(DbCloseArea())
+
+	If FindFunction("FinEraseTmpFil")
+		FinEraseTmpFil()
+	EndIf
+
+	F473ClearStatic()
+
+	RestArea(aArea)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473Array
+Função que carrega o array do bload com as informações do SE5
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FI473Array(cAliasTMP, aSIG, aSE5, aCpoSIG, cStatus, aSIGxTMP, nPosSIG)
+
+	Local nCampo		:= 0
+	Local cItem			:= ""
+	Local nPosStatus	:= AScan(aCpoSIG , {|cItem| AllTrim(cItem) == "IG_STATUS"})
+
+	(cAliasTMP)->(DbGoTo(nPosSIG))
+	Reclock(cAliasTMP, .F.)
+
+	For nCampo := 1 to Len(aSIG)
+		If Empty(aSIG[nCampo])
+			aSIG[nCampo] := aSE5[nCampo]
+			If aSIGxTMP[nCampo]
+				(cAliasTMP)->&(aCpoSIG[nCampo]) := aSIG[nCampo]
+			EndIf
+		EndIf
+	Next nCampo
+
+	aSIG[nPosStatus]		:= cStatus
+	(cAliasTMP)->IG_STATUS	:= cStatus
+
+	(cAliasTMP)->(MsUnlock())
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473LRec
+Função que retorna a carga de dados da tabela de totalizador
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function FI473LRec(oModel)
+Local aRet := {}
+
+Pergunte("FINA473",.F.)
+
+AAdd(aRet,{0 ,{ xFilial("SIF") , MV_PAR01, "", 0 } } )
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473LPag
+Função que retorna a carga de dados da tabela de totalizador
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function FI473LPag(oModel)
+Local aRet := {}
+
+Pergunte("FINA473",.F.)
+
+AAdd(aRet,{0 ,{ xFilial("SIF") , MV_PAR01, "", 0 } } )
+
+Return aRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473LSal
+Função que retorna a carga de dados da tabela de totalizador
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function FI473LSal(oModel)
+Local aRet := {}
+
+Pergunte("FINA473",.F.)
+
+AAdd(aRet,{0 ,{ xFilial("SIF") , MV_PAR01, "", 0 } } )
+
+Return aRet
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ViewDef
+Definição do interface
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function ViewDef()
+Local oView
+Local oModel := ModelDef()
+
+Local oStr1		:= MontaVCab()
+Local oStr2		:= FWFormStruct(2, "SIG")
+Local oStr3		:= MontaVRec()
+Local oStr4		:= MontaVPag()
+Local oStr5		:= MontaVSal()
+Local aRetView	:= {}
+Local nI		:= 0
+
+
+oView := FWFormView():New()
+
+oView:SetModel(oModel)
+
+oView:AddField('VIEWCONMASTER' , oStr1,'CONMASTER' )
+oView:AddGrid('VIEWCONDETAIL' , oStr2,'CONDETAIL')
+oView:AddGrid('FORM6' , oStr3,'TOTREC')
+oView:AddGrid('FORM8' , oStr4,'TOTPAG')
+oView:AddGrid('FORM10' , oStr5,'TOTSAL')
+
+oView:CreateHorizontalBox( 'BOXFORM1', 16)
+
+oStr2:RemoveField( 'IG_STATUS' )
+oStr2:RemoveField( 'IG_NATMOV' )
+oStr2:RemoveField( 'IG_ITEM' )
+oStr2:RemoveField( 'IG_TIPEXT' )
+oStr2:RemoveField( 'IG_FILORIG' )
+
+oStr2:AddField( 'COR'   ,'01','','',, 'BC','@BMP' )
+oStr2:AddField( 'SEQDIG','02','','',, 'Get'       )
+oStr2:RemoveField( 'IG_IDPROC' )
+
+If __lFA473Co
+	oStr2:AddField( __aRetE5E1[2][2], '03','','',,'','@!' )
+
+	oStr2:SetProperty( __aRetE5E1[1][2]	, MVC_VIEW_ORDEM,	'12')
+	oStr2:SetProperty( __aRetE5E1[2][2]	, MVC_VIEW_ORDEM,	'13')
+	oStr2:SetProperty( "IG_HISTEXT"	    , MVC_VIEW_ORDEM,	'14')
+
+	oStr2:SetProperty(__aRetE5E1[2][2]  , MVC_VIEW_TITULO, __aRetE5E1[2][1])
+EndIf
+
+oStr2:SetProperty('*',MVC_VIEW_CANCHANGE,.F.)
+
+oView:CreateHorizontalBox( 'BOXFORM3', 63)
+oView:CreateHorizontalBox( 'BOX5', 21)
+oView:CreateVerticalBox( 'BOXFORM6' , 32, 'BOX5')
+oView:CreateVerticalBox( 'BOXFORM8' , 32, 'BOX5')
+oView:CreateVerticalBox( 'BOXFORM10', 36, 'BOX5')
+oView:SetOwnerView('VIEWCONMASTER','BOXFORM1')
+oView:SetOwnerView('VIEWCONDETAIL','BOXFORM3')
+oView:SetOwnerView('FORM6' ,'BOXFORM6' )
+oView:SetOwnerView('FORM8' ,'BOXFORM8' )
+oView:SetOwnerView('FORM10','BOXFORM10')
+
+
+oView:EnableTitleView('VIEWCONMASTER' , STR0040 )//'Parâmetros da Conciliação'
+oView:EnableTitleView('VIEWCONDETAIL' , STR0041 )//'Movimentos'
+oView:EnableTitleView('FORM6' , STR0042 )//'Recebimentos'
+oView:EnableTitleView('FORM8' , STR0043 )//'Pagamentos'
+oView:EnableTitleView('FORM10', STR0044 )//'Saldos'
+
+oView:SetViewProperty('FORM6' , 'ENABLENEWGRID' )
+oView:SetViewProperty('FORM8' , 'ENABLENEWGRID' )
+oView:SetViewProperty('FORM10', 'ENABLENEWGRID' )
+
+oView:SetViewProperty('FORM6' , 'GRIDVSCROLL', {.F.}  )
+oView:SetViewProperty('FORM8' , 'GRIDVSCROLL',  {.F.}   )
+oView:SetViewProperty('FORM10', 'GRIDVSCROLL',  {.F.}   )
+
+oView:SetAfterViewActivate({|oV| SetConMan(oV) })
+
+oView:AddUserButton( STR0059, 'FORM'  , {|oView| FA473Leg() } ) //'Legenda'
+oView:AddUserButton( STR0083, 'PEDIDO', {|oView| FA473Efet(oView) } ) //"Efetivação"
+oView:AddUserButton( STR0084, 'PEDIDO', {|oView| FA473CanEfet(oView) } ) //"Cancelar Efetivação"
+oView:AddUserButton( STR0100, 'PEDIDO', {|oModel, oView| FA473Ignora(oModel,oView) } ) //"Ignora movimento""
+oView:AddUserButton( STR0101, 'PEDIDO', {|oModel, oView| FA473Valid(oModel,oView) } ) //"Ignora conc. anterior."
+
+If _lF473VIEW
+	aRetView := ExecBlock("F473VIEW",.F.,.F.,{__aRetE5E1,MVC_VIEW_ORDEM} )
+	For nI := 1 to len(aRetView)
+		If aRetView[nI][1] == "oView"
+			If !Empty(aRetView[nI][2]) .And. AllTrim(aRetView[nI][2]) == 'AddUserButton'
+				oView:AddUserButton( aRetView[nI][3], aRetView[nI][4]	, aRetView[nI][5]	)
+			ElseIf  !Empty(aRetView[nI][2]) .And. AllTrim(aRetView[nI][2]) == 'SetViewProperty'
+				oView:SetViewProperty( aRetView[nI][3], aRetView[nI][4] )
+			EndIf
+		ElseIF aRetView[nI][1] == "oStr2"
+			If !Empty(aRetView[nI][2]) .And. AllTrim(aRetView[nI][2]) == 'AddField'
+				oStr2:AddField(  aRetView[nI][3], aRetView[nI][4], aRetView[nI][5], aRetView[nI][6], aRetView[nI][7], aRetView[nI][8], aRetView[nI][9])
+			EndIf
+		EndIf
+	Next nI
+EndIf
+
+
+Return oView
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetConMan
+Atribui a propriedade doubleclick da grid.
+Temporário até sair a propriedade oficial do framework
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function SetConMan(oView)
+
+Local oGridView := oView:GetViewObj('VIEWCONDETAIL')[3]
+
+oGridView:oBrowse:oBrowse:bLDblClick := {|| FA473Marca() }
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473Marca
+Tela de conciliação Manual
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FA473Marca()
+Local oDlg1      := Nil
+Local nOpca1	 := 0
+Local oModel     := FWModelActive()
+Local oView		 := FWViewActive()
+Local oModelDet	 := oModel:GetModel("CONDETAIL")
+Local cStatus	 := oModelDet:GetValue("IG_STATUS")
+Local lRet		 := .T.
+LOCAL nSequen 	 := 0
+LOCAL lIsBanco 	 := .F.
+Local nTamDet	 := oModelDet:Length()
+Local nLinOri	 := oModelDet:GetLine()
+Local nLinhaNov	 := 0
+Local aSaveLines := FWSaveRows()
+Local nSeqOri    := 0
+Local cDCOri     := ""
+Local nValOri    := 0
+Local dDataOri   := cTod("")
+Local cNumOri    := ""
+Local cAgeOri    := ""
+Local cCtaOri    := ""
+Local cHistOri   := ""
+Local nRecnoSE5  := 0
+Local nValDes    := 0
+Local dDataDes   := cTod("")
+Local cNumDes    := ""
+Local cAgeDes    := ""
+Local cCtaDes    := ""
+Local cHistDes   := ""
+Local aArea      := GetArea()
+Local aAreaSE5   := SE5->(GetArea())
+Local nSeqDes    := 0
+Local cCor       := ""
+Local lF473CAOK  := !Existblock("F473CAOK")
+
+__lConManual	:= .T.
+
+If !__lFA47303
+	If oModelDet:IsDeleted()
+		lRet := .F.
+		Help(" ", 1, "FIN473MAN", Nil, STR0045, 1, 0 ) //Por favor selecione o registro conciliado.
+	ElseIf oModelDet:GetValue("IG_EFETIVA") == "1"
+		lRet := .F.
+		Help(" ", 1, "FIN473MAN1", Nil, STR0082, 1, 0 ) //Para cancelar uma conciliação com um movimento gerado pela rotina de conciliação, utilize a operação - Cancelar Efetivação
+	EndIf
+
+	If lRet
+		SE5->(DbSetOrder(20)) //E5_FILIAL+E5_SEQCON
+		nRecSE5 := oModelDet:GetValue("RECSE5")
+
+		If cStatus == "1" //Se não reconciliado
+			DEFINE MSDIALOG oDlg1 FROM  69,70 TO 160,331 TITLE STR0047 PIXEL  //"Reconciliacao bancaria Automatica"
+			@ 0, 2 TO 22, 165 OF oDlg1 PIXEL
+			@ 7, 98 MSGET nSequen Picture "9999" VALID (nSequen <= nTamDet) .and. (nSequen > 0) SIZE 20, 10 OF oDlg1 PIXEL
+			@ 8, 08 SAY  STR0046  SIZE 90, 7 OF oDlg1 PIXEL //"Sequencia a Reconciliar"
+			DEFINE SBUTTON FROM 29, 71 TYPE 1 ENABLE ACTION  (nOpca1:=1,If((nSequen <= nTamDet ) .and. (nSequen > 0) ,oDLg1:End() , nOpca1:=0 ) )  OF oDlg1
+			DEFINE SBUTTON FROM 29, 99 TYPE 2 ENABLE ACTION (oDlg1:End()) OF oDlg1
+			ACTIVATE MSDIALOG oDlg1 CENTERED
+
+			If nOpca1 == 1
+				//Verifica se a linha clicada ‚ Mov. Banco ou Sistema
+				If !Empty(oModelDet:GetValue("IG_VLRMOV")) .And. Empty(oModelDet:GetValue("IG_VLREXT"))
+					lIsBanco := .T.
+				EndIf
+
+				nSeqOri   := Val(oModelDet:GetValue("SEQDIG") )
+				cDCOri	  := oModelDet:GetValue("IG_CARTER")
+				nValOri	  := IIf(lIsBanco, oModelDet:GetValue("IG_VLRMOV") , oModelDet:GetValue("IG_VLREXT") )
+				dDataOri  := IIf(lIsBanco, oModelDet:GetValue("IG_DTMOVI") , oModelDet:GetValue("IG_DTEXTR") )
+				cNumOri	  := IIf(lIsBanco, oModelDet:GetValue("IG_DOCMOV"), oModelDet:GetValue("IG_DOCEXT"))
+				cAgeOri	  := IIf(lIsBanco, oModelDet:GetValue("IG_AGEMOV") , oModelDet:GetValue("IG_AGEEXT"))
+				cCtaOri	  := IIf(lIsBanco, oModelDet:GetValue("IG_CONMOV") , oModelDet:GetValue("IG_CONEXT"))
+				cHistOri  := IIf(lIsBanco, oModelDet:GetValue("IG_HISMOV") , oModelDet:GetValue("IG_HISTEXT"))
+				nRecnoSE5 := oModelDet:GetValue("RECSE5")
+				oModelDet:GoLine(nSequen)
+
+				//Verifica tentativa de reconciliar Banco x Banco ou SE5 x SE5
+				//ou Lancamento de Credito x Lancamento D‚bito ou vice-versa
+
+				If ( ( !Empty(oModelDet:GetValue("IG_VLRMOV")) .And.  Empty(oModelDet:GetValue("IG_VLREXT"))  .and. lIsBanco) .or. ;
+						(  Empty(oModelDet:GetValue("IG_VLRMOV")) .And. !Empty(oModelDet:GetValue("IG_VLREXT")) .and. !lIsBanco) .or. ;
+						oModelDet:GetValue("IG_CARTER") != cDCOri )
+					Help(" ",1,"NORECONC")
+					lRet := .F.
+				EndIf
+
+				If lRet .And. (IIf(lIsBanco , oModelDet:GetValue("IG_VLREXT") != nValOri , oModelDet:GetValue("IG_VLRMOV") != nValOri))
+					Help(" ",1,"NORECONC")
+					lRet := .F.
+				EndIf
+
+				//Movimento Extrato
+				If lRet
+					cCor := F473COR("3")
+
+					If !lIsBanco
+						nValDes   := oModelDet:GetValue("IG_VLRMOV")
+						dDataDes  := oModelDet:GetValue("IG_DTMOVI")
+						cNumDes   := oModelDet:GetValue("IG_DOCMOV")
+						cAgeDes   := oModelDet:GetValue("IG_AGEMOV")
+						cCtaDes   := oModelDet:GetValue("IG_CONMOV")
+						cHistDes  := oModelDet:GetValue("IG_HISMOV")
+						nRecnoSE5 := oModelDet:GetValue("RECSE5")
+
+						oModelDet:DeleteLine()
+						oModelDet:GoLine(nLinOri)
+
+						oModelDet:LoadValue("IG_VLRMOV", nValDes)
+						oModelDet:LoadValue("IG_DTMOVI", dDataDes)
+						oModelDet:LoadValue("IG_DOCMOV", cNumDes)
+						oModelDet:LoadValue("IG_AGEMOV", cAgeDes)
+						oModelDet:LoadValue("IG_CONMOV", cCtaDes)
+						oModelDet:LoadValue("IG_STATUS", "3")
+						oModelDet:LoadValue("COR", cCor)
+						oModelDet:LoadValue("RECSE5", nRecnoSE5)
+						oModelDet:LoadValue("IG_HISMOV", cHistDes)
+						oModelDet:LoadValue("DESCONC", "")
+					Else
+						oModelDet:LoadValue("IG_VLRMOV",nValOri)
+						oModelDet:LoadValue("IG_DTMOVI",dDataOri)
+						oModelDet:LoadValue("IG_DOCMOV",cNumOri)
+						oModelDet:LoadValue("IG_AGEMOV",cAgeOri)
+						oModelDet:LoadValue("IG_CONMOV",cCtaOri)
+						oModelDet:LoadValue("IG_STATUS", "3")
+						oModelDet:LoadValue("COR", cCor)
+						oModelDet:LoadValue("RECSE5", nRecnoSE5)
+						oModelDet:LoadValue("IG_HISMOV", cHistOri)
+						oModelDet:LoadValue("DESCONC", "")
+
+						oModelDet:GoLine(nLinOri)
+						oModelDet:DeleteLine()
+					EndIf
+				EndIf
+			EndIf
+		Else
+			DEFINE MSDIALOG oDlg1 FROM  69,70 TO 160,331 TITLE  STR0047 PIXEL  //"Reconciliacao bancaria Automatica"
+			@  0, 2 TO 22, 128 OF oDlg1	PIXEL
+			@  7.5,  9 SAY  STR0048  SIZE 115, 7 OF oDlg1 PIXEL  //"Esta movimentacao ja se encontra reconciliada"
+			@ 14  ,  9 SAY  STR0049  SIZE 100, 7 OF oDlg1 PIXEL  //"             Deseja cancelar ?               "
+			DEFINE SBUTTON FROM 29, 71 TYPE 1 ENABLE ACTION (nOpca1 := 1, oDlg1:End()) OF oDlg1
+			DEFINE SBUTTON FROM 29, 99 TYPE 2 ENABLE ACTION (oDlg1:End()) OF oDlg1
+			ACTIVATE MSDIALOG oDlg1 CENTERED
+
+			If !lF473CAOK
+				lF473CAOK := Execblock("F473CAOK", .F., .F., nRecSE5)
+			EndIf
+
+			If nOpca1 == 1 .And. lF473CAOK
+				nSeqDes := FI473SeekSeq(oModelDet, oModelDet:GetValue("RECSE5"), nLinOri)
+				cCor    := F473COR("1")
+
+				If nSeqDes > 0
+					oModelDet:LoadValue("IG_VLRMOV", 0)
+					oModelDet:LoadValue("IG_DTMOVI", CTOD("") )
+					oModelDet:LoadValue("IG_DOCMOV", SPACE(TamSx3("IG_DOCMOV")[1]) )
+					oModelDet:LoadValue("IG_AGEMOV", SPACE(TamSx3("IG_AGEMOV")[1]))
+					oModelDet:LoadValue("IG_CONMOV", SPACE(TamSx3("IG_CONMOV")[1]))
+					oModelDet:LoadValue("IG_STATUS", "1")
+					oModelDet:LoadValue("COR", cCor)
+					oModelDet:LoadValue("RECSE5", 0)
+
+					cSeqCon := oModelDet:GetValue("IG_SEQMOV")
+
+					If SE5->(!dbSeek(xFilial("SE5") + cSeqCon ))
+						oModelDet:LoadValue("DESCONC","1")
+					EndIf
+
+					oModelDet:LoadValue("IG_HISMOV",SPACE(TamSx3("IG_HISMOV")[1]))
+					oModelDet:GoLine(nSeqDes)
+					oModelDet:UnDeleteLine()
+				Else //Linha pré conciliada
+					nValDes   := oModelDet:GetValue("IG_VLRMOV")
+					dDataDes  := oModelDet:GetValue("IG_DTMOVI")
+					cNumDes   := oModelDet:GetValue("IG_DOCMOV")
+					cAgeDes   := oModelDet:GetValue("IG_AGEMOV")
+					cCtaDes   := oModelDet:GetValue("IG_CONMOV")
+					cHistDes  := oModelDet:GetValue("IG_HISMOV")
+					nRecnoSE5 := oModelDet:GetValue("RECSE5")
+					cDCOri	  := oModelDet:GetValue("IG_CARTER")
+
+					oModelDet:LoadValue("IG_VLRMOV", 0)
+					oModelDet:LoadValue("IG_DTMOVI", CTOD("") )
+					oModelDet:LoadValue("IG_DOCMOV", SPACE(TamSx3("IG_DOCMOV")[1]))
+					oModelDet:LoadValue("IG_AGEMOV", SPACE(TamSx3("IG_AGEMOV")[1]))
+					oModelDet:LoadValue("IG_CONMOV", SPACE(TamSx3("IG_CONMOV")[1]))
+					oModelDet:LoadValue("IG_STATUS", "1")
+					oModelDet:LoadValue("COR", cCor)
+					oModelDet:LoadValue("RECSE5", 0)
+					oModelDet:LoadValue("IG_HISMOV", SPACE(TamSx3("IG_HISMOV")[1]))
+					oModelDet:LoadValue("DESCONC", "1")
+					oModelDet:LoadValue("NREGDESCO", nRecnoSE5)
+					//Cria a nova Linha
+					nLinhaNov := oModelDet:AddLine(.T.)
+
+					oModelDet:LoadValue("IG_VLRMOV", nValDes)
+					oModelDet:LoadValue("IG_DTMOVI", dDataDes)
+					oModelDet:LoadValue("IG_DOCMOV", cNumDes)
+					oModelDet:LoadValue("IG_AGEMOV", cAgeDes)
+					oModelDet:LoadValue("IG_CONMOV", cCtaDes)
+					oModelDet:LoadValue("IG_STATUS", "1")
+					oModelDet:LoadValue("COR", cCor)
+					oModelDet:LoadValue("RECSE5", nRecnoSE5)
+					oModelDet:LoadValue("IG_HISMOV", cHistDes)
+					oModelDet:LoadValue("SEQDIG", cValToChar(nLinhaNov))
+					oModelDet:LoadValue("IG_CARTER", cDCOri)
+					oModelDet:LoadValue("IG_TIPMOV", "")
+					oModelDet:LoadValue("IG_TIPDSC", "")
+					oModelDet:LoadValue("DESCONC", "1")
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+Else
+	ExecBlock("FA473003",.F.,.F.,{@oModelDet})
+EndIf
+
+FWRestRows(aSaveLines)
+
+__lConManual := .F.
+
+FI473ACTMD(oModel)
+
+If oView != Nil
+	oView:Refresh()
+EndIf
+
+RestArea(aAreaSE5)
+RestArea(aArea)
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473SeekSeq
+Retorna a linha da linha conciliada
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+Static Function FI473SeekSeq(oModelDet,nRecSE5,nLinOri )
+Local nLinha 	:= 0
+Local nRet		:= 0
+Local nLinSav	:= oModelDet:GetLine()
+
+For nLinha := 1 to oModelDet:Length()
+	oModelDet:GoLine(nLinha)
+
+	If oModelDet:GetValue("RECSE5") == nRecSE5 .And.nLinha != nLinOri
+		nRet := nLinha
+		Exit
+	EndIf
+
+Next nLinha
+
+
+oModelDet:GoLine(nLinSav)
+Return nRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaVCab
+Retorna estrutura do tipo FWFormViewStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+static function MontaVCab()
+Local oStruct := FWFormViewStruct():New()
+oStruct:AddField( 'BANCO','1',STR0022,STR0022,, 'Get',,,,.F. )//'Banco'
+oStruct:AddField( 'AGENCIA','2',STR0025,STR0025,, 'Get','@!',,,.F. )//'Agencia'
+oStruct:AddField( 'CONTA','3',STR0027,STR0027,, 'Get',,,,.F. )//'Conta'
+oStruct:AddField( 'DATADE','4',STR0029,STR0029,, 'Get',,,,.F. )//'Data De'
+oStruct:AddField( 'DATAATE','5',STR0030,STR0030,, 'Get',,,,.F. )//'Data Ate'
+oStruct:AddField( 'AGLUTINA','6',STR0030,STR0030,, 'Combo',,,,.F.,,,{STR0031, STR0032} )//'Aglut Lanc'
+oStruct:AddField( 'MOSTRACTB','7',STR0033,STR0033,, 'Combo',,,,.F.,,,{STR0031, STR0032} )//'Mostra Lanc'
+oStruct:AddField( 'CTBONLINE','8',STR0034,STR0034,, 'Combo',,,,.F.,,,{STR0031, STR0032} )//'Contb On Line'
+oStruct:AddField( 'SELFIL','9',"Seleciona Filial","Seleciona Filial",, 'Combo',,,,.F.,,,{STR0031, STR0032} )//'Contb On Line'
+
+return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} MontaVRec
+Retorna estrutura do tipo FWFormViewStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+static function MontaVRec()
+Local oStruct := FWFormViewStruct():New()
+oStruct:AddField( 'TEXTO','1',STR0050     ,STR0050    ,, 'Get', ,,,.F. )//"Recebimento"
+oStruct:AddField( 'VALOR','2',STR0051,STR0051,, 'Get','@E 9,999,999,999,999.99',,,.F. )//"Valor"
+return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} viewoStr4Str()
+Retorna estrutura do tipo FWFormViewStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+static function MontaVPag()
+Local oStruct := FWFormViewStruct():New()
+
+oStruct:AddField( 'TEXTO','1',STR0052     ,STR0052     ,, 'Get', ,,,.F. )//"Pagamento"
+oStruct:AddField( 'VALOR','2',STR0051,STR0051,, 'Get','@E 9,999,999,999,999.99',,,.F. )//"Valor"
+
+return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} viewoStr5Str()
+Retorna estrutura do tipo FWFormViewStruct.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+
+static function MontaVSal()
+Local oStruct := FWFormViewStruct():New()
+oStruct:AddField( 'TEXTO','1',STR0053     ,STR0053    ,, 'Get', ,,,.F. )//"Saldo"
+oStruct:AddField( 'VALOR','2',STR0051,STR0051,, 'Get','@E 9,999,999,999,999.99',,,.F. )//"Valor"
+return oStruct
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473Leg()
+Mostra Legenda da Reconciliacao
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Function FA473Leg()
+	Local oDlg2
+	Local lRet		:= .T.
+	Local oModel	:= FWModelActive()
+
+	DEFINE MSDIALOG oDlg2 FROM  69,70 TO 200,331 TITLE  STR0054 PIXEL  //"Legenda - Reconciliação Automática"
+	@ 05 , 5 BITMAP NAME "BR_VERDE" 		SIZE 8,8 of Odlg2 PIXEL
+	@ 15 , 5 BITMAP NAME "BR_AMARELO" 		SIZE 8,8 of Odlg2 PIXEL
+	@ 25 , 5 BITMAP NAME "BR_CINZA" 		SIZE 8,8 of Odlg2 PIXEL
+	@ 35 , 5 BITMAP NAME "DISABLE" 			SIZE 8,8 of Odlg2 PIXEL
+	@ 45 , 5 BITMAP NAME "BR_CANCEL"		SIZE 8,8 of Odlg2 PIXEL
+	@ 55 , 5 BITMAP NAME "BR_PINK"			SIZE 8,8 of Odlg2 PIXEL
+	@ 05 , 19 SAY  STR0055  	SIZE 115, 7 OF oDlg2 PIXEL  //"  Reconciliado"
+	@ 15 , 19 SAY  STR0056  	SIZE 100, 7 OF oDlg2 PIXEL  //"  Reconciliado Parcial"
+	@ 25 , 19 SAY  STR0057  	SIZE 100, 7 OF oDlg2 PIXEL  //"  Reconciliado Anteriormente"
+	@ 35 , 19 SAY  STR0058  	SIZE 100, 7 OF oDlg2 PIXEL  //"  Não Reconciliado"
+	@ 45 , 19 SAY  STR0102  	SIZE 100, 7 OF oDlg2 PIXEL  //"  Ignorado pelo usuário"
+	@ 55 , 19 SAY  STR0103	 	SIZE 100, 7 OF oDlg2 PIXEL  //'  Ignorado conciliado anteriormente'
+	DEFINE SBUTTON FROM 20, 100 TYPE 1 ENABLE ACTION (oDlg2:End()) OF oDlg2
+	ACTIVATE MSDIALOG oDlg2 CENTERED
+
+	oModel:GetModel("CONDETAIL"):GoLine(1)
+	oModel:GetModel("TOTREC"):GoLine(1)
+	oModel:GetModel("TOTSAL"):GoLine(1)
+	oModel:GetModel("TOTPAG"):GoLine(1)
+Return lRet
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473CanEfet()
+Cancela lancamento do extrato no SE5
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FA473CanEfet(oView)
+Local nOpca1 	 := 0
+Local oDlg1		 := Nil
+Local oModel	 := FWModelActive()
+Local oModelDet	 := oModel:getModel('CONDETAIL')
+Local aSaveLines := FWSaveRows()
+Local nRecSE5    := oModelDet:GetValue("RECSE5")
+Local lAtuSldNat := .T.
+Local aArea		 := GetArea()
+Local aAreaSE5	 := SE5->(GetArea())
+Local cFilX		 := cFilAnt
+Local oModelMov  :=  Nil
+Local cLog       := ""
+Local lRet       := .T.
+Local oSubFKA    := Nil
+Local oSubFK5    := Nil
+Local cCamposE5  := ""
+Local lIntPFS    := SuperGetMV("MV_JURXFIN",,.F.) // Integração SIGAPFS x SIGAFIN
+Local cSeqCon	 := ""
+Local cPadrao    := "565"
+
+cFilAnt := oModelDet:GetValue("IG_FILORIG")
+dbSelectArea("SE5")
+
+If oModelDet:GetValue("IG_EFETIVA") == "1"
+	DEFINE MSDIALOG oDlg1 FROM  69,70 TO 160,331 TITLE  STR0047 PIXEL  //"Reconciliacao bancaria Automatica"
+	@  0, 2 TO 22, 128 OF oDlg1	PIXEL
+	@  7.5,  9 SAY  STR0085  SIZE 115, 7 OF oDlg1 PIXEL  //"Esta movimentacao ja se encontra efetivada   "
+	@ 14  ,  9 SAY  STR0049  SIZE 100, 7 OF oDlg1 PIXEL  //"             Deseja cancelar ?               "
+	DEFINE SBUTTON FROM 29, 71 TYPE 1 ENABLE ACTION (nOpca1:=1,oDlg1:End()) OF oDlg1
+	DEFINE SBUTTON FROM 29, 99 TYPE 2 ENABLE ACTION (oDlg1:End()) OF oDlg1
+	ACTIVATE MSDIALOG oDlg1 CENTERED
+
+	If nOpca1 == 1
+		SE5->(DbGoto(nRecSE5))
+		cSeqCon := SE5->E5_SEQCON // Armazena sequência antes da exclusão
+		cCamposE5 := "{ {'E5_RECONC', ''} }"
+
+		oModelMov := FWLoadModel("FINM030") //Recarrega o Model de movimentos para pegar o campo do relacionamento (SE5->E5_IDORIG)
+		oModelMov:SetOperation( MODEL_OPERATION_UPDATE ) //Alteração
+		oModelMov:Activate()
+		oModelMov:SetValue("MASTER", "E5_GRV", .T. ) //Habilita gravação SE5
+		oModelMov:SetValue("MASTER", "E5_OPERACAO", 1 ) //E5_OPERACAO 1 = Altera E5_SITUACA da SE5 para 'C' e gera estorno na FK5
+		oModelMov:SetValue("MASTER", "E5_CAMPOS", cCamposE5) //Informa os campos da SE5 que serão gravados indepentes de FK5
+
+		//Posiciona a FKA com base no IDORIG da SE5 posicionada
+		oSubFKA := oModelMov:GetModel("FKADETAIL")
+		oSubFKA:SeekLine( { {"FKA_IDORIG", SE5->E5_IDORIG } } )
+
+		//Dados do movimento
+		oSubFK5 := oModelMov:GetModel( "FK5DETAIL" )
+		oSubFK5:SetValue( "FK5_DTCONC", CTOD("") )
+		oSubFK5:SetValue( "FK5_SEQCON", "" )
+
+		//A inclusão deste trecho se deve somente para correção de erro em base historica de clientes que realizaram a conciliação
+		//automatica e ficaram com o campo FK5_TPDOC vazio por ter realizado a alteração do campo FK5_TPDOC igual ao E5_TIPODOC
+		If Empty(oSubFK5:GetValue("FK5_TPDOC"))
+			oSubFK5:SetValue("FK5_TPDOC", "DH")
+		EndIf
+
+		If oModelMov:VldData()
+	       	oModelMov:CommitData()
+	       	oModelMov:DeActivate()
+		Else
+			lRet := .F.
+		    cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+		    cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+		    cLog += cValToChar(oModelMov:GetErrorMessage()[6])
+
+	       	Help( ,,"MF473CANEF",,cLog, 1, 0 )
+		EndIf
+
+		If lRet
+			If Existblock("F473CAGR")
+			 	ExecBlock( "F473CAGR", .F., .F. ,nRecSE5) // Complemento de Gravação na SE5.
+			EndIf
+
+			//Integração com SIGAPFS x SIGAFIN
+			If lIntPFS .And. FindFunction("JurEstConc")
+				JurEstConc(nRecSE5, cSeqCon)
+			EndIf
+
+			//Atualiza saldo bancario quando da efetivação de movimento
+			AtuSalBco(SE5->E5_BANCO,SE5->E5_AGENCIA,SE5->E5_CONTA,SE5->E5_DATA,SE5->E5_VALOR,IIf(SE5->E5_RECPAG == "R","-","+"),.T.,.T.)
+
+			If lAtuSldNat
+				AtuSldNat(SE5->E5_NATUREZ, SE5->E5_DATA, "01", "3", SE5->E5_RECPAG, SE5->E5_VALOR, 0, "-",,FunName(),"SE5", SE5->(Recno()),0)
+			EndIf
+
+			FWModelActive (oModelDet)
+
+			oModelDet:LoadValue("IG_VLRMOV",0)
+			oModelDet:LoadValue("IG_DTMOVI",CTOD(""))
+			oModelDet:LoadValue("IG_DOCMOV",SPACE(TamSx3("IG_DOCMOV")[1]))
+			oModelDet:LoadValue("IG_AGEMOV",SPACE(TamSx3("IG_AGEMOV")[1]))
+			oModelDet:LoadValue("IG_CONMOV",SPACE(TamSx3("IG_CONMOV")[1]))
+			cCor := F473COR("1")
+			oModelDet:LoadValue("IG_STATUS","1")
+			oModelDet:LoadValue("COR",cCor)
+			oModelDet:LoadValue("RECSE5",0 )
+			oModelDet:LoadValue("IG_HISMOV",SPACE(TamSx3("IG_HISMOV")[1]))
+			oModelDet:LoadValue("IG_NATMOV",SPACE(TamSx3("IG_NATMOV")[1]))
+			oModelDet:LoadValue("IG_EFETIVA",SPACE(TamSx3("IG_EFETIVA")[1]))
+			oModelDet:LoadValue("DESCONC","1")
+			SE5->(DbGoto(nRecSE5))
+
+			//Verifica se gera lancamento na contabilidade.
+			If SE5->E5_RECPAG != "R"
+				cPadrao := "564"
+			EndIf
+
+			If VerPadrao(cPadrao)
+				AAdd(__aRecCTB, {nRecSE5, cPadrao, SE5->E5_FILORIG} )
+			EndIf
+		EndIf
+	EndIf
+Else
+	Help(" ", 1, "FIN473CAN", Nil, STR0086, 1, 0 )//"Esse registro não foi efetivado pela rotina de Reconciliação Bancária."
+EndIf
+
+cFilAnt := cFilX
+FWRestRows(aSaveLines)
+FI473ACTMD(oModel)
+RestArea(aAreaSE5)
+RestArea(aArea)
+oView:Refresh()
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473Efet()
+Efetiva lancamento do extrato no SE5
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FA473Efet(oView)
+
+Local cRecPagE5
+Local oDlg3
+Local oDlg4
+Local nOpcaE		:= 0
+Local nOpcaN		:= 0
+Local lAchou		:= .F.
+Local oModel		:= FWModelActive()
+Local oModelCab		:= oModel:getModel('CONMASTER')
+Local oModelDet		:= oModel:getModel('CONDETAIL')
+Local cNaturEfet	:= CRIAVAR("ED_CODIGO")
+Local cCCD			:= CRIAVAR("E5_CCD")	// Centro Custo Debito
+Local cCCC			:= CRIAVAR("E5_CCC") // Centro Custo Credito
+Local cItemD		:= CRIAVAR("E5_ITEMD")  //Item contabil Debito
+Local cItemC		:= CRIAVAR("E5_ITEMC")  //Item contabil Credito
+Local cClVlDb		:= CRIAVAR("E5_CLVLDB")  //Classe de Valor Debito
+Local cClVlCr		:= CRIAVAR("E5_CLVLCR")  //Classe de Valor Credito
+Local cCDeb			:= CRIAVAR("E5_DEBITO")	// Conta Contábil Debito
+Local cCCrd			:= CRIAVAR("E5_CREDITO") // Conta Contábil Credito
+Local cHistor		:= oModelDet:GetValue("IG_HISTEXT") // Historico do movimento
+Local oBtn			:= Nil
+Local lPmsInt		:= IsIntegTop(,.T.)
+Local bPMSDlgMB		:= {|| }
+Local nValorLan		:= oModelDet:GetValue("IG_VLREXT")
+Local cStatus		:= oModelDet:GetValue("IG_STATUS")
+Local dDataExt		:= oModelDet:GetValue("IG_DTEXTR")
+Local cDocExt		:= oModelDet:GetValue("IG_DOCEXT")
+Local cBanco		:= oModelCab:GetValue("BANCO")
+Local cAgencia		:= oModelCab:GetValue("AGENCIA")
+Local cConta		:= oModelCab:GetValue("CONTA")
+Local cTipoSist		:= oModelDet:GetValue("IG_TIPMOV")
+Local cDC			:= IIf( oModelDet:GetValue("IG_CARTER") == "1","R","P")
+Local aSaveLines	:= FWSaveRows()
+Local cFilX			:= cFilAnt
+Local lEFEoK		:= .F.
+Local aEfeOK		:= {}
+Local cSE5Fil	 	:= FwModeAccess("SE5",3)
+Local lIntPFS       := SuperGetMV("MV_JURXFIN",,.F.) // Integração SIGAPFS x SIGAFIN
+
+Private aCamp		:= {} // Utilizado nos pontos de entrada F473EFE, F473EFOK
+Private aRatAJE		:= {}
+
+//O Movimento é gerado na mesma filial da conciliação
+If cSE5Fil <> 'C'
+	cFilAnt := oModelDet:GetValue("IG_FILORIG")
+EndIf
+
+SE5->(dbSetOrder(13)) //E5_FILIAL+E5_BANCO+DToS(E5_DTDISPO)+E5_CONTA+E5_AGENCIA+E5_TIPODOC
+
+If !lPmsInt .And. IntePms()
+	_SetOwnerPrvt("E5_VALOR", nValorLan )
+EndIf
+
+If cStatus == "1" .And. !Empty(nValorLan)
+	If SE5->(dbSeek(xFilial("SE5")+ cBanco + DToS(dDataExt) + cConta + cAgencia ))
+
+		While SE5->(!EoF()) .and. DToS(SE5->E5_DTDISPO) == DToS(dDataExt)
+			cRecPagE5 := SE5->E5_RECPAG
+			// Esta validação estava impedindo a conciliação
+			// quando o lançamento tinha na mesma data uma movimentaçao
+			// de cheque. A validação foi alterada para so bloqueio se o
+			// Tipo do movimento for de cheque tambem.
+			If !Empty(cDocExt) .and. cTipoSist $ "CHQ" .and. AllTrim(SE5->E5_NUMCHEQ) == AllTrim(cDocExt) .and. cRecPagE5 == cDC
+				Help(" ",1,"A470EXIST")
+				lAchou := .T.
+				Exit
+			EndIf
+
+			If SE5->E5_VALOR == nValorLan .and. Empty(SE5->E5_NUMCHEQ) .and. cRecPagE5 == cDC .And. SE5->E5_SITUACA != "C"
+				DEFINE MSDIALOG oDlg3 FROM  69,90 TO 220,400 TITLE  STR0062 PIXEL  //"Efetivação de Lançamento no SE5"
+				@ 00 , 03 TO 55, 152 OF oDlg4 PIXEL
+				@ 10 , 10 SAY  STR0063  SIZE 140, 7 OF oDlg3 PIXEL  //"Existe lançamento semelhante em Data, Valor e Carteira."
+				@ 20 , 10 SAY  STR0064  SIZE 140, 7 OF oDlg3 PIXEL  //"no seu arquivo de movimentos bancários.	Em caso de     "
+				@ 30 , 10 SAY  STR0065  SIZE 140, 7 OF oDlg3 PIXEL  //"dúvida, não efetive o lançamento, pois poder  gerar    "
+				@ 40 , 10 SAY  STR0066  SIZE 140, 7 OF oDlg3 PIXEL  //"duplicidade. Deseja efetivar este lançamento ?			"
+				DEFINE SBUTTON FROM 60, 50 TYPE 1 ENABLE ACTION (nOpcaE:=1,oDlg3:End()) OF oDlg3
+				DEFINE SBUTTON FROM 60, 80 TYPE 2 ENABLE ACTION (nOpcaE:=2,oDlg3:End()) OF oDlg3
+				ACTIVATE MSDIALOG oDlg3 CENTERED
+
+				lAchou := nOpcaE != 1
+				Exit
+			EndIf
+
+			SE5->(DbSkip())
+		EndDo
+	EndIf
+
+	If !lAchou
+		nOpcaN := 0
+
+		If Existblock("F473EFE")
+			DEFINE MSDIALOG oDlg4 FROM  69,70 TO 400,400 TITLE STR0067 PIXEL	//"Reconciliação Bancária - Tela Maior"
+			@ 0, 2 TO 180, 133 OF oDlg4 PIXEL
+		Else
+			DEFINE MSDIALOG oDlg4 FROM  69,70 TO 372,400 TITLE STR0067 PIXEL	//"Reconciliação Bancária"
+			@ 0, 2 TO 150, 133 OF oDlg4 PIXEL
+		EndIf
+
+		If lIntPFS .And. FindFunction("JurValNat")
+			@ 07, 80 MSGET cNaturEfet  F3 "SED" VALID (!Empty(cNaturEfet) .and. ExistCpo("SED",cNaturEfet) .And. FinVldNat(.T.,cNaturEfet) .And. JurValNat(, , cNaturEfet, , "5|6|7|8"))  SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		Else
+			@ 07, 80 MSGET cNaturEfet  F3 "SED" VALID (!Empty(cNaturEfet) .and. ExistCpo("SED",cNaturEfet) .And. FinVldNat(.T.,cNaturEfet))  SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		EndIf
+		@ 08, 08 SAY  STR0068  SIZE 80, 7 OF oDlg4 PIXEL  //"Natureza do Lançamento"
+
+		@ 28, 08 MSGET cHistor SIZE 122, 10 OF oDlg4 PIXEL PICTURE "@S40"
+		@ 19, 08 SAY STR0069 SIZE 80, 7 OF oDlg4 PIXEL  //"Histórico"
+
+		@ 41, 80 MSGET cCDeb  F3 "CT1" VALID (Empty(cCDeb) .or.CTB105CTA(cCDeb)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@ 42, 08 SAY  STR0070  SIZE 80, 7 OF oDlg4 PIXEL  //"Conta Débito"
+		@ 54, 80 MSGET cCCrd  F3 "CT1" VALID (Empty(cCCrd) .or.CTB105CTA(cCCrd)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@ 55, 08 SAY  STR0071  SIZE 80, 7 OF oDlg4 PIXEL  //"Conta Crédito"
+
+		@ 67, 80 MSGET cCCD  F3 "CTT" VALID (Empty(cCCD) .or. CTB105CC(cCCD)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@ 68, 08 SAY  STR0072  SIZE 80, 7 OF oDlg4 PIXEL  //"Centro Custo Débito"
+		@ 80, 80 MSGET cCCC  F3 "CTT" VALID (Empty(cCCC) .or. CTB105CC(cCCC)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@ 81, 08 SAY  STR0073  SIZE 80, 7 OF oDlg4 PIXEL  //"Centro Custo Crédito"
+
+
+		@ 93, 80 MSGET cItemD  F3 "CTD" VALID (Empty(cItemD) .or. CTB105ITEM(cItemD)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@ 94, 08 SAY  STR0074  SIZE 80, 7 OF oDlg4 PIXEL  //"Item Contabil Débito"
+		@107, 80 MSGET cItemC  F3 "CTD" VALID (Empty(cItemC) .or. CTB105ITEM(cItemC)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@108, 08 SAY  STR0075  SIZE 80, 7 OF oDlg4 PIXEL  //"Item Contabil Crédito"
+
+		@120, 80 MSGET cClVlDb F3 "CTH" VALID (Empty(cClVlDb) .or. CTB105CLVL(cClVlDb)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@121, 08 SAY  STR0076  SIZE 80, 7 OF oDlg4 PIXEL  //"Classe Valor Débito"
+		@133, 80 MSGET cClVlCr F3 "CTH" VALID (Empty(cClVlCr) .or. CTB105CLVL(cClVlCr)) SIZE 50, 10 OF oDlg4 PIXEL HASBUTTON
+		@134, 08 SAY  STR0077  SIZE 80, 7 OF oDlg4 PIXEL  //"Classe Valor Crédito"
+
+		If Existblock("F473EFE")
+			 ExecBlock( "F473EFE", .F., .F. ,{oDlg4} )
+		EndIf
+
+
+		DEFINE SBUTTON FROM 07, 135 TYPE 1 ENABLE ACTION (nOpcaN:=1,If((!Empty(cNaturEfet) .and. ExistCpo("SED",cNaturEfet)),oDlg4:End(),nOpcaN:=0)) OF oDlg4
+		DEFINE SBUTTON FROM 20, 135 TYPE 2 ENABLE ACTION (nOpcaN:=2,oDlg4:End()) OF oDlg4
+
+		If IntePMS()
+			bPMSDlgMB	:= {||PmsDlgMB(3, SE5->E5_PROJPMS, SE5->E5_HISTOR, SE5->E5_RECPAG)}
+			@ 033, 135 Button oBtn Prompt "PMS" Size 30, 11 FONT oDlg4:oFont Action Eval(bPmsDlgMB) Of oDlg4 Pixel
+			oBtn:SetFocus()
+		EndIf
+
+		ACTIVATE MSDIALOG oDlg4 CENTERED
+
+		If nOpcaN == 1 .And. FA473OK()
+			If Existblock("F473EFOK")
+				aEfeOK := {cNaturEfet,cCCC,cCCD,cItemD,cItemC,cClVlDb,cClVlCr,cCCrd,cCDeb,cHistor,oModel,aCamp}
+				lEFEoK := ExecBlock( "F473EFOK", .F., .F.,aEfeOK )
+
+				If lEFEoK
+					FA473GrvEf(cNaturEfet,cCCC,cCCD,cItemD,cItemC,cClVlDb,cClVlCr,cCCrd,cCDeb,cHistor,oModel)
+				EndIf
+			Else
+				FA473GrvEf(cNaturEfet,cCCC,cCCD,cItemD,cItemC,cClVlDb,cClVlCr,cCCrd,cCDeb,cHistor,oModel)
+			EndIf
+
+			If IntePMS()
+				PmsWriteMB(1, "SE5")
+			EndIf
+		EndIf
+	EndIf
+Else
+	Help(" ",1,"A470JA_REC")
+EndIf
+
+cFilAnt := cFilX
+FWRestRows(aSaveLines)
+oModel:GetModel("TOTREC"):GoLine(1)
+oModel:GetModel("TOTSAL"):GoLine(1)
+oModel:GetModel("TOTPAG"):GoLine(1)
+oView:Refresh()
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473GrvEf()
+ Grava Efetivacao
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FA473GrvEf(cNaturEfet,cCCC,cCCD,cItemD,cItemC,cClVlDb,cClVlCr,cCCrd,cCDeb,cHistor,oModel)
+Local nValorMov  := 0
+Local nRecno	 := 0
+Local lRet		 := .T.
+Local lAtuSldNat := .T.
+Local oModelAux  := FWModelActive()
+Local oModelCab	 := oModel:getModel('CONMASTER')
+Local oModelDet	 := oModel:getModel('CONDETAIL')
+Local cBanco     := oModelCab:GetValue("BANCO")
+Local cAgencia   := oModelCab:GetValue("AGENCIA")
+Local cConta     := oModelCab:GetValue("CONTA")
+Local cTipoSist	 := oModelDet:GetValue("IG_TIPMOV")
+Local cDC        := IIf(oModelDet:GetValue("IG_CARTER") == "1","R","P")
+Local dDataExt	 := oModelDet:GetValue("IG_DTEXTR")
+Local aAreaSE5	 := SE5->(GetArea())
+Local aArea		 := GetArea()
+Local cPadrao    := "563"
+Local aSaveLines := FWSaveRows()
+Local lGeraLanc	 := oModelCab:GetValue('CTBONLINE') == "1"
+Local oModelMov  := FWLoadModel("FINM030")
+Local oSubFKA    := Nil
+Local oSubFK5    := Nil
+Local oSubFK8    := Nil
+Local cLog       := ""
+Local cCamposE5  := ""
+Local lIntPFS    := SuperGetMV("MV_JURXFIN",,.F.) // Integração SIGAPFS x SIGAFIN
+
+nValorMov := oModelDet:GetValue("IG_VLREXT")
+
+//Grava Movimentacao da efetivacao no SE5
+If lRet
+	//Define os campos que não existem na FK5 e que serão gravados apenas na E5, para que a gravação da E5 continue igual
+	cCamposE5 := "{"
+	cCamposE5 += "{'E5_VENCTO', STOD('" + DToS(dDataExt) + "')}"
+	cCamposE5 += ",{'E5_DTDIGIT', STOD('" + DToS(dDataExt) + "')}"
+	cCamposE5 += "}"
+
+	oModelMov:SetOperation( MODEL_OPERATION_INSERT ) //Inclusao
+	oModelMov:Activate()
+	oModelMov:SetValue( "MASTER", "E5_GRV", .T. )
+	oModelMov:SetValue( "MASTER", "E5_CAMPOS", cCamposE5 ) //Informa os campos da SE5 que serão gravados indepentes de FK5
+	oModelMov:SetValue( "MASTER", "NOVOPROC", .T. ) //Informa que a inclusão será feita com um novo número de processo
+
+	//Dados do Processo
+	oSubFKA := oModelMov:GetModel("FKADETAIL")
+	oSubFKA:SetValue( "FKA_IDORIG", FWUUIDV4() )
+	oSubFKA:SetValue( "FKA_TABORI", "FK5" )
+
+	//Dados do Movimento
+	oSubFK5 := oModelMov:GetModel("FK5DETAIL")
+	oSubFK5:SetValue( "FK5_BANCO", cBanco )
+	oSubFK5:SetValue( "FK5_AGENCI", cAgencia )
+	oSubFK5:SetValue( "FK5_CONTA", cConta )
+	oSubFK5:SetValue( "FK5_DATA", dDataExt )
+	oSubFK5:SetValue( "FK5_TPDOC", "DH" )
+	oSubFK5:SetValue( "FK5_DTDISP", dDataExt )
+	oSubFK5:SetValue( "FK5_HISTOR", IIf( Empty(cHistor), oModelDet:GetValue("IG_HISTEXT"), cHistor ) )
+	oSubFK5:SetValue( "FK5_VALOR", nValorMov )
+	oSubFK5:SetValue( "FK5_NATURE", cNaturEfet )
+	oSubFK5:SetValue( "FK5_MOEDA", IIf(cTipoSist == "CHQ", "C1", "M1"))
+	oSubFK5:SetValue( "FK5_RECPAG", cDC )
+	oSubFK5:SetValue( "FK5_FILORI", cFilAnt )
+	oSubFK5:SetValue( "FK5_ORIGEM", FunName() )
+
+	//Verifica se o movimento ‚ referente a um cheque e grava nro do cheque.
+	If cTipoSist $ "CHQ"
+		oSubFK5:SetValue( "FK5_NUMCH", oModelDet:GetValue("IG_DOCEXT") )
+	EndIf
+
+	//Dados Contábeis
+   	oSubFK8 := oModelMov:GetModel("FK8DETAIL")
+	oSubFK8:SetValue( "FK8_DEBITO", cCDeb )
+	oSubFK8:SetValue( "FK8_CREDIT", cCCrd )
+	oSubFK8:SetValue( "FK8_CCD", cCCD )
+	oSubFK8:SetValue( "FK8_CCC", cCCC )
+	oSubFK8:SetValue( "FK8_ITEMD", cItemD )
+	oSubFK8:SetValue( "FK8_ITEMC", cItemC )
+	oSubFK8:SetValue( "FK8_CLVLDB", cClVlDb )
+	oSubFK8:SetValue( "FK8_CLVLCR", cClVlCr )
+
+	If oModelMov:VldData()
+       	oModelMov:CommitData()
+       	oModelMov:DeActivate()
+	Else
+		lRet := .F.
+	    cLog := cValToChar(oModelMov:GetErrorMessage()[4]) + ' - '
+	    cLog += cValToChar(oModelMov:GetErrorMessage()[5]) + ' - '
+	    cLog += cValToChar(oModelMov:GetErrorMessage()[6])
+    	Help( ,,"MF473GRVEF",,cLog, 1, 0 )
+	EndIf
+
+	If lRet
+		nRecno:=SE5->(Recno())
+
+		If Existblock("F473EFGR")
+			 ExecBlock( "F473EFGR", .F., .F. ,nRecno)
+		EndIf
+
+		//Integração com SIGAPFS x SIGAFIN
+		If lIntPFS .And. FindFunction("JurConBco")
+			JurConBco(nRecno, cNaturEfet, oModelDet:GetValue("IG_SEQMOV"), cBanco, cAgencia, cConta, cDC, dDataExt, nValorMov, cHistor)
+		EndIf
+
+		//Atualiza saldo bancario quando da efetivação de movimento
+		AtuSalBco(SE5->E5_BANCO,SE5->E5_AGENCIA,SE5->E5_CONTA,SE5->E5_DATA,SE5->E5_VALOR,IIf(SE5->E5_RECPAG == "R","+","-"))
+
+		If lAtuSldNat
+			AtuSldNat(SE5->E5_NATUREZ, SE5->E5_DATA, "01", "3", SE5->E5_RECPAG, SE5->E5_VALOR, 0, "+",,FunName(),"SE5", SE5->(Recno()),0)
+		EndIf
+
+		oModelDet:LoadValue("IG_VLRMOV",SE5->E5_VALOR)
+		oModelDet:LoadValue("IG_DTMOVI",SE5->E5_DTDISPO)
+		oModelDet:LoadValue("IG_DOCMOV",SE5->E5_NUMCHEQ)
+		oModelDet:LoadValue("IG_AGEMOV",SE5->E5_AGENCIA)
+		oModelDet:LoadValue("IG_CONMOV",SE5->E5_CONTA)
+		cCor := F473COR("3")
+		oModelDet:LoadValue("IG_STATUS","3")
+		oModelDet:LoadValue("COR",cCor)
+		oModelDet:LoadValue("RECSE5",nRecno )
+		oModelDet:LoadValue("IG_HISMOV",SE5->E5_HISTOR)
+		oModelDet:LoadValue("IG_NATMOV",SE5->E5_NATUREZ)
+		oModelDet:LoadValue("IG_EFETIVA","1")
+
+		//Verifica se gera lancamento na contabilidade.
+		If SE5->E5_RECPAG != "R"
+			cPadrao := "562"
+		EndIf
+
+		If lGeraLanc .And. VerPadrao(cPadrao)
+			AAdd(__aRecCTB, {nRecno, cPadrao, cFilAnt})
+		EndIf
+	EndIf
+
+	oModelAux:Activate()
+EndIf
+
+SE5->(RestArea(aAreaSE5))
+RestArea(aArea)
+FWRestRows(aSaveLines)
+FI473ACTMD(oModel)
+Return .T.
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473OK()
+ Confirma ou nao a efetivacao.
+
+@author alvaro.camillo
+
+@since 03/10/2013
+@version 1.0
+/*/
+//-------------------------------------------------------------------
+Static Function FA473OK()
+
+Return (MsgYesNo( STR0060, STR0061))  //"Confirma Efetivação ?"###"Atenção"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F473SE5Rec()
+Busca o Recno do SE5 do registro já conciliado
+
+@author alvaro.camillo
+
+@since 		03/10/2013
+@version 	1.0
+@param		cQrySeq, character, sequencia de conciliação no formato IN SQL. Ex: "('000001', '000002', '000003')
+@return		array, matriz no formato {{Recno, Sequência de Conciliação}}
+/*/
+Static Function F473SE5Rec(cQrySeq)
+
+	Local aArea		:= GetArea()
+	Local cQuery 	:= ""
+	Local cTabSE5 	:= "SIGREC"
+	Local aDados  	:= {}
+
+	cQuery += " SELECT R_E_C_N_O_, E5_SEQCON "
+	cQuery += " FROM " + RetSQLName("SE5") + " SE5 "
+	cQuery += " WHERE "
+	cQuery += " E5_SEQCON IN " + cQrySeq // Nao tem filial pois o SEQCON é único para o grupo da empresa
+	cQuery += " AND SE5.D_E_L_E_T_ = ' ' "
+	cQuery := ChangeQuery(cQuery)
+
+	DbUseArea(.T., "TOPCONN", TcGenQry(,, cQuery), cTabSE5, .T., .T.)
+
+	If (cTabSE5)->(!EoF())
+		While (cTabSE5)->(!EoF())
+			AAdd(aDados, {(cTabSE5)->R_E_C_N_O_, (cTabSE5)->E5_SEQCON})
+			(cTabSE5)->(DbSkip())
+		End
+	EndIf
+
+	(cTabSE5)->(DbCloseArea())
+
+	RestArea(aArea)
+
+Return aDados
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473Ignora
+	Avalia o movimento para definir se será ignorado pelo usuário
+	@type  Static Function
+	@author Renato.Ito
+	@since 28/02/2020
+	@param oModel, object, Model ativo
+	@param oView, object, View ativa
+	/*/
+//-------------------------------------------------------------------
+Static Function FA473Ignora(oModel As Object, oView As Object)
+
+	Local oModelDet		As Object
+	Local cCor			As Character
+	Local nOp			As Numeric
+
+	oModelDet := oModel:getModel('CONDETAIL')
+
+	If oModelDet:GetValue('IG_STATUS') $ '1/5/6'
+
+		nOp := Aviso(STR0090, STR0091,{STR0092,STR0093,STR0094},2)// Ignora movimento" - "Marca o movimento não conciliado como ignorado?"
+		If nOp = 2
+			oModelDet:LoadValue('IG_STATUS', '5')
+			cCor := F473COR("5")
+			oModelDet:LoadValue('COR', cCor)
+		ElseIf nOp = 1
+			oModelDet:LoadValue('IG_STATUS', '1')
+			cCor := F473COR("1")
+			oModelDet:LoadValue('COR', cCor)
+		EndIf
+
+	Else
+		Help( ,,"F473AREMOV",, STR0095, 1, 0 )//'Somente movimentos não conciliados podem ser ignorados!'
+	EndIf
+
+	oView:Refresh()
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FA473Valid
+	Avalia se existe movimento já conciliado
+	@type  Static Function
+	@author Renato.Ito
+	@since 28/02/2020
+	@param oModel, object, Model ativo
+	@param oView, object, View ativa
+	/*/
+//-------------------------------------------------------------------
+
+Static Function FA473Valid(oModel As Object, oView As Object)
+
+	Local oModelDet		As Object
+	Local oModelCab		As Object
+	Local nLinha		As Numeric
+	Local cBanco		As Character
+	Local cAgencia		As Character
+	Local cConta		As Character
+	Local cFilFk5		As Character
+	Local oPrepared		As Object
+	Local cQuery		As Character
+	Local cCor			As Character
+	Local nLinhaSlv		As Numeric
+	Local nOp			As Numeric
+	Local lGestaoEmp	As Logical
+	Local lGestaoUni	As Logical
+	Local lFK5EmpExc	As Logical
+	Local lFK5UniExc	As Logical
+	Local lFK5FilExc	As Logical
+
+	cCor := F473COR("6")
+
+	oModelDet := oModel:getModel('CONDETAIL')
+	oModelCab := oModel:getModel('CONMASTER')
+
+	nLinhaSlv := oModelDet:GetLine()
+
+	cBanco		:= oModelCab:GetValue("BANCO")
+	cAgencia	:= oModelCab:GetValue("AGENCIA")
+	cConta		:= oModelCab:GetValue("CONTA")
+
+	lGestaoEmp	:= !(Empty(FwSM0Layout(, 1)))
+	lGestaoUni	:= !(Empty(FwSM0Layout(, 2)))
+	lFK5EmpExc	:= FwModeAccess("FK5", 1) == "E"
+	lFK5UniExc	:= FwModeAccess("FK5", 2) == "E"
+	lFK5FilExc	:= FwModeAccess("FK5", 3) == "E"
+
+	If !lGestaoEmp
+		lFK5EmpExc := lFK5FilExc
+	EndIf
+
+	If !lGestaoUni
+		lFK5UniExc := lFK5FilExc
+	EndIf
+
+	If lFK5FilExc //Filial exclusiva = E E E
+		cFilFk5 := FinSelFil(__aSelFil, "FK5", .F., .T., 30) //FILIAL
+	ElseIf !lFK5EmpExc //Filial exclusiva = C C C
+		cFilFk5 := " = ' ' " 
+	Else //Filial E E C ou E C C C
+		cFilFk5 := FinSelFil(__aSelFil, "FK5", .F., .T., 30) //FILIAL
+	EndIf
+
+	cQuery := "SELECT COUNT(FK5_DTCONC) RECONC FROM " + RetSqlName("FK5") + " WHERE "
+	cQuery += " FK5_DTDISP = ?"
+	cQuery += " AND FK5_BANCO = ?"
+	cQuery += " AND FK5_AGENCI = ?"
+	cQuery += " AND FK5_CONTA = ?"
+	cQuery += " AND FK5_RECPAG = ?"
+	cQuery += " AND FK5_VALOR = ?"
+	cQuery += " AND FK5_DTCONC <> ' '"
+	cQuery += " AND D_E_L_E_T_ = ' '"
+	cQuery += " AND FK5_FILIAL " + cFilFk5
+
+	oPrepared := FWPreparedStatement():New(cQuery)
+
+	nOp := Aviso(STR0096, STR0097, {STR0098,STR0099,STR0094},2)//"Localiza conciliados anteriormente" - "Verifica se existe movimento conciliado anteriormente para os movimentos não conciliados"
+
+	If nOp = 1
+
+		For nLinha := 1 to oModelDet:Length()
+			oModelDet:GoLine(nLinha)
+			If oModelDet:GetValue('IG_STATUS') $ '1'
+				If F473VldQry(oPrepared, oModelDet:GetValue('IG_DTEXTR'), cBanco, cAgencia, cConta, oModelDet:GetValue('IG_CARTER'), oModelDet:GetValue('IG_VLREXT'))
+					oModelDet:LoadValue('IG_STATUS', '6')
+					oModelDet:LoadValue('COR', cCor)
+				EndIf
+			EndIf
+		Next
+		oModelDet:GoLine(nLinhaSlv)
+
+	ElseIf nOp = 2 .And. oModelDet:GetValue('IG_STATUS') $ '1'
+
+		If F473VldQry(oPrepared, oModelDet:GetValue('IG_DTEXTR'), cBanco, cAgencia, cConta, oModelDet:GetValue('IG_CARTER'), oModelDet:GetValue('IG_VLREXT'))
+			oModelDet:LoadValue('IG_STATUS', '6')
+			oModelDet:LoadValue('COR', cCor)
+		EndIf
+
+	ElseIf nOp <> 3
+		Help( ,,"F473AVALID",,STR0095, 1, 0 )//'Somente movimentos não conciliados podem ser ignorados!'
+	EndIf
+
+	oPrepared:Destroy()
+
+	If FindFunction("FinEraseTmpFil")
+		FinEraseTmpFil()
+	EndIf
+
+	oView:Refresh()
+
+Return
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} F473VldQry
+	Avalia se existe movimento já conciliado
+	@type  Static Function
+	@author Renato.Ito
+	@since 28/02/2020
+
+	@param oPrepared, object, FWPreparedStatement
+	@param dDtDisp, Date, data do movimento
+	@param cBanco, Character, código do banco
+	@param cAgencia, Character, agência
+	@param cConta, Character, Conta
+	@param cCarteira, Character, carteira (1- receber / 2- Pagar)
+	@param nValor, Numeric, View ativa
+
+	@return lAchou, logical, retorna se localizou algum movimento
+
+	/*/
+//-------------------------------------------------------------------
+
+Static Function F473VldQry (oPrepared As Object, dDtDisp As Date, cBanco As Character, cAgencia As Character, cConta As Character, cCarteira As Character, nValor As Numeric) As Logical
+
+	Local lAchou	As Logical
+
+	oPrepared:SetDate(1, dDtDisp)
+	oPrepared:SetString(2, cBanco)
+	oPrepared:SetString(3, cAgencia)
+	oPrepared:SetString(4, cConta)
+	oPrepared:SetString(5, If('1' $ cCarteira, 'R', 'P'))
+	oPrepared:setNumeric(6, nValor)
+
+	cQuery:=oPrepared:GetFixQuery()
+
+	lAchou := !Empty(MpSysExecScalar(cQuery,"RECONC"))
+
+Return lAchou
+
+
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FI473Pos
+	Pós-validação
+	@type  Static Function
+	@author Yuri Porto
+	@since 06/11/2020
+	@param oModel
+	@return lRet
+	/*/
+//-------------------------------------------------------------------
+
+Static Function FI473Pos(oModel As Object) As Logical
+
+	Local lRet As Logical
+
+	lRet := .T.
+
+	If __lFA47305
+		lRet := ExecBlock("FA473005",.F.,.F.)
+	EndIf
+Return lRet
+
+/*/{Protheus.doc} F473MedEnt
+	Retorna o tempo médio de carregamento/exibição da tela
+	
+	@type Function
+	@author Sivaldo Oliveira
+	@since 26/05/2021
+	@return nMedEntra, Numeric, Tempo médio para exibir a tela
+	/*/
+Function F473MedEnt() As numeric
+	Local nMedEntra As Numeric
+	
+	//Inicializa a variável
+	nMedEntra   := __nMedEntra
+	__nMedEntra := 0
+	__lGrvMetri := .T.
+Return nMedEntra
+
+//-----------------------------------
+/*/{Protheus.doc} F473MedGrv
+	Função responsável por retornar o tempo 
+	médio para conclusão da gravação da conciliação
+	
+	@type Function
+	@author douglas.souza
+	@since 18/05/2021
+	@return nMedGrava, Numeric, Tempo médio para gravação
+/*/
+//-----------------------------------
+Function F473MedGrv() As Numeric
+	Local nMedGrava As numeric
+	
+	//Inicializa variável
+	nMedGrava   := __nMedGrava
+	__nMedGrava := 0
+Return nMedGrava
+
+/*/{Protheus.doc} F473TempTb
+Realiza a criação da tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		aCpoSIG, array, array de campos a serem criados na tabela temporária
+@return		Nil
+/*/
+Function F473TempTb(aCpoSIG As Array)
+
+	Local cTempTable	As Character
+	
+	cTempTable := GetNextAlias()
+
+	If __oFinA473 == Nil
+		__oFinA473 := FwTemporaryTable():New(cTempTable)
+		AAdd(aCpoSIG, {"CAMPO", "N", 1, 0})
+		__oFinA473:SetFields(aCpoSIG)
+		__oFinA473:AddIndex("1", {"IG_DTEXTR", "IG_AGEEXT", "IG_CONEXT", "IG_DOCEXT", "IG_VLREXT", "IG_CARTER"})
+		__oFinA473:AddIndex("2", {"IG_AGEEXT", "IG_CONEXT", "IG_DOCEXT", "IG_VLREXT", "IG_CARTER"})
+		__oFinA473:AddIndex("3", {"IG_AGEEXT", "IG_CONEXT", "IG_DTEXTR", "IG_VLREXT", "IG_CARTER"})
+		If __lFA473Co
+			__oFinA473:AddIndex("4", {__aRetE5E1[1][2]}) //índice adicional para o campo inserido via PE
+		EndIf
+		__oFinA473:Create()
+	EndIf
+
+Return Nil
+
+/*/{Protheus.doc} F473Qry1
+Realiza a query utilizando índice 1 da tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cTableName, character, nome real da tabela temporária
+@param		aValores, array, valores a serem atribuidos no bind da query
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473Qry1(cTableName As Character, aValores As Array) As Numeric
+
+	Local cQuery	As Character
+	Local nRecno	As Numeric
+
+	If __oPrepSt1 == Nil
+		cQuery := "SELECT R_E_C_N_O_ RECNO "
+		cQuery += "FROM " + cTableName + " "
+		cQuery += "WHERE IG_DTEXTR = ? "
+		cQuery +=  " AND IG_AGEEXT = ? "
+		cQuery +=  " AND IG_CONEXT = ? "
+		cQuery +=  " AND IG_DOCEXT = ? "
+		cQuery +=  " AND IG_VLREXT = ? " 
+		cQuery +=  " AND IG_CARTER = ? "
+		cQuery +=  " AND CAMPO = 0 "
+		cQuery +=  " AND D_E_L_E_T_ = ' '"
+		cQuery := ChangeQuery(cQuery)
+		__oPrepSt1 := FwPreparedStatement():New(cQuery)
+	EndIf
+
+	__oPrepSt1:SetDate(1,	 	aValores[1])
+	__oPrepSt1:SetString(2,	 	aValores[2])
+	__oPrepSt1:SetString(3,	 	aValores[3])
+	__oPrepSt1:SetString(4,	 	aValores[4])
+	__oPrepSt1:SetNumeric(5,	aValores[5])
+	__oPrepSt1:SetString(6,	 	aValores[6])
+
+	cQuery	:= __oPrepSt1:GetFixQuery()
+	nRecno	:= MpSysExecScalar(cQuery, "RECNO")
+
+Return nRecno
+
+/*/{Protheus.doc} F473Qry2
+Realiza a query utilizando índice 2 da tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cTableName, character, nome real da tabela temporária
+@param		aValores, array, valores a serem atribuidos no bind da query
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473Qry2(cTableName As Character, aValores As Array) As Numeric
+
+	Local cQuery	As Character
+	Local nRecno	As Numeric
+
+	If __oPrepSt2 == Nil
+		cQuery := "SELECT R_E_C_N_O_ RECNO "
+		cQuery += "FROM " + cTableName + " "
+		cQuery += "WHERE IG_AGEEXT = ? "
+		cQuery +=  " AND IG_CONEXT = ? "
+		cQuery +=  " AND IG_DOCEXT = ? "
+		cQuery +=  " AND IG_VLREXT = ? "
+		cQuery +=  " AND IG_CARTER = ? "
+		cQuery +=  " AND D_E_L_E_T_ = ' '"
+		cQuery := ChangeQuery(cQuery)
+		__oPrepSt2 := FwPreparedStatement():New(cQuery)
+	EndIf
+
+	__oPrepSt2:SetString(1,		aValores[1])
+	__oPrepSt2:SetString(2,		aValores[2])
+	__oPrepSt2:SetString(3,		aValores[3])
+	__oPrepSt2:SetNumeric(4,	aValores[4])
+	__oPrepSt2:SetString(5,		aValores[5])
+
+	cQuery	:= __oPrepSt2:GetFixQuery()
+	nRecno	:= MpSysExecScalar(cQuery, "RECNO")
+
+Return nRecno
+
+/*/{Protheus.doc} F473Qry3
+Realiza a query utilizando índice 3 da tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cTableName, character, nome real da tabela temporária
+@param		aValores, array, valores a serem atribuidos no bind da query
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473Qry3(cTableName As Character, aValores As Array) As Numeric
+	
+	Local cQuery	As Character
+	Local nRecno	As Numeric
+
+	If __oPrepSt3 == Nil
+		cQuery := "SELECT R_E_C_N_O_ RECNO "
+		cQuery += "FROM " + cTableName + " "
+		cQuery += "WHERE IG_AGEEXT = ? "
+		cQuery +=  " AND IG_CONEXT = ? "
+		cQuery +=  " AND IG_DTEXTR = ? "
+		cQuery +=  " AND IG_VLREXT = ? "
+		cQuery +=  " AND IG_CARTER = ? "
+		cQuery +=  " AND D_E_L_E_T_ = ' '"
+		cQuery := ChangeQuery(cQuery)
+		__oPrepSt3 := FwPreparedStatement():New(cQuery)
+	EndIf
+
+	__oPrepSt3:SetString(1,		aValores[1])
+	__oPrepSt3:SetString(2,		aValores[2])
+	__oPrepSt3:SetDate(3,		aValores[3])
+	__oPrepSt3:SetNumeric(4,	aValores[4])
+	__oPrepSt3:SetString(5,		aValores[5])
+
+	cQuery	:= __oPrepSt3:GetFixQuery()
+	nRecno	:= MpSysExecScalar(cQuery, "RECNO")
+
+Return nRecno
+
+/*/{Protheus.doc} F473Qry4
+Realiza a query utilizando índice 3 da tabela temporária com diferença do uso por utilizar comparação de recnos.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cTableName, character, nome real da tabela temporária
+@param		aValores, array, valores a serem atribuidos no bind da query
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473Qry4(cTableName As Character, aValores As Array) As Numeric
+
+	Local cQuery	As Character
+	Local nRecno	As Numeric
+
+	If __oPrepSt4 == Nil
+		cQuery := "SELECT R_E_C_N_O_ RECNO "
+		cQuery += "FROM " + cTableName + " "
+		cQuery += "WHERE IG_AGEEXT = ? "
+		cQuery +=  " AND IG_CONEXT = ? "
+		cQuery +=  " AND IG_DTEXTR = ? "
+		cQuery +=  " AND IG_VLREXT = ? "
+		cQuery +=  " AND IG_CARTER = ? "
+		cQuery +=  " AND RECSE5 <> ? "
+		cQuery +=  " AND RECSE5 <= 0 "
+		cQuery +=  " AND D_E_L_E_T_ = ' '"
+
+		cQuery := ChangeQuery(cQuery)
+		__oPrepSt4 := FwPreparedStatement():New(cQuery)
+	EndIf
+
+	__oPrepSt4:SetString(1,		aValores[1])
+	__oPrepSt4:SetString(2,		aValores[2])
+	__oPrepSt4:SetDate(3,		aValores[3])
+	__oPrepSt4:SetNumeric(4,	aValores[4])
+	__oPrepSt4:SetString(5,		aValores[5])
+	__oPrepSt4:SetNumeric(6,	aValores[6])
+
+	cQuery	:= __oPrepSt4:GetFixQuery()
+	nRecno	:= MpSysExecScalar(cQuery, "RECNO")
+
+Return nRecno
+
+/*/{Protheus.doc} F473QryPE
+Realiza a query utilizando índice 4 criado com campo customizado da tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cTableName, character, nome real da tabela temporária
+@param		aValores, array, valores a serem atribuidos no bind da query
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473QryPE(cTableName As Character, aValores As Array) As Numeric
+
+	Local cQuery	As Character
+	Local nRecno	As Numeric
+
+	If __oPreStPE == Nil
+		cQuery := "SELECT R_E_C_N_O_ RECNO "
+		cQuery += "FROM " + cTableName + " "
+		cQuery += "WHERE " + __aRetE5E1[1][2] + " = ? "
+		cQuery +=  " AND D_E_L_E_T_ = ' '"
+		cQuery := ChangeQuery(cQuery)
+		__oPreStPE := FwPreparedStatement():New(cQuery)
+	EndIf
+
+	__oPreStPE:SetString(1, aValores[1])
+
+	cQuery	:= __oPreStPE:GetFixQuery()
+	nRecno	:= MpSysExecScalar(cQuery, "RECNO")
+
+Return nRecno
+
+/*/{Protheus.doc} F473Insert
+Realiza a inserção de registros na tabela temporária.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@param		cAliasTMP, character, alias da tabela temporária
+@param		aRet, array, array da posição atual do alias temporário
+@param		aCpoSIG, array, campos do modelo da dados
+@param		aSIGxTMP, array, campos do modelo de dados presentes na tabela temporária
+@param		aSIG, array, array contendo todos os itens da conciliação 
+@return		numeric, recno da tabela temporária que representa a posição do array
+/*/
+Static Function F473Insert(cAliasTMP As Character, aRet As Array, aCpoSIG As Array, aSIGxTMP As Array, aSIG As Array)
+
+	Local nLenSIG	As Numeric
+	Local nSIG		As Numeric
+
+	nLenSIG := Len(aCpoSIG)
+
+	AAdd(aSIG, {0, aRet})
+
+	Reclock(cAliasTMP, .T.)
+	For nSIG := 1 To nLenSIG
+		If aSIGxTMP[nSIG]
+			(cAliasTMP)->&(aCpoSIG[nSIG]) := aRet[nSIG]
+		EndIf
+	Next nSIG
+
+	(cAliasTMP)->CAMPO := aRet[nLenSIG + 1]
+	(cAliasTMP)->(MsUnlock())
+
+Return Nil
+
+/*/{Protheus.doc} F473ClrTmp
+Realiza a destruição dos objetos estáticos após o processamento.
+
+@type		Function
+@author		Rafael Riego
+@since		14/12/2021
+@return		Nil
+/*/
+Static Function F473ClearStatic() 
+
+	If __oFinA473 <> Nil
+		__oFinA473:Delete()
+		__oFinA473 := Nil
+	EndIf
+
+	If __oPrepSt1 <> Nil
+		__oPrepSt1:Destroy()
+		__oPrepSt1 := Nil
+	EndIf
+
+	If __oPrepSt2 <> Nil
+		__oPrepSt2:Destroy()
+		__oPrepSt2 := Nil
+	EndIf
+
+	If __oPrepSt3 <> Nil
+		__oPrepSt3:Destroy()
+		__oPrepSt3 := Nil
+	EndIf
+
+	If __oPrepSt4 <> Nil
+		__oPrepSt4:Destroy()
+		__oPrepSt4 := Nil
+	EndIf
+
+	If __oPreStPE <> Nil
+		__oPreStPE:Destroy()
+		__oPreStPE := Nil		
+	EndIf
+
+	If __oTBxCanc <> Nil
+		__oTBxCanc:Destroy()
+		__oTBxCanc := Nil
+	EndIf
+
+Return Nil

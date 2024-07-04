@@ -1,0 +1,1715 @@
+#INCLUDE "FINA420.CH"
+#include "PROTHEUS.CH"
+#INCLUDE "FWLIBVERSION.CH"
+
+Static lFWCodFil	:= .T.
+Static lSubCtaEA	:= .F.
+Static __lMetric	:= .F.
+Static __lVldExtC	As Logical
+Static __cTmpPath	As Character
+
+//Pontos de Entrada
+Static lF420CIT := ExistBlock("F420CIT")
+Static lFIN420_1 := ExistBlock("FIN420_1")
+Static lF420FIL := ExistBlock("F420FIL")
+Static lSomaValor := ExistBlock("F420SOMA")
+Static lF420SumA := ExistBlock("F420SUMA")
+Static lF420SumD := ExistBlock("F420SUMD")
+Static lF420CRP := ExistBlock("F420CRP")
+Static eFA420CRI := ExistBlock("FA420CRI")
+Static lFA420NAR := ExistBlock("FA420NAR")
+Static l420Chk := ExistBlock("F420CHK")
+Static lF420ICNB := ExistBlock("F420ICNB")
+Static lF420IDBP := ExistBlock("F420IDBP")
+Static lF420BLKBO := ExistBlock("F420BLKBOR")
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ Fina420  ³ Autor ³ Pilar Sanchez         ³ Data ³ 27/05/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Gera‡„o do Arquivo SisPag Banco de Boston                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Fina420()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fina420 (nPosArotina)
+Local lPanelFin := IsPanelFin()
+Local lPergunte := .F.
+Local aAreaAtu
+Local lFina750 := FwIsInCallStack("FINA750")
+
+// Variaveis utilizadas para parametros
+// mv_par01		 // Do Bordero 		  		
+// mv_par02		 // Ate Bordero   	  		
+// mv_par03		 // Arq.Configuracao   		
+// mv_par04		 // Arq. Saida			  	
+// mv_par05		 // Banco       		  	
+// mv_par06		 // Agencia 			  	
+// mv_par07		 // Conta       		  	
+// mv_par08		 // Sub-Conta			  	
+// mv_par09 	 // Modelo 1, Modelo 2  		
+// mv_par10		 // Cons.Filiais Abaixo		
+// mv_par11		 // Filial de     	       
+// mv_par12		 // Filial Ate 		  		
+// mv_par13		 // Receita Bruta Acumulada 
+
+//Validacao para que os privilegios sejam executados de acordo com o FINA420
+//Quando chamado via FINA750
+If !IsBlind() .And. GetHlpLGPD({"A2_NOME","A6_COD"})
+	Return .F.
+Endif
+
+If lFina750
+	SetFunName("FINA420")
+EndIf
+
+aAreaAtu	:= GetArea()
+
+DbSelectArea("SA6")
+DbSetOrder(1)
+DbSeek(xFilial("SA6"))
+
+If lPanelFin
+	lPergunte := PergInPanel("AFI420",.T.)
+Else
+   lPergunte := pergunte("AFI420",.T.)
+Endif
+
+If ! lPergunte
+	Return
+Endif
+
+RestArea(aAreaAtu)
+
+Private cPerg       := "AFI420"
+Private nHdlBco     := 0 
+Private nHdlSaida   := 0 
+Private nSeq        := 0
+Private cBanco      := Nil
+Private cAgencia    := Nil
+Private nSomaValor  := 0
+Private nSomaCGC    := 0
+Private nSomaData   := 0
+Private aRotina     := MenuDef()
+Private xConteudo   := Nil
+Private nTotCnab2   := 0 // Contador de Lay-out nao deletar
+Private nLinha      := 0 // Contador de LINHAS, nao deletar
+Private nSomaVlLote := 0
+Private nQtdTotTit  := 0
+Private nQtdTitLote := 0
+Private nQtdLinLote := 0
+Private nTotLinArq  := 0
+Private nLotCnab2   := 1		//Contador de lotes do CNAB2
+Private cCadastro   := STR0005
+Private nQtdLnLote  := 0
+
+DEFAULT nPosArotina := 0
+
+If !__lMetric
+	__lMetric := (FwLibVersion() >= "20210517")
+EndIf
+
+lSubCtaEA := SEA->(FieldPos("EA_SUBCTA")) > 0
+
+If nPosArotina > 0 // Sera executada uma opcao diretamento de aRotina, sem passar pela mBrowse
+   dbSelectArea("SE2")
+   bBlock := &( "{ |a,b,c,d,e| " + aRotina[ nPosArotina,2 ] + "(a,b,c,d,e) }" )
+   Eval( bBlock, Alias(), (Alias())->(Recno()),nPosArotina)
+Else
+	nReg:=Recno( )
+	mBrowse( 6, 1,22,75,"SE2" )
+	dbGoto( nReg )
+Endif
+
+//Fecha os Arquivos ASC II
+If nHdlBco > 0
+	FCLOSE(nHdlBco)
+Endif
+
+If nHdlSaida > 0
+	FCLOSE(nHdlSaida)
+Endif
+
+//Restaura a chamada via FINA750
+If lFina750
+	SetFunName("FINA750")
+EndIf
+
+//Recupera a Integridade dos dados
+dbSelectArea("SE2")
+dbSetOrder(1)
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ Fa420Gera³ Autor ³ Pilar S. Albaladejo   ³ Data ³ 26/05/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Sispag - Envio Banco de Boston -> Geracao Arquivo (chamada)³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Fa420Gera(cAlias)                                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ FinA420                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420Gera(cAlias as char, lAutomato as logical)
+	Local lTcb       As Logical
+	Local cFiltro    As Char
+	Local cFileTCB   As Char
+	Local cBanco     As Char
+	Local cAgencia   As Char
+	Local cConta     As Char
+	Local nSeqArqTcb As Numeric
+	Local lIsBlind   As Logical
+	Local cQuery     As Char
+	Local cTmpSEA    As Char
+
+	Default cAlias 	  := Alias()
+	Default lAutomato := .F.
+	
+	//Inicializa variáveis.
+	lTcb       := .F.
+	cFiltro    := SE2->(DBFILTER())
+	cFileTCB   := ""
+	cBanco     := mv_par05
+	cAgencia   := mv_par06
+	cConta     := mv_par07
+	nSeqArqTcb := 0
+	lIsBlind   := IsBlind()
+	cQuery     := ""
+	cTmpSEA    := ""
+
+	If __lVldExtC == Nil
+		__lVldExtC := FindFunction("VldExtCNAB")
+	EndIf
+	
+	If (Upper(Alltrim(mv_par03)) == "TCBPENV.2PE") .And. SA6->(FieldPos("A6_TCB")) > 0
+		SA6->(DbSetOrder(1))
+		
+		If !(lTcb := (SA6->(DbSeek(xFilial("SA6")+cBanco+cAgencia+cConta)) .And. SA6->A6_TCB == "1"))
+			Help(" ", 1, "HELP", Nil, STR0025, 1, 1)
+		EndIf
+		
+		If lTcb
+			nSeqArqTcb := 1
+			cFileTCB   := '"TCB" + StrZer(nSeq,2) + "' + SubStr(alltrim(Str(Year(Date()))),3,2) + SubStr(Dtos(Date()),5,4) + Strtran(Time(),":","") +'."'+ ' + TRIM(SEE->EE_EXTEN) '
+			
+			If !(FwIsInCallStack("FINA240") .Or. FwIsInCallStack("FINA241"))
+				If Aviso("FA420TCB", STR0026, {STR0027, STR0028}) == 2
+					Return .F.
+				Endif
+			EndIf
+			
+			cTmpSEA := GetNextAlias()
+			cQuery  := "SELECT DISTINCT SEA.EA_NUMBOR FROM " + RetSqlName("SEA") + " SEA "
+			cQuery  += "WHERE SEA.EA_FILIAL = '" + FWxFilial("SEA") + "' "
+			cQuery  += "AND SEA.EA_NUMBOR >= '" + mv_par01 + "' AND SEA.EA_NUMBOR <= '" + mv_par02 + "' "
+			cQuery  += "AND SEA.EA_CART = 'P' AND SEA.D_E_L_E_T_ = ' ' "
+			cQuery  := ChangeQuery(cQuery)
+			cTmpSEA := MPSysOpenQuery(cQuery)
+			
+			If (cTmpSEA)->(!Eof())
+				Processa({|lEnd| Fa420TCB(cAlias, lTcb, cFileTCB, nSeqArqTcb, cTmpSEA, lAutomato)})
+			EndIf
+			
+			(cTmpSEA)->(DbCloseArea())
+		EndIf
+	Else
+		Processa({|lEnd| Fa420Ger(cAlias)})
+	EndIf
+	
+	//Ponto de Entrada para Tratamento baixa - Citibank
+	If lF420CIT
+		ExecBlock("F420CIT",.F.,.F.)
+	Endif
+	
+	dbSelectArea("SE2")
+	RetIndex("SE2")
+	
+	//Restaura o filtro
+	Set Filter To &cFiltro
+	nSomaVlLote:= 0
+	nQtdTotTit := 0
+	nQtdTitLote:= 0
+	nTotLinArq := 0
+	nQtdLinLote:= 0
+	nTotLinArq := 0
+	nSomaValor := 0
+	
+	If INCLUI
+		MBrChgLoop(.F.) // Evita que a operação seja reiniciada pela mBrowse
+	EndIf
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ Fa420Ger ³ Autor ³ Wagner Xavier         ³ Data ³ 26/05/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Comunica‡„o Banc ria - Envio                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Fa420Ger()                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ FinA420                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420Ger(cAlias, lTcb, cFileTCB, nSeqArqTcb)
+Local xBuffer
+Local nTamArq		:= 0
+Local nLidos		:= 0
+Local lResp			:= .F.
+Local lHeader		:= .F.
+Local lFirst		:= .F.
+Local lTrailler 	:= .F.
+Local lTemHeader 	:= .F.
+Local nTam
+Local nDec
+Local nUltDisco		:= 0
+Local nGrava		:= 0
+Local aBordero		:= {}
+Local nSavRecno 	:= recno()
+Local nRecEmp 		:= SM0->(RecNo())
+Local cFilDe
+Local cNumBorAnt 	:= CRIAVAR("E2_NUMBOR",.F.)
+Local lFirstBord 	:= .T.
+Local lBorBlock	 	:= .F.
+Local lMostraHlp 	:= .F.
+Local cFiltro    	:= ""
+Local lIdCnab 	 	:= .T.
+Local lHeadMod2	 	:= .F.
+Local cFilBor	 	:= ""
+Local lMudouBordero := .F.
+Local lTemTit 		:= .F.
+Local nAbatim
+Local bWhile
+Local lGestao	 	:= Iif( lFWCodFil, ( "E" $ FWSM0Layout() .Or. "U" $ FWSM0Layout() ), .F. )	// Indica se usa Gestao Corporativa
+Local lFimLin		:= 0
+Local nRecnoSEA  	:= 0
+Local aFilProc		:= {}
+Local lBordIni		:= .F.
+Local cQuery		:= ""
+Local cAliasFil		:= "SE2"
+Local cAliasE2 		:= ""
+Local cFilBords		:= ""
+Local aFilBords		:= {}
+Local nLenSelFil	:= 0
+Local nX			:= 0
+Local cFunName      := AllTrim(FunName())
+Local nQuantBord    := 0
+Local cNroBordero   := ""
+Local cChaveSEA		:= ""
+Local cBcBord		:= ""
+Local cNumBor		:= ""
+
+Private aSelFil	   	:= {}
+Private nSomaAcres 	:= 0
+Private nSomaDecre 	:= 0
+
+Default lTcb       	:= .F.
+Default cFileTCB   	:= ""
+Default nSeqArqTcb 	:= 0
+
+nHdlBco    	:= 0
+nHdlSaida  	:= 0
+nSeq       	:= 0
+nSomaValor 	:= 0
+nSomaCGC   	:= 0
+nSomaData  	:= 0
+nTotCnab2  	:= 0 // Contador de Lay-out nao deletar
+nSomaAbat	:= 0
+nSomaAbLot	:= 0
+nLotCnab2 	:= 1
+nQtdLinLote	:= 0
+nTotLinArq 	:= 0
+__cTmpPath	:= ""
+
+
+ProcRegua(SE2->(RecCount()))
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de Entrada F420FIL                                  	  ³
+//³ Cria chave de filtro para titulos do bordero a nÆo serem 	  ³
+//³ enviados ao arquivo bancario											  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lF420Fil
+	cFiltro := ExecBlock("F420FIL",.F.,.F.)
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ POR MAIS ESTRANHO QUE PARE€A, ESTA FUNCAO DEVE SER CHAMADA AQUI! ³
+//³                                                                  ³
+//³ A fun‡„o SomaAbat reabre o SE2 com outro nome pela ChkFile para  ³
+//³ efeito de performance. Se o alias auxiliar para a SumAbat() n„o  ³
+//³ estiver aberto antes da IndRegua, ocorre Erro de & na ChkFile,   ³
+//³ pois o Filtro do SE2 uptrapassa 255 Caracteres.                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+SomaAbat("","","","P")
+
+dbSelectArea("SE2")
+//Garante SXE Criado, para não ocorrer problemas na criacao do numero em uma alias com indregua.
+GetSxENum("SE2", "E2_IDCNAB", "E2_IDCNAB"+cEmpAnt,13)
+RollBackSXE()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Cria indice temporario					                          ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cIndex := CriaTrab(nil,.f.)
+cChave  := IndexKey()
+IndRegua("SE2",cIndex,"E2_FILIAL+E2_NUMBOR",,,OemToAnsi(STR0007))  //"Selecionando Registros..."
+nIndex := RetIndex("SE2")
+#IFNDEF TOP
+	dbSetIndex(cIndex+ordBagExt())
+#ENDIF
+dbSetOrder(nIndex+1)
+dbGoTop()
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Verifica se o arquivo est  realmente vazio ou se       ³
+//³ est  posicionado em outra filial.                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If EOF() .or. BOF()
+	HELP(" " , 1 , "ARQVAZIO")
+	Return Nil
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Posiciona no Banco indicado                                  ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+cBanco  := mv_par05
+cAgencia:= mv_par06
+cConta  := mv_par07
+cSubCta := mv_par08
+
+// Ponto de entrada para setar o Banco, agencia e conta de acordo
+// com os dados do borderô
+If ExistBlock("F420PORT")
+   ExecBlock("F420PORT",.f.,.f.,{cBanco,cAgencia,cConta})
+Endif
+
+// Ponto de entrada para setar a Filial de acordo com o registro do
+// borderô de pagamento
+If ExistBlock("F420FILIAL")
+   ExecBlock("F420FILIAL",.f.,.f.,{cFilAnt})
+Endif
+
+dbSelectArea("SA6")
+SA6->( dbSeek(xFilial("SA6")+cBanco+cAgencia+cConta) )
+
+dbSelectArea("SEE")
+SEE->( dbSeek(xFilial("SEE")+cBanco+cAgencia+cConta+cSubCta) )
+If !SEE->( found() )
+	Help(" ",1,"PAR150")
+	Return .F.
+Else
+	If !Empty(SEE->EE_FAXFIM) .and. !Empty(SEE->EE_FAXATU) .and. Val(SEE->EE_FAXFIM)-Val(SEE->EE_FAXATU) < 100
+		Help(" ",1,"FAIXA150")
+	Endif
+Endif
+
+// Verifica se será gerado uma linha no final do arquivo.
+// Se nao existir o campo que determina se deve ou nao saltar
+// a linha na gravacao do trailler do arquivo, ou se existir e
+// estiver como "1-Sim", Grava o final de linha (Chr(13)+Chr(10))
+lFimLin := SEE->EE_FIMLIN == "1"
+
+/* GESTAO - inicio */
+If MV_PAR14 == 1
+	aSelFil := AdmGetFil(.F.,.T.,"SE2")
+	nLenSelFil := Len(aSelFil)
+	If nLenSelFil > 0
+		cFilDe := aSelFil[1]
+	Else
+		Help(,1,STR0003,,STR0017,1,0)
+		Return(.F.)
+	Endif
+Else
+	cFilDe := cFilAnt
+	aSelFil := {cFilAnt}
+	nLenSelFil := 1
+Endif
+
+cAliasE2 := "SE2"
+
+cFilBords	:= GetNextAlias()
+cQuery		:= " SELECT DISTINCT(E2_FILIAL) "
+cQuery		+= " FROM "+RetSQLName("SE2")
+cQuery		+= " WHERE "
+cQuery		+= " E2_NUMBOR BETWEEN '"+mv_par01+"' AND '"+mv_par02+"' AND "
+cQuery		+= " D_E_L_E_T_ = ' ' "
+cQuery := ChangeQuery(cQuery)
+dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cFilBords,.T.,.T.)
+
+While (cFilBords)->(!EOF())
+	aAdd(aFilBords, (cFilBords)->E2_FILIAL )
+	(cFilBords)->(dbSkip())
+EndDo
+
+dbSelectArea(cFilBords)
+dbclosearea()
+
+nX := 0
+/* GESTAO - fim */
+
+lBordIni := !Empty(mv_par01)
+
+If mv_par09 == 1 // Modelo 1
+	lResp := Fa420Abre(lTcb, cFileTCB, nSeqArqTcb)	//Abertura Arquivo ASC II
+	
+	If !lResp
+		Return .F.
+	Endif
+Endif
+
+nSeq := 0
+nTotCnab2 := 0
+
+lTemTit := .F.
+
+While nX < nLenSelFil
+	nX++
+	cFilAnt  := aSelFil[nX]
+	cFilProc := FWxFilial("SE2", cFilAnt)
+	
+	If Ascan(aFilProc, cFilProc) != 0
+		Loop
+	EndIf
+	
+	aAdd(aFilProc, cFilProc)
+	
+	If Select(cAliasFil) > 0
+		dbselectarea(cAliasFil)
+		dbclosearea()
+	Endif
+	
+	cAliasFil := GetNextAlias()
+	cQuery	:= " SELECT E2_FILIAL,E2_FILORIG, E2_NUMBOR,E2_SALDO,E2_TIPO,E2_FORNECE,E2_LOJA,E2_SDDECRE,E2_SDACRES,E2_SDACRES,E2_PREFIXO,E2_NUM,E2_PARCELA,E2_MOEDA,E2_FORNECE,E2_VENCTO,R_E_C_N_O_ RECSE2"
+	cQuery	+= " FROM "+RetSQLName("SE2")
+	cQuery	+= " WHERE "
+	cQuery	+= " E2_FILIAL = '" + xFilial("SE2")+ "' AND "
+	
+	If lBordIni
+		cQuery	+= " E2_NUMBOR BETWEEN '"+mv_par01+"' AND '"+mv_par02+"' AND "
+	Else
+		cQuery	+= " E2_NUMBOR > ' ' AND E2_NUMBOR <= '"+mv_par02+"' AND "
+	EndIf
+
+	cQuery	+= " E2_PORTADO = '" +MV_PAR05+ "' AND "
+	cQuery	+= " E2_SALDO > 0 AND "
+	
+	If lF420Fil .And. !Empty(cFiltro)
+		cQuery +=  cFiltro + " AND "
+	Endif
+	
+	cQuery	+= " E2_TIPO NOT IN "+FORMATIN(MVABATIM, "|")+" AND "
+	cQuery	+= " D_E_L_E_T_ = ' ' "
+	cQuery  += " ORDER BY E2_NUMBOR "
+
+	cQuery := ChangeQuery(cQuery)
+
+	dbUseArea(.T.,"TOPCONN",TcGenQry(,,cQuery),cAliasFil,.T.,.T.)
+	cAliasE2 := cAliasFil
+	dbSelectArea("SE2")
+
+	bWhile 		:= { || (cAliasE2)->( ! Eof() .And. E2_FILIAL == xFilial("SE2") .And. E2_NUMBOR >= mv_par01 .And. E2_NUMBOR <=mv_par02 ) }
+
+	If lFWCodFil .And. lGestao .And. Empty( FWFilial("SE2") )
+		bWhile := { || (cAliasE2)->( ! Eof() .And. E2_NUMBOR >= mv_par01 .And. E2_NUMBOR <= mv_par02 ) }
+	EndIf
+
+	While Eval(bWhile)
+		IncProc()
+        SE2->(DbGoTo((cAliasE2)->RECSE2))
+
+		cChaveSEA	:= (SE2->(E2_FILORIG + E2_NUMBOR) + "P" + SE2->(E2_PREFIXO + E2_NUM + E2_PARCELA + E2_TIPO + E2_FORNECE + E2_LOJA))
+		cBcBord 	:= (cBanco + cAgencia + cConta)
+		
+		If Fa420PesqB(cChaveSEA, @cFilBor, @cBcBord, @cNumBor)
+			If (cAliasE2)->E2_NUMBOR != cNumBorAnt .Or. (cBanco + cAgencia + cConta) == cBcBord .Or. lFirstBord
+				If (cAliasE2)->E2_NUMBOR != cNumBorAnt .And. !lFirstBord
+					lMudouBordero := .T.
+					If MV_PAR09 != 1 .AND. !lBorBlock
+						RodaLote2(nHdlSaida,MV_PAR03)
+					EndIf
+				EndIf
+				
+				lBorBlock	:= .F.	
+				lFirstBord 	:= .F.
+				dbSelectArea("SEA")
+				
+				If lF420BLKBO
+					lBorBlock := ExecBlock("F420BLKBOR", .F., .F.)
+					lBorBlock := IIf(ValType(lBorBlock) == "L", lBorBlock, .F.)
+				Else
+					While cNumBor == (cAliasE2)->E2_NUMBOR 
+						cNumBorAnt := (cAliasE2)->E2_NUMBOR
+						lBorBlock  := .F.
+						
+						If (cBanco + cAgencia + cConta) != cBcBord 
+							If !lMostraHlp
+								lMostraHlp	:= .T.
+								Help(" ", 1, "NOBCOBORD", Nil, cNumBorAnt, 4, 1)
+							EndIf
+							lBorBlock 	:= .T.
+						EndIf
+						
+						Exit
+					EndDo
+				EndIf
+			Else
+				lBorBlock := .T.
+			EndIf
+		Else
+			Help(" ",1,"BORNOXADO",,(cAliasE2)->E2_NUMBOR,4,1)
+			lBorBlock := .T.
+		EndIf
+		
+		dbSelectArea("SE2")
+		
+		If lBorBlock 
+			(cAliasE2)->(DbSkip())
+
+			If cNumBor <> (cAliasE2)->E2_NUMBOR
+				lMostraHlp := .F.
+			EndIf
+
+			Loop
+		EndIf
+		
+		If mv_par09 == 2 .and. !lHeadMod2  //Modelo 2
+			lResp := Fa420Abre(lTcb, cFileTCB, nSeqArqTcb)
+			
+			If !lResp
+				Exit
+			Endif
+			
+			lHeadMod2 := .T.
+		Endif
+		
+		dbSelectArea("SA2")
+		dbSeek(xFilial("SA2")+(cAliasE2)->E2_FORNECE+(cAliasE2)->E2_LOJA)
+		
+		If lFin420_1
+			Execblock("FIN420_1",.F.,.F.)
+		Endif
+		
+		dbSelectArea("SE2")
+		// Mudou de Bordero e nao eh o primeiro bordero. Cria Trailler de Lote e Novo Header de lote.
+		If lMudouBordero .And. MV_PAR09 != 1
+			nLotCnab2++
+			nTotLinArq += nQtdLinLote  //total das linhas do arquivo
+			
+			//Gera Header do novo lote
+			HeadLote2(nHdlSaida,MV_PAR03)
+			lMudouBordero := .F.
+			nQtdTitLote := 0
+			nQtdLinLote := 0
+			nSomaVlLote := 0
+			nSomaAbLot	:= 0
+		Endif
+		
+		nSeq++
+		nQtdTitLote ++
+		nQtdTotTit ++
+		
+		If lSomaValor
+			nSomaValor += Execblock("F420SOMA",.F.,.F.)	// Retornar um determinado saldo do usuario
+			nSomaVlLote += Execblock("F420SOMA",.F.,.F.)
+		Else
+			nSomaValor += (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+			nSomaVlLote += (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+		Endif
+		
+		If lF420SumA
+			nSomaAcres += ExecBlock("F420SUMA",.F.,.F.)
+		Else
+			nSomaAcres += (cAliasE2)->E2_SDACRES
+		Endif
+		
+		If lF420SumD
+			nSomaDecre += ExecBlock("F420SUMD",.F.,.F.)
+		Else
+			nSomaDecre += (cAliasE2)->E2_SDDECRE
+		Endif
+		
+		nAbatim    := SomaAbat((cAliasE2)->E2_PREFIXO,(cAliasE2)->E2_NUM,(cAliasE2)->E2_PARCELA,"P",(cAliasE2)->E2_MOEDA,,(cAliasE2)->E2_FORNECE)
+		nSomaAbat  += nAbatim
+		nSomaAbLot += nAbatim
+		nSomaCGC   += Val(SA2->A2_CGC)
+		nSomaData  += Val(GravaData(StoD((cAliasE2)->E2_VENCTO),.F.,1))
+
+		If MV_PAR09 == 1
+			nLidos :=0
+			FSEEK(nHdlBco, 0, 0)
+			nTamArq := FSEEK(nHdlBco, 0, 2)
+			FSEEK(nHdlBco, 0, 0)
+			lIdCnab := .T.
+			
+			While nLidos <= nTamArq
+				xBuffer := Space(85)
+				FREAD(nHdlBco, @xBuffer, 85)
+				
+				Do Case
+					case SubStr(xBuffer,1,1) == CHR(1)
+						IF lHeader
+							nLidos+=85
+							Loop
+						EndIF
+						lTemHeader := .T.
+					case SubStr(xBuffer,1,1) == CHR(2)
+						IF !lFirst .And. lTemHeader
+							lFirst := .T.
+							FWRITE(nHdlSaida,CHR(13)+CHR(10))
+						EndIF
+					case SubStr(xBuffer,1,1) == CHR(3)
+						lTrailler := .T.
+						nLidos+=85
+						Loop
+					Otherwise
+						nLidos+=85
+						Loop
+				EndCase
+				
+				nTam      := 1+(Val(SubStr(xBuffer,20,3))-Val(SubStr(xBuffer,17,3)))
+				nDec      := Val(SubStr(xBuffer,23,1))
+				cConteudo := SubStr(xBuffer,24,60)
+				nGrava    := Fa420Grava(nTam, nDec, cConteudo, @aBordero, @lIdCnab, cFilBor)
+				
+				If nGrava != 1
+					//Se ignorou o bordero, subtrai as variaveis totalizadoras que podem ser usadas no Trailler
+					nSeq--
+					nQtdTitLote --
+					nQtdTotTit --
+					
+					If lSomaValor
+						nSomaValor -= Execblock("F420SOMA",.F.,.F.)	// Retornar um determinado saldo do usuario
+						nSomaVlLote -= Execblock("F420SOMA",.F.,.F.)
+					Else
+						nSomaValor -= (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+						nSomaVlLote -= (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+					Endif
+					
+					If lF420SumA
+						nSomaAcres -= ExecBlock("F420SUMA",.F.,.F.)
+					Else
+						nSomaAcres -= (cAliasE2)->E2_SDACRES
+					Endif
+					
+					If lF420SumD
+						nSomaDecre -= ExecBlock("F420SUMD",.F.,.F.)
+					Else
+						nSomaDecre -= (cAliasE2)->E2_SDDECRE
+					Endif
+					
+					nSomaAbat  -= nAbatim
+					nSomaAbLot -= nAbatim
+					nSomaCGC   -= Val(SA2->A2_CGC)
+					nSomaData  += Val(GravaData(StoD((cAliasE2)->E2_VENCTO),.F.,1))
+					Exit
+				Endif
+				
+				dbSelectArea("SE2")
+				nLidos+=85
+			EndDO
+			
+			If nGrava == 3
+				Exit
+			Endif
+			
+			If nGrava == 1
+				lIdCnab := .T.	// Para obter novo identificador do registro CNAB na rotina
+				fWrite(nHdlSaida, CHR(13)+CHR(10))
+				
+				IF !lHeader
+					lHeader := .T.
+				EndIF
+				
+				dbSelectArea("SEA")
+				SEA->(DbSetOrder(1))
+				
+				If SEA->(dbSeek((cFilBor+(cAliasE2)->(E2_NUMBOR+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA))))
+					cChave    := ((cAliasE2)->E2_NUMBOR+"P"+(cAliasE2)->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA))
+					nRecnoSEA := SEA->(Recno())
+			        
+					If lSubCtaEA
+						While !SEA->(EOF()) .And. (cFilBor+cChave) == SEA->(EA_FILIAL+EA_NUMBOR+EA_CART+EA_PREFIXO+EA_NUM+EA_PARCELA+EA_TIPO+EA_FORNECE+EA_LOJA)
+							Reclock("SEA")
+							SEA->EA_TRANSF := "S"
+							SEA->EA_SUBCTA := cSubCta
+							SEA->(MsUnlock())
+							SEA->(DbSkip())
+						EndDo
+					Else
+						While !SEA->(EOF()) .And. (cFilBor+cChave) == SEA->(EA_FILIAL+EA_NUMBOR+EA_CART+EA_PREFIXO+EA_NUM+EA_PARCELA+EA_TIPO+EA_FORNECE+EA_LOJA)
+							Reclock("SEA")
+							SEA->EA_TRANSF := "S"
+							SEA->(MsUnlock())
+							SEA->(DbSkip())
+						EndDo
+					EndIf
+				   	
+					//Volta para o registro posicionado no SEEK
+				   	SEA->(DBGoto(nRecnoSEA))
+				Endif
+			Endif
+		Else
+			nGrava := Fa420Grava(0,0,"",@aBordero,.F.,cFilBor)
+			
+			If nGrava == 1
+				dbSelectArea("SEA")
+				SEA->(DbSetOrder(1))
+				
+				If SEA->(DbSeek((cFilBor+(cAliasE2)->(E2_NUMBOR+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA))))
+					cChave    := ((cAliasE2)->E2_NUMBOR+"P"+(cAliasE2)->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA))
+					nRecnoSEA := SEA->(Recno())
+			 		
+					If lSubCtaEA
+						While !SEA->(EOF()) .And. (cFilBor+cChave) == SEA->(EA_FILIAL+EA_NUMBOR+EA_CART+EA_PREFIXO+EA_NUM+EA_PARCELA+EA_TIPO+EA_FORNECE+EA_LOJA)
+							Reclock("SEA")
+							SEA->EA_TRANSF := "S"
+							SEA->EA_SUBCTA := cSubCta
+							SEA->(MsUnlock())
+							SEA->(DbSkip())
+						EndDo
+					Else
+				   		While !SEA->(EOF()) .And. (cFilBor+cChave) == SEA->(EA_FILIAL+EA_NUMBOR+EA_CART+EA_PREFIXO+EA_NUM+EA_PARCELA+EA_TIPO+EA_FORNECE+EA_LOJA)
+							Reclock("SEA")
+							SEA->EA_TRANSF := "S"
+							SEA->(MsUnlock())
+							SEA->(DbSkip())
+						EndDo
+					EndIf
+					//Volta para o registro posicionado no SEEK
+				   	SEA->(DBGoto(nRecnoSEA))
+				EndIf
+				
+				nTotCnab2++
+				DetCnab2(nHdlSaida,MV_PAR03,@lIdCnab,"SE2")
+				lIdCnab := .T.	// Para obter novo identificador do registro CNAB na rotina
+			Else
+				// Se ignorou o bordero, subtrai as variaveis totalizadoras que podem ser usadas no Trailler
+				nSeq--
+				nQtdTitLote --
+				nQtdTotTit --
+				
+				If lSomaValor
+					nSomaValor  -= Execblock("F420SOMA",.F.,.F.)	// Retornar um determinado saldo do usuario
+					nSomaVlLote -= Execblock("F420SOMA",.F.,.F.)
+				Else
+					nSomaValor  -= (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+					nSomaVlLote -= (cAliasE2)->E2_SALDO+(cAliasE2)->E2_SDACRES-(cAliasE2)->E2_SDDECRE
+				Endif
+				
+				If lF420SumA
+					nSomaAcres -= ExecBlock("F420SUMA",.F.,.F.)
+				Else
+					nSomaAcres -= (cAliasE2)->E2_SDACRES
+				Endif
+				
+				If lF420SumD
+					nSomaDecre -= ExecBlock("F420SUMD",.F.,.F.)
+				Else
+					nSomaDecre -= (cAliasE2)->E2_SDDECRE
+				Endif
+				
+				nSomaAbat -= nAbatim
+				nSomaAbLot -= nAbatim
+				nSomaCGC    -= Val(SA2->A2_CGC)
+				nSomaData   += Val(GravaData(StoD((cAliasE2)->E2_VENCTO),.F.,1))
+			Endif
+		EndIf
+		
+		//Metricas de quantidade de borderôs modelo PIX
+		If nGrava == 1 .And. cNroBordero != (cAliasE2)->E2_NUMBOR
+			SEA->(DbSetOrder(2))
+			If SEA->(DbSeek(cFilBor + (cAliasE2)->E2_NUMBOR + "P")) .And. SEA->EA_MODELO $ "45|47" .And. SEA->EA_TRANSF != "S"
+				cNroBordero := (cAliasE2)->E2_NUMBOR
+				nQuantBord  += 1
+			EndIf
+		EndIf
+		
+		dbSelectArea("SE2")
+		(cAliasE2)->(dbSkip())
+		SE2->(DbGoTo((cAliasE2)->(Recno())))
+		lTemTit := .T.
+	EndDO
+Enddo
+
+// Se criou o header do arquivo, cria o trailler
+If lResp
+	If nHdlSaida > 0
+		If MV_PAR09 == 1
+			//Monta Registro Trailler
+			nSeq++
+			nLidos := 0
+			FSEEK(nHdlBco, 0, 0)
+			nTamArq:=FSEEK(nHdlBco, 0, 2)
+			FSEEK(nHdlBco, 0, 0)
+			
+			While nLidos <= nTamArq
+				IF nGrava == 3
+					Exit
+				EndIf
+				
+				//Tipo qual registro foi lido
+				xBuffer := Space(85)
+				FREAD(nHdlBco, @xBuffer, 85)
+				
+				If SubStr(xBuffer, 1, 1) == CHR(3)
+					lTrailler := .T.
+					nTam      := (1 + (Val(SubStr(xBuffer, 20, 3)) - Val(SubStr(xBuffer, 17, 3))))
+					nDec      := Val(SubStr(xBuffer, 23, 1))
+					cConteudo := SubStr(xBuffer, 24, 60)
+					nGrava    := Fa420Grava(nTam, nDec, cConteudo, @aBordero, .F., cFilBor)
+					
+					If nGrava == 3
+						Exit
+					EndIf
+				EndIF
+				
+				nLidos+=85
+			EndDo
+			
+			If lTrailler .and. lFimLin
+				FWRITE(nHdlSaida, CHR(13)+CHR(10))
+			Endif
+		Else
+			nTotLinArq += nQtdLinLote  //total das linhas do arquivo (somo as linhas do ultimo lote
+			RodaCnab2(nHdlSaida, MV_PAR03, lFimLin)
+		EndIf
+		
+		//Atualiza Numero do ultimo Disco
+		dbSelectArea("SEE")
+		IF !Eof() .And. nGrava != 3
+	   		Reclock("SEE")
+		   	nUltDisco := (VAL(SEE->EE_ULTDSK) + 1)
+	   		SEE->EE_ULTDSK := StrZero(nUltDisco, TamSx3("EE_ULTDSK")[1])
+		   	SEE->(MsUnlock())
+		EndIF
+		
+		//Gravação da metricas de quantidade de borderôs modelo PIX
+		If __lMetric .And. nQuantBord > 0
+			SetFunName(Iif(cFunName == "RPC", (cFunName + "FINA420"), cFunName))
+			FwCustomMetrics():setSumMetric(Alltrim(ProcName()), "financeiro-protheus_qtd-por-acesso_total", nQuantBord)
+			SetFunName(cFunName)
+		EndIf
+	Endif
+ElseIf !lTemTit
+	Help(" ", 1, "F420NOTIT")
+Endif
+
+dbSelectArea( cAlias )
+dbGoTo( nSavRecno )
+
+SM0->(dbGoto(nRecEmp))
+cFilAnt    := IIf( lFWCodFil, FWGETCODFILIAL, SM0->M0_CODFIL )
+nQtdLnLote := 0
+
+dbSelectArea("SE2")
+dbClearFil()
+RetIndex("SE2")
+Ferase(cIndex+OrdBagExt())
+dbSetOrder(1)
+
+//Fecha o arquivo gerado.
+If nHdlSaida > 0
+	FClose(nHdlSaida)
+
+	If !Empty(__cTmpPath)
+		If nGrava == 3
+			FErase(__cTmpPath)
+		Else
+			__CopyFile(__cTmpPath, MV_PAR04)
+			FErase(__cTmpPath)
+		EndIf
+	EndIf
+EndIf
+
+//Ponto de entrada utilizado para criptografia de arquivo de envio
+If lF420CRP
+	ExecBlock("F420CRP",.F.,.F.)
+Endif
+
+Return(.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Fa420Abre ³ Autor ³ Wagner Xavier         ³ Data ³ 26/05/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Abre arquivo de Parametros                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³AbrePar()                                                   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³FinA420                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420Abre(lTcb As Logical, cFileTCB As Char, nSeq As Numeric)
+	
+	Local cArqEnt   	As Character
+	Local cArqSaida 	As Character
+	Local lFa420Cri 	As Logical
+	Local lRet      	As Logical
+	Local cArqDrv 		As Character
+	Local cArqDir		As Character 
+	Local cArqNom		As Character
+	Local cArqExt		As Character
+	
+	Default lTcb     := .F.
+	Default nSeq     := 1
+	Default cFileTCB := ""
+	
+	cArqSaida := ""
+	cArqEnt   := MV_PAR03
+	lFa420Cri := .T.
+	lRet      := .T.
+	
+	//MV_LOCENV -Parâmetro onde será gravado o diretório
+	If lTcb
+		cArqSaida := GetSrvProfString("startpath", "\system\") + &(cFileTCB)
+		
+		If Type("aFilesTCB") != "A"
+			aFilesTCB := {}
+		EndIf
+		
+		Aadd(aFilesTCB, {cArqSaida})	
+	ElseIf Empty(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))
+
+		If AT(".",mv_par04)>0 .and. (AT("/",mv_par04)>0 .or. AT("\",mv_par04)>0)
+			cArqSaida:=SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+
+		elseif (AT("/",mv_par04)>0 .or. AT("\",mv_par04)>0)
+			cArqSaida:= alltrim(mv_par04)+"."+TRIM(SEE->EE_EXTEN)
+		else
+			Help(" ",1,"F150ARQ",,STR0018,1,0) //"Nome do Arquivo de Saida Inválido
+			Return .F.
+		EndIf
+
+	Elseif !empty(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))       .and. ;
+		!Empty(mv_par04)                                             .and. ;
+			AT(":",mv_par04)= 0                                         .and. ;
+		(AT("/",mv_par04)= 0  .or.  AT("\",mv_par04)= 0 )            .and. ;
+		(AT("/",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))) > 0   .or.  ;
+			AT("\",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))) > 0 )
+
+			// Verifica qual barra está o parâmetro , e o que está na ultima posição através do RAT
+			if AT("/",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))>0 .and. ;
+			RAT("/",SUBSTR(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )),LEN(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))),1)) = 0
+
+				If AT(".",mv_par04)>0
+				//cArqSaida:=SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+"/"+SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+				Else
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+"/"+TRIM(mv_par04)+"."+TRIM(SEE->EE_EXTEN)
+				Endif
+
+			Elseif AT("/",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))>0 .and. ;
+				RAT("/",SUBSTR(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )),LEN(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))),1)) > 0
+
+
+				If AT(".",mv_par04)>0
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+				Else
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+TRIM(mv_par04)+"."+TRIM(SEE->EE_EXTEN)
+				Endif
+
+			Elseif AT("\",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))>0 .and. ;
+				RAT("\",SUBSTR(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )),LEN(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))),1)) = 0
+
+				If AT(".",mv_par04)>0
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+"\"+SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+				Else
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+"\"+TRIM(mv_par04)+"."+TRIM(SEE->EE_EXTEN)
+				Endif
+
+			elseif AT("\",alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )))>0 .and. ;
+				RAT("\",SUBSTR(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. )),LEN(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))),1)) > 0
+
+
+				If AT(".",mv_par04)>0
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+SubStr(TRIM(mv_par04),1,AT(".",mv_par04)-1)+"."+TRIM(SEE->EE_EXTEN)
+				Else
+					cArqSaida:= alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))+TRIM(mv_par04)+"."+TRIM(SEE->EE_EXTEN)
+				Endif
+
+
+			endif
+
+	Elseif !empty(alltrim(SuperGetMV( "MV_LOCENV" , .F. , .F. ))) .and. Empty(mv_par04) .or. (AT("/",mv_par04)>0 .or. AT("\",mv_par04)>0 .or. AT(":",mv_par04)>0)
+
+		Help(" ",1,"F150ARQ",,STR0019,1,0) //"Nome do Arquivo de Saida Inválido ou verificar parametro
+		Return .F.
+
+	Endif
+	
+	If !FILE(cArqEnt)
+		Help(" ", 1, "NOARQPAR")
+		lRet := .F.
+	ElseIf !__lVldExtC .Or. (lRet :=  VldExtCNAB(SubStr(cArqEnt, At(".", cArqEnt) + 1), "FINA420"), .T.)
+		If eFA420CRI
+			lFa420CRI := ExecBlock("FA420CRI",.F.,.F.)
+		EndIf
+		
+		//Ponto de entrada para alterar o nome da variavel cArqSaida
+		If lFA420NAR .And. !lTcb
+			cArqSaida := ExecBlock("FA420NAR",.F.,.F.,cArqSaida)
+		EndIf
+		
+		If lFa420Cri
+			If File(cArqSaida)
+				SplitPath(cArqSaida, @cArqDrv, @cArqDir, @cArqNom, @cArqExt)
+				__cTmpPath  := (GetTempPath() +  cArqNom + cArqExt)
+				__CopyFile(cArqSaida, __cTmpPath)
+				cArqSaida	:= __cTmpPath
+			EndIf
+		
+			If MV_PAR09 == 1 // Modelo 1
+				nHdlBco := FOpen(cArqEnt,0+64)
+				
+				If nHdlBco <= 0
+					Help(" ", 1, "F420ABRE", Nil, STR0016, 4, 0) //"Erro abertura do arquivo de configuração"
+					lRet := .F.
+				Else
+					nHdlSaida := MSFCREATE(cArqSaida, 0)
+				EndIf
+			Else
+				nHdlSaida := HeadCnab2(cArqSaida, MV_PAR03)
+			EndIf
+		Else
+			lRet := .F.
+		EndIf
+	EndIF
+	
+	If lRet .And. nHdlSaida <= 0
+		Help(" ", 1, "F420CRIA", Nil, STR0015, 4, 0) //"Erro na criação do arquivo de saida"
+		lRet := .F.
+	Endif
+
+Return lRet
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Fa420Grava³ Autor ³ Pilar Sanchez         ³ Data ³ 26/05/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Rotina de Geracao do Arquivo de Remessa de SisPag Banco de  ³±±
+±±³          ³Boston                                                      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ExpL1:=Fa420Grava(ExpN1,ExpN2,ExpC1)                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ FinA420                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+STATIC Function Fa420Grava( nTam,nDec,cConteudo,aBordero,lIdCnab,cFilBor)
+Local nRetorno	:= 1
+Local nX      	:= 1
+Local oDlg	   	:= NIL
+Local oRad		:= NIL
+Local nTecla
+Local aGetArea	:= GetArea()
+
+DEFAULT lIdCnab := .F.
+DEFAULT cFilBor := xFilial("SEA")
+
+If l420Chk		// garantir que o arquivo nao seja reenviado
+	nRetorno := Execblock("F420CHK",.F.,.F.)		// Retornar 1,2 ou 3
+	If nRetorno != 1  // Se Ignora ou Abandona Rotina
+		Return nRetorno
+	Endif
+Endif
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ O retorno podera' ser :                                  ³
+//³ 1 - Grava Ok                                             ³
+//³ 2 - Ignora bordero                                       ³
+//³ 3 - Abandona rotina                                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+While .T.
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Verifica se titulo ja' foi enviado                       ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If !l420Chk  // Ignora verifica‡Æo se existir o PE
+		If SE2->E2_NUMBOR >= MV_PAR01 .and. SE2->E2_NUMBOR <= MV_PAR02			
+			dbSelectArea("SEA")
+			SEA->(DbSetOrder(1))			
+			If (dbSeek(cFilBor+SE2->E2_NUMBOR+SE2->E2_PREFIXO+SE2->E2_NUM+;
+				SE2->E2_PARCELA+SE2->E2_TIPO+SE2->E2_FORNECE+SE2->E2_LOJA))
+				If SEA->EA_TRANSF == "S" .and. SEA->EA_FILORIG == SE2->E2_FILORIG
+					nX := ASCAN(aBordero,SubStr(SE2->E2_NUMBOR,1,6))
+					If nX == 0
+						nOpc := 1
+						DEFINE MSDIALOG oDlg FROM  35,   37 TO 188,383 TITLE OemToAnsi(STR0008) PIXEL  //"Bordero Existente"
+						@ 11, 7 SAY OemToAnsi(STR0009) SIZE 58, 7 OF oDlg PIXEL  //"O border“ n£mero:"
+						@ 11, 68 MSGET SE2->E2_NUMBOR When .F. SIZE 37, 10 OF oDlg PIXEL
+						@ 24, 7 SAY OemToAnsi(STR0010) SIZE 82, 7 OF oDlg PIXEL  //"j  foi enviado ao banco."
+						@ 37, 6 TO 69, 120 LABEL OemToAnsi(STR0011) OF oDlg  PIXEL  //"Para prosseguir escolha uma das op‡äes"
+						@ 45, 11 RADIO oRad VAR nTecla 3D SIZE 75, 11 PROMPT OemToAnsi(STR0012),OemToAnsi(STR0013) OF oDlg PIXEL  //"Gera com esse border“"###"Ignora esse border“"
+						DEFINE SBUTTON FROM 11, 140 TYPE 1 ENABLE OF oDlg Action (nOpc:=1,oDlg:End())
+						DEFINE SBUTTON FROM 24, 140 TYPE 2 ENABLE OF oDlg Action (nopc:=0,oDlg:End())
+						ACTIVATE MSDIALOG oDlg Centered
+						If nOpc == 1
+							If nTecla == 1
+								nRetorno := 1
+							Else
+								nRetorno := 2
+							EndIf
+						Else
+							nRetorno := 3
+						EndIf
+					Else
+						nRetorno := Int(Val(SubStr(aBordero[nX],7,1)))
+					EndIf
+				EndIf
+			EndIf
+		EndIf
+	EndIf
+
+	If nRetorno == 1 .And. MV_PAR09 == 1
+		If lIdCnab .And. Empty(SE2->E2_IDCNAB) // So gera outro identificador, caso o titulo
+			F420IDCNAB(@lIdCnab, SE2->( Recno() ) )
+		Endif
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ PONTO DE ENTRADA PARA IDENTIFICACAO O MOMENTO EM QUE O BORDERO FOI PROCESSADO PROCESSADO ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lF420IDBP
+			ExecBlock("F420IDBP",.F.,.F.)
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Analisa conteudo                                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		IF Empty(cConteudo)
+			cCampo:=Space(nTam)
+		Else
+			lConteudo := Fa420Orig( cConteudo )
+			
+			IF !lConteudo
+				Exit
+			Else
+				IF ValType(xConteudo)="D"
+					cCampo := GravaData(xConteudo,.F.)
+				Elseif ValType(xConteudo)="N"
+					cCampo:=Substr(Strzero(xConteudo,nTam,nDec),1,nTam)
+				Else
+					cCampo:=Substr(xConteudo,1,nTam)
+				EndIf
+			End
+		EndIf
+		
+		If Len(cCampo) < nTam  //Preenche campo a ser gravado, caso menor
+			cCampo := cCampo+Space(nTam-Len(cCampo))
+		EndIf
+		
+		If nHdlSaida > 0
+			FWrite(nHdlSaida, cCampo, nTam)
+		EndIf
+	EndIf
+
+	If nX == 0
+		Aadd(aBordero,Substr(SE2->E2_NUMBOR,1,6)+Str(nRetorno,1))
+	EndIf
+
+	Exit
+
+EndDo
+
+RestArea(aGetArea)
+
+Return nRetorno
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Fa420Par  ³ Autor ³ Pilar Sanchez         ³ Data ³ 26/05/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Aciona parametros do Programa                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ 		                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420Par()
+Pergunte(cPerg)
+Return .T.
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Fa420Orig ³ Autor ³ Pilar Sanchez         ³ Data ³ 10/11/92 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Verifica se expressao e' valida para Remessa CNAB.          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³Fina420                                                     ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420Orig( cForm )
+   	Local bBlock := ErrorBlock()
+	Local bErro  := ErrorBlock({ |e| ChecErr260(e, cForm)})
+	Private lRet := .T.
+	
+	BEGIN SEQUENCE
+		xConteudo := &cForm
+	END SEQUENCE
+	
+	ErrorBlock(bBlock)
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ SomaCGC  ³ Autor ³ Pilar S. Albaladejo   ³ Data ³ 27/05/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna o valor dos CPF/CGC Somados                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ SomaCGC()                                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function SomaCGC()
+Return nSomaCGC * 100
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ SomaData ³ Autor ³ Pilar S. Albaladejo   ³ Data ³ 27/05/96 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna o valor das Datas somadas                          ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ SomaData()                                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function SomaData()
+Return nSomaData * 100
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³Fa420NumTi³ Autor ³ Claudio D. de Souza   ³ Data ³ 29/11/01 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna a chave primaria do SE2                            ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ Fa420NumTit()                                              ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function Fa420NumTit
+RETURN xFilial("SE2")+SE2->(E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
+
+/*/{Protheus.doc} Fa420PesqB
+	Pesquisa o borderô pelo indice único da tabela SEA e atualiza a filial com a variavel cFilBor. 
+
+	@sample Fa420PesqB(cChaveSEA, cFilBor, cBcBord)	
+	@author Victor Azevedo
+	@since 22/09/2022
+	@version 2.0
+
+	@param cChaveSEA	Chave do título a ser pesquisado na tabela SEA
+	@param cFilBor		Filial do borderô encontrada
+	@param cBcBord		Chave contendo portador, agencia e conta do borderô
+	@param cNumBor		Numero do borderô encontrado
+
+	@return lRet		Variavel lógica informando se encontrou ou não algum borderô
+/*/
+Static Function Fa420PesqB(cChaveSEA As Char, cFilBor As Char, cBcBord As Char, cNumBor As Char) As Logical
+	
+	Local lRet 			As Logical
+	Local aAreaAtu		As Array
+	Local aAreaSEA		As Array
+	Local cFilSEA		As Character
+
+	Default	cFilBor 	:= ""
+	Default cBcBord		:= ""
+	Default	cChaveSEA 	:= ""
+	Default	cNumBor 	:= ""
+	
+	//Inicializo as variaveis
+	lRet 		:= .F.
+	aAreaAtu	:= GetArea()
+	aAreaSEA	:= SEA->(GetArea())
+	cFilSEA		:= xFilial("SEA")
+
+	If !Empty(cFilSEA)
+		SEA->(DbSetOrder(4))
+		If !Empty(cChaveSEA)
+			If (lRet := (SEA->(MsSeek(cChaveSEA))))
+				cFilBor		:= SEA->EA_FILIAL
+				cBcBord		:= SEA->(EA_PORTADO + EA_AGEDEP + EA_NUMCON)
+				cNumBor		:= SEA->EA_NUMBOR
+			EndIf
+		EndIf
+	Else
+		SEA->(DbSetOrder(2))
+		lRet 		:= (SEA->(MsSeek(cFilSEA + SE2->E2_NUMBOR + "P")))
+		cFilBor		:= SEA->EA_FILIAL
+		cNumBor		:= SEA->EA_NUMBOR
+	EndIf
+
+	// Restaura ambiente
+	RestArea(aAreaSEA)
+	RestArea(aAreaAtu)
+	FwFreeArray(aAreaSEA)
+	FwFreeArray(aAreaAtu)
+
+Return lRet
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³MenuDef   ³ Autor ³ Ana Paula N. Silva     ³ Data ³27/11/06 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Utilizacao de menu Funcional                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Retorno   ³Array com opcoes da rotina.                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³Parametros do array a Rotina:                               ³±±
+±±³          ³1. Nome a aparecer no cabecalho                             ³±±
+±±³          ³2. Nome da Rotina associada                                 ³±±
+±±³          ³3. Reservado                                                ³±±
+±±³          ³4. Tipo de Transa‡„o a ser efetuada:                        ³±±
+±±³          ³		1 - Pesquisa e Posiciona em um Banco de Dados    		  ³±±
+±±³          ³    2 - Simplesmente Mostra os Campos                       ³±±
+±±³          ³    3 - Inclui registros no Bancos de Dados                 ³±±
+±±³          ³    4 - Altera o registro corrente                          ³±±
+±±³          ³    5 - Remove o registro corrente do Banco de Dados        ³±±
+±±³          ³5. Nivel de acesso                                          ³±±
+±±³          ³6. Habilita Menu Funcional                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³   DATA   ³ Programador   ³Manutencao efetuada                         ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³          ³               ³                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function MenuDef()
+Local aRotina := { {OemToAnsi(STR0003) , "Fa420Par" , 0 , 0 },;  // "Parametros"
+                     {OemToAnsi(STR0004) , "Fa420Gera" , 0 , 3 } }  // "Gerar Arquivo"
+Return(aRotina)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³FNLinCnab2³ Autor ³ Mauricio Pequim Jr.   ³ Data ³ 22/01/08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna o numero de linhas gravadas no arquivo envio do    |±±
+±±³          ³ cnab2                                                      |±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ FNLinCnab2()															  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ CNAB2		                                                  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function FNLINCNAB2()
+
+Local nRet := 0
+
+If FindFunction( "FNLINCNAB" ) // Desvio para o fonte CFGXCNAB
+	nRet := FNLINCNAB()
+Else
+	nRet := nTotLinArq		 	//Somo o numero de linhas de detalhes gravados no arquivo
+	nRet += (nLotCnab2 * 2)	  	//Multiplico o numero de lotes para saber o nro de Headers e Trailers de lote
+	nRet += 2					//Somo 2 para linhas de Header de arquivo e Trailer de arquivo
+EndIf
+
+Return nRet
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³F420LinLot³ Autor ³Mauricio Pequim Jr     ³ Data ³15.01.08  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Retorna o total de linhas do arquivo    						  ³±±
+±±³          ³ Usado na configuracao do CNAB2 PAGAR     						  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Configurador do CNAB2 PAGAR										  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function F420LinLot()
+Return nQtdLinLote+2		// esta variavel armazena o numero de linhas do lote + header lote + trailler lote
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o	 ³F420SEQLot³ Autor ³Mauricio Pequim Jr     ³ Data ³15.01.08  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Retorna o SEQUENCIAL DE LINHA DO LOTE quando cada lote nece³±±
+±±³          ³ necessitar de uma sequencial de linhas diferente 			  ³±±
+±±³          ³ Usado na configuracao do CNAB2 PAGAR     						  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ Configurador do CNAB2 PAGAR										  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function F420SEQLOTE()
+Return nQtdLinLote+1		// retorno o sequencial de linha do lote
+
+
+
+/*/
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³FinA420T   ³ Autor ³ Marcelo Celi Marques ³ Data ³ 31.03.08 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Chamada semi-automatica utilizado pelo gestor financeiro   ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ FINA420                                                    ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Function FinA420T(aParam)
+	cRotinaExec := "FINA420"
+	ReCreateBrow("SE2",FinWindow)
+	FinA420(aParam[1])
+	ReCreateBrow("SE2",FinWindow)
+	dbSelectArea("SE2")
+
+	INCLUI := .F.
+	ALTERA := .F.
+
+Return .T.
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³AdmAbreSM0³ Autor ³ Orizio                ³ Data ³ 22/01/10 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³Retorna um array com as informacoes das filias das empresas ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function AdmAbreSM0()
+	Local aArea			:= SM0->( GetArea() )
+	Local aAux			:= {}
+	Local aRetSM0		:= {}
+	Local lFWLoadSM0	:= .T.
+	Local lFWCodFilSM0 	:= .T.
+
+	If lFWLoadSM0
+		aRetSM0	:= FWLoadSM0()
+	Else
+		DbSelectArea( "SM0" )
+		SM0->( DbGoTop() )
+		While SM0->( !Eof() )
+			aAux := { 	SM0->M0_CODIGO,;
+						IIf( lFWCodFilSM0, FWGETCODFILIAL, SM0->M0_CODFIL ),;
+						"",;
+						"",;
+						"",;
+						SM0->M0_NOME,;
+						SM0->M0_FILIAL }
+
+			aAdd( aRetSM0, aClone( aAux ) )
+			SM0->( DbSkip() )
+		End
+	EndIf
+
+	RestArea( aArea )
+Return aRetSM0
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³F420IDCNABºAutor  ³Microsiga           º Data ³  19/07/13   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³ Grava o campo E2_IDCNAB com conteudo GetSXENUM             º±±
+±±º          ³                                                            º±±
+±±º          ³ Trecho colocado em funcao com abertura SE2 com alias       º±±
+±±º          ³ SE2CNAB, pois em DB2/AS400 estava ocorrendo de ir para     º±±
+±±º          ³ final de arquivo mesmo com RestArea                        º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function F420IDCNAB(lIdCnab, nRecSE2)
+Local aArea := GetArea()
+Local cIdCnab := ""
+Local cChaveID := ""
+Local nOrdCNAB := 13
+
+If Select("SE2CNAB") == 0
+	ChkFile("SE2",.F.,"SE2CNAB")
+Else
+	DbSelectArea("SE2CNAB")
+EndIf
+
+dbSelectArea("SE2CNAB")						 // ainda nao o tenha, pois pode ser um re-envio do arquivo
+dbSetOrder(nOrdCNAB)
+// Gera identificador do registro CNAB no titulo enviado
+cIdCnab := GetSxENum("SE2", "E2_IDCNAB", "E2_IDCNAB"+cEmpAnt,nOrdCNAB)
+cChaveID := cIdCnab
+While SE2CNAB->(MsSeek(cChaveID))
+	ConOut("Id CNAB " + cIdCnab + " já existe para o arquivo SE2. Gerando novo número ")
+	If ( __lSx8 )
+		ConfirmSX8()
+	EndIf
+	cIdCnab := GetSxENum("SE2", "E2_IDCNAB","E2_IDCNAB"+cEmpAnt,nOrdCNAB)
+	cChaveID := cIdCnab
+EndDo
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Ponto de entrada para tratamento da variavel cIdCnab     ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+If lF420ICNB
+	cIdCnab := ExecBlock("F420ICNB",.F.,.F.,{cIdCnab})
+EndIf
+
+dbSelectArea("SE2CNAB")
+dbGoto(nRecSE2)
+Reclock("SE2CNAB")
+SE2CNAB->E2_IDCNAB := cIdCnab
+MsUnlock()
+dbSelectArea("SE2")
+dbGoTo(nRecSE2)
+Reclock("SE2")
+SE2->E2_IDCNAB := cIdCnab
+MsUnlock()
+ConfirmSx8()
+lIdCnab := .F. // Gera o identificacao do registro CNAB apenas uma vez no
+				// titulo enviado
+
+RestArea(aArea)
+
+Return
+
+//-----------------------------------------
+/*/{Protheus.doc} Fa420TCB
+Função gerencia o processamento
+@type function
+@author Robson
+@since 10/09/2020
+@version 1.0
+@return 
+@example
+/*/
+//-----------------------------------------
+Function Fa420TCB(cAlias As Char, lTcb As Logical, cFileTCB As Char, nSeqArqTcb As Numeric, TmpSEA As Char, lAutomato As Logical)
+	Local lTudoOk  As Logical
+	Local cBordIni As Char
+	Local cBordFim As Char
+	Local nI       As Numeric
+	Local nTamArq  As Numeric	
+	Local oTCB     As Object
+	
+	Private aFilesTCB As Array
+	
+	Default cAlias     := ""
+	Default lTcb       := .F.
+	Default cFileTCB   := ""
+	Default nSeqArqTcb := 0
+	Default TmpSEA     := ""
+	Default lAutomato  := .F.
+	
+	//Inicialliza variáveis
+	lTudoOk   := .T.
+	cBordIni  := ""
+	cBordFim  := ""
+	nI        := 0
+	nTamArq   := 0
+	oTCB      := Nil
+	aFilesTCB := {}
+	
+	If lTcb .And. !Empty(cAlias) .And. !Empty(TmpSEA)
+		IncProc(STR0029) //Conectando ao TCB
+		oTCB := TCBConnect():New()
+		If lAutomato
+			oTCB:SetURL("https://qa-tcb.tfs.totvs.com/")
+		EndIf
+		oTCB:ValidConn()
+		
+		If !(lTudoOk := oTCB:lConnected)
+			Help(" ", 1, "HELP", Nil, STR0030, 1 , 1)
+		EndIf
+		
+		If lTudoOk
+			ProcRegua((TmpSEA)->(Reccount()) * 2+2)
+			IncProc(STR0031) //Gerando os arquivos de pagamento	
+			cBordIni := MV_PAR01
+			cBordFim := MV_PAR02
+			
+			While (TmpSEA)->(!Eof())
+				MV_PAR01 := MV_PAR02 := (TmpSEA)->EA_NUMBOR
+				
+				Fa420Ger(cAlias, lTcb, cFileTCB, nSeqArqTcb)
+				
+				If (nTamArq := Len(aFilesTCB)) > 0
+					aadd(aFilesTCB[nTamArq], (TmpSEA)->EA_NUMBOR)
+					aadd(aFilesTCB[nTamArq], Alltrim(SA6->A6_COD))
+					aadd(aFilesTCB[nTamArq], Alltrim(SA6->A6_AGENCIA))
+					aadd(aFilesTCB[nTamArq], (Alltrim(SA6->A6_NUMCON) + Alltrim(SA6->A6_DVCTA)))
+				EndIf
+				
+				(TmpSEA)->(DbSkip())
+				nSeqArqTcb++
+				IncProc(STR0031)
+			EndDo
+			
+			//Envio dos dados para o TCB
+			If (nTamArq := Len(aFilesTCB)) > 0
+				For nI := 1 To nTamArq
+					oTCB:UploadPag(aFilesTCB[nI,1], aFilesTCB[nI,2], aFilesTCB[nI,3], aFilesTCB[nI,4], aFilesTCB[nI,5])
+					IncProc(STR0032)
+				Next
+			EndIf
+			
+			MV_PAR01 := cBordIni
+			MV_PAR02 := cBordFim
+			FwFreeArray(aFilesTCB)
+		EndIf
+		
+		FwFreeObj(oTCB)
+	EndIf
+Return

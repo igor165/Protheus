@@ -1,0 +1,621 @@
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "PCPA750.CH"
+#INCLUDE "FIVEWIN.CH"
+#INCLUDE "FWMVCDEF.CH"
+
+/*/{Protheus.doc} PCPA750
+Programa de Manutenção do Plano Mestre de Produção (SHC)
+@author Carlos Alexandre da Silveira
+@since 20/07/2018
+@return Nil
+/*/
+Function PCPA750()
+
+	Local aArea := GetArea()
+	Local oBrowse
+
+	// Tratamento da pergunte e Ativa tecla F12
+	PERGUNTE("MTA750",.F.)
+	Set Key VK_F12 TO MT750Perg()
+
+	// Deixa o SHC em ordem de OP para mBrowse
+	dbSelectArea("SHC")
+	dbSetOrder(1)
+
+	oBrowse := BrowseDef()
+	oBrowse:Activate()
+
+	RestArea(aArea)
+
+	Set Key VK_F12 To
+
+Return Nil
+
+/*/{Protheus.doc} BrowseDef
+Definição do BROWSE do programa.
+@author Carlos Alexandre da Silveira
+@since 20/07/2018
+@version 1.0
+@return oBrowse	- Objeto FWMBrowse.
+/*/
+Static Function BrowseDef()
+
+	Local oBrowse := FWMBrowse():New()
+
+	oBrowse:SetAlias("SHC")
+	oBrowse:SetDescription(STR0006) //STR0006 - Manutenção do Plano Mestre de Produção
+
+	oBrowse:AddLegend("EMPTY(SHC->HC_STATUS)","GREEN",STR0008)	//STR0008 - Aguardando Execução
+	oBrowse:AddLegend("!EMPTY(SHC->HC_STATUS)","RED",STR0009)	//STR0009 - Executado
+
+Return oBrowse
+
+/*/{Protheus.doc} ModelDef
+Definição do modelo de dados para o programa
+@author Carlos Alexandre da Silveira
+@since 20/07/2018
+@version 1.0
+@return oModel	- Modelo de dados do programa.
+/*/
+Static Function ModelDef()
+
+	Local oStruSHC := FWFormStruct(1, "SHC")
+	Local oEvent   := PCPA750EVDEF():New()
+	Local oModel
+
+	oStruSHC:SetProperty("HC_PRODUTO",MODEL_FIELD_NOUPD,.T.)
+	oStruSHC:SetProperty("HC_DOC",MODEL_FIELD_NOUPD,.T.)
+
+	oStruSHC:SetProperty("HC_PRODUTO",MODEL_FIELD_VALID,FWBuildFeature(STRUCT_FEATURE_VALID,"A093Prod().And.(aProdGrade(M->HC_PRODUTO).OR.Existcpo('SB1')).And.P750VldMax()"))
+	oStruSHC:SetProperty("HC_QUANT",MODEL_FIELD_VALID,FWBuildFeature(STRUCT_FEATURE_VALID,"Positivo().And.P750QtdGra().And.P750VldMax()"))
+
+	oModel := MPFormModel():New("PCPA750")
+	oModel:AddFields("SHCMASTER", /*cOwner*/, oStruSHC)
+
+
+	oModel:SetPrimaryKey({})
+
+	oModel:SetDescription(STR0006) //STR0006 - Manutenção do Plano Mestre de Produção
+
+	//Instala o evento padrão do programa.
+	oModel:InstallEvent("PCPA750EVDEF",/*cOwner*/,oEvent)
+
+Return oModel
+
+/*/{Protheus.doc} ViewDef
+Definição da tela para o programa
+@author Carlos Alexandre da Silveira
+@since 20/07/2018
+@version 1.0
+@return oView	- Objeto View para a tela
+/*/
+Static Function ViewDef()
+	Local oModel   := FWLoadModel("PCPA750")
+	Local oStruSHC := FWFormStruct(2, "SHC", {|cCampo| A750FormVa(cCampo) $ AStruSHC()})
+	Local oView
+
+	oView := FWFormView():New()
+
+	oView:SetModel(oModel)
+	oView:AddField("VIEW_SHC", oStruSHC, "SHCMASTER")
+	oView:CreateHorizontalBox("TELA",100)
+	oView:SetOwnerView("VIEW_SHC","TELA")
+
+	If SuperGetMv("MV_SELEOPC",.F.,"S") == "S"
+		oView:AddUserButton(STR0020, "", {|oModel| PCPA750Opc(oModel) }, , , {MODEL_OPERATION_VIEW,MODEL_OPERATION_DELETE,MODEL_OPERATION_UPDATE}) // STR0020 - Botão Opcionais
+	EndIf
+
+Return oView
+
+/*/{Protheus.doc} MenuDef
+Função para definir as opções de MENU do programa
+@author Carlos Alexandre da Silveira
+@since 20/07/2018
+@version 1.0
+@return aRotina
+/*/
+Static Function MenuDef()
+	Local aRotina := {}
+	Local aExclui := {}
+	// Array contendo os campos aceitos no MATXATU
+
+	ADD OPTION aRotina TITLE STR0002 ACTION 'ViewDef.PCPA750' OPERATION OP_VISUALIZAR ACCESS 0 	//STR0002 - Visualizar
+	ADD OPTION aRotina TITLE STR0001 ACTION 'ViewDef.PCPA750' OPERATION OP_PESQUISAR  ACCESS 0  //STR0001 - Pesquisar
+	ADD OPTION aRotina TITLE STR0003 ACTION 'ViewDef.PCPA750' OPERATION OP_INCLUIR 	  ACCESS 0 	//STR0003 - Incluir
+	ADD OPTION aRotina TITLE STR0004 ACTION 'ViewDef.PCPA750' OPERATION OP_ALTERAR 	  ACCESS 0 	//STR0004 - Alterar
+    ADD OPTION aExclui Title STR0010 ACTION 'VIEWDEF.PCPA750' OPERATION OP_EXCLUIR 	  ACCESS 0 	//STR0010 - Registro
+    ADD OPTION aExclui Title STR0011 ACTION 'P750ExcMul()' 	  OPERATION OP_EXCLUIR 	  ACCESS 0	//STR0011 - Documentos
+    AAdd(aRotina, {STR0005, aExclui, 0 , OP_EXCLUIR})											//STR0005 - Excluir
+	ADD OPTION aRotina TITLE STR0007 ACTION 'PCPA750Leg()' 	  OPERATION OP_VISUALIZAR ACCESS 0 	//STR0007 - Legenda
+	ADD OPTION aRotina TITLE STR0012 ACTION 'P750Import()'    OPERATION OP_INCLUIR 	  ACCESS 0	//STR0012 - Importar
+
+	If SuperGetMv("MV_SELEOPC",.F.,"S") == "S"
+	   aAdd(aRotina,{STR0020,"PCPA750Opc",  0 , 6, 0, nil}) //STR0020 -Botão Opcionais
+	EndIf
+
+	// Ponto de entrada utilizado para inserir novas opcoes no array aRotina
+	If ExistBlock("MTA750MNU")
+		ExecBlock("MTA750MNU",.F.,.F.)
+	EndIf
+
+	// Ponto de entrada utilizado para adicionar items no Menu da mBrowse
+
+	If ExistBlock("MT750BRW")
+		aRotAdic := ExecBlock("MT750BRW",.f.,.f.)
+		If ValType(aRotAdic) == "A"
+			AEval(aRotAdic,{|x| AAdd(aRotina,x)})
+		EndIf
+	EndIf
+
+Return(aRotina)
+
+/*/{Protheus.doc} PCPA750Opc()
+Função para visualização dos opcionais do PM.
+@author Carlos Alexandre da Silveira
+@since 23/07/2018
+@version 1.0
+@return .T.
+/*/
+Function PCPA750Opc()
+   VisualOpc(SHC->HC_PRODUTO,SHC->HC_MOPC,SHC->HC_OPC,MV_PAR04)
+
+Return .T.
+
+/*/{Protheus.doc} MT750Perg()
+Função para emitir a pergunta MTA750
+@author Carlos Alexandre da Silveira
+@since 23/07/2018
+@version 1.0
+@return .T.
+/*/
+Static Function MT750Perg()
+	Pergunte("MTA750",.T.)
+
+Return
+
+/*/{Protheus.doc} PCPA750Leg()
+Esta função monta uma dialog com a descricao das cores da Mbrowse.
+@author Carlos Alexandre da Silveira
+@since 23/07/2018
+@version 1.0
+@return .T.
+/*/
+Function PCPA750Leg()
+	Local aLeg  := {{ "ENABLE" ,STR0008},; 	//STR0008 - Aguardando Execução
+					{ "DISABLE",STR0009 }}	//STR0009 - Executado
+
+	// Define o cabecalho da tela de atualizacoes
+	Local cCadastro := OemToAnsi(STR0006)	//STR0006 - Manutenção do Plano Mestre de Produção
+
+	BrwLegenda(cCadastro,STR0007,aLeg) //STR0007 - Legenda
+
+Return(.T.)
+
+/*/{Protheus.doc} P750QtdGra()
+Efetua a entrada de dados da quantidade quando a grade está ativa.
+@author Carlos Alexandre da Silveira
+@since 23/07/2018
+@version 1.0
+@return .T.
+/*/
+Function P750QtdGra()
+	Local cProdRef
+	Local lContinua := .T.
+	Local cCpoName	:= StrTran(ReadVar(),"M->","")
+
+	/*cProdRef	:= M->HC_PRODUTO
+	lContinua	:= MatGrdPrRf(@cProdRef)
+
+	// Verifica se a grade está ativa
+	If ( MaGrade()) .And. !Empty(M->HC_PRODUTO) .And. lContinua
+		// Arrays auxiliares para armazenar a getdados principal
+		oGrade:cProdRef	:= M->HC_PRODUTO
+		oGrade:nPosLinO	:= 1
+		If oGrade:Show(cCpoName)
+			// Atualiza a quantidade do Get original
+			// Atenção: a variável nQtdInformada foi alimentada dentro do objeto com
+			//          ReadVar(), mas o programador pode alimentá-la quando desejar.
+
+			M->HC_QUANT		:= oGrade:nQtdInformada
+
+		EndIf
+	EndIf*/
+
+Return(.T.)
+
+/*/{Protheus.doc} P750VldMax()
+Validação de quantidade no Plano Mestre de Producao
+@author Carlos Alexandre da Silveira
+@since 23/07/2018
+@version 1.0
+@return lRet
+/*/
+Function P750VldMax()
+	Local lRet        	:= .T.
+	Local nEstMax     	:= Nil
+	Local oModel		:= FwModelActive()
+	Local cProdRef 	 	:= oModel:GetModel("SHCMASTER"):GetValue("HC_PRODUTO")
+	Local nQuant     	:= oModel:GetModel("SHCMASTER"):GetValue("HC_QUANT")
+	Local lReferencia 	:= .F.
+
+	lReferencia := MatGrdPrRf(@cProdRef)
+
+	If ! Empty(cProdRef) .And. nQuant # 0 .And. (nEstMax := A711Sb1EstMax(cProdRef)) # 0 .And. !lReferencia
+		If nQuant > nEstMax
+			Help(" ",1,"A750SLDMAX",,RetTitle("B1_EMAX") + ": " + AllTrim(Str(nEstMax)),02,27)
+			lRet := .F.
+		Endif
+	Endif
+
+Return (lRet)
+
+/*/{Protheus.doc} P750ExcMul()
+Função para excluir vários PMP's.
+@author Carlos Alexandre da Silveira
+@since 24/07/2018
+@version 1.0
+@return aRotina
+/*/
+Function P750ExcMul()
+	Local cDocIni 	:= Space(TamSX3("HC_DOC")[1])
+	Local cDocFim 	:= Space(TamSX3("HC_DOC")[1])
+	Local dDatIni 	:= dDataBase
+	Local dDatFim 	:= dDataBase
+	Local nOpc 		:= 0
+	Local cFiltro 	:= ""
+	Local oModel	:= FwLoadModel("PCPA750")
+
+	DEFINE MSDIALOG oDlg TITLE STR0013 From 0,0 To 12,30 //STR0013 - Exclusão de PMP's
+
+	oSayDocIni := tSay():New(07,15,{|| STR0014},oDlg,,,,,,.T.,,,40,10) //STR0014 - Documento de
+	oSayDocFim := tSay():New(22,15,{|| STR0015},oDlg,,,,,,.T.,,,40,10) //STR0015 - Documento até
+	oSayDatIni := tSay():New(37,15,{|| STR0016},oDlg,,,,,,.T.,,,40,10) //STR0016 - Dt. Previsão de
+	oSayDatFim := tSay():New(52,15,{|| STR0017},oDlg,,,,,,.T.,,,40,10) //STR0017 - Dt. Previsão até
+
+	oGetDocIni := TGet():New(05,65,{|u| If(PCount()>0,cDocIni:=u,cDocIni)},oDlg,40,10,PesqPict("SHC","HC_DOC"),,,,,,,.T.,,,,,,,,,,"cDocIni")
+	oGetDocFim := TGet():New(20,65,{|u| If(PCount()>0,cDocFim:=u,cDocFim)},oDlg,40,10,PesqPict("SHC","HC_DOC"),,,,,,,.T.,,,,,,,,,,"cDocFim")
+	oGetDatIni := TGet():New(35,65,{|u| If(PCount()>0,dDatIni:=u,dDatIni)},oDlg,40,10,PesqPict("SHC","HC_DATA"),,,,,,,.T.,,,,,,,,,,"dDatIni")
+	oGetDatFim := TGet():New(50,65,{|u| If(PCount()>0,dDatFim:=u,dDatFim)},oDlg,40,10,PesqPict("SHC","HC_DATA"),,,,,,,.T.,,,,,,,,,,"dDatFim")
+
+	oBtnImp := tButton():New(70,15,STR0018,oDlg,{|| nOpc:=1,oDlg:End()},40,12,,,,.T.) //STR0018 - Confirma
+	oBtnCan := tButton():New(70,65,STR0019,oDlg,{|| nOpc:=0,oDlg:End()},40,12,,,,.T.) //STR0019 - Cancela
+
+	ACTIVATE MSDIALOG oDlg CENTERED
+
+	If nOpc == 1
+		cFiltro := "HC_FILIAL == '" +xFilial("SHC") +"' .And. Empty(HC_OP) .And. HC_DOC >= '" +cDocIni +"' .And. "
+		cFiltro += "HC_DOC <= '" +cDocFim +"' .And. DToS(HC_DATA) >= '" +DToS(dDatIni) +"' .And. "
+		cFiltro += "DToS(HC_DATA) <= '" +DToS(dDatFim) +"'"
+		dbSelectArea("SHC")
+		SHC->(dbSetOrder(1))
+		SHC->(dbSetFilter({|| &cFiltro}, cFiltro))
+		SHC->(dbGoTop())
+		Begin Transaction
+			While SHC->(!EOF())
+				oModel:SetOperation(MODEL_OPERATION_DELETE)
+				oModel:Activate()
+ 				if oModel:VldData()
+ 					oModel:CommitData()
+ 				else
+ 					oModel:GetErrorMessage( .T. )
+ 				EndIf
+ 				oModel:DeActivate()
+				SHC->(dbSkip())
+			End
+		End Transaction
+		SHC->(dbClearFilter())
+		SHC->(dbGoTop())
+	EndIf
+
+Return
+
+/*/{Protheus.doc} A750FormVa
+Função para formatar a variável para utilização do operador $
+@author Carlos Alexandre da Silveira
+@since 24/07/2018
+@version 1.0
+@param  cVar, caractere, variável a ser formatada
+@return cVar, caractere, variável formatada
+/*/
+Static Function A750FormVa(cVar)
+
+	cVar := "|" + AlLTrim(cVar) + "|"
+
+Return cVar
+
+/*/{Protheus.doc} AStruSHC
+Função para selecionar os campos que aparecerão em tela
+@author Carlos Alexandre da Silveira
+@since 24/07/2018
+@version 1.0
+@return cCampos, caractere, campos que aparecerão na tela
+/*/
+Static Function AStruSHC()
+
+	Local aAcho[8]
+	Local nX := 0
+	Local cCampos := ""
+
+	aAcho[01] := "HC_PRODUTO"
+	aAcho[02] := "HC_DATA"
+	aAcho[03] := "HC_QUANT"
+	aAcho[04] := "HC_OPC"
+	aAcho[05] := "HC_DOC"
+	aAcho[06] := "HC_LOCAL"
+	aAcho[07] := "HC_LOCDES"
+	aAcho[08] := "NOUSER" // Não mostrar os campos de usuário. Para mostrar os campos de usuário, deve-se utilizar o ponto de entrada abaixo.
+
+	If ExistBlock("MT750CMP")
+		aAchoRet := ExecBlock("MT750CMP",.f.,.f., {aAcho})
+		If ValType(aAchoRet) == "A"
+			aAcho := aAchoRet
+		EndIf
+	EndIf
+
+	For nX := 1 To Len(aAcho)
+		cCampos += "|" + aAcho[nX]
+	Next
+	cCampos := cCampos + "|"
+
+Return cCampos
+
+/*/{Protheus.doc} P750Import
+Importação de arquivo CSV para SHC
+@author Carlos Alexandre da Silveira
+@since 27/03/2019
+@version 1.0
+@return lRet
+/*/
+Function P750Import()
+	Local cCaminho	:= Space(100)
+	Local nRadio	:= 1
+	Local nPosPrd	:= 0, nPosDoc := 0, nPosQtd := 0, nPosDat := 0
+	Local lRet		:= .F.
+	Local aImport	:= {}
+	Local nOpc 		:= 0
+	Local dDatPrev	:= CriaVar("HC_DATA")
+	Local cDocPMP	:= CriaVar("HC_DOC",.T.)
+
+	Private nTotReg := 0 //Total de registros lidos
+
+	While !lRet
+		nOpc := 0
+		lRet := .F.
+		DEFINE MSDIALOG oDlg TITLE STR0022 From 0,0 To 25,50 //STR0022 - Importação de PMP's
+		//--Arquivo
+		oSayArq := tSay():New(05,07,{|| STR0023},oDlg,,,,,,.T.,,,200,80) //STR0023 - Informe o local onde se encontra o arquivo para importação:
+		oGetArq := TGet():New(15,05,{|u| If(PCount()>0,cCaminho:=u,cCaminho)},oDlg,150,10,'@!',,,,,,,.T.,,,,,,,,,,'cCaminho')
+		oBtnArq := tButton():New(15,160,STR0024,oDlg,{|| cCaminho := P750DlgArq(cCaminho)},30,12,,,,.T.) //STR0024 - &Abrir...
+
+		//--Layout
+		oSayLay := tSay():New(37,07,{|| STR0025},oDlg,,,,,,.T.,,,150,80) //STR0025 - Informe a posição das colunas no arquivo que será importado que correspondem aos campos abaixo:
+		oSayPrd := tSay():New(62,07,{|| RetTitle("HC_PRODUTO")},oDlg,,,,,,.T.,CLR_BLUE,,200,80)
+		oGetPrd := TGet():New(60,45,{|u| If(PCount()>0,nPosPrd:=u,nPosPrd)},oDlg,10,10,'99',,,,,,,.T.,,,,,,,,,,"nPosPrd")
+		oSayQtd := tSay():New(77,07,{|| RetTitle("HC_QUANT")},oDlg,,,,,,.T.,CLR_BLUE,,200,80)
+		oGetQtd := TGet():New(75,45,{|u| If(PCount()>0,nPosQtd:=u,nPosQtd)},oDlg,10,10,'99',,,,,,,.T.,,,,,,,,,,"nPosQtd")
+
+		//Data e Doc.
+		oSayLay := tSay():New(92,07,{|| STR0026},oDlg,,,,,,.T.,,,150,80) //STR0026 - Dados que irão compor o PMP:
+		oSayImp := tSay():New(140,100,{|| STR0027},oDlg,,,,,,.T.,,,150,80) //STR0027 - Coluna:
+
+		oRadio  := tRadMenu():New(105,07,{STR0028,STR0029},,oDlg,,,,,,,,60,20,,,,.T.) //STR0028 - Por digitação //STR0029 - Por importação
+		oRadio:bSetGet := {|u|Iif(PCount()==0,nRadio,nRadio:=u)}
+		oRadio:bChange := {|| PCntrGets(nRadio)}
+
+		oSayDat := tSay():New(132,07,{|| RetTitle("HC_DATA")},oDlg,,,,,,.T.,CLR_BLUE,,200,80)
+		oGetDat1 := TGet():New(130,45,{|u| If(PCount()>0,dDatPrev:=u,dDatPrev)},oDlg,40,10,PesqPict("SHC","HC_DATA"),,,,,,,.T.,,,,,,,,,,"dDatPrev")
+		oGetDat2 := TGet():New(130,140,{|u| If(PCount()>0,nPosDat:=u,nPosDat)},oDlg,10,10,"99",,,,,,,.T.,,,,,,,,,,"nPosDat")
+		oSayDoc := tSay():New(147,07,{|| RetTitle("HC_DOC")},oDlg,,,,,,.T.,,,200,80)
+		oGetDoc1 := TGet():New(145,45,{|u| If(PCount()>0,cDocPMP:=u,cDocPMP)},oDlg,40,10,PesqPict("SHC","HC_DOC"),,,,,,,.T.,,,,,,,,,,"cDocPMP")
+		oGetDoc2 := TGet():New(145,140,{|u| If(PCount()>0,nPosDoc:=u,nPosDoc)},oDlg,10,10,"99",,,,,,,.T.,,,,,,,,,,"nPosDoc")
+
+		If nRadio == 1
+			oGetDat2:Disable()
+			oGetDoc2:Disable()
+		Else
+			oGetDat1:Disable()
+			oGetDoc1:Disable()
+		EndIf
+
+		//--Botoes
+		oBtnImp := tButton():New(170,050,STR0030,oDlg,{|| nOpc:=1,oDlg:End()},40,12,,,,.T.) //STR0030 - &Importar
+		oBtnCan := tButton():New(170,110,STR0031,oDlg,{|| nOpc:=0,oDlg:End()},40,12,,,,.T.) //STR0031 - &Cancelar
+
+		ACTIVATE MSDIALOG oDlg CENTERED
+
+		//-- Validacoes
+		If nOpc == 1
+			If Empty(cCaminho)
+				MsgInfo(STR0032,STR0033) //STR0032 - Informe o arquivo a ser importado. //STR0033 - Atenção
+				lRet := .F.
+			ElseIf !File(cCaminho)
+				MsgInfo(STR0034,STR0033) //STR0031 - O arquivo selecionado para importação não foi encontrado. //STR0033 - Atenção
+				lRet := .F.
+			Else
+				lRet := .T.
+			EndIf
+
+			If lRet .And. (Empty(nPosPrd) .Or. Empty(nPosQtd) .Or. If(nRadio==1,Empty(dDatPrev),Empty(nPosDat)))
+				MsgInfo(STR0035,STR0033) //STR0035 - Os campos destacados em azul são de preenchimento obrigatório. //STR0033 - Atenção
+				lRet := .F.
+			EndIf
+		Else
+			lRet := .T.
+		EndIf
+
+		If lRet .And. nOpc == 1
+			Processa({|| aImport := P750LerArq(cCaminho,nPosPrd,nPosQtd,nPosDat,nPosDoc,nRadio)},STR0036,STR0037) //STR0036 - Aguarde //STR0037 - Processando a leitura do arquivo...
+			If Len(aImport) == 0 .Or. Empty(dDatPrev)
+				MsgInfo(STR0038,STR0039) //STR0038 - Não há registros para importação! //STR0039 - Finalizado
+			ElseIf MsgYesNo(STR0040 +AllTrim(Str(Len(aImport))) +STR0041 +AllTrim(Str(nTotReg)) +STR0042) //STR0040 - Serão importados //STR0041 - registro(s) de //STR0042 - registro(s) lido(s). Confirma?
+				Processa({|| aImport := P750GrvSHC(aImport,dDatPrev,cDocPMP,nRadio)},STR0036,STR0043) //STR0036 - Aguarde //STR0043 - Processando a gravação do(s) registro(s) lido(s)...
+			EndIf
+		EndIf
+	End
+
+Return lRet
+
+/*/{Protheus.doc} P750DlgArq
+Abre dialog para seleção de arquivo CSV
+@author Carlos Alexandre da Silveira
+@since 27/03/2019
+@version 1.0
+@param  cArquivo, caractere, arquivo a ser selecionado
+@return cArquivo, caractere, arquivo CSV selecionado
+/*/
+Static Function P750DlgArq(cArquivo)
+	cType 	 := STR0044 +" (*.csv) |*.csv|" //STR0044 - Arquivo CSV
+	cArquivo := cGetFile(cType, STR0027)
+
+	If !Empty(cArquivo)
+		cArquivo += Space(100-Len(cArquivo))
+	Else
+		cArquivo := Space(100)
+	EndIf
+
+Return cArquivo
+
+/*/{Protheus.doc} P750LerArq
+Processa a leitura do arquivo CSV
+@author Carlos Alexandre da Silveira
+@since 27/03/2019
+@version 1.0
+@param 	01 cArquivo, caractere, caminho do arquivo a ser lido
+		02 nPosPrd,  numeric,   coluna que contém o produto
+		03 nPosQtd,	 numeric, 	coluna que contém a quantidade
+		04 nPosDat,  numeric, 	coluna que contém a data
+		05 nPosDoc,  numeric, 	coluna que contém o documento
+		06 nDigImp,  numeric, 	caso 1, por digitação, caso 2, por importação
+@return aImport,     array, 	array com os registros a serem gravados
+/*/
+Static Function P750LerArq(cArquivo,nPosPrd,nPosQtd,nPosDat,nPosDoc,nDigImp)
+	Local cLinha 	:= ""
+	Local cTrecho 	:= ""
+	Local nHdl 		:= 0
+	Local cProd 	:= ""
+	Local nQtde 	:= 0
+	Local aImport 	:= {}
+	Local nX 		:= 0
+	Local cDoc 		:= ""
+	Local uRetPe 	:= Nil
+	Local lM750LCSV := ExistBlock("M750LCSV")
+
+	nHdl := FT_FUSE(cArquivo)
+	nTotReg := FT_FLASTREC()
+	FT_FGOTOP()
+	ProcRegua(nTotReg)
+	While !FT_FEOF()
+		//Reinicia variáveis
+		cProd := CriaVar("HC_PRODUTO",.F.)
+		nQtde := CriaVar("HC_QUANT",.F.)
+		dData := dDataBase
+		cDoc  := CriaVar("HC_DOC",.T.)
+		nX := 0
+		cLinha := FT_FREADLN()
+		While !Empty(cLinha)
+			nX++
+			cTrecho := If(At(";",cLinha)>0,Substr(cLinha,1,At(";",cLinha)-1),cLinha)
+			cLinha := If(At(";",cLinha)>0,Substr(cLinha,At(";",cLinha)+1),"")
+			Do Case
+				Case nDigImp == 2 .And. nPosDoc == nX
+					cDoc := Padr(cTrecho,TamSX3("HC_DOC")[1])
+				Case nDigImp == 2 .And. nPosDat == nX
+					dData := CToD(cTrecho)
+				Case nPosPrd == nX
+					cProd := Padr(cTrecho,TamSX3("HC_PRODUTO")[1])
+				Case nPosQtd == nX
+					If cPaisLoc # "EUA"
+						cTrecho := StrTran(cTrecho,".","")
+						cTrecho := StrTran(cTrecho,",",".")
+					EndIf
+					nQtde := Val(cTrecho)
+			EndCase
+		End
+		dbSelectArea("SB1")
+		dbSetOrder(1)
+		If dbSeek(xFilial("SB1")+cProd) .And. !Empty(nQtde)
+			If lM750LCSV
+				uRetPe := ExecBlock("M750LCSV",.F.,.F.,{FT_FREADLN()})
+			EndIf
+			If SB1->B1_MSBLQL == '2'
+				aAdd(aImport, {cProd,nQtde,dData,cDoc,SB1->B1_OPC,SB1->B1_MOPC,uRetPe})
+			EndIf
+		EndIf
+		IncProc()
+		FT_FSKIP()
+	End
+	FT_FUSE()
+
+Return aImport
+
+/*/{Protheus.doc} P750GrvSHC
+Processa a gravação do SHC a partir do arquivo CSV
+@author Carlos Alexandre da Silveira
+@since 27/03/2019
+@version 1.0
+@param 	01 aImport,  array, 	array com os registros lidos
+		02 dDatPrev, date, 		data da previsão
+		03 cDocPMP,	 caractere, documento do PMP
+		04 nDigImp,  numeric, 	caso 1, por digitação, caso 2, por importação
+@return Nil
+/*/
+Static Function P750GrvSHC(aImport,dDatPrev,cDocPMP,nDigImp)
+	Local nX 		:= 0
+	Local lRetPe 	:= .T.
+	Local lM750VIMP := ExistBlock("M750VIMP")
+	Local lM750GRIM := ExistBlock("M750GRIM")
+
+	dbSelectArea("SHC")
+	ProcRegua(Len(aImport))
+	Begin Transaction
+		For nX := 1 To Len(aImport)
+			If lM750VIMP
+				lRetPe := ExecBlock("M750VIMP",.F.,.F.,{aImport,nX})
+				If ValType(lRetPe) # "L"
+					lRetPe := .T.
+				EndIF
+			EndIf
+			If lRetPe
+				RecLock("SHC",.T.)
+				Replace HC_FILIAL With xFilial("SHC")
+				Replace HC_PRODUTO With aImport[nX,1]
+				Replace HC_QUANT With aImport[nX,2]
+				Replace HC_DATA With If(nDigImp==1,dDatPrev,aImport[nX,3])
+				Replace HC_DOC With If(nDigImp==1,cDocPMP,aImport[nX,4])
+				Replace HC_OPC With aImport[nX,5]
+				Replace HC_MOPC With aImport[nX,6]
+				MsUnLock()
+				If lM750GRIM
+					ExecBlock("M750GRIM",.F.,.F.,{aImport[nX]})
+				EndIf
+			EndIf
+			IncProc()
+		Next nX
+	End Transaction
+
+	MsgInfo(STR0045,STR0039) //STR0045 - Registros importados com sucesso! //STR0039 - Finalizado
+
+Return
+
+/*/{Protheus.doc} PCntrGets
+Função para controlar exibição de painéis.
+@author Carlos Alexandre da Silveira
+@since 01/04/2019
+@version 1.0
+@param  nOpcao, numeric, caso 1, por digitação, caso 2, por importação
+@return Nil
+/*/
+Static Function PCntrGets(nOpcao)
+	If nOpcao == 1
+		oGetDat1:Enable()
+		oGetDoc1:Enable()
+		oGetDat2:Disable()
+		oGetDoc2:Disable()
+	Else
+		oGetDat1:Disable()
+		oGetDoc1:Disable()
+		oGetDat2:Enable()
+		oGetDoc2:Enable()
+	EndIf
+
+Return

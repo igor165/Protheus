@@ -1,0 +1,36 @@
+#ifdef SPANISH
+	#define STR0001 'Inf. Cuadro de movimiento de pasajeros'
+	#define STR0002 'Genera el informe demostrativo de movimiento de pasajeros'
+	#define STR0003 'Subtotal'
+	#define STR0004 '- TP. de Línea:'
+	#define STR0005 'LÍNEA'
+	#define STR0006 'PREFIJO'
+	#define STR0007 'DESCRIPCION'
+	#define STR0008 'PASAJ'
+	#define STR0009 'VL. INGRESO'
+	#define STR0010 'VL. ICMS'
+#else
+	#ifdef ENGLISH
+		#define STR0001 'Report of Passengers Movement Chart.'
+		#define STR0002 'Generates report of passengers movement'
+		#define STR0003 'Subtotal'
+		#define STR0004 '- TP. of Line: '
+		#define STR0005 'LINE'
+		#define STR0006 'PREFIX'
+		#define STR0007 'DESCRIPTION'
+		#define STR0008 'PASSENG'
+		#define STR0009 'REVENUE VL'
+		#define STR0010 'ICMS VL'
+	#else
+		#define STR0001 'Rel. Quadro de Movimento de Passageiros'
+		#define STR0002 'Gera o relatório demonstrativo de movimento de passageiros'
+		#define STR0003 'Subtotal'
+		#define STR0004 '- TP. de Linha: '
+		#define STR0005 'LINHA'
+		#define STR0006 'PREFIXO'
+		#define STR0007 'DESCRIÇÃO'
+		#define STR0008 'PASSAG'
+		#define STR0009 'VL. RECEITA'
+		#define STR0010 'VL. ICMS'
+	#endif
+#endif

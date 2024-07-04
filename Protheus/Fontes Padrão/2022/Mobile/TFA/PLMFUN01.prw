@@ -1,0 +1,11 @@
+User Function PLMFUN01()
+//aadd( aIndFk, { 218,"HF1" + cEmpAnt + "0", "HF1" + cEmpAnt + "02", "F1_FORNECE+F1_LOJA+F1_DOC+F1_SERIE", "F"  } )
+	aadd( aIndFk, { 305,"AB9"  + cEmpAnt + "0", "AB9" + cEmpAnt + "02", "AB9_NUMOS+AB9_SEQ", "F"  } )  
+	aadd( aIndFk, { 306,"ABB"  + cEmpAnt + "0", "ABB" + cEmpAnt + "02", "ABB_DTINI", "F"  } )  
+	aadd( aIndFk, { 307,"ABB"  + cEmpAnt + "0", "ABB" + cEmpAnt + "03", "ABB_NUMOS+ABB_DTINI", "F"  } )  
+	aadd( aIndFk, { 308,"SA1"  + cEmpAnt + "0", "SA1" + cEmpAnt + "02", "A1_NOME", "F"  } )  
+	aadd( aIndFk, { 309,"SA2"  + cEmpAnt + "0", "SA2" + cEmpAnt + "02", "A2_NREDUZ", "F"  } )  
+	aadd( aIndFk, { 310,"AAG"  + cEmpAnt + "0", "AAG" + cEmpAnt + "02", "AAG_DESCRI", "F"  } )  
+	aadd( aIndFk, { 311,"AA5"  + cEmpAnt + "0", "AA5" + cEmpAnt + "02", "AA5_DESCRI", "F"  } )
+	aadd( aIndFk, { 312,"SB1"  + cEmpAnt + "0", "SB1" + cEmpAnt + "02", "B1_DESC", "F"  } )
+Return Nil

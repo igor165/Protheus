@@ -1,0 +1,1307 @@
+#INCLUDE "PONM080.CH"
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "PONCALEN.CH"
+
+Static lPnm080CposBlock
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONM080  ³ Autor ³ Aldo Marini Junior    ³ Data ³ 03/12/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Fechamento Banco de Horas                                  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ SIGAPON                                                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³         ATUALIZACOES SOFRIDAS DESDE A CONSTRU€AO INICIAL.             ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Programador ³ Data   ³ BOPS ³  Motivo da Alteracao                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Cecilia C.  ³21/05/14³TPQAN3³Incluido o fonte da 11 para a 12 e efetua-³±± 
+±±³            ³        ³      ³da a limpeza.                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/   
+//================================== D O C U M E N T A C A O =======================================
+                                                                                         
+//*** Fechamento por horas ***
+//Objetivo: Permitir baixar BH/enviar p/Resultados todos os lancamentos que compoem o saldo de horas conforme 
+//          limite de horas e de acordo com os tipos de saldos especificados independente do periodo.
+//          Sendo que "Ate o Limite" exige que os primeiros lancamentos sejam considerados para baixa.
+//                    "Acima do Limite" exige que os ultimos lancamentos sejam considerados para baixa.
+//          
+//-- Limite de Horas --> Qtde de horas a serem baixadas/enviadas ou mantidas no BH conforme o tipo de 
+//                       fechamento por horas.
+//--Fechamento por horas-> "Ate o Limite" :Enviar todos os lancamentos para resultados cujo saldo de horas seja ate o limite.
+//                         "Acima do Limite" :Manter no BH todos os lancamentos cujo saldo de horas seja igual ou inferior ao limite.      
+//--Fecha Banco p/Rescisao?-> "Sim" : Sera gerado verba de base (ID ponto 042A) com a quantidade de meses de banco de horas que sera pago na rescisao.
+//Algoritmo:  
+//--  a) Inverter a sequencia de calculo do saldo do BH conforme os itens abaixo:
+//--  a.1)Se o lancamento contribui para o saldo original (positivo ou negativo) deve-se subtrair do
+//--  saldo absoluto (sempre positivo).
+//--  Ex. Saldo (+). Se o lancamento for Provento subtrai (-) do saldo absoluto
+//                   Se o lancamento for Desconto soma    (+) ao saldo absoluto
+//--      Saldo (-). Se o lancamento for Provento soma    (+) ao saldo absoluto
+//                   Se o lancamento for Desconto subtrai (-) do saldo absoluto  
+//   1)Acima do Limite / Ate o limite
+//      Ao atingir o limite (saldo calculado = ao limite) ou ao se ultrapassar o limite
+//      (saldo calculado < ao limite), deve-se suspender o calculo do saldo.
+//       1.1) Ao atingir o limite (saldo calculado absoluto = ao limite)
+//          - Nao realizar nada   
+//          
+//       1.2) Ultrapassar o limite (saldo calculado absoluto < ao limite)       
+//			- Deve-se desmembrar o ultimo lancamento lido ate a suspensao do calculo onde: 
+//            Limite + (saldo calculado absoluto * (sinal)). Onde sinal respeita o item a.1.
+//   2) Baixa efetiva
+//      a)  Ate o limite:  Manter para baixa os Primeiros Lancamentos ate o ultimo lancamento lido
+//      b)  Acima Limite:  Manter para baixa os Ultimos Lancamentos ate o ultimo lancamento lido
+//================================================================================================================================================
+
+Function PONM080()
+
+Local aArea			:= GetArea()
+Local aAreaSPI		:= SPI->( GetArea() )
+Local aSays 		   := {}
+Local aButtons		:= {}
+Local cPerg			:= "PNM080"
+Local cSvFilAnt		:= cFilAnt
+Local lBarG1ShowTm 	:= .F.
+Local lBarG2ShowTm 	:= .F.
+Local nOpcA			:= 0.00
+
+Private lAbortPrint := .F.
+Private cCadastro   := OemToAnsi( STR0001 ) // 'Fechamento Banco de Horas'
+Private lSchedule   := IsBlind()
+
+DEFAULT lPnm080CposBlock	:= ExistBlock( "PNM080CPOS" )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ So Executa se os Modos de Acesso dos Arquivos Relacionados es³
+³ tiverm OK													   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ValidArqPon()
+	If lSchedule
+		nOpcA := 1
+	Else
+		aAdd(aSays,OemToAnsi( STR0003 ) )// 'Este programa tem como objetivo apurar o resultado ou Eventos'
+		aAdd(aSays,OemToAnsi( STR0004 ) )// 'finais do periodo para a Compensa‡„o ou Pagamento de Horas.'
+		
+		aAdd(aButtons, { 5,.T.,{|| Pergunte(cPerg,.T. ) } } )
+		aAdd(aButtons, { 1,.T.,{|o| nOpcA := 1,IF(gpconfOK(),FechaBatch(),nOpcA:=0 ) }} )
+		aAdd(aButtons, { 2,.T.,{|o| FechaBatch() }} )
+		
+		FormBatch( cCadastro, aSays, aButtons )
+	EndIf
+
+	If nOpcA == 1
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica se deve Mostrar Calculo de Tempo nas BarGauge			 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		lBarG1ShowTm := ( SuperGetMv("MV_PNSWTG1",NIL,"N") == "S" )
+		lBarG2ShowTm := ( SuperGetMv("MV_PNSWTG2",NIL,"S") == "S" )
+		/*                               
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Executa o Processo de Fechamento do Banco de Horas				 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		If lSchedule
+			PNM080Processa(cPerg)
+		Else
+			Proc2BarGauge(  {|| PNM080Processa( cPerg ) } ,STR0001 , NIL , NIL , .T. , lBarG1ShowTm , lBarG2ShowTm )  // 'Fechamento Banco de Horas'
+		EndIf
+	EndIF
+	
+	RestArea( aAreaSPI )
+
+EndIF
+	
+cFilAnt := cSvFilAnt
+RestArea( aArea )
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡„o    ³ PONM080Processa ³ Autor ³ Aldo Marini jr ³ Data ³ 03/12/98 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡„o ³ Processa o Fechamento do Banco de Horas                    ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso  	 ³ SIGAPON							             			  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³                                                            ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß*/
+Static Function PNM080Processa( cPerg )
+
+Local aArea		   	:= SRA->(GetArea())
+Local aSPI			:= {}   
+Local aSPIP	   		:= {}
+Local aSPID	   		:= {}
+Local aDelSPI	 	:= {}
+Local aAreaSRA		:= SRA->( GetArea() )
+Local aAreaSPI		:= SPI->( GetArea() )
+Local aRecsSR6		:= {}
+Local aRecsBarG		:= {}
+Local bSraScope		:= { || .F. }
+Local bCondLimit	:= { || .F. }
+Local cFilMat	 	:= ""
+Local cLastFil		:= "__cLastFil__"
+Local cEveProv	 	:= SPACE(3)
+Local cEveDesc	 	:= SPACE(3)
+Local cEveResc	 	:= SPACE(3)
+Local cAcessaSRA	:= &("{ || " + ChkRH("PONM080","SRA","2") + "}")
+Local cCc		 	:= ""
+Local cPd 		 	:= ""
+Local cOldFilTnoSeq := "__cOldFilTnoSeq__"
+Local cAtuFilTnoSeq	:= "__cAtuFilTnoSeq__"
+Local cFilTnoAtu	:= "__cFilTnoAtu__"
+Local cFilTnoOld	:= "__cFilTnoOld__"
+Local cFilTnoDe		:= ""
+Local cFilTnoAte	:= ""	
+Local cSvFilAnt		:= cFilAnt
+Local cTimeIni		:= Time()
+Local cMsgBarG1		:= ""
+Local dDtLacto	 	:= Ctod("//")
+Local dPerIni		:= Ctod("//")
+Local dPerFim		:= Ctod("//")
+Local lSR6Comp		:= Empty( xFilial( "SR6" ) )
+Local lIncProcG1	:= .T.
+Local lPnm080Block 	:= ExistBlock( "PNM08001" )
+Local nSaldo     	:= 0.00            
+Local nSaldoAnt		:= 0.00 
+Local nSAldoP		:= 0.00
+Local nSAldoD		:= 0.00
+Local nSalAux		:= 0.00
+Local nT		 	:= 0.00
+Local nValN		 	:= 0.00
+Local nValV			:= 0.00
+Local nValorN		:= 0.00
+Local nValorV		:= 0.00
+Local nSinal		:= 0.00
+Local nLastRec	 	:= 0.00
+Local nRecsSR6		:= 0.00
+Local nIncPercG1	:= 0.00
+Local nIncPercG2	:= 0.00
+Local nCount1Time	:= 0.00
+Local uRet			
+
+Local aStruSRA		:= {}
+Local aCposSRA		:= {}
+Local aTempSRA		:= SRA->( dbStruct() )
+Local cQuery	 	:= ""
+Local cQueryCond	:= ""
+Local lSraQryOpened	:= .F.
+Local nContField	:= Len( aTempSRA	)
+Local nX
+Local oObjSx1		:= FWSX1Util():New()
+Local nPosPerg		:= 0
+
+Private aLogDet		:= {}
+Private aLogTitle	:= {}
+
+Pergunte( cPerg , .F. )
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³ Carregando as Perguntas                                      ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+Private cFilialDe  := mv_par01
+Private cFilialAte := mv_par02
+Private cCCDe      := mv_par03
+Private cCCAte     := mv_par04
+Private cTurnoDe   := mv_par05
+Private cTurnoAte  := mv_par06
+Private cMatDe     := mv_par07
+Private cMatAte    := mv_par08
+Private cNomeDe    := mv_par09
+Private cNomeAte   := mv_par10
+Private cRegraDe   := mv_par11
+Private cRegraAte  := mv_par12
+Private cSit       := If(!Empty(mv_par13),mv_par13,' ADFT' )
+Private cCat       := If(!Empty(mv_par14),mv_par14,'CDHMST' )
+Private cEveDe     := mv_par15
+Private cEveAte    := mv_par16
+Private cSindDe    := mv_par17
+Private cSindAte   := mv_par18
+Private nFecha     := mv_par19 		//-- 1=Periodo - 2=Horas
+Private nTipo      := mv_par20		//-- 1=Ate Limite- 2=Acima Limite 3=Ambos
+Private nMaxBH	   := Abs(mv_par21)	//-- Numero de Horas Maxima
+Private nUtiliz	   := mv_par22		//-- 1=Normais - 2=Valorizadas
+Private nTpFech	   := mv_par23		//-- 1=Credito - 2=Debito - 3=Resultado
+Private dDtPagto   := mv_par24
+Private nLimpa     := mv_par25  	//-- 1=Limpa - 2=Baixa
+Private nTpEvento  := mv_par26  	//-- 1=Autorizados 2=Nao Autorizados 3=Ambos
+//-- Periodo p/ Proventos       
+Private dPerIniP   := mv_par27
+Private dPerFimP   := mv_par28
+//== Periodo p/ Descontos 
+Private dPerIniD   := mv_par29
+Private dPerFimD   := mv_par30
+//-- Limita Descontos ao Total de Proventos
+Private cLimitLanc := cValToChar(mv_par31)			// Limita Lançamentos 1-Proventos;2-Descontos;3-Ambos;4-Nenhum; 
+Private lTotBhRes  := If(mv_par32 == 1, .T., .F.)   // Fechar banco de horas para rescisao? Se Sim, sera gerada verba com total de competencias. 
+
+oObjSx1:AddGroup(cPerg)
+oObjSx1:SearchGroup()
+oObjSx1:GetGroup(cPerg)
+
+nPosPerg := aScan(oObjSx1:aGrupo[1,2],{|x| AllTrim(x:cX1_PERGUNT) == "Limita Descontos ?" .Or. AllTrim(x:cX1_PERGUNT) == "Limita Lançamentos ?"} )
+
+If nPosPerg > 0 .And. Empty(oObjSx1:aGrupo[1,2,nPosPerg]:cX1_DEF03)
+	If cLimitLanc == "1"
+		cLimitLanc := "2"
+	ElseIf cLimitLanc == "2"
+		cLimitLanc := "4"
+	EndIf
+EndIf
+
+dbSelectArea('SPI')
+dbSetOrder(2)
+dbSelectArea( 'SRA' )
+dbSetOrder( 4 )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Inicializa Filial/Turno De/Ate							   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+cFilTnoDe	:= ( cFilialDe + cTurnoDe )
+cFilTnoAte	:= ( cFilialAte + cTurnoAte )
+
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Cria o Bloco dos Funcionarios que atendam ao Scopo	   	   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/
+bSraScope := { || (;
+						( RA_TNOTRAB	>= cTurnoDe		.and. RA_TNOTRAB	<= cTurnoAte	)	.and. ;
+						( RA_FILIAL		>= cFilialDe	.and. RA_FILIAL		<= cFilialAte	)	.and. ;
+						( RA_REGRA		>= cRegraDe		.and. RA_REGRA		<= cRegraAte	)	.and. ;
+						( RA_NOME		>= cNomeDe		.and. RA_NOME		<= cNomeAte		)	.and. ;
+						( RA_MAT		>= cMatDe		.and. RA_MAT		<= cMatAte		)	.and. ;
+						( RA_CC			>= cCCDe		.and. RA_CC			<= cCCAte		)	.and. ;
+						( RA_SINDICA	>= cSindDe		.and. RA_SINDICA	<= cSindAte		)		  ;
+				   );
+			 }
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Seta apenas os Campos do SRA que serao Utilizados           ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+aAdd( aCposSRA , "RA_FILIAL"	)
+aAdd( aCposSRA , "RA_MAT" 		)	
+aAdd( aCposSRA , "RA_NOME"		)
+aAdd( aCposSRA , "RA_CC"		)
+aAdd( aCposSRA , "RA_TNOTRAB"	)
+aAdd( aCposSRA , "RA_SEQTURN"	)
+aAdd( aCposSRA , "RA_REGRA"  	)
+aAdd( aCposSRA , "RA_ADMISSA"  	)
+aAdd( aCposSRA , "RA_DEMISSA"  	)
+aAdd( aCposSRA , "RA_CATFUNC"  	)
+aAdd( aCposSRA , "RA_SITFOLH"  	)
+aAdd( aCposSRA , "RA_SINDICA" 	)
+aAdd( aCposSRA , "RA_BHFOL" 	)
+/*/
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Verifica e Seta os campos a mais incluidos no Mex             ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ/*/				
+fAdCpoSra(aCposSra)	
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Ponto de Entrada para Campos do Usuario                      ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( lPnm080CposBlock )
+	IF ( ValType( uRet := ExecBlock("PNM080CPOS",.F.,.F.,aCposSRA) ) == "A" )
+		IF Len( uRet ) >= Len( aCposSRA )
+			aCposSRA := aClone(uRet)
+			uRet	 := NIL
+		EndIF
+	EndIF
+EndIF
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Carrega os Campos do SRA para a Montagem da Query			   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF aScan( aCposSRA , { |x| Upper(AllTrim(x)) == Upper( AllTrim( aTempSRA[ nX , 1 ] ) ) } ) > 0.00
+		aAdd( aStruSRA , aClone( aTempSRA[ nX ] ) )
+	EndIF
+Next nX
+aCposSRA	:= aTempSRA := NIL
+nContField	:= Len( aStruSRA )
+cQuery := "SELECT "
+For nX := 1 To nContField
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inclui os Campos na Montagem da Query						   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery += aStruSRA[ nX , 1 ] + ", "
+Next nX
+cQuery := SubStr( cQuery , 1 , Len( cQuery ) - 2 )
+
+cQueryCond	+= " FROM "
+cQueryCond	+= InitSqlName("SRA")+" SRA "
+cQueryCond	+= "WHERE "
+cQueryCond	+= "SRA.RA_FILIAL>='"+cFilialDe+"' AND "
+cQueryCond	+= "SRA.RA_FILIAL<='"+cFilialAte+"' AND "
+cQueryCond	+= "SRA.RA_TNOTRAB>='"+cTurnoDe+"' AND "	
+cQueryCond	+= "SRA.RA_TNOTRAB<='"+cTurnoAte+"' AND "
+cQueryCond	+= "SRA.RA_MAT>='"+cMatDe+"' AND "	
+cQueryCond	+= "SRA.RA_MAT<='"+cMatAte+"' AND "
+cQueryCond	+= "SRA.RA_NOME>='"+cNomeDe+"' AND "	
+cQueryCond	+= "SRA.RA_NOME<='"+cNomeAte+"' AND "
+cQueryCond	+= "SRA.RA_REGRA>='"+cRegraDe+"' AND "	
+cQueryCond	+= "SRA.RA_REGRA<='"+cRegraAte+"' AND "
+cQueryCond	+= "SRA.RA_CC>='"+cCCDe+"' AND "	
+cQueryCond	+= "SRA.RA_CC<='"+cCCAte+"' AND "
+cQueryCond	+= "SRA.RA_SINDICA>='"+cSindDe+"' AND "
+cQueryCond	+= "SRA.RA_SINDICA<='"+cSindAte+"' AND "
+cQueryCond	+= "SRA.D_E_L_E_T_=' ' "
+
+cQuery		+= cQueryCond
+cQuery		+= "ORDER BY "+SqlOrder( SRA->( IndexKey() ) )
+cQuery		:= ChangeQuery(cQuery)
+SRA->( dbCloseArea() ) //Fecha o SRA para uso da Query
+IF ( lSraQryOpened := MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,cQuery),"SRA",.T.,.T.) )
+	For nX := 1 To nContField
+		IF ( aStruSRA[nX,2] <> "C" )
+			TcSetField("SRA",aStruSRA[nX,1],aStruSRA[nX,2],aStruSRA[nX,3],aStruSRA[nX,4])
+		EndIF
+	Next nX
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	cQuery := "SELECT COUNT(*) NLASTREC "
+	cQuery += cQueryCond
+	cQuery := ChangeQuery(cQuery)
+        IF ( MsOpenDbf(.T.,"TOPCONN",TcGenQry(,,cQuery),"__QRYCOUNT",.T.,.T.) )
+		nLastRec := __QRYCOUNT->NLASTREC
+		__QRYCOUNT->( dbCloseArea() )
+	Else
+		MsAguarde( { || SRA->( dbEval( { || ++nLastRec } ) ) } , STR0027 + STR0028 )	//'Aguarde...'###'Selecionaldo Funcionarios'
+		SRA->( dbGotop() )
+	EndIF
+Else
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Restaura Arquivo Padrao e Ordem                             ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	ChkFile( "SRA" )
+	SRA->( dbSetOrder( 04 ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Verifica o Total de Registros a Serem Processados            ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	aRecsBarG := {}
+	CREATE SCOPE aRecsBarG FOR Eval( bSraScope )
+	SRA->( dbSeek( cFilialDe , .T. ) )
+	nLastRec := SRA->( ScopeCount( aRecsBarG ) )
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Procura primeiro funcion rio.                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	SRA->( dbSeek( cFilTnoDe , .T. ) )
+EndIF
+
+If !lSchedule
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicializa a Mensagem para a IncProcG2() ( Funcionarios )	   ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IncProcG2( OemToAnsi( STR0017 ) , .F. )	//"Fechando Banco de Horas..."
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Inicia regua de processamento.                               ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	BarGauge2Set( nLastRec )
+EndIf
+
+Begin Sequence
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Processa o Calculo Mensal                                    ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	While SRA->( !Eof() .and. ( ( cFilTnoAtu := ( RA_FILIAL + RA_TNOTRAB ) ) >= cFilTnoDe ) .and. ;
+		                        ( cFilTnoAtu <= cFilTnoAte ) )
+
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Consiste filtro do intervalo De / Ate                        ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF SRA->( !Eval( bSraScope ) )
+			SRA->(dbSkip())
+			Loop
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Aborta o processamento caso seja pressionado Alt + A         ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF ( lAbortPrint )
+			aAdd( aLogDet , STR0021 ) //"O processo de Fechamento de Banco de Horas foi cancelado pelu usuario."
+			Break
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Atualiza a Mensagem para a IncProcG1() ( Turnos )			   ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		cAtuFilTnoSeq :=  ( cFilTnoAtu + SRA->RA_SEQTURN )
+		IF !( cOldFilTnoSeq == cAtuFilTnoSeq )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza o Filial/Turno/Sequencias Anteriores				   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			cOldFilTnoSeq := cAtuFilTnoSeq
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Atualiza a Mensagem para a BarGauge do Turno 				   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			//"Filial:"###"Turno:"###"Sequencia:"
+			cMsgBarG1 := SRA->( STR0014 + " " + RA_FILIAL + " - " + STR0015 + " " + RA_TNOTRAB + " - " + Left(AllTrim(fDesc( "SR6" , RA_TNOTRAB , "R6_DESC" , NIL , RA_TNOTRAB , 01 ) ),50) + " " + STR0016 + " " + RA_SEQTURN )
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Verifica se Houve Troca de Filial para Verificacai dis Turnos³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF !( cLastFil == SRA->RA_FILIAL )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Atualiza o Filial Anterior								   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				cLastFil := SRA->RA_FILIAL 
+				cFilAnt	 := cLastFil
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Obtem o % de Incremento da 2a. BarGauge					   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nIncPercG1 := SuperGetMv( "MV_PONINC1" , NIL , 5 , cLastFil )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Obtem o % de Incremento da 2a. BarGauge					   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				nIncPercG2 := SuperGetMv( "MV_PONINCP" , NIL , 5 , cLastFil )
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Verifica Periodo de Apontamento							   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+        		IF !CheckPonMes( @dPerIni , @dPerFim , .F. , .T. , .T. , cLastFil )
+        			aAdd( aLogDet , STR0026 ) //"Periodo para o Fechamento do Banco de Horas invalido"
+        			Break
+        		EndIF
+
+				If !lSchedule
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Realimenta a Barra de Gauge para os Turnos de Trabalho       ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					IF ( !lSR6Comp .or. ( nRecsSR6 == 0.00 ) )
+						CREATE SCOPE aRecsSR6 FOR ( R6_FILIAL == cLastFil .or. Empty( R6_FILIAL ) )
+						nRecsSR6 := SR6->( ScopeCount( aRecsSR6 ) )
+					EndIF
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Define o Contador para o Processo 1                          ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					--nCount1Time
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Define o Numero de Elementos da BarGauge                     ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					BarGauge1Set( nRecsSR6 )
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³ Inicializa Mensagem na 1a BarGauge                           ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					IncProcG1( cMsgBarG1 , .F. )
+				EndIf
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³ Reinicializa a Filial/Turno Anterior                         ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				cFilTnoOld := "__cFilTnoOld__"
+			EndIF
+
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³Verifica se Deve Incrementar a Gauge ou Apenas Atualizar a Men³
+			³sagem														   ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF ( lIncProcG1 := !( cFilTnoOld == cFilTnoAtu ) )
+				cFilTnoOld := cFilTnoAtu
+			EndIF
+
+			If !lSchedule
+				/*
+				ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				³Incrementa a Barra de Gauge referente ao Turno				   ³
+				ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+				IncPrcG1Time( cMsgBarG1 , nRecsSR6 , cTimeIni , .F. , nCount1Time , nIncPercG1 , lIncProcG1 )
+			EndIf
+		EndIF
+		
+		If !lSchedule
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Movimenta a R‚gua de Processamento do Processamento Principal³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IncPrcG2Time( OemToAnsi( STR0017 ) , nLastRec , cTimeIni , .T. , 2 , nIncPercG2 )	//"Fechando Banco de Horas..."
+		EndIf
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica Situacao e Categoria do Funcionario                 ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF	!(SRA->RA_SITFOLH $ cSit) .Or. !(SRA->RA_CATFUNC $ cCat)
+			SRA->(dbSkip())
+			Loop
+		EndIF
+
+		IF SRA->RA_BHFOL == "N"
+			SRA->(dbSkip())
+			Loop
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Consiste controle de acessos e filiais validas               ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF SRA->( !(RA_FILIAL $ fValidFil()) .Or. !Eval(cAcessaSRA) )
+			SRA->(dbSkip())
+			Loop
+		EndIF
+
+		/*
+		ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		³ Verifica a existencia dos Identificadores 023/024            ³
+		ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+		IF !P080_IDPON(@cEveProv,@cEveDesc,@cEveResc, SRA->RA_FILIAL)
+			/*
+			ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+			³ Aborta o processamento caso seja pressionado Alt + A         ³
+			ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+			IF ( lAbortPrint )
+				aAdd( aLogDet , STR0021 ) //"O processo de Fechamento de Banco de Horas foi cancelado pelu usuario."
+				Break
+			EndIF
+			SRA->( dbSkip() )
+			Loop
+		EndIF
+
+		//-- Efetua o fechamento dos eventos
+        cFilMat	:= SRA->( RA_FILIAL + RA_MAT )
+		
+        nSaldoP		:= 0
+        nSaldoD		:= 0
+		nSaldo 		:= 0
+		nSaldoAnt	:= 0
+		aDelSPI 	:= {}
+		aSPI 		:= {}
+        aSPIP		:= {}
+        aSPID		:= {}
+	
+		IF SPI->(dbSeek( cFilMat ,.F. ))
+			While SPI->( !Eof() .and. PI_FILIAL + PI_MAT == cFilMat )
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Aborta o processamento caso seja pressionado Alt + A         ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				IF ( lAbortPrint )
+					aAdd( aLogDet , STR0021 ) //"O processo de Fechamento de Banco de Horas foi cancelado pelu usuario."
+					Break
+				EndIF
+
+				//-- Limita a Leitura somente do intervalo de Eventos.
+				IF !SPI->(PI_PD >= cEveDe .And. PI_PD <= cEveAte)
+					SPI->(dbSkip())
+					Loop
+				EndIF
+
+				//-- Desconsidera Lancamentos j  baixados
+				IF SPI->PI_STATUS == "B"
+					SPI->(dbSkip())
+					Loop
+				EndIF
+
+				//-- Verifica tipo de Evento quando for diferente de Ambos
+				IF nTpEvento <> 3
+					IF !fBscEven(SPI->PI_PD,2,nTpEvento)
+						SPI->(dbSkip())
+						Loop
+					EndIF
+				Else
+					PosSP9(SPI->PI_PD,SRA->RA_FILIAL)
+				EndIF
+
+						
+				//-- Limita a Leitura somente dos Lactos do periodo e se
+				//   o fechamento for por Periodo
+				If nFecha == 1 
+				   	//-- Se o Evento for Provento/Base
+				   	IF (PosSP9( SPI->PI_PD , SRA->RA_FILIAL, "P9_TIPOCOD") $ "1*3" )
+				       //- Verifica se Ele pertence ao Periodo do Provento fornecido pelo usuario
+				       If (SPI->PI_DATA < dPerIniP .OR. SPI->PI_DATA > dPerFimP)
+						  SPI->(dbSkip())
+						  Loop
+					   EndIf
+           			   //-- Se Limitar Desconto na subtracao dos Proventos
+					   If cLimitLanc $ "1*2*3"
+					  		//-- Armazena os Proventos do BH Escolhidos
+							aAdd(aSPIP,{})
+							aAdd(aSPIP[Len(aSPIP)],SPI->PI_PD)
+							aAdd(aSPIP[Len(aSPIP)],IF( nUtiliz == 1 , SPI-> PI_QUANT , SPI->PI_QUANTV ) )
+							aAdd(aSPIP[Len(aSPIP)],SPI->PI_CC)
+							aAdd(aSPIP[Len(aSPIP)],SP9->P9_TIPOCOD)
+							aAdd(aSPIP[Len(aSPIP)],SPI->(Recno()))
+							aAdd(aSPIP[Len(aSPIP)],MesAno(SPI->PI_DATA))
+                	   Endif					
+                	Else 
+                		//-- Se o Evento for Desconto
+				   	    IF !(PosSP9( SPI->PI_PD , SRA->RA_FILIAL, "P9_TIPOCOD") $ "1*3" )
+				           //- Verifica se Ele pertence ao Periodo do Desconto fornecido pelo usuario
+				           If (SPI->PI_DATA < dPerIniD .OR. SPI->PI_DATA > dPerFimD)
+						      SPI->(dbSkip())
+						      Loop
+					       Endif 
+					   	   //-- Se Limitar Desconto na subtracao dos Proventos
+					   	   If cLimitLanc $ "1*2*3"
+					  		  //-- Armazena os Descontos do BH Escolhidos
+							  aAdd(aSPID,{})
+							  aAdd(aSPID[Len(aSPID)],SPI->PI_PD)
+							  aAdd(aSPID[Len(aSPID)],IF( nUtiliz == 1 , SPI-> PI_QUANT , SPI->PI_QUANTV ) )
+							  aAdd(aSPID[Len(aSPID)],SPI->PI_CC)
+							  aAdd(aSPID[Len(aSPID)],SP9->P9_TIPOCOD)
+							  aAdd(aSPID[Len(aSPID)],SPI->(Recno()))
+							  aAdd(aSPID[Len(aSPID)],MesAno(SPI->PI_DATA))
+                	   	   Endif
+					   EndIf
+					               	
+                	Endif
+          		Endif
+			
+				aAdd(aSPI,{})
+				aAdd(aSPI[Len(aSPI)],SPI->PI_PD)
+				aAdd(aSPI[Len(aSPI)],IF( nUtiliz == 1 , SPI-> PI_QUANT , SPI->PI_QUANTV ) )
+				aAdd(aSPI[Len(aSPI)],SPI->PI_CC)
+				aAdd(aSPI[Len(aSPI)],SP9->P9_TIPOCOD)
+				aAdd(aSPI[Len(aSPI)],SPI->(Recno()))
+				aAdd(aSPI[Len(aSPI)],MesAno(SPI->PI_DATA))
+
+				aAdd(aDelSPI,SPI->(Recno()))
+
+				SPI->(dbSkip())
+			Enddo
+            
+			//-- Para Fechamento Por Periodo                
+            If nFecha==1
+				aEval(aSPID,{|x|nSaldoD := __TimeSum(nSaldoD,x[2])})
+				aEval(aSPIP,{|x|nSaldoP := __TimeSum(nSaldoP,x[2])})
+		   	    If cLimitLanc == "1" //-- Limita Proventos
+					//-- Inicializa o Limite maximo para o Total de Descontos    
+					//-- Para Controlar a Eliminacao de Proventos que Excedam o
+					//-- O Total de Descontos
+					nMaxBH:=nSaldoD             
+					//-- Unifica sob aSPIP Proventos e Descontos 
+					//-- Ficando os Proventos nos primeiros lugares
+					aEval(aSPIP,{|x|aAdd(aSPID,x)})
+					aSPI:=aClone(aSPID)
+					aDelSPI:={}                       
+					//-- Refaz aDelSPI para conter os Nos.Registros a Serem
+					//-- Deletados/Baixados
+					aEval(aSPID,{|x|aAdd(aDelSPI,x[5])})
+				ElseIf cLimitLanc == "2" //Limita Descontos
+					//-- Inicializa Limite maximo para o Total de Proventos    
+					//-- Para Controlar a Eliminacao de Descontos que Excedam o
+					//-- O Total de Proventos
+					nMaxBH:=nSaldoP             
+					//-- Unifica sob aSPIP Proventos e Descontos 
+					//-- Ficando os Descontos nos primeiros lugares
+					aEval(aSPID,{|x|aAdd(aSPIP,x)})
+					aSPI:=aClone(aSPIP)
+					aDelSPI:={}                       
+					//-- Refaz aDelSPI para conter os Nos.Registros a Serem
+					//-- Deletados/Baixados
+					aEval(aSPIP,{|x|aAdd(aDelSPI,x[5])})
+				ElseIf cLimitLanc == "3" /// Ambos (Desconto/Proventos)
+					If nSaldoP > nSaldoD
+						nMaxBH:=nSaldoP             
+						//-- Unifica sob aSPIP Proventos e Descontos 
+						//-- Ficando os Proventos nos primeiros lugares
+						aEval(aSPIP,{|x|aAdd(aSPID,x)})
+						aSPI:=aClone(aSPID)
+						aDelSPI:={}                       
+						//-- Refaz aDelSPI para conter os Nos.Registros a Serem
+						//-- Deletados/Baixados
+						aEval(aSPID,{|x|aAdd(aDelSPI,x[5])})
+					ElseIf nSaldoD > nSaldoP
+						nMaxBH:=nSaldoD             
+						//-- Unifica sob aSPIP Proventos e Descontos 
+						//-- Ficando os Descontos nos primeiros lugares
+						aEval(aSPID,{|x|aAdd(aSPIP,x)})
+						aSPI:=aClone(aSPIP)
+						aDelSPI:={}                       
+						//-- Refaz aDelSPI para conter os Nos.Registros a Serem
+						//-- Deletados/Baixados
+						aEval(aSPIP,{|x|aAdd(aDelSPI,x[5])})
+					EndIf
+			   Endif
+			Endif 
+			
+			aEval(aSPI,{|x|	IF( x[4] $ "1*3" , nSaldo := __TimeSum( nSaldo,x[2] ) , nSaldo := __TimeSub( nSaldo ,x[2] ) ) } )
+
+			IF nSaldo <> 0.00
+
+			     
+				//-- Consiste  Saldo Escolhido X Saldo Efetivo  
+				//-- A Consistencia do Tipo de Fechamento Nao se Aplica a
+				//-- Fechamento Por Periodo Com Limitacao de Desconto ao Total de Proventos
+				//-- Visto que o Saldo sera reajustado SEMPRE para ZERO ou Positivo
+				IF !(nFecha == 1 .AND. cLimitLanc $ "1*2*3") .AND. ;
+				    ((nTpFech == 1 .And. nSaldo < 0) .Or. ;	// Credito
+				   (nTpFech == 2 .And. nSaldo > 0))       	    // Debito
+					/*
+					ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					³Descricao: Ponto de Entrada p/tratamento de saldos descartados³
+					³Necessidade Original:										   ³
+					³Ao obter um saldo negativo, quando solicitado credito, deve-se³
+					³dar baixa nos lancamentos que compuseram o saldo.			   ³
+					ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+					If lPnm080Block 
+					   ExecBlock("PNM08001",.F.,.F.,{cEveProv,cEveDesc,aSPI,aDelSPI,dDtPagto, nSaldo, nTpFech}) 
+				    Endif
+					SRA->( dbSkip() )
+					Loop
+				EndIF
+
+  		       
+                nSaldoAnt:= nSaldo  //Guarda Valor Original do Saldo p/comparacoes futuras
+				nSaldo  := Abs( nSaldo )
+
+			    // Fechamento por Periodo sem limite de Descontos ou
+				// Fechamento por Periodo Com limite de Descontos e Saldo Positivo ou
+				// Fechamento por Horas e Tipo 3=Ambos ou
+				// Fechamento por Horas e Tipo 1=Ate Limite e Saldo <= No.Max.Horas
+				If  (nFecha == 1 .AND. cLimitLanc == "4") .Or. ; 
+					(nFecha == 1 .AND. cLimitLanc == "1" .And. nSaldoAnt <= 0) .Or. ; 
+					(nFecha == 1 .AND. cLimitLanc == "2" .And. nSaldoAnt >= 0) .Or. ; 
+					(nFecha == 2 .and. nTipo == 3) .or.;
+					(nFecha == 2 .and. nTipo == 1 .and. nSaldo <= nMaxBH)
+
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Grava o Evento no arquivo de resultados				         ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					Begin Transaction
+
+						If lTotBhRes
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dDtPagto,cEveResc)
+						Else	
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dPerFim,cEveResc)
+						EndIf
+
+					End Transaction
+
+				// Fechamento por Horas
+				ElseIF nFecha == 2 .and. nSaldo >  nMaxBH
+				    
+				    //-- Considera o valor absoluto do Saldo
+				    nSalAux := nSaldo
+					
+					For nT := Len(aSPI) To 1 Step -1 
+                        
+						//--  a.1)Se o lancamento contribui para o saldo original (positivo ou negativo) deve-se subtrair do
+						//--  saldo absoluto (sempre positivo).
+						//--  Ex. Saldo (+). Se o lancamento for Provento subtrai (-) do saldo absoluto
+						//                   Se o lancamento for Desconto soma    (+) ao saldo absoluto
+						//--      Saldo (-). Se o lancamento for Provento soma    (+) ao saldo absoluto
+						//                   Se o lancamento for Desconto subtrai (-) do saldo absoluto  
+						
+                        //-- Se o Saldo Original for Positivo 
+					    If nSaldoAnt >0 
+					       //-- Inverte o sinal dos lancamentos de Proventos 
+					       nSinal := IF( aSPI[nT,4] $ "1*3" ,-1,1)
+					    //-- Se o Saldo Original for Negativo
+					    Else 
+					       //-- Inverte o sinal dos lancamentos de Descontos pois contribui para o saldo negativo  
+  					       nSinal := IF( aSPI[nT,4] $ "1*3" ,1,-1)
+					    Endif
+					    
+					     nSalAux := __TimeSum( nSalAux , aSPI[nT,2] * nSinal ) 
+						
+					   						
+						//-- Se atingiu o limite solicitado ou ultrapassou
+						IF  nSalAux  <= nMaxBH  
+						    								
+							//-- Desmembra Lancamento se ultrapassou o limite fixado
+							If nSalAux < nMaxBH
+							 
+								//-- Posiciona no Lancamento e obtem os valores 
+								SPI->(dbGoTo(aSPI[nT,5]))
+								nValorN := SPI->PI_QUANT
+								nValorV := SPI->PI_QUANTV
+								//-- Calcula parte do lancamento sem baixar no BH (Se "Acima Limite")
+								//--                            para baixar no BH (Se "Ate o Limite")  
+								IF nUtiliz == 1	// Horas Normais 
+									nValorN := __TimeSum( nMaxBH, (nSalAux * nSinal) )
+									nValorV := Round(fConvHr(nValorN,"D")*(fBscEven(aSPI[nT,1],1)/100),2)
+									nValorV := fConvhr(nValorV,"H")
+									aSPI[nT,2] := nValorN
+								Else			// Horas Valorizadas
+									nValorV := __TimeSum( nMaxBH, (nSalAux * nSinal) )
+									nValorN := Round(fConvHr(nValorV,"D")/(fBscEven(aSPI[nT,1],1)/100),2)
+									nValorN := fConvhr(nValorN,"H")
+									aSPI[nT,2] := nValorV
+								EndIF
+								//-- Calcula parte do lancamento para baixar no BH (Se "Acima Limite")
+								//--                             sem  baixar no BH (Se "Ate  olimite")
+								nValN	:= Abs(__TimeSub(SPI->PI_QUANT,nValorN))
+								nValV   := Round(fConvHr(nValN,"D")*(fBscEven(aSPI[nT,1],1)/100),2)
+								nValV   := fConvhr(nValV,"H")
+							    
+                    			Begin Transaction
+									// Grava Lacto atual
+									IF RecLock("SPI")
+										SPI->PI_QUANT	:= nValorN
+										SPI->PI_QUANTV	:= nValorV
+										SPI->( MsUnlock() )
+									EndIF
+									cCc			:= SPI->PI_CC
+									cPd 		:= SPI->PI_PD
+									dDtLacto	:= SPI->PI_DATA
+									// Cria Lacto com valor restante
+									IF nValN > 0
+										IF RecLock("SPI",.T.)
+											SPI->PI_FILIAL	:= SRA->RA_FILIAL
+											SPI->PI_MAT		:= SRA->RA_MAT
+											SPI->PI_PD		:= cPd
+											SPI->PI_DATA	:= dDtLacto
+											SPI->PI_QUANT	:= nValN
+											SPI->PI_QUANTV	:= nValV
+											SPI->PI_FLAG	:= "G"
+											SPI->PI_CC		:= cCc
+											SPI->( MsUnlock() )
+										EndIF	
+										//-- Cria o novo elemento em aSPI (Eventos do B.H.)
+										aAdd(aSPI,{})
+										aAdd(aSPI[Len(aSPI)],SPI->PI_PD)
+										aAdd(aSPI[Len(aSPI)],IF( nUtiliz == 1 , SPI-> PI_QUANT , SPI->PI_QUANTV ) )
+										aAdd(aSPI[Len(aSPI)],SPI->PI_CC)
+										aAdd(aSPI[Len(aSPI)],SP9->P9_TIPOCOD)
+										aAdd(aSPI[Len(aSPI)],SPI->(Recno()))     
+										aAdd(aSPI[Len(aSPI)],MesAno(SPI->PI_DATA))
+									   	//-- Acrescenta o novo elemento na relacao de registros a serem abaixados
+									   	aAdd(aDelSPI,SPI->(Recno()))
+									EndIF
+								End Transaction
+                            Else
+								// Caso saldo igual limite nao considera o lacto atual
+                                IF nSalAux == nMaxBH
+									nT := nT - 1
+                                EndIF
+							EndIF
+							IF nTipo == 1	// Ate Limite
+					 
+							      aSize(aDelSPI,nT)
+								
+							ElseIF nTipo == 2	// Acima Limite
+							
+							  	nA := 1
+								While nA <= nT
+							 		aDel(aDelSPI,1)
+							 		aSize(aDelSPI,Len(aDelSPI)-1)
+							  		nA++
+								Enddo
+							EndIF
+							Exit
+						EndIF
+					Next nT 
+					//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Grava o Evento no arquivo de resultados				         ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					Begin Transaction
+
+						If lTotBhRes
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dDtPagto,cEveResc)
+						Else
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dPerFim,cEveResc)
+						EndIf
+
+					End Transaction
+				
+				//-- Fechamento por Periodo c/ Limitacao de Descontos e 
+				//-- o Saldo for Negativo (Total de Proventos  < Total de Descontos)
+				//-- Deve-se realizar reajuste ate o saldo for positivo ou zero
+				ElseIf  (nFecha == 1  .AND. cLimitLanc $ "1*2*3" .And. nSaldoAnt <> 0)
+					If cLimitLanc == "1" .Or. (cLimitLanc == "3" .And. nSaldoP > nSaldoD)
+						bCondLimit := {|| nSalAux <= 0}
+					ElseIf cLimitLanc == "2" .Or. (cLimitLanc == "3" .And. nSaldoD > nSaldoP)
+						bCondLimit := {|| nSalAux >= 0}
+					EndIf
+
+					nSalAux := nSaldoAnt
+					//-- Corre Todos os Lancamentos do Ultimo para o Primeiro
+					//-- e Recalcula o Saldo a Cada  Leitura
+					For nT := Len(aSPI) to 1 Step -1
+
+						//nSalAux := If(aSPI[nT,1]<"400" .Or. aSPI[nT,1]>"700",SubHoras(nSalAux,aSPI[nT,2]),SomaHoras(nSalAux,aSPI[nT,2]))
+						//-- Se o Saldo se tornou positivo quer dizer que foram
+                        //-- Eliminados mais Descontos que deveriam.
+                        //-- Devemos realizar reajuste de modo que o Total de 
+                        //-- Descontos se iguale ao Total de Proventos
+                        //-- Atualizaremos o registro de desconto lido com a diferenca
+                        //-- para se atingir o total de Proventos e o resto sera gerado
+                        //-- Um novo lancamento de Desconto na mesma data que o original
+						nSalAux := IF( aSPI[nT,4] $ "1*3" , __TimeSub( nSalAux , aSPI[nT,2] ) , __TimeSum( nSalAux , aSPI[ nT , 2 ] ) )
+						
+						If Eval(bCondLimit)
+							SPI->(dbGoTo(aSPI[nT,5]))
+							nValorN := SPI->PI_QUANT
+							nValorV := SPI->PI_QUANTV
+
+							If nSalAux < 0
+								nSalAux := Abs(nSalAux)
+							EndIf 
+
+							If nUtiliz == 1	// Horas Normais
+								nValorN := nSalAux
+								nValorV := Round(fConvHr(nValorN,"D")*(fBscEven(aSPI[nT,1],1)/100),2)
+								nValorV := fConvhr(nValorV,"H")
+								aSPI[nT,2] := nValorN
+							Else					// Horas Valorizadas
+								nValorV := nSalAux
+								nValorN := Round(fConvHr(nValorV,"D")/(fBscEven(aSPI[nT,1],1)/100),2)
+								nValorN := fConvhr(nValorN,"H")
+								aSPI[nT,2] := nValorV
+							Endif
+						
+                        	nValN	:= __TimeSub(SPI->PI_QUANT,nValorN)
+							nValV   := Round(fConvHr(nValN,"D")*(fBscEven(aSPI[nT,1],1)/100),2)
+							nValV   := fConvhr(nValV,"H")
+                          
+							
+							If nSalAux > 0
+							   Begin Transaction
+									// Grava Lacto atual
+									IF SPI->( RecLock("SPI") )
+										SPI->PI_QUANT	:= Abs(nValorN)
+										SPI->PI_QUANTV	:= Abs(nValorV)
+										SPI->( MsUnlock() )
+									EndIF
+									cCc				:= SPI->PI_CC
+									cPd 			:= SPI->PI_PD
+									dDtLacto		:= SPI->PI_DATA
+									// Cria Lacto com valor restante
+									IF nValN > 0
+										IF SPI->( RecLock("SPI",.T.) )
+											SPI->PI_FILIAL	:= SRA->RA_FILIAL
+											SPI->PI_MAT		:= SRA->RA_MAT
+											SPI->PI_PD		:= cPd
+											SPI->PI_DATA	:= dDtLacto
+											SPI->PI_QUANT	:= nValN
+											SPI->PI_QUANTV	:= nValV
+											SPI->PI_FLAG	:= "G"
+											SPI->PI_CC		:= cCc
+											SPI->( MsUnlock() ) 
+								    	EndIF
+								    EndIF
+							   End Transaction
+						
+                            Else
+								// Caso saldo igual ZERO nao considera o lacto atual
+                                If EMPTY(nSalAux)
+										nT := nT - 1
+                                   Endif
+							Endif
+							aSize(aDelSPI,nT)
+							Exit
+				        Endif
+				     Next   
+				    //ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+					//³ Grava o Evento no arquivo de resultados				         ³
+					//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+					Begin Transaction
+
+						If lTotBhRes
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dDtPagto,cEveResc)
+						Else
+							fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dPerFim,cEveResc)
+						EndIf
+
+					End Transaction
+				
+				EndIF
+			Else
+				Begin Transaction
+
+					If lTotBhRes
+						fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dDtPagto,cEveResc)
+					Else
+						fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dPerFim,cEveResc)
+					EndIf
+
+				End Transaction
+			EndIF
+		EndIF
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pr¢ximo funcion rio.                                         ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		SRA->( dbSkip() )
+	Enddo
+
+End Sequence
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³ Fecha a Query do SRA e Restaura o Padrao                    ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+IF ( lSraQryOpened )
+	SRA->( dbCloseArea() )
+	ChkFile( "SRA" )
+EndIF
+
+If !lSchedule
+
+	/*
+	ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	³ Gera o Log de Inconsistencias                                ³
+	ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+	IF !Empty( aLogDet )
+		aAdd( aLogTitle , STR0018 )	//"Log de Ocorrencias na Geracao de Marcacoes"
+		fMakeLog( { aLogDet } , aLogTitle , cPerg )
+	EndIF
+EndIf
+
+cFilAnt	:= cSvFilAnt
+
+RestArea( aAreaSPI )
+RestArea( aAreaSRA )
+
+Return( NIL )
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o	 ³P080_IDPON³ Autor ³ Equipe Advanced RH	³ Data ³18/05/2001³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna o Codigo dos Eventos dos Identificadores 023/024	  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe e ³ p080_idpon(cEveProv,cEveDesc,cEveResc,cFil)  			  ³±±
+±±³			 ³ 															  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Parametros³ cEveProv = Codigos Provento - Resultado do B.H.(023)		  ³±±
+±±³          ³ cEveDesc = Codigos Desconto - Resultado do B.H.(024)		  ³±±
+±±³          ³ cEveResc = Codigos Base     - Total Meses do B.H.(042)     ³±±
+±±³          ³ cFil     = Filial Para Pesquisa                      	  ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ PONM080													  ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±*/
+Static Function P080_IDPON(cEveProv,cEveDesc,cEveResc, cFil)
+
+Local aInfo	:= {}
+Local aArea := SP9->( GetArea() )
+Local cMsg	:= ""
+Local lRet  := .T.
+
+Begin Sequence
+
+	IF ( ( cEveProv := PosSP9("023",cFil,"P9_CODIGO", 2 ) ) == "@" .or. Empty( cEveProv ) ) // Provento
+		cMsg := ( STR0019 + " - 023A" ) //"Nao Existe Evento vinculado ao Identificador de Ponto:"
+		IF ( aScan( aLogDet , { |x| Upper( AllTrim( x ) ) == Upper( AllTrim( cMsg ) ) } ) == 0.00 )
+			aAdd( aLogDet , cMsg  )
+		EndIF
+		lRet := .F.
+		Break
+	EndIF
+	
+	IF ( ( cEveDesc := PosSP9("024",cFil,"P9_CODIGO", 2 ) ) == "@" .or. Empty( cEveDesc ) ) // Desconto
+		cMsg := ( STR0019 + " - 024A" ) //"Nao Existe Evento vinculado ao Identificador de Ponto:"
+		IF ( aScan( aLogDet , { |x| Upper( AllTrim( x ) ) == Upper( AllTrim( cMsg ) ) } ) == 0.00 )
+			aAdd( aLogDet , cMsg  )
+		EndIF
+		lRet := .F.
+		Break
+	EndIF
+	
+	If lTotBhRes
+		IF ( ( cEveResc := PosSP9("042", cFil, "P9_CODIGO", 2 ) ) == "@" .or. Empty( cEveResc ) ) // Total Meses Banco Horas
+			cMsg := ( STR0019 + " - 042A" ) //"Nao Existe Evento vinculado ao Identificador de Ponto:"
+			IF ( aScan( aLogDet , { |x| Upper( AllTrim( x ) ) == Upper( AllTrim( cMsg ) ) } ) == 0.00 )
+				aAdd( aLogDet , cMsg  )
+			EndIF
+			lRet := .F.
+			Break
+		ElseIf Empty(PosSP9("042", cFil, "P9_CODFOL", 2 ))
+			cMsg := ( STR0029 + "042A " + STR0030 + CRLF) // O evento vinculado ao indentificador de ponto 042A não tem uma verba para a folha vinculada.
+			IF ( aScan( aLogDet, { |x| Upper( AllTrim( x ) ) == Upper( AllTrim( cMsg ) ) } ) == 0.00 )
+				aAdd( aLogDet, cMsg  )
+			EndIF
+			lRet := .F.
+			Break
+		EndIF
+	Endif	
+End Sequence
+
+IF !( lRet )
+	fInfo( @aInfo , cFil )
+	cMsg := ( STR0020 + " " + cFil + " - " + aInfo[3] )//"Nao foi possivel efetuar o Fechamento do Banco de Horas para a Filial:"
+	IF ( aScan( aLogDet , { |x| Upper( AllTrim( x ) ) == Upper( AllTrim( cMsg ) ) } ) == 0.00 )
+		aAdd( aLogDet , cMsg  )
+	EndIF
+EndIF
+	
+RestArea( aArea )
+
+Return( lRet )
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿
+³Fun‡…o	   ³fGrava_BH ³ Autor ³ Marinaldo de Jesus    ³ Data ³25/05/2001³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´
+³Descri‡…o ³ Efetua a gravacao no arquivo de resultados              	³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Sintaxe   ³ fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dPerFim)		    ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³Parametros³ cEveProv -> Evento de Provento do Banco de Horas			³
+³          ³ cEveDesc -> Evento de Desconto do Banco de Horas			³
+³          ³ aSPI     -> Array com os Valores do Banco de Horas			³
+³          ³ aDelSPI  -> Array com os Registros a serem Baixados		³
+³          ³ dDataGrv -> Data Para a Gravacao dos Valores nos Resultados³
+³          ³ cEveResc -> Evento de Base para total de meses do B.Horas  ³
+ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³ Uso	   ³ PONM080													³
+ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+Static Function fGrava_BH(cEveProv,cEveDesc,aSPI,aDelSPI,dDataGrv,cEveResc)
+
+Local aSPIAux			:= aClone( aSPI )
+Local aMesesBh  		:= {}// Meses que funcionario teve Banco de Horas. 
+Local bAsCan			:= { || NIL }
+Local cFilMat			:= SRA->( RA_FILIAL + RA_MAT )
+Local cMsgErr			:= ""
+Local lAddNew			:= .F.
+Local lExecPad			:= .T.
+Local lPnm080GravaBh 	:= ExistBlock( "PN80GRBH" )
+Local lPnm80Grv			:= ExistBlock( "PNM80GRV" )
+Local lRet	  			:= .T.
+Local nPos				:= 0.00
+Local nX				:= 0.00
+Local nLenX				:= 0.00
+Local nTotMes   		:= 0// Total de Competencias do Banco de horas para rescisao         
+
+/*
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³Descricao: Ponto de Entrada antes da gravacao padrao do fecha-³
+³mento. Se for retornado .T. processa a gravacao padrao caso   ³
+³contrario nao executa a gravacao.							   ³
+ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ*/
+If lPnm80Grv  
+   	IF ( ValType( uRetBlock := ExecBlock("PNM80GRV",.F.,.F.,{cEveProv,cEveDesc,aSPI,aDelSPI,dDataGrv,cEveResc})  ) == "L" )
+   		lExecPad := uRetBlock
+    Else
+		lExecPad := .F.
+    Endif
+Endif
+		
+If lExecPad
+		
+	aSPI := {}
+		
+	cEveProv := AllTrim( PosSP9( cEveProv , SRA->RA_FILIAL , "P9_CODFOL" , 1 ) )
+	cEveDesc := AllTrim( PosSP9( cEveDesc , SRA->RA_FILIAL , "P9_CODFOL" , 1 ) )
+	cEveResc := AllTrim( PosSP9( cEveResc , SRA->RA_FILIAL , "P9_CODFOL" , 1 ) )
+		
+	IF !Empty( cEveProv ) .and. !Empty( cEveDesc ) .and. cEveProv != "@" .and. cEveDesc != "@"
+		
+		bAsCan := { |x| x[5] == aDelSPI[ nX ] }
+		
+		nLenX := Len( aDelSPI )
+		For nX := 1 To nLenX
+			IF ( nPos := aScan( aSPIAux , bAsCan ) ) > 0.00
+				aAdd( aSPI , aClone( aSPIAux[ nPos ] ) )
+			EndIF	
+		Next nX
+		
+		aSPIAux := aClone( aSPI ) ; aSPI := {}
+		
+		bAsCan := { |x| x[3] + IF( x[4] == "3" , "1" , x[4] ) == aSPIAux[ nX , 3 ] + IF( aSPIAux[ nX , 4 ] == "3" , "1" , aSPIAux[ nX , 4 ] ) }
+		
+		nLenX		:= Len( aSPIAux )
+		For nX := 1 To nLenX
+			IF ( nPos := aScan( aSPI , bAsCan ) ) > 0.00
+				aSPI[ nPos , 2 ] := __TimeSum( aSPI[ nPos , 2 ] , aSPIAux[ nX , 2 ] )
+			Else 
+				aAdd( aSPI , aClone( aSPIAux[ nX ] ) )
+			EndIF	
+			
+			IF lTotBhRes
+				IF Ascan( aMesesBh, {|x| x[1] == aSPIAux[nX ,6] } ) == 0
+					nTotMes++
+					aAdd(aMesesBh, {aSPIAux[nX,6 ]})
+				EndIF	
+			EndIF	
+			
+		Next nX
+		
+		IF lTotBhRes  .and. nLenX > 0
+			Aadd(aSPI,{cEveResc, nTotMes,aSPIAux[1,3], "3", "", "" } )
+		EndIF		
+		
+		nLenX := Len( aSPI )
+		For nX := 1 To nLenX
+			lAddNew := !SPB->( dbSeek( cFilMat + IF( aSPI[ nX , 4 ] $ "1*3" , cEveprov , cEveDesc ) + aSPI[ nX , 3 ] + dToS(dDataGrv) ) )
+			
+			If aSPI[ nX , 1 ] == cEveResc
+				lAddNew := !SPB->( dbSeek( cFilMat + cEveResc + aSPI[ nX , 3 ] ) )
+			Endif
+			IF RecLock( "SPB" , lAddNew )
+				IF SPB->PB_TIPO2 == "I"
+					SPB->PB_HORAS := ( SPB->PB_HORAS + fConvHr( aSPI[ nX , 2 ] , "D" ) )
+				Else
+					SPB->PB_FILIAL := SRA->RA_FILIAL
+					SPB->PB_CC     := aSPI[ nX , 3 ]
+					SPB->PB_MAT    := SRA->RA_MAT
+					SPB->PB_PD     := IF ( aSPI[nX,1] # cEveResc, IF( aSPI[ nX , 4 ] $ "1*3" , cEveprov , cEveDesc ), cEveResc)
+					SPB->PB_HORAS  := IF ( aSPI[nX,1] # cEveResc, fConvHr( aSPI[ nX , 2 ] , "D" ), 0) //aSPI[ nX , 2 ])
+					SPB->PB_DATA   := dDataGrv
+					SPB->PB_TIPO1  := IF (aSPI[nX,1] # cEveResc, "H" , "V")
+					SPB->PB_TIPO2  := "G"
+					SPB->PB_VALOR  := IF ( aSPI[nX,1] # cEveResc, 0,aSPI[ nX , 2 ])
+				EndIF	
+				SPB->( MsUnlock() )
+			EndIF 
+		Next nX
+		
+		// Ponto-de-Entrada para customizar fechamento de banco
+		IF ( lPnm080GravaBh )
+			ExecBlock( "PN80GRBH", .F., .F., {cEveProv, cEveDesc, aSPI, aDelSPI, dDataGrv, cEveResc} )
+		EndIF		
+		
+		nLenX := Len( aDelSPI )
+		For nX := 1 To nLenX
+			SPI->( dbGoto( aDelSPI[ nX ] ) )
+			IF RecLock("SPI")
+				IF nLimpa == 1	// Limpa
+					IF !SPI->( FkDelete( @cMsgErr ) )
+						SPI->( RollBackDelTran( cMsgErr ) )
+					EndIF
+				Else		// Baixa
+					SPI->PI_STATUS := "B"
+					SPI->PI_DTBAIX := dDtPagto
+				EndIF 
+				SPI->( MsUnlock() )
+			EndIF 
+		Next nX
+	Else
+		lRet := .F.
+	EndIF
+		
+EndIf
+	
+Return( lRet )

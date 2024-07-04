@@ -1,0 +1,198 @@
+<%
+#DEFINE nTamTab "920"
+#DEFINE nTamFs  "890"
+#DEFINE nLarBrw "890"
+#DEFINE nAltBrw "210"	
+#DEFINE cBrwGrid "BrwGrid"
+
+local oHtml 	:= WCHtml():New() 
+local aStatG	:= {"1=Guia","2=Beneficiário"}
+local lImpGuiNe := iif( WCGetPar('MV_IGUINE', .F. ), "true", "false" )
+local lPlBaud   := iif( WCGetPar('MV_PLIBAUD', .F. ), "true", "false" )
+%>
+
+<%=oHtml:getDType(,.T.) %> 
+
+<script language="JavaScript">
+	var cBrwGrid	= <%="'"+cBrwGrid+"'"%> 
+	var oBrwGridGuia;
+	var oBrwGridProc;
+
+	function fChangeLabMask() { 
+		var nTipo = document.querySelector("#Field_OPCBUSCA").selectedOptions[0].value;
+		if (nTipo == '1') {
+			document.querySelector("#Field_MATGUIA").parentElement.getElementsByTagName("label")[0].childNodes[0].textContent = 'Guia';
+			document.getElementById('Field_MATGUIA').value = ''
+			$("#Field_GUIAMAT").unmask().mask("9999.9999.99-99999999"); 
+		
+		} else {
+
+			document.querySelector("#Field_MATGUIA").parentElement.getElementsByTagName("label")[0].childNodes[0].textContent = 'Matrícula';
+			document.getElementById('Field_MATGUIA').value = ''
+			$("#Field_GUIAMAT").unmask();
+		}	
+	}
+
+
+	function fEnvia() {
+		var cBuscaTReg = getGridCall(cBrwGrid,'fEnvia');
+		var cWhere 	= "Field_MATGUIA=" + getField('Field_MATGUIA') + "|" + "Field_OPCBUSCA=" + getField('Field_OPCBUSCA');
+			cWhere += ( isEmpty(getField('Field_PREST')) ? '' : "|" + "Field_PREST=" + getField('Field_PREST') );
+			cWhere += ( isEmpty(getField('Field_DataAtd')) ? '' : "|" + "Field_DataAtd=" + getField('Field_DataAtd') )
+
+		if ( isEmpty(getField('Field_MATGUIA')) ||  isEmpty(getField('Field_OPCBUSCA')) || isNaN(getField('Field_OPCBUSCA'))) {
+			modalBS("Atenção", "<p>Campo obrigatório não preenchido</p>", "@Fechar~closeModalBS();", "white~#ffa500", "large");
+			return;
+		}
+
+		Ajax.open("W_PPLGETDGRI.APW?cFunName=PlGCloGuiR&nPagina=" + getField(cBrwGrid+'nPagina') + "&cWhere=" + cWhere + "&cBuscaTReg=" + cBuscaTReg, {
+					callback: carregaGridGuia, 
+					error: exibeErro} );
+	}				
+
+
+	function carregaGridGuia(v) {
+		var aResult = v.split("|");
+		//-----------------------------------------------------------
+		// Se existe registro define propriedades
+		//-----------------------------------------------------------
+		var nData		= 3
+		var nTipoGui	= 4
+		var nStatus		= 7
+		var nHora		= 5
+		var nQtdReg		= aResult[1];  
+		var nQtdPag 	= aResult[2];
+		var aHeader 	= eval(aResult[4]);
+		var lContinua	= eval(aResult[7]);
+		var cMsg 		= aResult[6];
+		var nRegPagGuia	= aResult[3];
+		var aDadGuia 	= (lContinua) ? eval(aResult[5]) : aDadProt;
+		var aTiposGuia	= [ ["01","Consulta"], ["02", "SADT"], ["03", "Internação"], ["04", "Reembolso"], ["05", "Resumo Internação"],
+							["06","Honorário"], ["07", "Quimioterapia"], ["08", "Radioterapia"], ["09", "OPME"], ["11", "Prorrogação Internação"],
+							["12","Outras Despesas"], ["13", "Odonto"] ]
+		var aStatusGuia = [ ["1","Autorizada"], ["2","Autorizada Parcialmente"], ["3","Nao Autorizada"], ["4","Aguardando finaliz. atendimento"],
+							["5","Aguardando Liq. Titulo a Receber"], ["6","Em analise pela auditoria"] ]
+
+		//----------------------------------------------------------------------------
+		// Seta a quantidade total de paginas - seta somente quando nao for navegacao
+		//----------------------------------------------------------------------------
+		if (lContinua) {		
+			//-----------------------------------------------------------
+			// Cria objeto do browse
+			//-----------------------------------------------------------
+			oBrwGridGuia = new gridData(cBrwGrid);
+			for (var nFor=0;nFor<aDadGuia.length;nFor++)
+			{ 
+				//ajusta formato de data
+				cData = aDadGuia[nFor][nData].value;
+				aDadGuia[nFor][nData].value = cData.substr(6,2)+"/"+cData.substr(4,2)+"/"+cData.substr(0,4);
+
+				//Ajusta para exibir por extenso tipo de guia
+				cData = aDadGuia[nFor][nTipoGui].value;	
+				aDadGuia[nFor][nTipoGui].value = aTiposGuia.find(element => element > cData)[1];	
+
+				//Ajusta para exibir por extenso status - de acordo com a função PLSSTATUS
+				cData = aDadGuia[nFor][nStatus].value;	
+				aDadGuia[nFor][nStatus].value = aStatusGuia.find(element => element > cData)[1];
+
+				//Exibir as horas de forma correta
+				cData = ( isEmpty(aDadGuia[nFor][nHora].value) ? ":" : aDadGuia[nFor][nHora].value );
+				aDadGuia[nFor][nHora].value = cData.substr(0,2)+":"+cData.substr(2,2);
+			}
+
+			//-----------------------------------------------------------
+			// Monta Browse 
+			//-----------------------------------------------------------
+			oBrwGridGuia.load({fFunName:'fEnvia',
+								nRegPagina:nRegPagGuia,
+								nQtdReg:nQtdReg,
+								nQtdPag:nQtdPag,
+								lOverflow:true,
+								lShowLineNumber:false,
+								lChkBox:false,
+								aBtnFunc:"[{info:'Imprimir',img:'100.gif',funcao:'ReimprimeGuia'}]",
+								aHeader: aHeader,							
+								aCols: aDadGuia});	
+		}					
+		//-----------------------------------------------------------
+		//³ Mensagem de erro
+		//-----------------------------------------------------------
+		if ( !isEmpty(cMsg) ) alert(cMsg);
+	}
+
+
+	function ReimprimeGuia(cNumGui) {
+		var aValores = cNumGui.split("~"); 
+		if (aValores[2] == 6 && <%=lPlBaud%> != true && <%=lImpGuiNe%> != true ) {
+			modalBS("Atenção", "<p>A guia encontra-se em análise.</p> <p>Não será possível realizar a impressão.</p>", "@Fechar~closeModalBS();", "white~#ffa500", "large");	
+		} else { 
+			ChamaPoP('W_PPLRELGEN.APW?cFunName=PPRELST&cReimpr=1&Field_NUMAUT=' + aValores[0] + '&cNumGuia=' + aValores[0] + '&cTp=' + aValores[1] + '&lProrrog=.F.','bol','yes',0,925,605);
+		}
+	}
+
+</script>
+
+<%                                        
+//Página Web
+oForm := WCForm():New("Form1")
+oForm:setTitle("Reimpressão de Guias")  
+
+//Tabela principal
+oTabela := WCTable():New()
+
+//Campos da Pesquisa 
+oLinhaDad := WCLine():New()                         
+oFSPre := WCFieldSet():New("Dados Pesquisa",nTamFs,"11","11")
+
+	oOpcBusca := WCComponent():New("C","Field_OPCBUSCA","Selecione o tipo de busca","20")
+	oOpcBusca:setArrCombo(aStatG)
+	oOpcBusca:setObrigat(.T.)
+	oOpcBusca:setJSChange("fChangeLabMask();")
+	oFSPre:setAddCFS(oOpcBusca)
+				
+	oMatric := WCComponent():New("F","Field_MATGUIA","Matrícula do Beneficiário:","20","20") 
+	oMatric:setObrigat(.T.)
+	oFSPre:setAddCFS(oMatric)
+
+	oPrest := WCComponent():New("C","Field_PREST","Prestador Atendimento:","20")
+	oPrest:setSession("HttpSession->RDAVIEW")
+	oPrest:setIsName()
+	oFSPre:setAddCFS(oPrest)
+	
+	oDataAtd := WCComponent():New("F","Field_DataAtd","Data Atendimento:","20","10")
+	oDataAtd:setJSKeyPre("return TxtBoxFormat(this,event,'99/99/9999');")
+	oDataAtd:setJSBlur("validaCmp(this,'data','Data invalida');")
+	oDataAtd:setData(.T.)
+	oFSPre:setAddCFS(oDataAtd)
+oLinhaDad:setAddComp(oFSPre)
+
+//botao
+oLiBtnConFP := WCLine():New()
+	oBConFC := WCComponent():New("B","bConsFC","Listar Guias")
+	oBConFC:SetJsFunc("fEnvia();")
+	oBConFC:setAlign('right')
+oLiBtnConFP:setAddComp(oBConFC)
+
+//Grid das guias
+oLiDoc := WCLine():New()
+oFSDoc := WCFieldSet():New("Guias",nTamFs,"10","10")
+	
+	oBrwGUI := WCComponent():New("BW","BrwGrid")
+	oBrwGUI:setBrWidth(nLarBrw)
+	oBrwGUI:setJsFunc("fEnvia()")
+
+	oFSDoc:setAddCFS(oBrwGUI)
+oLiDoc:setAddComp(oFSDoc)  
+
+//Fechamento da Tabela
+oTabela:setAddLine(oLinhaDad)
+oTabela:setAddLine(oLiBtnConFP)
+oTabela:setAddLine(oLiDoc)
+oForm:setAddTables(oTabela)
+oHtml:SetObj(oForm)
+%>
+
+<%=oHtml:loadWC()%> 
+
+<script language="JavaScript">
+</script>

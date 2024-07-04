@@ -1,0 +1,1322 @@
+#INCLUDE "loca064.ch" 
+/*/{PROTHEUS.DOC} LOCA064.PRW
+ITUP BUSINESS - TOTVS RENTAL
+Tratamento do romaneio
+@TYPE FUNCTION
+@AUTHOR FRANK ZWARG FUGA
+@SINCE 03/12/2020
+@VERSION P12
+@HISTORY 03/12/2020, FRANK ZWARG FUGA, FONTE PRODUTIZADO.
+/*/
+
+#INCLUDE "PROTHEUS.CH"
+#INCLUDE "TOPCONN.CH"
+#INCLUDE "PARMTYPE.CH"
+
+FUNCTION LOCA064(CID) 
+LOCAL AGETAREA		:= GETAREA()
+LOCAL APARAMBOX 	:= {}
+LOCAL NINICIAL 		:= 0
+LOCAL LRET          := .T.
+LOCAL LCLIENTE		:= .T.
+LOCAL ARETTL		:= {}
+LOCAL CRET			:= SPACE(1) 										// CONTÉM O RETORNO DO TIPO DE DISTRIBUIÇÃO.
+LOCAL CSERIE		:= SUPERGETMV("MV_LOCX269" , .F. , "001") 			// SERIE DA NF REMESSA PARA PARCEIRO.
+LOCAL CNFTRANS		:= SPACE(1)
+
+PRIVATE CITEM		:= STRZERO(1,TAMSX3("C6_ITEM")[1])
+PRIVATE XMV_LOCX270	:= SUPERGETMV("MV_LOCX270" , .F. , "09" ) 			// PARAMETRO QUE DETERMINA QUAL STATUS DA TQY É O DE PARCEIRO.
+PRIVATE	CTESLF		:= "" 												// SUPERGETMV("MV_LOCX255",.F.,"503")
+PRIVATE CPL_PRJ 	:= SPACE(1)
+PRIVATE CPL_OBR		:= SPACE(1)
+PRIVATE CPL_CLI		:= SPACE(1)
+PRIVATE CPL_LOJ		:= SPACE(1)
+PRIVATE CROMORI		:= SPACE(1)
+PRIVATE CVIAORI		:= SPACE(1)
+PRIVATE ARET 		:= {}
+PRIVATE CFILTRAS	:= SPACE(1)
+// --> VARIAVEIS DE CONTROLE PARA FUNCIONAMENTO DE OUTRAS ROTINAS.
+PRIVATE _CNOTA		:= SPACE(1)
+PRIVATE _LROMANEIO	:= .T.
+PRIVATE AITENS		:= {}
+PRIVATE ACAMPOSSC5	:= {}
+PRIVATE ACAMPOSSC6	:= {}
+PRIVATE LNFREMLB	:= .T.
+PRIVATE CPROJET		:= SPACE(1)
+PRIVATE _CTXT		:= SPACE(1)
+PRIVATE	CNATUREZ	:= SPACE(1)
+PRIVATE CCLIENTE	:= SPACE(1)
+PRIVATE CLOJA		:= SPACE(1) 
+PRIVATE _AARRAY		:= {}
+PRIVATE LVERZBX 	:= GETMV("MV_LOCX097")  								// HABILITA CONTROLE DE MINUTA
+
+DEFAULT CID 		:= PARAMIXB[1] 										// SPACE(1) 
+
+IF !EMPTY(CID)
+	IF CID == "L0501_GNFE" 												// VALIDAÇÃO PARA DEFINIR SE GERA OU NÃO A NF REMESSA OU RETORNO NO ROMANEIO.
+	 	// --> ROTINAS ABAIXO ENCONTRARÁ TUDO NA CODE IT_BPRD.PRW 
+		LRET := LOCA06404(FQ2->FQ2_NUM,FQ2->FQ2_PROJET,FQ2->FQ2_OBRA) 	// ROTINA QUE VALIDA SE OS CAMPOS FORAM PREENCHIDOS NA ZUC - CONJUNTO TRANSPORTADOR
+		IF LRET
+			LRET := LOCA06406(FQ2->FQ2_NUM) 								// VALIDA ANEXOS NECESSARIOS PARA EMISSAO DA NF DE REMESSA E CAMPOS OBRIGATORIOS PREENCHIDOS
+		ENDIF
+	ENDIF
+	IF CID == "L0501_VAL_POS_NFRET" 									// EXECUTA DEPOIS DA INCLUSÃO DA NF DE RETORNO.
+		IF EMPTY(FPA->FPA_NFRET) 										// SE A NOTA DE RETORNO NÃO ESTIVER SIDO GERADA A OPERAÇÃO NÃO DARÁ CONTINUIDADE.
+			RETURN .F.
+		ENDIF 
+		/*
+		VERIFICA SE NA OPERAÇÃO DE RETORNO O DESTINO É DIFERENTE DA ORIGEM DE REMESSA
+		CASO SEJA DIFERENTE IRÁ PERGUNTAR PARA USUÁRIO:
+			O RETORNO SERÁ DESTINANDO PARA:
+				A) OUTRO CLIENTE;
+				B) UM PARCEIRO;
+				C) UMA FILIAL TECNOGERA;
+		
+		A) CASO SEJA PARA UM CLIENTE:
+		   SERÁ SOLICITADO O NUMERO DO PEDIDO COMERCIAL, AO INDICAR O PC O SISTEMA IRÁ GERAR PARA A OBRA SELECIONADA:
+				A.1) LOCAÇÃO DO EQUIPAMENTO;
+				A.2) CONJUNTO TRANSPORTADOR DE REMESSA;
+				A.3) GERAÇÃO DO CONTRATO:
+				 	 A.3.A) GERA AS E ASF APROVADAS;
+				 		    * INCLUIR OS ITENS INFORMADOS NO RETORNO;
+				 	 A.3.B) GERA ROMANEIO DE REMESSA
+				 		    * INCLUI OS ANEXOS INFORMADOS NO RETORNO;
+				 	 A.3.C) GERA NF DE REMESSA DO EQUIPAMENTO; 
+		B) CASO SEJA PARA UM PARCEIRO:
+		   GERA NF DE REMESSA PARA PARCEIRO DO EQUIPAMENTO;
+
+		C) CASO SEJA PARA UMA FILIAL:
+		   		C.1) GERA NF DE REMESSA NA FILIAL;
+		   		C.2) GERA A NF/PRÉ-NOTA DE ENTRADA NA FILIAL;
+		*/ 
+		IF !LOCA06402(FQ2->FQ2_PROJET, FQ2->FQ2_OBRA) 						// ROTINA QUE IRÁ VINCULAR A NOTA DE RETORNO EM OUTROS ROMANEIOS.
+			RETURN .F.
+		ENDIF
+
+	 //	PROCESSA( {|| CRET := VDIFOR(FQ2->FQ2_VIAGEM) } , "DISTRIBUIÇÃO DE EQUIPAMENTOS" , "VERIFICANDO SE A OPERAÇÃO DE RETORNO É DIFERENTE DA ORIGEM." , .F.) 		// VERIFICA SE A OPERAÇÃO DE RETORNO É DIFERENTE DA ORIGEM.
+		CRET := VDIFOR(FQ2->FQ2_VIAGEM) 
+
+		IF !EMPTY(CRET)
+
+			DO CASE
+			CASE CRET == "C" .OR. CRET == "P" 							// OPERAÇÃO DE CLIENTE OU PARCEIRO
+				IF CRET == "P" 
+					CMSG := STR0001 //"FOI IDENTIFICADO QUE O CLIENTE DE DESTINO INFORMADO PARA O EQUIPAMENTO É UM PARCEIRO. NESTE CASO FAZ NECESSÁRIO "
+					CMSG += STR0002 //"INFORMAR SE O PARCEIRO É UM CLIENTE COM PEDIDO COMERCIAL OU SE SERÁ TRANSFERIDO O EQUIPAMENTO PARA O PARCEIRO."
+					MSGINFO(CMSG , STR0003)  //"GPO - PLOC05102.PRW"
+					AADD(APARAMBOX , {3,STR0004,1,{STR0005,STR0006},50,"",.F.}) //"INFORME O DESTINO DO EQUIPAMENTO:"###"CLIENTE COMERCIAL"###"PARCEIRO"
+					
+					IF PARAMBOX(APARAMBOX , STR0007 , @ARET)  //"PARAMETROS "
+						IF (ARET[1] = 2) 								// "PARCEIRO"
+							LCLIENTE := .F.
+						ENDIF 
+					ENDIF
+				ENDIF
+				IF LCLIENTE 											// OPERAÇÃO DE CLIENTE
+					WHILE EMPTY(ARETTL)
+						ARETTL := PL_VIEWPR(CCLIENTE,CLOJA) 			// CLIENTE DESTINO PARA SELEÇÃO DO PEDIDO COMERCIAL. 
+					ENDDO
+					NPOS := ASCAN(ARETTL , {|X| X[1]==.T.}) 
+					IF NPOS > 0 
+						CPL_PRJ := ARETTL[NPOS][2]
+						CPL_OBR	:= ARETTL[NPOS][3]
+						CPL_CLI	:= ARETTL[NPOS][4]
+						CPL_LOJ	:= ARETTL[NPOS][5]
+						CROMORI	:= FQ2->FQ2_NUM
+						CVIAORI	:= FQ2->FQ2_VIAGEM
+
+						// --> REALIZA A COPIA PARA GERACAO DO ZAG E ZUC
+						IF CPY_TAB(CROMORI,FQ2->FQ2_VIAGEM,CPL_PRJ,CPL_OBR,CPL_CLI,CPL_LOJ)
+							// --> GERA CONTRATO
+							DBSELECTAREA("FP0")
+							DBSETORDER(1)
+							IF DBSEEK(XFILIAL("FP0")+CPL_PRJ)
+								PROCESSA( {|| LOCA00173() }, STR0008, STR0009, .F.) //"DISTRIBUIÇÃO DE EQUIPAMENTOS"###"GERAÇÃO DO CONTRATO."
+								IF FP0->FP0_STATUS <> "5" 				// VERIFICA SE O CONTRATO FOI REALMENTE GERADO.
+									// --> GERA ESTORNO DA LOCAÇÃO.
+									RETURN CRET
+								ENDIF
+							ENDIF
+							// --> PROCESSA LIBERAÇÃO DE AS/ASF 
+							INCPROC(STR0010) //"PROCESSA LIBERAÇÃO DE AS/ASF..."
+							// --> PROCEDIMENTO REFERENTE A PROGRAMAÇÃO DA FRETE 
+							FQ5->(DBSETORDER(8)) 								// FQ5_FILIAL+FQ5_SOT+FQ5_OBRA
+							IF FQ5->(DBSEEK(XFILIAL("FQ5")+CPL_PRJ+CPL_OBR))	// TRAGO A VIAGEM EM QUE O CONJ.TRANSPORTADOR ESTÁ POSICIONADO.
+								WHILE FQ5->(!EOF()) .AND. ALLTRIM(FQ5->FQ5_CONTRA) == ALLTRIM(CPL_PRJ) .AND. ALLTRIM(FQ5->FQ5_OBRA) == ALLTRIM(CPL_OBR)
+									LACEITAAS := .F.
+									IF FQ5->FQ5_TPAS == "F"
+										BEGIN TRANSACTION 
+											RECLOCK("FQ5",.F.)
+												FQ5->FQ5_DTINI	:= DDATABASE
+												FQ5->FQ5_DTFIM	:= DDATABASE
+												FQ5->FQ5_HRINI	:= "0000"
+												FQ5->FQ5_HRFIM	:= "0000"
+												FQ5->FQ5_TIPAMA	:= "000000"
+												FQ5->FQ5_PACLIS	:= SPACE(1)
+												FQ5->FQ5_DTPROG	:= DDATABASE
+												FQ5->FQ5_STATUS := "1"
+											FQ5->(MSUNLOCK()) 
+										END TRANSACTION
+										LACEITAAS := .T.
+									ELSEIF FQ5->FQ5_TPAS == "L"
+										DBSELECTAREA("FPA")
+										FPA->(DBSETORDER(3))
+										IF FPA->(DBSEEK(XFILIAL("FPA")+FQ5->FQ5_AS+FQ5->FQ5_VIAGEM)) //PROTEÇÃO DE INTEGRIDADE: CASO NÃO TENHA ZAG IGNORO REGISTRO.
+											LACEITAAS := .T.
+										ENDIF
+									ENDIF
+									IF LACEITAAS
+								 		LOCA05908("LOTE",.T.) 			// SOMENTE REALIZAR O POSICIONAMENTO DA TABELA.
+									ENDIF
+									// --> VINCULA ITENS NO ROMANEIO
+									IF FQ5->FQ5_TPAS == "F" 
+										IF !LOCA028(FQ5->FQ5_AS,.T.)
+											MSGALERT(STR0011 , STR0003)  //"NÃO FOI POSSÍVEL VINCULAR ITENS NO ROMANEIO"###"GPO - PLOC05102.PRW"
+										ENDIF
+									ENDIF 
+									FQ5->(DBSKIP())
+								ENDDO
+							ELSE 
+								MSGALERT(STR0012 , STR0003)  //"NÃO FOI POSSÍVEL ENCONTRAR A ASF PARA REALIZAR A PROGRAÇÃO DE FRETE, VERIFIQUE SE A ASF EXISTE PELO CONJUNTO TRANSPORTADOR."###"GPO - PLOC05102.PRW"
+							ENDIF 
+
+							// --> PROCESSA ATIVAÇÃO DO ROMANEIO
+							INCPROC(STR0013) //"PROCESSA ATIVAÇÃO DO ROMANEIO..."
+							FQ2->(DBSETORDER(1))
+							ASZ0DADOS := {}
+							
+							IF FQ2->(DBSEEK(XFILIAL("FQ2")+FQ2->FQ2_NUM))
+								AADD(ASZ0DADOS,FQ2->FQ2_DATA  )
+								AADD(ASZ0DADOS,FQ2->FQ2_PLACA )
+								AADD(ASZ0DADOS,FQ2->FQ2_PLACA2)
+								AADD(ASZ0DADOS,FQ2->FQ2_MOTORI)
+								AADD(ASZ0DADOS,FQ2->FQ2_CPFMOT)
+								AADD(ASZ0DADOS,FQ2->FQ2_TRANSP)
+								FQ2->(DBSETORDER(2))
+								IF FQ2->(DBSEEK(XFILIAL("FQ2")+CPL_PRJ+CPL_OBR))
+									WHILE FQ2->(!EOF()) .AND. FQ2->FQ2_VIAGEM <> FQ7->FQ7_VIAGEM
+										FQ2->(DBSKIP())
+									ENDDO
+									BEGIN TRANSACTION 
+										RECLOCK("FQ2",.F.)
+											FQ2->FQ2_DATA   := ASZ0DADOS[1]
+											FQ2->FQ2_PLACA  := ASZ0DADOS[2]
+											FQ2->FQ2_PLACA2 := ASZ0DADOS[3]
+											FQ2->FQ2_MOTORI := ASZ0DADOS[4]
+											FQ2->FQ2_CPFMOT := ASZ0DADOS[5]
+											FQ2->FQ2_TRANSP := ASZ0DADOS[6]
+										FQ2->(MSUNLOCK()) 
+									END TRANSACTION
+								ENDIF
+							ENDIF
+
+							// --> PROCESSA A MIGRAÇÃO DOS ANEXOS DO ROMANEIO.
+							INCPROC(STR0014) //"PROCESSA ANEXO DO ROMANEIO..."
+							IF SELECT("TMP") > 0 
+								TMP->(DBCLOSEAREA()) 
+							ENDIF
+							CQUERY := " SELECT * " 								// MARCO POIS COPIO TODOS OS CAMPOS DA TABELA
+							CQUERY += " FROM "+RETSQLNAME("AC9")+" AC9"
+							CQUERY += " WHERE  AC9.D_E_L_E_T_ = '' "
+							CQUERY +=   " AND  AC9.AC9_ENTIDA = 'FQ2' " 		// TABELA DE ROMANEIO.
+							CQUERY +=   " AND  AC9.AC9_CODENT = '"+CROMORI+"' "	// NUMERO DO ROMANEIO.
+							CQUERY := CHANGEQUERY(CQUERY) 
+							TCQUERY CQUERY NEW ALIAS "TMP" 
+							
+							ASTRUCT := DBSTRUCT() 		  						// OBTÉM A ESTRUTURA DO SELECT
+							IF !EMPTY(ASTRUCT)
+								WHILE TMP->(!EOF())
+									RECLOCK("AC9",.T.)
+										FOR NINICIAL := 1 TO LEN(ASTRUCT)
+											IF ALLTRIM(ASTRUCT[NINICIAL][1]) == "AC9_CODENT"
+												FQ2->(DBSETORDER(2))
+												IF FQ2->(DBSEEK(XFILIAL("FQ2")+CPL_PRJ+CPL_OBR))
+													AC9->&(ASTRUCT[NINICIAL][1]) := FQ2->FQ2_NUM
+												ENDIF
+											ELSE
+												AC9->&(ASTRUCT[NINICIAL][1]) := TMP->&(ASTRUCT[NINICIAL][1])
+											ENDIF
+										NEXT NINICIAL 
+									AC9->(MSUNLOCK())
+									TMP->(DBSKIP())
+								ENDDO
+							ENDIF
+							TMP->(DBCLOSEAREA())
+
+							// --> PROCESSA GERAÇÃO DA NOTA DE REMESSA
+							INCPROC(STR0015) //"PROCESSA GERAÇÃO DA NOTA DE REMESSA..."
+							FQ2->(DBSETORDER(2))
+							IF FQ2->(DBSEEK(XFILIAL("FQ2")+CPL_PRJ+CPL_OBR))
+								LOCA010(.T.) 						// GERA NOTA DE REMESSA 
+							ENDIF
+						ELSE
+							MSGALERT(STR0016 , STR0003) //"FALHA NA GERACAO DA LOCAÇÃO"###"GPO - PLOC05102.PRW"
+						ENDIF
+					ELSE
+						// REMOVIDO POR FRANK EM 13/08/2020
+						//MSGALERT("OPERAÇÃO CANCELADA PELO USUÁRIO" , "GPO - PLOC05102.PRW") 
+						LRET := .F.
+					ENDIF
+
+				ELSEIF !LCLIENTE 										// OPERAÇÃO DE PARCEIRO
+					CTESLF   := SUPERGETMV("MV_LOCX255",.F.,"556")
+					_CPEDIDO := XGERPV()
+					// --> PROCESSAMENTO PARA GERA A NOTA DE REMESSA PARA O PARCEIRO.
+					IF !EMPTY(_CPEDIDO)
+						_CNOTA := "" 
+						PROCESSA({|| STATICCALL(GERNFREM,GRAVANFS, _CPEDIDO,,,CSERIE ) }, STR0017 + _CPEDIDO, STR0018, .T.) //"PROCESSANDO NF PARA O PEDIDO DE VENDA "###"AGUARDE..."
+						IF EMPTY( _CNOTA )
+							MSGALERT(STR0019+_CPEDIDO , STR0003) //"NÃO FOI POSSÍVEL FATURAR O PEDIDO PARA O PARCEIRO: "###"GPO - PLOC05102.PRW"
+							RETURN
+						ELSE
+							// --> ALTERA O STATUS DO BEM PARA EM PARCEIRO
+							DBSELECTAREA("FQ3")
+							DBSETORDER(1)								// FQ3_FILIAL+FQ3_NUM
+							IF FQ3->(DBSEEK(XFILIAL("FQ3")+FQ2->FQ2_NUM))
+								WHILE FQ3->(!EOF()) .AND. FQ2->FQ2_NUM == FQ3->FQ3_NUM
+									DBSELECTAREA("ST9")
+									DBSETORDER(1)						// T9_FILIAL+T9_CODBEM
+									IF ST9->(DBSEEK(XFILIAL("ST9")+FQ3->FQ3_CODBEM))
+										IF RECLOCK("ST9",.F.)
+											ST9->T9_STATUS  := XMV_LOCX270
+											ST9->(MSUNLOCK())
+										ENDIF
+										//IF EXISTBLOCK("T9STSALT") 		// PONTO DE ENTRADA ANTES DA ALTERAÇÃO DE STATUS DO BEM.
+											//EXECBLOCK("T9STSALT",.T.,.T.,{ST9->T9_STATUS,XMV_LOCX270,STR0006,SF2->F2_DOC,SF2->F2_SERIE,.T.}) //"PARCEIRO"
+											LOCXITU21(ST9->T9_STATUS,XMV_LOCX270,STR0006,SF2->F2_DOC,SF2->F2_SERIE,.T.)
+										//ENDIF
+									ENDIF
+									FQ3->(DBSKIP())
+								ENDDO
+							ENDIF
+							MSGINFO(STR0020+_CPEDIDO+"." +CRLF + STR0021+_CNOTA+"!" , STR0003)  //"GERADO O PEDIDO PARA O PARCEIRO DE NÚMERO: "###"GERADA A NF DE REMESSA "###"GPO - PLOC05102.PRW"
+						ENDIF
+					ENDIF
+				ENDIF
+
+			CASE CRET == "F" //OPERAÇÃO PARA FILIAL 
+				CTESLF		:= SUPERGETMV("MV_LOCX255",.F.,"555")					
+				_CPEDIDO 	:= XGERPV()
+
+				// --> PROCESSAMENTO PARA GERA A NOTA DE REMESSA PARA O FILIAL.
+				IF !EMPTY(_CPEDIDO)
+					_CNOTA := "" 
+					PROCESSA({|| STATICCALL(GERNFREM,GRAVANFS, _CPEDIDO,,,CSERIE ) }, STR0022 + _CPEDIDO, STR0018, .T.) //"PROCESSANDO NF P/ O PEDIDO DE VENDA "###"AGUARDE..."
+					IF EMPTY( _CNOTA )
+						MSGALERT(STR0023+_CPEDIDO , STR0003)  //"NÃO FOI POSSÍVEL FATURAR O PEDIDO PARA O FILIAL: "###"GPO - PLOC05102.PRW"
+						RETURN 
+					ELSE
+						// --> GERANDO NOTA DE ENTRADA NA FILIAL.
+						PROCESSA({|| CNFTRANS := LOCA06405(CFILANT,CFILTRAS,SF2->F2_DOC,SF2->F2_SERIE)} , STR0024, STR0018 , .T.)  //"GERANDO NOTA DE ENTRADA NA FILIAL"###"AGUARDE..."
+						IF !EMPTY(CNFTRANS) 							// GERANDO A NOTA DE ENTRADA NA FILIAL TROCA SE O CENTRO DE TRABALHO.
+							// --> ALTERA O CENTRO TRABALHO DO EQUIPAMENTO.
+							DBSELECTAREA("FQ3")
+							DBSETORDER(1) 								// FQ3_FILIAL+FQ3_NUM
+							IF FQ3->(DBSEEK(XFILIAL("FQ3")+FQ2->FQ2_NUM))
+								PROCREGUA(1)
+								WHILE FQ3->(!EOF()) .AND. FQ2->FQ2_NUM == FQ3->FQ3_NUM
+									INCPROC(STR0025) //"ATUALIZANDO CENTRO DE TRABALHO..."
+									DBSELECTAREA("ST9")
+									DBSETORDER(1) 						// T9_FILIAL+T9_CODBEM
+									IF ST9->(DBSEEK(XFILIAL("ST9")+FQ3->FQ3_CODBEM))
+										IF RECLOCK("ST9",.F.)
+											ST9->T9_CENTRAB := CFILTRAS
+											ST9->(MSUNLOCK())
+										ENDIF
+									ENDIF
+									FQ3->(DBSKIP())
+								ENDDO
+							ENDIF
+						ENDIF
+				   		MSGINFO(STR0020+_CPEDIDO+"." +CRLF + STR0021+_CNOTA+"!" +CRLF + STR0026+CNFTRANS+"!" , STR0003)  //"GERADO O PEDIDO PARA O PARCEIRO DE NÚMERO: "###"GERADA A NF DE REMESSA "###"GERADA A NF DE ENTRADA NA FILIAL "###"GPO - PLOC05102.PRW"
+					ENDIF
+				ENDIF
+
+			ENDCASE
+
+		ELSE 
+
+			CMSG := STR0027 //"NÃO FOI POSSÍVEL IDENTIFICAR QUAL SERÁ O DESTINO DO EQUIPAMENTO, FAVOR VERIFICAR O CONJUNTO TRANSPORTADOR "
+			CMSG += STR0028 //"DO PEDIDO COMERCIAL."
+			MSGALERT(STR0029+CMSG , STR0003)  //"OPERAÇÃO CANCELADA: "###"GPO - PLOC05102.PRW"
+			LRET := .F.   
+
+		ENDIF
+
+	ENDIF
+
+ELSE
+
+	LRET := .F.
+
+ENDIF
+
+RESTAREA(AGETAREA)
+
+RETURN LRET
+
+
+
+/*
+CONSULTORIA	  : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRICAO     : RETORNA SE A OPERAÇÃO DE RETORNO O EQUIPAMENTO SERÁ 
+					A) OUTRO CLIENTE;
+					B) UM PARCEIRO;
+					C) UMA FILIAL TECNOGERA;
+RETORNO       : CARACTER SENDO:
+					"C" = CLIENTE;
+					"P" = UM PARCEIRO;
+					"F" UMA FILIAL TECNOGERA;
+					"N" OPERAÇÃO ONDE O DESTINO DO RETORNO SERÁ A ORIGEM DA REMESSA
+*/
+// ======================================================================= \\
+STATIC FUNCTION VDIFOR(CVIAGEM)
+// ======================================================================= \\
+
+LOCAL ALOADSM0	:= FWLOADSM0() 
+LOCAL CRET 		:= SPACE(1) 
+LOCAL NPOS		:= 0
+
+DEFAULT CVIAGEM	:= SPACE(1)
+
+// PROCREGUA(1)
+
+DBSELECTAREA("FQ7")
+DBSETORDER(3)															// --> INDICE 01: FQ7_FILIAL +FQ7_VIAGEM 
+IF DBSEEK(XFILIAL("FQ7")+CVIAGEM) 
+	
+	//	INCPROC("ANALISANDO O DESTINO DO EQUIPAMENTO...") 
+	CCLIENTE := FQ7->FQ7_LCCDES
+	CLOJA	 := FQ7->FQ7_LCLDES
+	CCGC	 := POSICIONE("SA1" , 1 , XFILIAL("SA1")+CCLIENTE+CLOJA , "A1_CGC") 
+	
+	// --> VERIFICA SE NO RETORNO O DESTINO É A FILIAL LOGADA.
+	NPOS := ASCAN(ALOADSM0 , {|X| ALLTRIM(X[1])+ALLTRIM(X[2]) == CEMPANT+CFILANT}) 
+	IF NPOS > 0  
+		CCGCORIGEM := ALOADSM0[NPOS][18]								// 18 = É A POSIÇÃO DO CGC DA EMPRESA ATUAL.
+	ENDIF
+
+	IF CCGCORIGEM <> CCGC 												// ISSO SIGNIFICA QUE O DESTINO DO EQUIPAMENTO NÃO É O ORIGEM DA REMESSA
+		CPARCEIRO	     := "" 											// POSICIONE("SA1",1,XFILIAL("SA1")+CCLIENTE+CLOJA,"A1_XPARCA")
+		IF !EMPTY(CCGC) 
+			// --> PROCEDIMENTO PARA VERIFICAR SE É UM PARCEIRO.
+			IF !EMPTY(CPARCEIRO)
+				CRET     := "P" 
+			ENDIF
+			// --> PROCEDIMENTO PARA VERIFICAR SE É UMA FILIAL 
+			NPOS := ASCAN(ALOADSM0 , {|X| ALLTRIM(X[18]) == CCGC}) 
+			IF NPOS > 0
+				CFILTRAS := ALOADSM0[NPOS][02]
+				CRET     := "F" 
+			ENDIF
+			// --> PROCEDIMENTO PARA VERIFICAR SE É UM CLIENTE
+			IF EMPTY(CRET)
+				CRET     := "C" 
+			ENDIF 
+		ELSE 
+			MSGALERT(STR0064+CCLIENTE+"/"+CLOJA+STR0065 , STR0042) //"CNPJ DO CLIENTE  ["###"] NÃO INFORMADO, FAVOR ATUALIZAR CADASTRO !"###"GPO - PLOC05102.PRW"
+		ENDIF 
+	ELSE 
+		CRET := "N" 													// DESTINO DA RETORNO DO EQUIPAMENTO É A ORIGEM DA REMESSA 
+	ENDIF
+ELSE 
+	MSGALERT(STR0030+CVIAGEM+STR0031+XFILIAL("FQ7")+STR0032 , STR0003)  //"NÃO FOI LOCALIZADA A VIAGEM ["###"] COM FILIAL ["###"], NA TABELA DE CONJUNTO TRANSPORTADOR (ZUC)"###"GPO - PLOC05102.PRW"
+	CONOUT(STR0033+CVIAGEM+STR0031+XFILIAL("FQ7")+STR0032)  //"##PLOC05102.PRW - NÃO FOI LOCALIZADA A VIAGEM ["###"] COM FILIAL ["###"], NA TABELA DE CONJUNTO TRANSPORTADOR (ZUC)"
+ENDIF
+
+RETURN CRET 
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS 
+DESCRICAO     : ROTINA AUXILIAR QUE IRÁ REALIZAR A CRIAÇÃO DA ZAG E DA ZUC NO PEDIDO COMERCIAL
+RETORNO       : .T. = OPERAÇÃO CONCLUÍDA COM SUCESSO - .F. = FALHA NA OPERAÇAO					
+*/
+// ======================================================================= \\
+STATIC FUNCTION CPY_TAB(CNUMROMA,CVIAROMA,CPL_PRJ,CPL_OBR,CPL_CLI,CPL_LOJ)
+// ======================================================================= \\
+
+LOCAL NINICIAL	:= 0
+LOCAL ACPYTAB	:= {}
+LOCAL AITEM		:= {}
+LOCAL LRET 		:= .T.     
+LOCAL CCPOZAG	:= SPACE(1)
+LOCAL CAUX		:= "00"	
+
+DEFAULT	CNUMROMA:= SPACE(1)
+DEFAULT	CVIAROMA:= SPACE(1)
+DEFAULT CPL_PRJ	:= SPACE(1)
+DEFAULT	CPL_OBR	:= SPACE(1)
+DEFAULT	CPL_CLI	:= SPACE(1)
+DEFAULT	CPL_LOJ := SPACE(1)
+
+// --> CAMPOS QUE NÃO DEVEM SER IMPORTADOS
+CCPOZAG := "FPA_DT_DTENRE,FPA_DTPRRT,FPA_AS,FPA_VIAGEM,FPA_DNFREM,FPA_FILREM,FPA_NFREM,FPA_SERREM,FPA_ITEREM,"
+CCPOZAG += "FPA_DTSCRT,FPA_MOTRET,FPA_NFRET,FPA_DNFRET,FPA_ITERET,FPA_PEDIDO"
+
+CCPOZUC	:= "FQ7_VIAORI,FQ7_VIAGEM"
+
+// --> ENTRA NA ZA1 - ITENS DO ROMANEIO PARA VERIFICAR AS AS.
+DBSELECTAREA("FQ3")
+DBSETORDER(1)
+IF DBSEEK(XFILIAL("FQ3")+CNUMROMA)
+	WHILE FQ3->(!EOF())  .AND. FQ3->FQ3_NUM == CNUMROMA
+
+		// --> PROCESSO DE CRIAÇÃO DA ZAG - CRIAÇÃO DA LOCAÇÃO.
+		DBSELECTAREA("FPA")
+		DBSETORDER(3) 													// FPA->FPA_FILIA+FPA->FPA_AS+FPA->FPA_VIAGEM
+		IF DBSEEK(XFILIAL("FPA")+FQ3->FQ3_AS+FQ3->FQ3_VIAGEM )
+			FOR NINICIAL := 1 TO (FPA->(FCOUNT()))
+				IF !(ALLTRIM(FPA->(FIELDNAME(NINICIAL))) $ CCPOZAG)
+					IF     ALLTRIM(FPA->(FIELDNAME(NINICIAL))) == "FPA_PROJET"
+						XVALOR := CPL_PRJ 
+					ELSEIF ALLTRIM(FPA->(FIELDNAME(NINICIAL))) == "FPA_OBRA"
+						XVALOR := CPL_OBR 
+					ELSE
+						XVALOR := FPA->&(ALLTRIM(FPA->(FIELDNAME(NINICIAL))))
+					ENDIF
+					AADD(AITEM, {ALLTRIM(FPA->(FIELDNAME(NINICIAL))),XVALOR} )
+				ENDIF
+			NEXT NINICIAL 
+			AADD(ACPYTAB,AITEM)
+			AITEM := {}
+		ELSE
+			LRET := .F.
+		ENDIF
+		FQ3->(DBSKIP())
+	ENDDO
+	LOCA06403("FPA",ACPYTAB) 											// REALIZA A GERAÇÃO DOS CONTEÚDOS
+
+	// --> MUDANÇA DE STATUS DO EQUIPAMENTO CASO O STATUS SEJA DIFERENTE DE DISPONIVEL. 
+	IF STATICCALL(MT103FIM,VESTATUS,CAUX)
+		WHILE TRBTQY->(!EOF())
+			IF ALLTRIM(TRBTQY->TQY_STTCTR) == ALLTRIM(CAUX)
+				DBSELECTAREA("ST9")
+				DBSETORDER(1)//T9_FILIAL+T9_CODBEM
+				FOR NINICIAL := 1 TO LEN(ACPYTAB)
+					NPOS:= ASCAN(ACPYTAB[1],{|X| ALLTRIM(X[1])=="FPA_GRUA"})
+					IF ST9->(DBSEEK(XFILIAL("ST9")+ACPYTAB[NINICIAL][NPOS][2]))
+						IF TRBTQY->TQY_STATUS <> ST9->T9_STATUS
+							//IF EXISTBLOCK("T9STSALT") 					// PONTO DE ENTRADA ANTES DA ALTERAÇÃO DE STATUS DO BEM.
+								//EXECBLOCK("T9STSALT",.T.,.T.,{ST9->T9_STATUS,TRBTQY->TQY_STATUS,"PARCEIRO",SF2->F2_DOC,SF2->F2_SERIE,.T.})
+								LOCXITU21(ST9->T9_STATUS,TRBTQY->TQY_STATUS,"PARCEIRO",SF2->F2_DOC,SF2->F2_SERIE,.T.)
+							//ENDIF
+							IF RECLOCK("ST9",.F.)
+								ST9->T9_STATUS := TRBTQY->TQY_STATUS 
+								ST9->(MSUNLOCK())
+							ENDIF
+						ENDIF
+					ENDIF
+				NEXT NINICIAL 
+			ENDIF
+			TRBTQY->(DBSKIP())
+		ENDDO
+		TRBTQY->(DBCLOSEAREA())
+	ENDIF
+
+	// --> PROCESSO DE CRIAÇÃO DA ZUC - CONJUNTO TRANSPORTADOR
+	IF LRET
+		ACPYTAB	:= {}
+		DBSELECTAREA("FQ7")
+		DBSETORDER(3) 													// FQ7->FQ7_FILIAL + FQ7_FQ7_VIAGEM
+		IF DBSEEK(XFILIAL("FQ7")+CVIAROMA )
+			FOR NINICIAL := 1 TO (FQ7->(FCOUNT()))
+				IF !(ALLTRIM(FQ7->(FIELDNAME(NINICIAL)))$ CCPOZUC)
+					IF     ALLTRIM(FQ7->(FIELDNAME(NINICIAL))) == "FQ7_TPROMA"
+						XVALOR := "0" 									// ROMANEIO DE REMESSA 
+					ELSEIF ALLTRIM(FQ7->(FIELDNAME(NINICIAL))) == "FQ7_PROJET"
+						XVALOR := CPL_PRJ 
+					ELSEIF ALLTRIM(FQ7->(FIELDNAME(NINICIAL))) == "FQ7_OBRA"
+						XVALOR := CPL_OBR 
+					ELSE
+						XVALOR := FQ7->&(ALLTRIM(FQ7->(FIELDNAME(NINICIAL))))
+					ENDIF 
+					AADD(AITEM,{ALLTRIM(FQ7->(FIELDNAME(NINICIAL))),XVALOR} )
+				ENDIF
+			NEXT NINICIAL 
+			AADD(ACPYTAB,AITEM)
+			AITEM := {}
+			LOCA06403("FQ7",ACPYTAB) 									// REALIZA A GERAÇÃO DOS CONTEÚDOS
+		ELSE
+			LRET := .F.
+		ENDIF
+	ELSE
+		LRET := .F.
+	ENDIF
+ENDIF
+
+RETURN LRET           
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRIÇÃO     : ROTINA AUXILIAR QUE IRÁ APRESENTAR AO USUÁRIO O PEDIDO COMERCIAL E OBRA DO CLIENTE DE DESTINO.
+*/
+// ======================================================================= \\
+STATIC FUNCTION PL_VIEWPR(CCLIENTE,CLOJA) 
+// ======================================================================= \\
+
+/*	// --> DESCONTINUADO MAIO/2020   (*INICIO*) 
+LOCAL OOK        := LOADBITMAP(GETRESOURCES(),"LBOK")
+LOCAL ONO        := LOADBITMAP(GETRESOURCES(),"LBNO") 
+LOCAL LUMAOPCAO  := .T.  
+LOCAL LMARCAITEM := .T.
+LOCAL CQUERY	 := SPACE(1)
+LOCAL OCONFIRM 
+LOCAL BACAO      := NIL 
+*/	// --> DESCONTINUADO MAIO/2020   (*FINAL* ) 
+LOCAL _AARRAY	 := {} 
+
+DEFAULT	CCLIENTE := SPACE(1)
+DEFAULT CLOJA    := SPACE(1)
+
+AADD(_AARRAY , {.F.,"","","","",""}) 		// --> INCLUSO MAIO/2020 (EM SUBSTITUIÇÃO AO BLOCO DESCONTINUADO) 
+
+/*	// --> DESCONTINUADO MAIO/2020   (*INICIO*) 
+IF SELECT("TMP") > 0 
+	TMP->(DBCLOSEAREA())
+ENDIF
+CQUERY := " SELECT FP1_PROJET , FP1_OBRA , FP1_CLIORI , FP1_LOJORI " 
+CQUERY += " FROM "+RETSQLNAME("FP1")+" ZA1 "
+CQUERY += " WHERE  ZA1.D_E_L_E_T_ = '' "
+CQUERY += "   AND  ZA1.FP1_CLIORI = '"+CCLIENTE+"' "
+CQUERY += "   AND  ZA1.FP1_LOJORI = '"+CLOJA   +"' "
+CQUERY := CHANGEQUERY(CQUERY) 
+TCQUERY CQUERY NEW ALIAS "TMP" 
+
+IF TMP->(EOF())
+	AADD(_AARRAY , {.F.,"","","","",""}) 
+ELSE
+	WHILE TMP->(!EOF())
+		AADD(_AARRAY , {.F. , TMP->FP1_PROJET , TMP->FP1_OBRA , TMP->FP1_CLIORI , TMP->FP1_LOJORI}) 
+		TMP->(DBSKIP())
+	ENDDO
+ENDIF
+
+TMP->(DBCLOSEAREA())
+
+DEFINE MSDIALOG ODLG1 TITLE "SELEÇÃO DO PROJETO E OBRA DO CLIENTE DESTINO" FROM 0,0 TO 25,86 OF OMAINWND
+	// VAR "VINCULO FRETE X EQUIPAMENTO" 
+	@ 1.5,.7 LISTBOX OLISTBOX FIELDS ; 
+	         HEADER  " " , "PROJETO" , "OBRA" , "CLIENTE" , "LOJA" SIZE 330,147 ON DBLCLICK ; 
+	         (_AARRAY := MARCAITEM(OLISTBOX:NAT,_AARRAY,LUMAOPCAO,LMARCAITEM),IIF((EMPTY(_AARRAY[OLISTBOX:NAT,2])),OCONFIRM:DISABLE(),OCONFIRM:ENABLE()) , ; 
+	         IIF(BACAO==NIL,,EVAL(BACAO)),OLISTBOX:REFRESH()) 
+	OLISTBOX:SETARRAY(_AARRAY)
+	OLISTBOX:BLINE := { || {IIF(_AARRAY[OLISTBOX:NAT][1],OOK,ONO) , ;
+	                            _AARRAY[OLISTBOX:NAT][2]          , ; 
+	                            _AARRAY[OLISTBOX:NAT][3]          , ; 
+	                            _AARRAY[OLISTBOX:NAT][4]          , ;
+	                            _AARRAY[OLISTBOX:NAT][5]}}
+	@ 172, 7 BUTTON OCONFIRM PROMPT "CONFIRMAR" SIZE 45,12 OF ODLG1 PIXEL ACTION (ODLG1:END()) 
+ACTIVATE MSDIALOG ODLG1 CENTERED
+*/	// --> DESCONTINUADO MAIO/2020   (*FINAL* ) 
+
+RETURN _AARRAY 
+
+
+
+/*	// --> DESCONTINUADO MAIO/2020   (*INICIO*) 
+// ======================================================================= \\
+STATIC FUNCTION MARCAITEM(NAT , _AARRAY , LUMAOPCAO , LMARCAITEM) 
+// ======================================================================= \\
+// --> MARCA E DESMARCA UM ÚNICO ITEM.
+
+LOCAL NINICIAL := 1
+
+IF LUMAOPCAO
+	FOR NINICIAL := 1 TO LEN(_AARRAY)
+		_AARRAY[NINICIAL][1] := !LUMAOPCAO
+	NEXT NINICIAL 
+ENDIF 
+ 
+_AARRAY[NAT,1] := !_AARRAY[NAT,1] 
+
+RETURN _AARRAY                                                   
+*/	// --> DESCONTINUADO MAIO/2020   (*FINAL* ) 
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRIÇÃO     : ROTINA QUE GERA PEDIDO DE VENDA LIBERADO PARA ROMANEIO POSICIONADO.
+*/
+// ======================================================================= \\
+STATIC FUNCTION XGERPV() 
+// ======================================================================= \\
+
+LOCAL _CPEDIDO := SPACE(1)
+LOCAL CNUMSC5  := SPACE(1)
+      
+CNUMSC5 := STATICCALL(GERNFREM,XSC5NUM) 
+
+IF LEN(ACAMPOSSC5) == 0 
+	CNATUREZ   := SUPERGETMV("MV_LOCX066",.F.,"300000")//NATUREZA REMESSA LOCAÇÃO E FRETE
+	ACAMPOSSC5 := {} 
+	DBSELECTAREA("SA1")
+	SA1->(DBSETORDER(1))
+	IF SA1->(DBSEEK(XFILIAL("SA1")+CCLIENTE+CLOJA))
+		AADD(ACAMPOSSC5     , {"C5_FILIAL"  , XFILIAL("C5_FILIAL") , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_NUM"     , CNUMSC5              , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_TIPO"    , "N"                  , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_CLIENTE" , SA1->A1_COD          , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_LOJACLI" , SA1->A1_LOJA         , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_CLIENT"  , SA1->A1_COD          , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_LOJAENT" , SA1->A1_LOJA         , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_TIPOCLI" , SA1->A1_TIPO         , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_DESC1"   , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_DESC2"   , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_DESC3"   , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_DESC4"   , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_TPCARGA" , "1"                  , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_CONDPAG" , "001"                , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_TPFRETE" , "F"                  , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_VOLUME1" , 1                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_ESPECI1" , "MAQUINA"            , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_PESOL"   , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_PBRUTO"  , 0                    , NIL} )
+		AADD(ACAMPOSSC5     , {"C5_NATUREZ" , CNATUREZ             , NIL} )
+		IF SC5->(FIELDPOS("C5_OBSNF"))   > 0
+			AADD(ACAMPOSSC5 , {"C5_OBSNF"   , _CTXT                , NIL} )
+		ENDIF
+		
+		IF SC5->(FIELDPOS("C5_XTIPFAT")) > 0
+			AADD(ACAMPOSSC5 , {"C5_XTIPFAT" , "R"                  , NIL} )
+		ENDIF
+		IF SC5->(FIELDPOS("C5_XPROJET")) > 0
+			AADD(ACAMPOSSC5 , {"C5_XPROJET" , FQ2->FQ2_PROJET       , NIL} )
+		ENDIF
+
+		IF SC5->(FIELDPOS("C5_XTIPFAT")) > 0
+			AADD(ACAMPOSSC5 , {"C5_XTIPFAT" , "R"                  , NIL} )
+		ENDIF
+		IF SC5->(FIELDPOS("C5_XOBRA"))   > 0
+			AADD(ACAMPOSSC5 , {"C5_XOBRA"   , FQ2->FQ2_OBRA         , NIL} )
+		ENDIF
+	ENDIF
+
+	// --> MONTAGEM DOS ITENS DO PEDIDO 
+	// --> CRIA ARRAY PARA OS ITENS DO PEDIDO.
+	DBSELECTAREA("FQ3")
+	FQ3->(DBSETORDER(1)) 				// FQ3_FILIAL+FQ3_NUM+FQ3_ITEM
+	IF FQ3->(DBSEEK(XFILIAL("FQ3")+FQ2->FQ2_NUM))
+		WHILE FQ3->(!EOF()) .AND. FQ3->FQ3_NUM == FQ2->FQ2_NUM
+			DBSELECTAREA("FPA")
+			FPA->(DBSETORDER(3))		// FPA_FILIAL+FPA_AS+FPA_VIAGEM
+			IF FPA->(DBSEEK(XFILIAL("FPA")+FQ3->FQ3_AS+FQ3->FQ3_VIAGEM))
+				CPROJET	:= FQ2->FQ2_PROJET
+				CRECNO	:= "("+ALLTRIM(STR(FPA->(RECNO())))+")"
+				LITEMPV := STATICCALL(GERNFREM,ITENSPED,CRECNO,.T.)
+				IF LITEMPV
+					_CDESCRI := ALLTRIM(ZAGTMP->B1_DESC)
+					_CDESCRI += " ("+ ALLTRIM(ZAGTMP->FPA_GRUA)
+					_CDESCRI += IIF(! EMPTY(ZAGTMP->T9_SERIE) , " - "+ALLTRIM(ZAGTMP->T9_SERIE)+")" , ")" ) 
+
+					AITENS := {}
+
+					CITEM := SOMA1(CITEM) 
+					// --> CRIA ARRAY PARA OS ITENS DO PV 
+					AADD(AITENS , {"C6_FILIAL"  , XFILIAL("SC6")              , NIL}) 	// FILIAL
+					AADD(AITENS , {"C6_ITEM"    , CITEM                       , NIL}) 	// ITENS
+					AADD(AITENS , {"C6_NUM"     , CNUMSC5                     , NIL}) 	// NUMERO DO PEDIDO
+					AADD(AITENS , {"C6_PRODUTO" , ALLTRIM(ZAGTMP->FPA_PRODUT) , NIL}) 	// MATERIAL
+					AADD(AITENS , {"C6_UM"      , ZAGTMP->B1_UM               , NIL}) 	// UNIDADE DE MEDIDA
+					AADD(AITENS , {"C6_DESCRI"  , _CDESCRI                    , NIL}) 	// DESCRICAO DO PRODUTO
+					AADD(AITENS , {"C6_TES"     , CTESLF                      , NIL}) 	// TES
+					AADD(AITENS , {"C6_ENTREG"  , DDATABASE                   , NIL}) 	// DATA DA ENTREGA
+					AADD(AITENS , {"C6_DESCONT" , 0                           , NIL}) 	// PERCENTUAL DE DESCONTO
+					AADD(AITENS , {"C6_COMIS1"  , 0                           , NIL}) 	// COMISSAO VENDEDOR
+					AADD(AITENS , {"C6_CLI"     , SA1->A1_COD                 , NIL}) 	// CLIENTE
+					AADD(AITENS , {"C6_LOJA"    , SA1->A1_LOJA                , NIL}) 	// LOJA DO CLIENTE
+					NVALPROD := NOROUND(ZAGTMP->VALREM,2)
+					IF NVALPROD <= 0
+						CAVISO := STR0035 + ALLTRIM(ZAGTMP->FPA_PRODUT) + STR0036 + CRLF + STR0037 //"O ITEM '"###"' ESTÁ COM O VALOR ZERADO."###"FAVOR VERIFICAR O CADASTRO DE PRODUTO OU CADASTRO DO BEM, SE FOR O CASO!"
+						AVISO(CAVISO)
+						RETURN
+					ENDIF
+					AADD(AITENS , {"C6_QTDVEN"  , 1                           , NIL}) 	// QUANTIDADE
+					AADD(AITENS , {"C6_PRCVEN"  , NVALPROD                    , NIL}) 	// PRECO DE VENDA / VALOR FRETE
+					IF SUPERGETMV("MV_GERNFS",,.T.)
+						AADD(AITENS , {"C6_QTDLIB"	, 1                           , NIL}) 	// QUANTIDADE LIBERADA	
+					EndIF
+					//AADD(AITENS , {"C6_LOCAL"   , ZAGTMP->B1_LOCPAD           , NIL}) 	// ARMAZEM PADRAO
+					IF SC6->(FIELDPOS( "C6_XCCUSTO")) > 0 
+						AADD(AITENS,{"C6_XCCUSTO" , ZAGTMP->FPA_CUSTO         , NIL}) 	// CENTRO DE CENTRO ZAG
+					ENDIF
+					IF SC6->(FIELDPOS("C6_XAS"))      > 0
+						AADD(AITENS,{"C6_XAS"     , ZAGTMP->FPA_AS            , NIL}) 	// AS
+					ENDIF
+					IF SC6->(FIELDPOS("C6_CLVL"))     > 0
+						AADD(AITENS,{"C6_CLVL"    , ZAGTMP->FPA_AS            , NIL}) 	// CLASSE DE VALOR
+					ENDIF
+					//IF SC6->(FIELDPOS("C6_XBEM"))     > 0
+					//	AADD(AITENS,{"C6_XBEM"    , ZAGTMP->FPA_GRUA          , NIL}) 	// BEM
+					//ENDIF
+					
+					// Controle do endereçamento - Frank 28/07/2021
+					// [ inicio - controle de endereçamento ]
+					_cNumSer := ZAGTMP->FPA_GRUA
+					SB1->(dbSetOrder(1))
+					SB1->(dbSeek(xFilial("SB1")+ZAGTMP->FPA_PRODUT))
+
+					// Identificação do local padrão de estoque
+					If empty(ZAGTMP->FPA_LOCAL) // não informado na locação o local de estoque
+						// utilizar o default informado no cadastro de produtos
+						_cLocaPad := ZAGTMP->B1_LOCPAD
+					Else
+						_cLocaPad := ZAGTMP->FPA_LOCAL
+					EndIF
+
+					If getmv("MV_LOCALIZ",,"S")=="S" .and. SB1->B1_LOCALIZ == "N" .and. !empty(_cNumSer)
+						// Neste caso levaremos apenas para o SC6 o número de série da FPA.
+						// Não precisa encontrar o endereçamento na SBF.
+						//IF SC6->(FIELDPOS("C6_NUMSERI")) > 0 
+						//	AADD(AITENS,{"C6_NUMSERI"	,_cNumSer       , XA1ORDEM("C6_NUMSERI"	)}) 
+						//ENDIF
+						IF SC6->(FIELDPOS("C6_FROTA")) > 0
+							AADD(AITENS,{"C6_FROTA"	,_cNumSer       , Nil	}) 
+						ENDIF
+					ElseIf getmv("MV_LOCALIZ",,"S")=="S" .and. SB1->B1_LOCALIZ == "S" 
+						If empty(_cNumSer)
+							// Neste caso não foi informado o número de série
+							// Então vamos encontrar o local de endereçamento na SBF pelo produto/local que tenha o saldo necessário e levar o
+							// endereçamento para a SC6
+							SBF->(dbSetOrder(2))
+							If !SBF->(dbSeek(xFilial("SBF")+ZAGTMP->FPA_PRODUT+_cLocaPAd))
+								MsgAlert(STR0075+alltrim(ZAGTMP->FPA_PRODUT)+STR0076+_cLocaPAd,STR0077)  // "Não foi localizado na tabela de endereçamento o produto: "###" no local de estoque: "###"Atenção!"
+								cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+								Return .F.
+							Else
+								_cLocaEnd := ""
+								// Tental localizar um endereço que atenda na totalidade a quantidade da FPA
+								While !SBF->(Eof()) .and. SBF->BF_PRODUTO == ZAGTMP->FPA_PRODUT .and. SBF->BF_LOCAL == _cLocaPad
+									If SBF->BF_QUANT - SBF->BF_EMPENHO >= _NQTD	
+										_cLocaEnd := SBF->BF_LOCALIZ
+										exit
+									EndIF
+									SBF->(dbSkip())
+								EndDo
+								If empty(_cLocaEnd)
+									MsgAlert(STR0079+ZAGTMP->FPA_PRODUT,STR0080) //"Não foi localizado um endereço de estoque com a quantidade necessária para o produto: "###"Não há um endereço com o total necessário."
+									cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+									Return .F.
+								EndIF
+								AADD(AITENS,{"C6_LOCALIZ"	,_cLocaEnd  , Nil}) 
+							EndIF
+						Else
+							// Neste caso foi informado o número de série
+							// Então vamos encontrar o local de endereçamento na SBF produto/local/NS que tenha o saldo necessário e levar
+							// o endereçamento para a SC6
+							// levar em consideração a mensagem de que existem saldos parciais que atendem o todo avisar e não deixar gerar o pv
+							SBF->(dbSetOrder(2))
+							If !SBF->(dbSeek(xFilial("SBF")+ZAGTMP->FPA_PRODUT+_cLocaPAd))
+								MsgAlert(STR0081+alltrim(ZAGTMP->FPA_PRODUT)+STR0082+_cLocaPAd,STR0077) // "Não foi localizado na tabela de endereçamento o produto: "###" no local de estoque: "###"Atenção!"
+								cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+								Return .F.
+							Else
+								_cLocaEnd := ""
+								// Tental localizar um endereço que atenda na totalidade a quantidade da FPA
+								While !SBF->(Eof()) .and. SBF->BF_PRODUTO == ZAGTMP->FPA_PRODUT .and. SBF->BF_LOCAL == _cLocaPad
+									If alltrim(SBF->BF_NUMSERI) == alltrim(_cNumSer)
+										If SBF->BF_QUANT - SBF->BF_EMPENHO >= _NQTD	
+											_cLocaEnd := SBF->BF_LOCALIZ
+											exit
+										EndIF
+									EndIF
+									SBF->(dbSkip())
+								EndDo
+								If empty(_cLocaEnd)
+									_nTempSld := 0	
+									_cMsgSld  := ""
+									SBF->(dbSeek(xFilial("SBF")+ZAGTMP->FPA_PRODUT+_cLocaPAd))
+									While !SBF->(Eof()) .and. SBF->BF_PRODUTO == ZAGTMP->FPA_PRODUT .and. SBF->BF_LOCAL == _cLocaPad
+										If !empty(SBF->BF_NUMSERI)
+											_nTempSld += (SBF->BF_QUANT - SBF->BF_EMPENHO)
+											_cMsgSld  += alltrim(SBF->BF_NUMSERI)+" "
+											If _nTempSld >= _NQTD	
+												exit
+											EndIF
+										EndIF
+										SBF->(dbSkip())
+									EndDo
+									If _nTempSld >= _NQTD	
+										MsgAlert(STR0083+_cMsgSld,STR0084) //"Os seguintes equipamentos precisam ser inseridos na aba locação: "###"Não há um endereço com o total necessário."
+									Else
+										MsgAlert(STR0085,STR0086) //"Não existe saldo nos itens endereçados para esta quantidade."###"Não há um endereço com o total necessário."
+									EndIF
+									cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+									Return .F.
+								EndIF
+								AADD(AITENS,{"C6_LOCALIZ"	,_cLocaEnd  , Nil }) 
+							EndIf
+							IF SC6->(FIELDPOS("C6_NUMSERI")) > 0 
+								AADD(AITENS,{"C6_NUMSERI"	,_cNumSer       , Nil}) 
+							ENDIF
+							IF SC6->(FIELDPOS("C6_FROTA")) > 0
+								AADD(AITENS,{"C6_FROTA"	,_cNumSer       , Nil}) 
+							ENDIF
+						EndIF
+					ElseIf getmv("MV_LOCALIZ",,"S")=="N" .and. SB1->B1_LOCALIZ == "S" 
+						// Neste caso independente de ser infomado o NS 
+						// Vamos encontrar o local de endereçamento pelo produto/armazem na SBF que tenha o saldo necessário e levar o
+						// endereçamento para a SC6
+						// não levaremos o número de série para a sc6.
+
+						SBF->(dbSetOrder(2))
+						If !SBF->(dbSeek(xFilial("SBF")+ZAGTMP->FPA_PRODUT+_cLocaPAd))
+							MsgAlert(STR0079+alltrim(ZAGTMP->FPA_PRODUT)+STR0082+_cLocaPAd,STR0077) //"Não foi localizado na tabela de endereçamento o produto: "###" no local de estoque: "###"Atenção!"
+							cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+							Return .F.
+						Else
+							_cLocaEnd := ""
+							// Tental localizar um endereço que atenda na totalidade a quantidade da FPA
+							While !SBF->(Eof()) .and. SBF->BF_PRODUTO == ZAGTMP->FPA_PRODUT .and. SBF->BF_LOCAL == _cLocaPad
+								If SBF->BF_QUANT - SBF->BF_EMPENHO >= _NQTD	
+									_cLocaEnd := SBF->BF_LOCALIZ
+									exit
+								EndIF
+								SBF->(dbSkip())
+							EndDo
+							If empty(_cLocaEnd)
+								MsgAlert(STR0079+ZAGTMP->FPA_PRODUT,STR0080) //"Não foi localizado um endereço de estoque com a quantidade necessária para o produto: "###"Não há um endereço com o total necessário."
+								cAviso := STR0078 //"Processo de geração do pedido de remessa bloqueado."
+								Return .F.
+							EndIF
+							AADD(AITENS,{"C6_LOCALIZ"	,_cLocaEnd  , Nil}) 
+						
+							IF SC6->(FIELDPOS("C6_FROTA")) > 0
+								AADD(AITENS,{"C6_FROTA"	,_cNumSer       , Nil}) 
+							ENDIF
+						EndIF
+					EndIF
+					// Fim controle de enderecamento
+
+					AADD(ACAMPOSSC6, AITENS )
+				ENDIF
+			ENDIF  
+			FQ3->(DBSKIP())
+		ENDDO
+	ENDIF
+ENDIF
+
+_CPEDIDO := "" 
+PROCESSA({|| _CPEDIDO := LOCA06401(ACAMPOSSC5,ACAMPOSSC6) } , STR0038 , STR0018 , .T.)  //"PROCESSANDO PEDIDO DE VENDA "###"AGUARDE..."
+IF EMPTY(_CPEDIDO) 
+	MSGALERT(STR0039 , STR0003)  //"NÃO FOI POSSÍVEL GERAR O PEDIDO DE VENDA !"###"GPO - PLOC05102.PRW"
+	RETURN 
+ENDIF 
+
+RETURN _CPEDIDO 
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRIÇÃO     : ROTINA QUE IRÁ GERAR O PEDIDO DE VENDA VIA EXECAUTO
+PARAMETROS    : _ACABEC , _AITENS 
+RETORNO	      : NUMERO DO PEDIDO DE VENDA GERADO
+*/
+// ======================================================================= \\
+FUNCTION LOCA06401(ACABEC , AITENS) 
+// ======================================================================= \\
+
+LOCAL CPEDIDO := SPACE(1)
+
+PRIVATE LMSERROAUTO := .F.
+
+IF LEN(ACABEC) > 0 .AND. LEN(AITENS) > 0
+	INCPROC(STR0040)  //"AGUARDE... GERANDO PEDIDO DE VENDA..."
+	DBSELECTAREA("SA5")
+	MATA410(ACABEC , AITENS , 3) 
+
+	IF LMSERROAUTO
+		MOSTRAERRO()
+		ROLLBACKSX8()
+	ELSE
+		CPEDIDO := SC5->C5_NUM 
+		CONFIRMSX8() 
+	ENDIF 
+ELSE 
+	MSGSTOP(STR0041 , STR0042)  //"NAO EXISTEM REGISTROS PARA GERAÇÃO DO PEDIDO DE VENDA!"###"GPO - IT_BPRD.PRW"
+ENDIF
+		
+RETURN CPEDIDO
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRIÇÃO     : ROTINA QUE IRA VINCULAR NF DE RETORNO EM OUTROS ROMANEIOS.
+*/
+// ======================================================================= \\
+FUNCTION LOCA06402(CPROJETO,COBRA)
+// ======================================================================= \\
+
+LOCAL LRET       := .T.
+LOCAL CQUERY     := ""
+
+/*	// --> DESCONTINUADO MAIO/2020   (*INICIO*) 
+LOCAL _AARRAY	 := {}   
+LOCAL OOK        := LOADBITMAP(GETRESOURCES(),"LBOK")
+LOCAL ONO        := LOADBITMAP(GETRESOURCES(),"LBNO") 
+LOCAL LUMAOPCAO  := .T.  
+LOCAL LMARCAITEM := .T.
+LOCAL OCONFIRM   
+LOCAL OCANC      
+LOCAL BACAO      := NIL
+LOCAL NINICIAL   := 0 
+*/	// --> DESCONTINUADO MAIO/2020   (*FINAL* ) 
+
+IF SELECT("TMPROMA") > 0 
+	TMPROMA->(DBCLOSEAREA()) 
+ENDIF
+CQUERY := " SELECT FQ2_NUM , FQ2_PROJET , FQ2_OBRA , FQ2_CLIENT , FQ2_LOJA , FQ2_NOMCLI " 
+CQUERY += " FROM "+RETSQLNAME("FQ2")+" Z0 "
+CQUERY +=        " LEFT JOIN "+RETSQLNAME("SF1")+" F1 ON F1.D_E_L_E_T_ = '' AND F1_IT_ROMA = FQ2_NUM "
+CQUERY += " WHERE  Z0.D_E_L_E_T_ = ''"
+CQUERY +=   " AND  Z0.FQ2_PROJET  = '"+CPROJETO+"'"
+CQUERY +=   " AND  Z0.FQ2_OBRA    = '"+COBRA   +"'"
+CQUERY +=   " AND  Z0.FQ2_TPROMA = '1'" 							// SOMENTE ROMANEIO DE RETORNO.
+CQUERY +=   " AND  F1_IT_ROMA IS NULL "
+CQUERY := CHANGEQUERY(CQUERY) 
+TCQUERY CQUERY NEW ALIAS "TMPROMA"
+
+IF TMPROMA->(EOF()) 
+	LRET := .T. 
+
+/*	// --> DESCONTINUADO MAIO/2020   (*INICIO*) 
+ELSEIF (MSGYESNO(OEMTOANSI("DESEJA VINCULAR OUTRO(S) ROMANEIO A NOTA FISCAL DE RETORNO ?") , "GERA NF REMESSA")) 
+	WHILE TMPROMA->(!EOF())
+		AADD(_AARRAY , {.F. , TMPROMA->FQ2_PROJET , TMPROMA->FQ2_OBRA , TMPROMA->FQ2_CLIENT , TMPROMA->FQ2_LOJA}) 
+		TMPROMA->(DBSKIP())
+	ENDDO
+	
+	DEFINE MSDIALOG ODLG1 TITLE "SELEÇÃO DO ROMANEIO DE RETORNO." FROM 0,0 TO 25,86 OF OMAINWND 
+		// VAR "VINCULO NF RETORNO X ROMANEIO" 
+		@ 1.5,.7 LISTBOX OLISTBOX FIELDS ; 
+		         HEADER  " ","ROMANEIO","PROJETO","OBRA","CLIENTE" SIZE 330,147 ON DBLCLICK ; 
+		         (_AARRAY := MARCAITEM(OLISTBOX:NAT,_AARRAY,LUMAOPCAO,LMARCAITEM),IIF((EMPTY(_AARRAY[OLISTBOX:NAT,2])),OCONFIRM:DISABLE(),OCONFIRM:ENABLE()),;
+		         IIF(BACAO==NIL , , EVAL(BACAO)) , OLISTBOX:REFRESH()) 
+		
+		OLISTBOX:SETARRAY(_AARRAY)
+		OLISTBOX:BLINE := { || {IF(_AARRAY[OLISTBOX:NAT,1],OOK,ONO),_AARRAY[OLISTBOX:NAT,2],_AARRAY[OLISTBOX:NAT,3],_AARRAY[OLISTBOX:NAT,4],_AARRAY[OLISTBOX:NAT,5]}}
+								                                                         
+		@ 172, 7 BUTTON OCONFIRM PROMPT "CONFIRMAR" SIZE 45,12 OF ODLG1 PIXEL ACTION (ODLG1:END()) 
+		@ 172,57 BUTTON OCANC    PROMPT "CANCELAR"  SIZE 45,12 OF ODLG1 PIXEL ACTION (_NOPC := 0 , ODLG1:END()) 
+	ACTIVATE MSDIALOG ODLG1 CENTERED
+	
+	FOR NINICIAL := 1 TO LEN(_AARRAY)
+		IF _AARRAY[NINICIAL][1] 					// SIGNIFICA QUE O ITEM FOI SELECIONADO.
+			DBSELECTAREA("FQ3")
+			DBSETORDER(1) 							// FQ3_FILIAL+FQ3_NUM
+			IF FQ3->(DBSEEK(XFILIAL("FQ3")+FQ2->FQ2_NUM))		
+				WHILE FQ3->(!EOF()) .AND. FQ3->FQ3_NUM == FQ2->FQ2_NUM
+					DBSELECTAREA("FPA")
+					FPA->(DBSETORDER(3)) 			// FPA_FILIAL+FPA_AS+FPA_VIAGEM
+					IF FPA->(DBSEEK(XFILIAL("FPA")+FQ3->FQ3_AS+FQ3->FQ3_VIAGEM))
+						DBSELECTAREA("ST9")
+						DBSETORDER(1) 				// T9_FILIAL+T9_CODBEM
+						IF ST9->(DBSEEK(XFILIAL("ST9")+FPA->FPA_CODBEM))
+							AADD(AZAG , {.F.,,,,,,FPA->(RECNO()),ST9->T9_CODBEM,FPA->FPA_AS,FPA->FPA_PRODUT}) 
+							LRET := .T.
+						ENDIF
+					ENDIF
+					FQ3->(DBSKIP())
+				ENDDO
+			ENDIF
+		ENDIF
+	NEXT NINICIAL 
+
+	IF !EMPTY(AZAG) 
+		STATICCALL(GERNFREM,GRVZAG,AZAG) 
+	ENDIF 
+*/	// --> DESCONTINUADO MAIO/2020   (*FINAL* ) 
+
+ENDIF 
+
+TMPROMA->(DBCLOSEAREA()) 
+
+RETURN LRET
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRICAO     : ROTINA QUE REALIZA A GRAVAÇÃO EM UMA TABELA 
+PARAMETROS    : EXP1: TABELA PARA REALIAR A INCLUSÃO.
+				EXP1: ARRAY {{CAMPO,CONTEÚDO}}
+*/
+// ======================================================================= \\
+FUNCTION LOCA06403(CALIAS , ACONTEUDO) 
+// ======================================================================= \\
+
+LOCAL NLINHA  := 1 
+LOCAL NCOLUNA := 1 
+
+FOR NLINHA := 1 TO LEN(ACONTEUDO) 
+	RECLOCK(CALIAS,.T.) 
+	FOR NCOLUNA := 1 TO LEN(ACONTEUDO[NLINHA]) 
+		(CALIAS)->&(ACONTEUDO[NLINHA][NCOLUNA][1]) := ACONTEUDO[NLINHA][NCOLUNA][2] 
+	NEXT NCOLUNA 
+	(CALIAS)->(MSUNLOCK()) 
+NEXT NLINHA
+
+RETURN
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRIÇÃO     : ROTINA QUE VALIDA SE OS CAMPOS FORAM PREENCHIDOS NA ZUC - CONJUNTO TRANSPORTADOR
+	CODIGO – TIPO DE VEICULO;          •  FQ2_TIPOVEI
+	CENTRO DE CUSTO;                   •  FQ7_CC
+	PREVISÃO DE CUSTO;                 •  FQ7_PRECUS
+	CLIENTE ORIGEM / CLIENTE DESTINO;  •  FQ7_LCCORI - FQ7_LCCDES
+	TIPO DE FRETE;                     •  FQ7_ITTPFR
+	TIPO DE OPERAÇÃO;                  •  FQ7_TPROMA
+	DISTANCIA KM;                      •  FQ7_KM
+	CLASSIFICAÇÃO;                     •  FQ7_CLASS
+*/
+// ======================================================================= \\
+FUNCTION LOCA06404(CROMANEIO , CPROJ , COBRA , LENTREGA) 
+// ======================================================================= \\
+
+LOCAL CAVISO := SPACE(1)
+LOCAL CQRY   := SPACE(1)
+LOCAL LRET   := .T. 
+
+DEFAULT CROMANEIO := SPACE(1)   
+DEFAULT LENTREGA  := .F.  			// VALIDA DATA DE ENTREGA
+
+IF SELECT("QRY") > 0 
+	QRY->(DBCLOSEAREA()) 
+ENDIF 
+CQRY := " SELECT FQ2_TIPOVEI , FQ7_CC   , FQ7_PRECUS , FQ7_LCCORI , FQ7_LCCDES , FQ7_ITTPFR , FQ7_TPROMA , FQ7_KM , FQ7_CLASS , " 
+CQRY +=        " FQ2_DTFISC  , FQ2_PLACA , FQ2_PLACA2  , FQ2_MOTORI  , FQ2_CPFMOT  , FQ2_TRANSP " 
+CQRY += " FROM "+RETSQLNAME("FQ2") +" AS SZ0 "
+CQRY +=        " INNER JOIN "+RETSQLNAME("FQ7") +" ZUC ON  ZUC.D_E_L_E_T_ = '' " 
+CQRY +=                                              " AND ZUC.FQ7_FILIAL = SZ0.FQ2_FILIAL " 
+CQRY +=                                              " AND ZUC.FQ7_VIAGEM = SZ0.FQ2_VIAGEM " 
+CQRY += " WHERE  SZ0.D_E_L_E_T_ = '' "
+CQRY +=   " AND  SZ0.FQ2_NUM     = '"+CROMANEIO+"' "
+CQRY +=   " AND  SZ0.FQ2_PROJET  = '"+CPROJ    +"' "
+CQRY +=   " AND  SZ0.FQ2_OBRA    = '"+COBRA    +"' "
+CQRY := CHANGEQUERY(CQRY) 
+TCQUERY CQRY NEW ALIAS "QRY"
+
+IF QRY->(!EOF())
+	DO CASE 
+	CASE EMPTY(QRY->FQ2_TIPOVEI) 
+		CAVISO += STR0043 //"TIPO DE VEICULO NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+	CASE EMPTY(QRY->FQ7_CC)
+		CAVISO += STR0044 //"CENTRO DE CUSTO NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_PRECUS)   
+		CAVISO += STR0045 //"CUSTO DO FRETE NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_LCCORI)  
+		CAVISO += STR0046 //"CLIENTE ORIGEM NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_LCCDES)  
+		CAVISO += STR0047 //"CLIENTE DESTINO NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_TPROMA)   
+		CAVISO += STR0048 //"TIPO DE ROMANEIO NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_KM)        
+		CAVISO += STR0049 //"QUILOMETRAGEM NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ7_CLASS)  
+		CAVISO += STR0050 //"CLASSIFICAÇÃO NÃO PREENCHIDO NO CONJUNTO TRANSPORTADOR."
+	CASE EMPTY(QRY->FQ2_PLACA)                            
+		CAVISO += STR0051  //"PLACA DA CARRETA NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+	CASE EMPTY(QRY->FQ2_MOTORI)                            
+		CAVISO += STR0052  //"MOTORISTA NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+	CASE EMPTY(QRY->FQ2_CPFMOT)                            
+		CAVISO += STR0053  //"CPF DO MOTORISTA NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+	CASE EMPTY(QRY->FQ2_TRANSP)                            
+		CAVISO += STR0054  //"TRANSPORTADORA NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+	ENDCASE
+	IF LENTREGA
+		IF EMPTY(QRY->FQ2_DTFISC)
+			CAVISO += STR0055  //"DATA DE ENTREGA FISCAL NÃO PREENCHIDO NA CAPA DO ROMANEIO."
+		ENDIF
+	ENDIF
+ELSE
+	CAVISO := STR0056 //"NÃO ENCONTRADO CONJUNTO TRANSPORTADOR."
+ENDIF
+
+QRY->(DBCLOSEAREA())
+
+IF !EMPTY(CAVISO)
+	MSGALERT(STR0057+CAVISO , STR0003)  //"INFORMAÇÕES FALTANTES: "###"GPO - PLOC05102.PRW"
+	LRET := .F.
+ENDIF
+
+RETURN LRET 
+
+
+
+/*
+CONSULTORIA 	: IT UP BUSINESS
+DESENVOLVEDOR   : IT UP BUSINESS
+DESCRIÇÃO		: ROTINA QUE IRÁ REALIZAR GERAÇÃO DE DOCUMENTO DE ENTRADA A PARTIR DE UM DOCUMENTO DE SAÍDA.
+PARAMETROS		: INFORMAR A FILIAL ORIGEM, FILIAL DESTINO, NOTA DE ENTRADA E SERIE.
+*/
+// ======================================================================= \\
+FUNCTION LOCA06405(CFILORI , CFILDES , CNFORIGEM , CSERORI) 
+// ======================================================================= \\
+
+LOCAL AAREA  		:= GETAREA()
+LOCAL ACABEC 		:= {}
+LOCAL AITENS 		:= {}
+LOCAL ALINHA 		:= {}
+LOCAL LOK 			:= .T.
+LOCAL CRET			:= SPACE(1)
+
+PRIVATE LMSERROAUTO := .F.
+PRIVATE LMSHELPAUTO := .T.  
+                          
+DEFAULT	CFILORI 	:= SPACE(1)
+DEFAULT	CNFORIGEM	:= SPACE(1)
+DEFAULT CSERORI		:= SPACE(1)
+DEFAULT CFILDES		:= SPACE(1)
+
+// --> VERIFICACAO DO AMBIENTE PARA TESTE.
+DBSELECTAREA("SF2")
+DBSETORDER(1) 									// F2_FILIAL+F2_DOC+F2_SERIE+F2_CLIENTE+F2_LOJA
+
+IF !SF2->(DBSEEK(CFILORI+CNFORIGEM+CSERORI)) 	// VERIFICAR A EXISTÊNCIA DO PRODUTO
+	LOK := .F.
+	MSGALERT(STR0058 , STR0003) //"NOTA DE ENTRADA NA FILIAL INCORRETA."###"GPO - PLOC05102.PRW"
+ENDIF     
+
+DBSELECTAREA("SA1")
+SA1->(DBSETORDER(1)) 							// A1_FILIAL+A1_COD 
+IF !SA1->(DBSEEK(XFILIAL("SA1")+SF2->F2_CLIENTE+SF2->F2_LOJA)) 
+	LOK := .F. 
+	MSGALERT(STR0059+SF2->F2_CLIENTE+STR0060+CFILDES+"]" , STR0003)  //"CLIENTE: ["###"] NÃO CADASTRADO COMO FORNECEDOR NA FILIAL: ["###"GPO - PLOC05102.PRW"
+ENDIF 
+
+DBSELECTAREA("SA2") 
+DBSETORDER(3) 									// A2_FIIAL+A2_CGC
+IF !SA2->(DBSEEK(XFILIAL("SA2")+SA1->A1_CGC)) 
+	LOK := .F. 
+	MSGALERT(STR0059+SF2->F2_CLIENTE+STR0060+CFILDES+"]" , STR0003)  //"CLIENTE: ["###"] NÃO CADASTRADO COMO FORNECEDOR NA FILIAL: ["###"GPO - PLOC05102.PRW"
+ENDIF
+
+IF LOK
+	//EXPA1 - ARRAY CONTENDO OS DADOS DO CABEÇALHO DA NOTA FISCAL DE ENTRADA.
+	AADD(ACABEC , {"F1_TIPO"    , "N"             , NIL})
+	AADD(ACABEC , {"F1_FORMUL"  , "N"             , NIL})
+	AADD(ACABEC , {"F1_DOC"     , SF2->F2_DOC     , NIL})
+	AADD(ACABEC , {"F1_SERIE"   , SF2->F2_SERIE   , NIL})
+	AADD(ACABEC , {"F1_EMISSAO" , DDATABASE       , NIL})
+	AADD(ACABEC , {"F1_FORNECE" , SA2->A2_COD     , NIL})
+	AADD(ACABEC , {"F1_LOJA"    , SA2->A2_LOJA    , NIL})
+	AADD(ACABEC , {"F1_ESPECIE" , "SPED"          , NIL})
+	AADD(ACABEC , {"F1_COND"    , "001"           , NIL})
+	AADD(ACABEC , {"F1_DESCONT" , 0               , NIL})
+	AADD(ACABEC , {"F1_SEGURO"  , 0               , NIL})
+	AADD(ACABEC , {"F1_FRETE"   , 0               , NIL})
+	AADD(ACABEC , {"F1_VALMERC" , SF2->F2_VALMERC , NIL})
+	AADD(ACABEC , {"F1_VALBRUT" , SF2->F2_VALBRUT , NIL}) 
+	AADD(ACABEC , {"F1_MOEDA"   , 1               , NIL}) 
+
+	DBSELECTAREA("SD2")
+	DBSETORDER(3) 								// D2_FILIAL+D2_DOC+D2_SERIE+D2_CLIENTE+D2_LOJA
+	IF SD2->(DBSEEK(CFILORI+CNFORIGEM+CSERORI))
+	
+		WHILE SD2->(!EOF()) .AND. (SD2->D2_FILIAL+SD2->D2_DOC+SD2->D2_SERIE == CFILORI+CNFORIGEM+CSERORI)
+			ALINHA := {}
+			AADD(ALINHA , {"D1_COD"    , SD2->D2_COD    , NIL})
+			AADD(ALINHA , {"D1_QUANT"  , SD2->D2_QUANT  , NIL})
+			AADD(ALINHA , {"D1_VUNIT"  , SD2->D2_PRCVEN , NIL})
+			AADD(ALINHA , {"D1_TOTAL"  , SD2->D2_TOTAL  , NIL})
+			AADD(ALINHA , {"D1_TES"    , "048"          , NIL})
+			AADD(ALINHA , {"D1_SEGURO" , 0              , NIL})
+			AADD(ALINHA , {"D1_VALFRE" , 0              , NIL})
+			AADD(ALINHA , {"AUTDELETA" , "N"            , NIL}) 	// INCLUIR SEMPRE NO ÚLTIMO ELEMENTO DO ARRAY DE CADA ITEM
+			AADD(AITENS,ALINHA)
+			SD2->(DBSKIP())
+		ENDDO
+	    CFILANT := CFILDES 											// TROCA A FILIAL PARA GERAR A NOTA DE ENTRADA
+	    
+		MATA103(ACABEC,AITENS,3) 									// EXPN1 - OPÇÃO DESEJADA: 3-INCLUSÃO; 4-ALTERAÇÃO ; 5-EXCLUSÃO
+		
+		CFILANT := CFILORI 											// VOLTA A FILIAL PARA ORIGEM
+		IF !LMSERROAUTO
+			CRET := SF1->F1_DOC
+		ELSE
+			MOSTRAERRO()
+			CONOUT("["+DTOC(DATE)+" "+TIME()+STR0061)  //"] GPO - PLOC05102.PRW - IT_AUT103() - ERRORLOG NO MATA103()"
+		ENDIF 
+	ENDIF 
+ENDIF 
+
+RESTAREA(AAREA) 
+
+RETURN CRET 
+
+
+
+/*
+CONSULTORIA   : IT UP BUSINESS
+DESENVOLVEDOR : IT UP BUSINESS
+DESCRICAO     : PONTO DE ENTRADA PARA VALIDAR SE EXISTE ANEXO NO ROMANEIO.
+CHAMADA(S)    : PLOC05102.PRW / A103DEVOL.PRW (COMENTADO) 
+*/
+// ======================================================================= \\
+FUNCTION LOCA06406(CROMANEIO , CTIPO) 
+// ======================================================================= \\
+
+LOCAL CQUERY  := "" 
+LOCAL LRET    := .T.
+//LOCAL NANEXO:= SUPERGETMV("MV_LOCX267",,3) 									// --> QUANTIDADE DE ANEXOS QUE DEVE CONSTAR NO BANCO DE CONHECIMENTO
+LOCAL NPDF    := SUPERGETMV("MV_LOCX268",,0) 									// --> QUANTIDADE MINIMA DE ANEXOS DA EXTENSAO PDF
+LOCAL NJPG    := SUPERGETMV("MV_LOCX266",,0) 									// --> QUANTIDADE MINIMA DE ANEXOS DA EXTENSAO JPG
+LOCAL CTPANEX := SUPERGETMV("MV_LOCX271",,".BMP|.PNG|.GIF|.JPG2|.JPG|.JPEG") 	// --> TIPOS DE EXTENSÕES QUE OS ANEXOS ACEITAM
+LOCAL NVPDF   := 0
+LOCAL NVJPG   := 0
+
+DEFAULT	CROMANEIO := SPACE(1)  
+DEFAULT	CTIPO	  := STR0066 // "REMESSA"
+
+// --> VERIFICO SE TODOS OS ITENS 
+IF SELECT("TMP") > 0 
+	TMP->(DBCLOSEAREA()) 
+ENDIF
+CQUERY := "	SELECT ACB_OBJETO "
+CQUERY += "	FROM "+RETSQLNAME("AC9")+" AS AC9 "
+CQUERY +=        " INNER JOIN "+RETSQLNAME("ACB")+" ACB ON ACB.D_E_L_E_T_ = '' AND ACB_FILIAL = AC9_FILIAL AND ACB_CODOBJ = AC9_CODOBJ " 
+CQUERY += "	WHERE  AC9.D_E_L_E_T_ = ''  "
+CQUERY +=   " AND  AC9.AC9_FILENT = '"+CFILANT  +"' "
+CQUERY +=   " AND  AC9.AC9_ENTIDA = 'FQ2' "
+CQUERY +=   " AND  AC9.AC9_CODENT = '"+CROMANEIO+"' "
+CQUERY := CHANGEQUERY(CQUERY) 
+TCQUERY CQUERY NEW ALIAS "TMP"
+
+WHILE TMP->(!EOF())
+	_CEXT := ALLTRIM(SUBSTR(TMP->ACB_OBJETO,RAT(".",TMP->ACB_OBJETO),(LEN(TMP->ACB_OBJETO)+1)-RAT(".",TMP->ACB_OBJETO))) 
+	IF 	   UPPER(_CEXT) $ CTPANEX 
+		NVJPG ++
+	ELSEIF UPPER(_CEXT) == ".PDF"
+		NVPDF ++
+	ENDIF 
+	TMP->(DBSKIP())
+ENDDO
+TMP->(DBCLOSEAREA())
+  
+IF !EMPTY(CROMANEIO)
+	IF (NVPDF < NPDF) .OR. (NVJPG < NJPG )
+		MSGALERT(STR0062+CTIPO+"." , STR0003)  //"IDENTIFICADO QUE O ROMANEIO NÃO TEM OS ANEXOS NECESSÁRIOS PARA EMISSÃO DA NF DE "###"GPO - PLOC05102.PRW"
+		LRET := .F.
+	ENDIF
+ELSE
+	MSGALERT(STR0063 , STR0003)  //"NUMERO DO ROMANEIO NÃO INFORMADO."###"GPO - PLOC05102.PRW"
+ENDIF
+
+RETURN LRET

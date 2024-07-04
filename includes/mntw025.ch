@@ -1,0 +1,57 @@
+#ifdef SPANISH
+	#define STR0001 "Hora"
+	#define STR0002 "Solicitud"
+	#define STR0003 "Fecha"
+	#define STR0004 "Servicio"
+	#define STR0005 "Solicitante"
+	#define STR0006 "Detalles de la solicitud"
+	#define STR0007 "Apertura de Solicitud de Servicio"
+	#define STR0008 "S.S."
+	#define STR0009 "¡Workflow enviado con éxito!"
+	#define STR0010 "¡Atención!"
+	#define STR0011 "Solicitud de servicios - Aviso de inclusión"
+	#define STR0012 "Envío del workflow anulado"
+	#define STR0013 "No se informó el destinatario para el envío del workflow."
+	#define STR0014 "Bien/Ubicación"
+	#define STR0015 "Apertura de Solicitud de Servicio"
+	#define STR0016 "SS"
+	#define STR0017 "Aviso de Inclusion de SS enviado para el responsable"
+#else
+	#ifdef ENGLISH
+		#define STR0001 "Time"
+		#define STR0002 "Request"
+		#define STR0003 "Date"
+		#define STR0004 "Service"
+		#define STR0005 "Requested by"
+		#define STR0006 "Request Details"
+		#define STR0007 "Opening of service request"
+		#define STR0008 "S.S."
+		#define STR0009 "Workflow successfully sent!"
+		#define STR0010 "Attention!"
+		#define STR0011 "Service Request - Inclusion Notice"
+		#define STR0012 "Workflow sending canceled"
+		#define STR0013 "Workflow receiver not entered."
+		#define STR0014 "Asset/Location"
+		#define STR0015 "Opening of service request"
+		#define STR0016 "SS"
+		#define STR0017 "Notification of addition of SS sent to responsible person"
+	#else
+		#define STR0001 "Hora"
+		#define STR0002 "Solicitação"
+		#define STR0003 "Data"
+		#define STR0004 "Serviço"
+		#define STR0005 "Solicitante"
+		#define STR0006 "Detalhes da Solicitação"
+		#define STR0007 If( cPaisLoc $ "ANG|PTG", "Abertura Da Requisição De Serviço", "Abertura de Solicitação de Serviço" )
+		#define STR0008 "S.S."
+		#define STR0009 "Workflow enviado com sucesso!"
+		#define STR0010 "Atenção!"
+		#define STR0011 "Solicitação de Serviços - Aviso de Inclusão"
+		#define STR0012 " Envio do workflow cancelado"
+		#define STR0013 "Destinatário para o envio do workflow não foi informado."
+		#define STR0014 "Bem/Localização"
+		#define STR0015 If( cPaisLoc $ "ANG|PTG", "Abertura Da Requisição De Serviço", "Abertura de Solicitação de Serviço" )
+		#define STR0016 If( cPaisLoc $ "ANG|PTG", "Ss", "SS" )
+		#define STR0017 If( cPaisLoc $ "ANG|PTG", "Aviso de inserção do código de acesso enviado para o responsável", "Aviso de Inclusão de SS enviado para o responsável" )
+	#endif
+#endif

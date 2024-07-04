@@ -1,0 +1,1332 @@
+#INCLUDE "TOTVS.CH"
+#INCLUDE "FWMVCDEF.CH"
+#INCLUDE "GPEA019.CH"
+
+#define  CRLF chr(13)+chr(10)
+Static lIntTAF      := ((SuperGetMv("MV_RHTAF",, .F.) == .T.) .AND. Val(SuperGetMv("MV_FASESOC",/*lHelp*/,' ')) >= 1 )
+Static cVersEnvio	:= ""
+Static nOper		:= 1
+
+/*/{Protheus.doc} GPEA019
+Cadastro de Beneficiários - Órgãos Públicos
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function GPEA019()
+Local aArea         := GetArea()
+Local aCoors  		:= FWGetDialogSize( oMainWnd )
+Local cFiltraRH		:= ""
+Local cIdBrowse
+Local cIdGrid
+Local oPanelUp
+Local oPanelDown
+Local oTela
+Local oRelacRI0
+
+Private oDlgPrinc
+Private oBrowseUp
+Private oBrowseDwn
+Private dDcgIni		:= SuperGetMV("MV_DTCGINI",nil, CtoD(" / / ") )
+Private cCdTela		:= ""
+Private aAreaSRA	:= {}
+/* Operações disponíveis - variável nOper
+1 	- Inclusão/Visualização
+2	- Alteração/Suspensão
+4 	- Reativação
+5	- Retificar
+6 	- Término
+7  	- Visualizar Histórico
+Todas as operações sã gerenciadas pela função Gp019Oper exceto a opção 1 - Inclusão/Visualização
+que é gerenciada pela própria ViewDef, ou seja, após cancelar ou confirmar uma das operações acima
+sempre deve-se resetar a variável nOper para 1 de forma que caso o usuário opere por uma opção gerenciada
+pela ViewDef, os dados sejam carregados corretamente para dentro do modelo.
+*/
+
+	If !ChkFile("RI0") .Or. !ChkFile("RI9")
+		//"Atenção""###"Tabelas RI0/RI9 não encontradas na base de dados. Execute o UPDDISTR."
+		Help( " ", 1, OemToAnsi(STR0054),, OemToAnsi(STR0055), 1, 0 )
+		Return
+	EndIf
+
+	If !(SuperGetMv( "MV_OPESOC" ,, .F. ))
+		// "Acesso desabilitado"###"O parâmetro MV_OPESOC indica que o Controle de Benefícios  para Órgãos Públicos está desabilitado."###"Rever o conteúdo desse parâmetro no Configurador (SIGACFG)."
+		Help(,,OemToAnsi(STR0001),,OemToAnsi(STR0002)  ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0003)} )
+		Return
+	EndIf
+
+	If lIntTAF
+		If FindFunction("fVersEsoc")
+			fVersEsoc( "S2400", .F., /*aRetGPE*/, /*aRetTAF*/, @cVersEnvio, /*cVersGPE*/, , ,"" )
+		EndIf
+	EndIf
+	// "Contr. Beneficiário - Órgãos Públicos"
+	Define MsDialog oDlgPrinc Title OemToAnsi(STR0004) From aCoors[1], aCoors[2] To aCoors[3], aCoors[4] OF oMainWnd Pixel
+
+		// Cria o conteiner onde serão colocados os paineis
+		oTela     := FWFormContainer():New( oDlgPrinc )
+		cIdBrowse := oTela:CreateHorizontalBox( 60 )
+		cIdGrid   := oTela:CreateHorizontalBox( 35 )
+
+		oTela:Activate( oDlgPrinc, .F. )
+
+		//Cria os paineis onde serão colocados os browses
+		oPanelUp  	:= oTela:GeTPanel( cIdBrowse )
+		oPanelDown  := oTela:GeTPanel( cIdGrid )
+
+		// FWmBrowse Superior: Beneficiários
+		oBrowseUp:= FWmBrowse():New()
+		oBrowseUp:SetOwner( oPanelUp )
+		oBrowseUp:SetDescription( OemToAnsi(STR0005) )	// "Beneficiários"
+		oBrowseUp:SetAlias( 'SRA' )
+		oBrowseUp:SetMenuDef( '' )
+		oBrowseUp:DisableDetails()
+		oBrowseUp:SetProfileID( '1' )
+		oBrowseUp:SetCacheView (.F.)
+		oBrowseUp:ExecuteFilter(.T.)
+
+		GpLegMVC(@oBrowseUp)
+		cFiltraRh := ChkRh("GPEA019","SRA","1")
+		If !Empty(cFiltraRh)
+			cFiltraRh += " .And. ((RA_CATFUNC == '9' .Or. RA_EAPOSEN == '1') .And.  !Empty(RA_DTENTRA))" // Pensionista ou Aposentado
+		Else
+			cFiltraRh := "(RA_CATFUNC == '9' .Or. RA_EAPOSEN == '1') .And.  !Empty(RA_DTENTRA)" // Pensionista ou Aposentado
+		EndIf
+
+		oBrowseUp:SetFilterDefault(cFiltraRh)
+		oBrowseUp:Activate()
+
+		// FWmBrowse Inferior: Benefícios - Órg. Públicos
+		oBrowseDwn:= FWMBrowse():New()
+		oBrowseDwn:SetOwner( oPanelDown )
+		oBrowseDwn:SetDescription( OemToAnsi(STR0006) )	// "Benefícios"
+		oBrowseDwn:SetMenuDef( 'GPEA019' )
+		oBrowseDwn:DisableDetails()
+		oBrowseDwn:SetAlias( 'RI0' )
+		oBrowseDwn:SetProfileID( '2' )
+		oBrowseDwn:ForceQuitButton()					//Sempre que existem dois menudefs na tela, deve-se indicar em qual browse vai ficar o botao 'Sair'
+		oBrowseDwn:SetCacheView (.F.)
+		oBrowseDwn:AddLegend("RI0->RI0_STATUS == '2'" , "GRAY", OemToAnsi(STR0101) )								 								// "Benefício Excluído"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+		oBrowseDwn:AddLegend("!Empty(RI0->RI0_DTTERM)" , "BLUE", OemToAnsi(STR0007) )								 								// "Benefício Terminado"
+		oBrowseDwn:AddLegend("RI0->RI0_INDSUP == '1'" , "RED",  OemToAnsi(STR0008) ) 																// "Benefício Suspenso"
+		oBrowseDwn:AddLegend("(RI0->RI0_INDSUP == '2' .OR. Empty(RI0->RI0_INDSUP)) .AND. Empty(RI0->RI0_DTTERM)" , "GREEN", OemToAnsi(STR0009) ) 	// "Benefício Ativo"
+		oBrowseDwn:ExecuteFilter(.T.)
+
+		// Relacionamento entre os Paineis
+		oRelacRI0:= FWBrwRelation():New()
+		oRelacRI0:AddRelation( oBrowseUp  , oBrowseDwn , { { 'RI0_FILIAL', 'RA_FILIAL' }, { 'RI0_MAT' , 'RA_MAT'  } } )
+		oRelacRI0:Activate()
+
+		oBrowseDwn:SetMainProc("GPEA019")
+		oBrowseDwn:Activate()
+
+		oBrowseUp:Refresh()
+		oBrowseDwn:Refresh()
+
+		If SRA->(Eof())
+			//"Inconsistência"###"Não há funcionário Pensionista ou Aposentado."###"Inclua um registro."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0058) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0059)} )
+			Return
+		EndIf
+
+	Activate MsDialog oDlgPrinc Center
+
+	RestArea(aArea)
+
+Return Nil
+
+
+/*/{Protheus.doc} ³ModelDef
+Definicao do modelo de dados do Cadastro de Beneficiários - Órgãos Públicos
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function ModelDef()
+Local oStructRI0
+Local oModel
+Local lInclBen	:= IIF(TYPE("INCLUI")<>"U",INCLUI,.F.)
+
+oModel:= MpFormModel():New("GPEA019",/*Pre-Validacao*/,  { |oModel| gp019TudOk(oModel) }/*Pos-Validacao*/,  { |oModel| gp019Commit(oModel) }/*Commit*/, {|oModel| fReset(oModel)}/*Cancel*/)
+nOper	:= If(lInclBen, 1, nOper)
+oStructRI0 := FWFormStruct(1,"RI0",{ |cCampo| fGp019Stru(cCampo) })
+oModel:AddFields("GPEA019_RI0", /*cOwner*/, oStructRI0 , /*Pre-Validacao*/,/*Pos-Validacao*/,/*Carga*/)
+oModel:SetPrimaryKey( { "RI0_FILIAL", "RI0_MAT", "RI0_CPF", "RI0_CODUNI", "RI0_NRBEN" } )
+
+// Salva dados posicionados do Browse caso ocorra despocionamento devido ao F3 SRA08 do campo RI0_CODUNI
+cCdTela		:= SRA->RA_CODUNIC
+aAreaSRA	:= SRA->( GetArea() )
+
+If nOper == 1  // Inclusão/Visualização
+	FWMemoVirtual( oStructRI0,{ { 'RI0_DSC' , 'RI0_DSCMEM' , "RDY"}, { 'RI0_OBS' , 'RI0_OBSMEM' , "RDY"}, { 'RI0_OBSALT' , 'RI0_OBSAME' , "RDY"}, { 'RI0_DSSUP' , 'RI0_DSSUPM' , "RDY"}  } )
+ElseIf  nOper == 2 // Alteração/Suspenção
+	FWMemoVirtual( oStructRI0,{ { 'RI0_DSC' , 'RI0_DSCMEM' , "RDY"}, { 'RI0_DSSUP' , 'RI0_DSSUPM' , "RDY"} } )
+ElseIf  nOper == 5 // Retificação
+	FWMemoVirtual( oStructRI0,{ { 'RI0_DSC' , 'RI0_DSCMEM' , "RDY"}, { 'RI0_OBS' , 'RI0_OBSMEM' , "RDY"}, { 'RI0_OBSALT' , 'RI0_OBSAME' , "RDY"} } )
+EndIf
+
+Return(oModel)
+
+
+/*/{Protheus.doc} ViewDef
+Definicao da tela do Cadastro de Beneficiários - Órgãos Públicos
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function ViewDef()
+Local oModel		:= FwLoadModel("GPEA019")
+Local oStructRI0	:= Nil
+Local oView			:= FWFormView():New()
+
+oView:SetModel(oModel)
+
+oStructRI0 := FWFormStruct(2,"RI0", { |cCampo| fGp019Stru(cCampo) })
+nOper	:= If(INCLUI, 1, nOper)
+If nOper == 1 // Inclusão/Visualização
+	oStructRI0:RemoveField( "RI0_DSC" ) 	// Código MEMO Descrição Orig. Benefício
+	oStructRI0:RemoveField( "RI0_OBS" ) 	// Código MEMO Descrição Obs. Transfer. Beneficio
+	oStructRI0:RemoveField( "RI0_OBSALT" ) 	// Código MEMO Observação Mudança CPF
+	oStructRI0:RemoveField( "RI0_DSSUP" ) 	// Código MEMO Observação Suspensão
+	oStructRI0:RemoveField( "RI0_STATUS" ) 	// Ativo
+EndIf
+
+oView:AddField( "GPEA019_RI0" , oStructRI0 )
+oView:CreateHorizontalBox("FORMFIELD",100)
+oView:SetOwnerView( "GPEA019_RI0","FORMFIELD")
+oView:SetCloseOnOk({ || .T. })//retira bota salvar e criar novo
+
+Return(oView)
+
+/*/{Protheus.doc} Gp019Oper
+Determina operação sobre o registro de Benefício (RI0)
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function Gp019Oper(nOpcao)
+Local oViewOper		:= Nil
+Local oStructRI0 	:= Nil
+Local oModel		:= Nil
+
+Default nOpcao	:= 0
+
+nOper		:= nOpcao
+
+If RI0->(Eof())
+	//"Inconsistência"###"Não é possível operar sobre um registro vazio."###"Inclua um registro."
+	Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0047) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0048)} )
+	Return
+EndIf
+
+// Valida se registro está ativo e solicitando reativação
+If Empty(RI0->RI0_DTTERM) .And. nOper == 4
+	//"Inconsistência"###"Somente é possível Reativar registros terminados."
+	Help(,1,OemToAnsi(STR0043),,OemToAnsi(STR0080),1,0)
+	nOper:= 1
+	Return
+EndIf
+
+// Valida se registro está Terminado e permite apenas reativação
+If nOper <> 7
+	If !Empty(RI0->RI0_DTTERM) .And. (nOper <> 4)
+		//"Inconsistência"###""Benefício foi terminado."###"Somente é possível reativar esse benefício."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0068),1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0069)} )
+		nOper:= 1
+		Return
+	EndIf
+EndIf
+
+If nOper == 2	// Alteração/Suspensão
+	oStructRI0 	:= FWFormStruct(2,"RI0",{ |cCampo| fGp019Stru(cCampo) })
+	oStructRI0:RemoveField( "RI0_CADINI" ) 	// Código Data Cd. Ini.
+	oStructRI0:RemoveField( "RI0_DSC" ) 	// Código MEMO Descrição Orig. Benefício
+	oStructRI0:RemoveField( "RI0_DSSUP" ) 	// Código Descrição Suspensão
+	oStructRI0:RemoveField( "RI0_STATUS" ) 	// Ativo
+	cTitulo		:= OemToAnsi(STR0010) + "/" + OemToAnsi(STR0011) // "Alteração"/"Suspensão"
+ElseIf nOper == 4	//Reativação
+	oStructRI0 	:= FWFormStruct(2,"RI0",{ |cCampo| fGp019Stru(cCampo) })
+	oStructRI0:RemoveField( "RI0_STATUS" ) 	// Ativo
+	cTitulo		:= OemToAnsi(STR0012) // "Reativação"
+ElseIf nOper == 5 // Retificação
+	oStructRI0 	:= FWFormStruct(2,"RI0",{ |cCampo| fGp019Stru(cCampo) })
+	oStructRI0:RemoveField( "RI0_DSC" ) 	// Código MEMO Descrição Orig. Benefício
+	oStructRI0:RemoveField( "RI0_OBS" ) 	// Código MEMO Descrição Obs. Transfer. Beneficio
+	oStructRI0:RemoveField( "RI0_OBSALT" ) 	// Código MEMO Observação Mudança CPF
+	oStructRI0:RemoveField( "RI0_STATUS" ) 	// Ativo
+	cTitulo		:= OemToAnsi(STR0013)	// "Retificação"
+ElseIf nOper == 6	// Término
+	oStructRI0 	:= FWFormStruct(2,"RI0",{ |cCampo| fGp019Stru(cCampo) })
+	oStructRI0:RemoveField( "RI0_STATUS" ) 	// Ativo
+	cTitulo		:= OemToAnsi(STR0014) // "Término"
+ElseIf nOper == 7	// Visualizar Histórico
+	cTitulo		:= OemToAnsi(STR0099) // "Visualizar Histórico"
+EndIf
+
+
+If nOper <> 7
+	oViewOper 	:= FWFormView():New()
+	oModel	:= FwLoadModel("GPEA019")
+	oViewOper:SetModel(oModel)
+	oViewOper:AddField( "GPEA019_RI0" , oStructRI0 )
+	oViewOper:CreateHorizontalBox("OPER",100)
+	oViewOper:SetOwnerView( "GPEA019_RI0","OPER")	
+	oViewOper:EnableControlBar(.T.)
+	oViewOper:SetOperation(4)
+Else
+	oViewOper := FwLoadView("GPEA021")
+EndIf
+
+oFWMVCWindow := FWMVCWindow():New()
+oFWMVCWindow:SetUseControlBar(.T.)
+oFWMVCWindow:SetView(oViewOper)
+oFWMVCWindow:SetCentered(.T.)
+oFWMVCWindow:SetPos(0,0)
+oFWMVCWindow:SetSize(600,800)
+oFWMVCWindow:SetTitle(cTitulo)
+
+oFWMVCWindow:Activate()
+
+oViewOper:Deactivate()
+oViewOper:Destroy()
+nOper	:= 1
+
+Return 
+
+/*/{Protheus.doc} fChkHist(dDtOper)
+Verifica se já existe registro na mesma data.
+@since	27/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fChkHist(dDtOper)
+Local lRet := .T.
+
+Default dDtOper	:= Ctod("//")
+
+	dbSelectArea("RI9")
+	RI9->(DbSetOrder(1)) // RI9_FILIAL+RI9_MAT+RI9_NRBEN+DTOS(RI9_DTMOVI)+RI9_OPER
+	If (RI9->(dbSeek(RI0->RI0_FILIAL + RI0->RI0_MAT + RI0->RI0_NRBEN + DtoS(dDtOper)+cValToChar(nOper))))
+		lRet	:= .F.
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fReset()
+Reseta nOper para 1 para caso o usuário selecione uma opção
+que não é gerenciada pelo Gp019Oper
+@since	27/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fReset(oModel)
+	nOper	:= 1
+Return .T.
+
+
+/*/{Protheus.doc} fGp019Stru
+Retorna campos de acordo com a Operação
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fGp019Stru(cCampo)
+Local lRet := .F.
+
+Default cCampo	:= ""
+
+If (nOper == 1 ) .Or. ; // Inclusão
+   (nOper == 2 	.And. AllTrim(cCampo) $ 'RI0_CADINI/RI0_TPBEN/RI0_TPPLAN/RI0_DSC/RI0_DSCMEM/RI0_TPMORT/RI0_INDSUP/RI0_MOTSUP/RI0_DSSUP/RI0_DSSUPM/RI0_DTAS/RI0_PD/RI0_VALOR') .Or. ;// Alteração/Suspensão
+   (nOper == 4	.And. AllTrim(cCampo) $ 'RI0_DTEFRE/RI0_DTEFFI') .Or. ;//Reativação
+   (nOper == 5	.And. !(AllTrim(cCampo) $ 'RI0_CNPJSU/RI0_NVCPF/RI0_INDSUP/RI0_DSSUP/RI0_DSSUPM/RI0_MOTSUP/RI0_DTEFRE/RI0_DTEFFI')) .Or. ; // Retificão
+   (nOper == 6	.And. AllTrim(cCampo) $ 'RI0_DTTERM/RI0_TERMOT/RI0_CNPJSU/RI0_NVCPF')// Término
+	lRet	:= .T.
+EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fVldCodUni()
+X3_VALID campo Código Único eSocial (RI0_CODUNI).
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVldCodUni()
+Local cCodUnic	:= &(ReadVar())
+Local cAliasTmp	:= GetNextAlias()
+Local lRet		:= .T.
+
+	If INCLUI
+		BeginSql alias cAliasTmp
+			SELECT RA_CODUNIC FROM  %table:SRA% SRA WHERE
+			SRA.%NotDel%
+			AND SRA.RA_CODUNIC = %exp:cCodUnic%
+		EndSql
+
+		If  (cAliasTmp)->(Eof())
+			lRet	:= .F.
+			//"Inconsistência"###"O Cód. Único eSocial não é válido."###"Selecione ou informe um Código Único eSocial válido."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0015) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0016)} )
+		ElseIf cCodUnic == cCdTela
+				lRet	:= .F.
+				//"Inconsistência"###"O Cód. Único não pode ser o mesmo que o do beneficiário."###"Selecione ou informe um Código Único eSocial diferente."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0017) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0018)} )
+		EndIf
+	EndIf
+
+RestArea(aAreaSRA)
+
+Return lRet
+
+/*/{Protheus.doc} fVldDtIn()
+X3_VALID campo Data Início do Benefício (RI0_DTINIB) - Campo obrigatório no SX3
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVldDtIn()
+Local oMdl     	:= FWModelActive()
+Local oModel	:= oMdl:GetModel("GPEA019_RI0")
+Local dDtIniBen	:= &(ReadVar())
+Local lRet		:= .T.
+
+	If nOper == 1 .And. oModel:GetValue("RI0_CADINI") == "1"
+		If Empty(dDcgIni)
+			lRet	:= .F.
+			//"Inconsistência"###"A data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial está vazia."###"Verificar conteúdo do parâmetro MV_DTCGINI."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0070) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0071)} )
+		ElseIf !(dDtIniBen < dDcgIni)
+			lRet	:= .F.
+			//"Inconsistência"###"A Data Início do Benefício (RI0_DTINIB) não é válida."###"Data Início do Benefício (RI0_DTINIB) deve ser anterior à data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0019) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0020)} )
+		EndIf
+	ElseIf nOper == 1 .And. oModel:GetValue("RI0_CADINI") == "2"
+		If Empty(dDcgIni)
+			lRet	:= .F.
+			//"Inconsistência"###"A data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial está vazia."###"Verificar conteúdo do parâmetro MV_DTCGINI."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0070) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0071)} )
+		ElseIf !(dDtIniBen >= dDcgIni .And. dDtIniBen <= dDataBase)
+				lRet	:= .F.
+				//"Inconsistência"###"A Data Início do Benefício (RI0_DTINIB) não é válida."###"Data Início do Benefício (RI0_DTINIB) deve ser superior ou igual  à data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial e igual ou anterior à data atual."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0019) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0021)} )
+		EndIf
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fVldDtPubl()
+X3_VALID campo Dt.Publi. (RI0_DTPUBL) - Campo obrigatório no SX3
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVldDtPubl()
+Local oMdl     	:= FWModelActive()
+Local oModel	:= oMdl:GetModel("GPEA019_RI0")
+Local dDtPubl	:= &(ReadVar())
+Local dDtIniBen	:= oModel:GetValue("RI0_DTINIB")
+Local lRet		:= .T.
+
+	If nOper == 1 .And. dDtIniBen >= dDtPubl
+		lRet	:= .F.
+		//"Inconsistência"###"A Data Publicação do Benef (RI0_DTPUBL) não é válida."###"A Data Publicação do Benefício (RI0_DTPUBL) deverá ser posterior à Data Início do Benefício (RI0_DTINIB)."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0022) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0023)} )
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fVlTpBen()
+X3_VALID campo Tipo de Benefício (RI0_TPBEN)
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVlTpBen()
+Local oMdl     	:= FWModelActive()
+Local oModel	:= oMdl:GetModel("GPEA019_RI0")
+Local cTipo		:= AllTrim(&(ReadVar()))
+Local lRet		:= .T.
+Local nPosTab	:= 0
+
+	// Valida apenas na inclusão
+	If  nOper == 1 .And. oModel:GetValue("RI0_CADINI") == "2"
+		If (nPosTab := fPosTab("S145", cTipo, "==", 4 )) > 0
+			cGrupo	:= fTabela("S145",nPosTab, 6)
+			If cGrupo == "08"
+				lRet	:= .F.
+				// "Inconsistência"###"O Tipo de Benefício (RI0_TPBEN) não é válido."###"O Tipo de Benefício (RI0_TPBEN ) pertence ao Grupo 08 que não é válido para quando Dt.Cad.Ini (RI0_CADINI) igual a 2=Não."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0024) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0025)} )
+			EndIf
+		EndIf
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fVlNrBen()
+X3_VALID campo Número de Benefício (RI0_NRBEN)
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVlNrBen(cNumero)
+Local aAreaRI0	:= RI0->( GetArea() )
+Local lRet		:= .T.
+
+	If  If(nOper == 5, AllTrim(RI0->RI0_NRBEN) <> AllTrim(cNumero), .T.)
+
+		dbSelectArea("RI0")
+		RI0->(DbSetOrder(1)) // RI0_FILIAL+RI0_MAT+RI0_CPF+RI0_CODUNI+RI0_NRBEN
+		If (RI0->(dbSeek(xFilial("RI0") + M->RI0_MAT + M->RI0_CPF)))
+			While RI0->(!Eof()) .And. (	RI0->RI0_FILIAL + RI0->RI0_MAT + RI0->RI0_CPF == xFilial("RI0") + M->RI0_MAT + M->RI0_CPF )
+				If AllTrim(cNumero) == AllTrim(RI0->RI0_NRBEN) .And. AllTrim(RI0->RI0_STATUS) <> '2'
+					lRet	:= .F.
+					Exit
+				EndIf
+				("RI0")->(DbSkip())
+			EndDo
+			If !lRet
+				// "Inconsistência"###"O Número do Benefício (RI0_TPBEN) não é válido."###"Já existe esse Número de Benefício informado."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0072),1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0073)} )
+			EndIf
+		EndIf
+	EndIf
+
+	RestArea(aAreaRI0)
+
+Return lRet
+
+/*/{Protheus.doc} fChkWhen()
+X3_WHEN de campos ref. a Suspensão/Término/Reativação
+@since	28/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fChkWhen()
+Local oMdl     	:= FWModelActive()
+Local oModel	:= oMdl:GetModel("GPEA019_RI0")
+Local nOperacao	:= oModel:GetOperation()
+Local lRet		:= .T.
+
+	If  (nOperacao == 3 .Or. nOper == 5) .And. !(ReadVar() $ "M->RI0_DTTERM*M->RI0_TERMOT")
+		lRet := .F.
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fVldDtAs()
+X3_VALID campo Data Alteração Suspensão (RI0_DTAS)
+@since	28/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fVldDtAs()
+Local cMat,cNrBen, cCdUnico	:= ""
+Local cAliasTmp	:= GetNextAlias()
+Local dDtAS		:= &(ReadVar())
+Local dDtLast	:= RI0->RI0_DTINIB
+Local lRet		:= .T.
+
+	If nOper == 2
+		cMat		:= RI0->RI0_MAT
+		cNrBen		:= RI0->RI0_NRBEN
+		cCdUnico	:= RI0->RI0_CODUNI
+		BeginSql alias cAliasTmp
+			SELECT RI9_DTMOVI FROM  %table:RI9% RI9 WHERE
+			RI9.%NotDel%
+			AND RI9.RI9_FILIAL = 	%Exp:xFilial("RI0", SRA->RA_FILIAL)%
+			AND RI9.RI9_MAT = 		%Exp:cMat%
+			AND RI9.RI9_NRBENE = 	%Exp:cNrBen%
+			AND RI9.RI9_CODUNI = 	%Exp:cCdUnico%
+			AND RI9.RI9_OPER = '2'
+			ORDER BY RI9_DTMOVI ASC
+		EndSql
+
+		If  !(cAliasTmp)->(Eof())
+			dDtLast	:= StoD((cAliasTmp)->RI9_DTMOVI)
+		EndIf
+
+		cDataUlt	:= DtoS(dDtLast)
+		cDataUlt	:= SubStr(cDataUlt,7,2) + "/" + SubStr(cDataUlt,5,2) + "/" + SubStr(cDataUlt,1,4)
+
+		If  (RI0->RI0_DTINIB >= dDtAS .Or. dDtAS > dDataBase .Or. If(!Empty(dDtLast),dDtLast >= dDtAS, .F.) )
+			lRet	:= .F.
+			//"Inconsistência"###"A Data Alteração Suspensão (RI0_DTAS) não é válida."###"Data Alteração Suspensão (RI0_DTAS) deve ser superior ou igual à Data de Início do Benefício (RI0_DTINIB) e a última alteração realizada (se houver), e anterior ou igual data atual."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0086) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0087) + CRLF + CRLF + OemToAnsi(STR0100) + cDataUlt } ) // "A Data da última operação foi: "
+		EndIf
+	EndIf
+
+Return lRet
+
+
+/*/{Protheus.doc} fDtTerm()
+X3_VALID campo Data Término (RI0_DTTERM)
+@since	29/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fDtTerm()
+Local dDtTerm	:= &(ReadVar())
+Local dDtEfet	:= RI0->RI0_DTEFRE
+Local lRet		:= .T.
+
+	// Valida apenas no Término
+	If  nOper == 6 .And.  (dDtTerm > dDataBase .Or. dDtTerm <= RI0->RI0_DTINIB .Or. If(!Empty(dDtEfet),dDtEfet >= dDtTerm, .F.))
+		lRet	:= .F.
+		// "Inconsistência"###"A Data Término (RI0_DTTERM) não é válida."###"Deverá ser igual ou anterior à data atual ou superior a data de Reativação e/ou Início do benefício."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0060) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0061)} )
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fGp19CPF()
+X3_VALID campo Novo CPF (RI0_NVCPF) e CPF Anterior (RI0_CPFANT)
+@since	29/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fGp19CPF()
+Local cCPF	:= &(ReadVar())
+Local lRet		:= .T.
+
+	If (nOper == 1 .Or. nOper == 5 .Or. nOper == 6) .And. cCPF == SRA->RA_CIC
+		lRet	:= .F.
+		//"Inconsistência"###"O CPF informado não pode ser o mesmo que o atual."###"Informe um CPF diferente."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0062) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0063)} )
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fDtEfe()
+X3_VALID campo Dt. Efetivação Reativação (RI0_DTEFRE)
+@since	30/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fDtEfe()
+Local dDtEfet	:= &(ReadVar())
+Local dDtTerm	:= RI0->RI0_DTTERM
+Local lRet		:= .T.
+
+	// Valida apenas na Reativação
+	If  nOper == 4 .And. (dDtEfet > dDataBase) .Or. (dDtEfet <= dDtTerm)
+		lRet	:= .F.
+		// "Inconsistência"###"A Dt. Efetivação Reativação (RI0_DTEFRE) não é válida."###"Deverá ser igual ou anterior à data atual e posterior à Dt. Término (RI0_DTTERM)."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0078) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0079)} )
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} fDtEfFin()
+X3_VALID campo Dt. Efeitos Financeiros (RI0_DTEFFI)
+@since	30/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Function fDtEfFin()
+Local oMdl     	:= FWModelActive()
+Local oModel	:= oMdl:GetModel("GPEA019_RI0")
+Local dDtEfeFin	:= &(ReadVar())
+Local dDtEfet	:= oModel:GetValue("RI0_DTEFRE")
+Local lRet		:= .T.
+
+	// Valida apenas na Reativação
+	If  nOper == 4 .And.  dDtEfet >=  dDtEfeFin
+		lRet	:= .F.
+		//"Inconsistência"###"A Dt. Efeitos Financeiros (RI0_DTEFFI) não é válida."###"A Dt. Efeitos Financeiros (RI0_DTEFFI) deverá ser posterior à Dt. Efetivação Reativação (RI0_DTEFRE)."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0076) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0077)} )
+	EndIf
+
+Return lRet
+
+
+/*/{Protheus.doc} fProv()
+X3_VALID campo Cód. Verba (RI0_PD)
+@since	11/02/2022
+@autor	raquel.andrade
+@version P12
+/*/
+Function fProv()
+Local cVerba	:= &(ReadVar())
+Local lRet		:= .T.
+
+	// Valida apenas na Reativação
+	If  (nOper == 1 .Or. nOper == 2 .Or. nOper == 5)
+	 	If Posicione("SRV",1,xFilial("SRV")+cVerba,"RV_TIPOCOD") $ "2*4" // Desconto,Base(Desconto)
+			lRet	:= .F.
+			//"Inconsistência"###"O Código da Verba informado não é válido."###"O Código da Verba deve ser uma verba do tipo Provento ou Base(Provento)."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0104) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0105)} )
+		EndIf
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} gp019TudOk
+Validações antes da gravação.
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function gp019TudOk(oModel)
+Local lRet		:= .T.
+Local nPosTab		:= 0
+Local cGrupo		:= ""
+
+	// Valida Número do Benefício
+	If (nOper == 1 .Or. nOper == 5) .And. !fVlNrBen(oModel:GetValue("GPEA019_RI0","RI0_NRBEN"))
+		lRet	:= .F.
+	EndIf
+
+	// Validação campo Cód. Único eSocial
+	If lRet .And. (nOper == 1 .Or. nOper == 5) .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_CODUNI")) .And. oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "2"
+		If (nPosTab := fPosTab("S145", oModel:GetValue("GPEA019_RI0","RI0_TPBEN"), "==", 4 )) > 0
+			cGrupo	:= fTabela("S145",nPosTab, 6)
+			If cGrupo $ "01*02*03*04*05*06*11)
+				lRet	:= .F.
+				//"Inconsistência"###"O campo Código Único eSocial (RI0_CODUNI) está vazio."###"O campo Código Único eSocial (RI0_CODUNI) é obrigatório quando o Tipo de Benefício (RI0_TPBEN) pertence aos Grupos [01, 02, 03, 04, 05, 06, 11] e quando Dt.Cad.Ini (RI0_CADINI) igual a 2=Não."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0026) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0027)} )
+			EndIf
+		EndIf
+	EndIf
+
+	// Validação campo Data Cad. Inicial , Data Inicial do Benefício e Data de Publicação do Benefício
+	If  lRet .And. (nOper == 1 .Or. nOper == 5) .And. oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "2" .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_CNPJO")) .Or. ;
+		Empty(oModel:GetValue("GPEA019_RI0","RI0_SITBEN")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_DECJUD")))
+		lRet	:= .F.
+		// "Campo obrigatório vazio."###"Os campos CNPJ Ori. (RI0_CNPJO), Sit. Benef. (RI0_SITBEN) e Det.Judicial (RI0_DECJUD) não foram preenchidos."
+		Help(,,OemToAnsi(STR0028),,OemToAnsi(STR0029) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0030)} )
+	EndIf
+
+	If lRet .And. (nOper == 1 .Or. nOper == 5)
+
+		If Empty(dDcgIni)
+			lRet	:= .F.
+			//"Inconsistência"###"A data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial está vazia."###"Verificar conteúdo do parâmetro MV_DTCGINI."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0070) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0071)} )
+		EndIf
+
+		If oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "1"  .And.  !(oModel:GetValue("GPEA019_RI0","RI0_DTINIB")  < dDcgIni)
+			lRet	:= .F.
+			//"Inconsistência"###"A Data Início do Benefício (RI0_DTINIB) não é válida."###"Data Início do Benefício (RI0_DTINIB) deve ser anterior à data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0019) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0020)} )
+		EndIf
+
+		 If  oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "2" .And. !(oModel:GetValue("GPEA019_RI0","RI0_DTINIB")  >= dDcgIni .And. oModel:GetValue("GPEA019_RI0","RI0_DTINIB")  <= dDataBase)
+			lRet	:= .F.
+			//"Inconsistência"###"A Data Início do Benefício (RI0_DTINIB) não é válida."###"Data Início do Benefício (RI0_DTINIB) deve ser superior ou igual  à data de início da obrigatoriedade dos eventos não periódicos para o ente público no eSocial e igual ou anterior à data atual."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0019) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0021)} )
+		EndIf
+
+	EndIf
+
+	If lRet .And.  (nOper == 1 .Or. nOper == 5)  .And. oModel:GetValue("GPEA019_RI0","RI0_DTINIB") >= oModel:GetValue("GPEA019_RI0","RI0_DTPUBL")
+		lRet	:= .F.
+		//"Inconsistência"###"A Data Publicação do Benef (RI0_DTPUBL) não é válida."###"A Data Publicação do Benefício (RI0_DTPUBL) deverá ser posterior à Data Início do Benefício (RI0_DTINIB)."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0022) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0023)} )
+	EndIf
+
+
+	// Validações relacionadas ao Tipo de Benefício
+	If  lRet .And. (nOper == 1 .Or. nOper == 2 .Or. nOper == 5) .And. oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "2"
+		If (nPosTab := fPosTab("S145", oModel:GetValue("GPEA019_RI0","RI0_TPBEN"), "==", 4 )) > 0
+			cGrupo	:= fTabela("S145",nPosTab, 6)
+			If cGrupo == "08"
+				lRet	:= .F.
+				//  "Inconsistência"###"O Tipo de Benefício (RI0_TPBEN) não é válido."###"O Tipo de Benefício (RI0_TPBEN ) pertence ao Grupo 08 que não é válido para quando Dt.Cad.Ini (RI0_CADINI) igual a 2=Não."
+				Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0024) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0025)} )
+			EndIf
+		EndIf
+	EndIf
+
+	If  lRet .And. (nOper == 1 .Or. nOper == 2 .Or. nOper == 5) .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_DSCMEM")) .And. oModel:GetValue("GPEA019_RI0","RI0_TPBEN") $ "0909*1001*1009"
+		lRet	:= .F.
+		//"Inconsistência"###"O campo Descrição Origem Benefício (RI0_DSCMEM) está vazio."###"O campo Descrição Origem Benefício (RI0_DSCMEM) não pode estar vazio quando o tipo de benefício é igual a 0909 / 1001 / 1009."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0031) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0032)} )
+	EndIf
+
+	If lRet .And. (nOper == 1 .Or. nOper == 2 .Or. nOper == 5) .And. (nPosTab := fPosTab("S145", oModel:GetValue("GPEA019_RI0","RI0_TPBEN"), "==", 4 )) > 0
+		cGrupo	:= fTabela("S145",nPosTab, 6)
+		If cGrupo == "06" .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_TPMORT")) .Or. If((nOper == 1 .Or. nOper == 5), Empty(oModel:GetValue("GPEA019_RI0","RI0_CPFMOR")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTOBIT")), .F.))
+			lRet	:= .F.
+			// "Campos da aba Pensão por Morte"###"Campos Tipo Pensão Morte (RI0_TPMORT) / CPF do Instituidor (RI0_CPFMOR) / Data do Óbito (RI0_DTOBIT) não estão todos preenchidos."
+			// "Os campos Tipo Pensão Morte (RI0_TPMORT) / CPF do Instituidor (RI0_CPFMOR) / Data do Óbito (RI0_DTOBIT) não devem estar vazio quando o tipo de benefício pertence ao grupo 06 e não devem ser informados nos demais casos."
+			Help(,,OemToAnsi(STR0033),,OemToAnsi(STR0034) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0035)} )
+		ElseIf cGrupo <> "06" .And. (!Empty(oModel:GetValue("GPEA019_RI0","RI0_TPMORT")) .Or. If((nOper == 1 .Or. nOper == 5),!Empty(oModel:GetValue("GPEA019_RI0","RI0_CPFMOR")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DTOBIT")), .F.))
+			lRet	:= .F.
+			// "Campos da aba Pensão por Morte"###"Inconsistência"
+			// "Os campos Tipo Pensão Morte (RI0_TPMORT) / CPF do Instituidor (RI0_CPFMOR) / Data do Óbito (RI0_DTOBIT) não devem estar vazio quando o tipo de benefício pertence ao grupo 06 e não devem ser informados nos demais casos."
+			Help(,,OemToAnsi(STR0033),,OemToAnsi(STR0043) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0035)} )
+		EndIf
+	EndIf
+
+	If  lRet .And. (nOper == 1 .Or. nOper == 2 .Or. nOper == 5) .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_PD")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_VALOR")))
+		lRet	:= .F.
+		//"Inconsistência"###"Campos da Aba Pagamento."###"Os campos Cód. Verba (RI0_PD) e Vlr. Benefício (RI0_VALOR) não podem estar vazios."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0102) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0103)} )
+	EndIf
+
+	// Validações relacionadas à Situação do Benefício
+	If lRet .And. (nOper == 1 .Or. nOper == 5)  .And. oModel:GetValue("GPEA019_RI0","RI0_SITBEN") == "2" ;
+		 .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_CNPJA")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_NRBENA")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTTRAN")))
+		lRet	:= .F.
+		// "Campos da aba Transferência"###"Campos CNPJ Órgão Anterior (RI0_CNPJA) / Número Benefício Anterior (RI0_NRBENA) / Data Transferência (RI0_DTTRAN) não estão todos preenchidos."
+		// "Os campos CNPJ Órgão Anterior (RI0_CNPJA) / Número Benefício Anterior (RI0_NRBENA) / Data Transferência (RI0_DTTRAN) são obrigatórios quando a situação do benefício for igual a 2=Benefício transferido de outro órgão e não devem ser informados nos demais casos."
+		Help(,,OemToAnsi(STR0044),,OemToAnsi(STR0045) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0046)})
+	ElseIf lRet .And. (nOper == 1 .Or. nOper == 5)  .And. oModel:GetValue("GPEA019_RI0","RI0_SITBEN") <> "2";
+		 .And. (!Empty(oModel:GetValue("GPEA019_RI0","RI0_CNPJA")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_NRBENA")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DTTRAN")))
+			lRet	:= .F.
+			// "Campos da aba Transferência"###"Inconsistência"
+			// "Os campos CNPJ Órgão Anterior (RI0_CNPJA) / Número Benefício Anterior (RI0_NRBENA) / Data Transferência (RI0_DTTRAN) são obrigatórios quando a situação do benefício for igual a 2=Benefício transferido de outro órgão e não devem ser informados nos demais casos."
+			Help(,,OemToAnsi(STR0044),,OemToAnsi(STR0043) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0046)})
+	EndIf
+
+	If lRet .And. (nOper == 1 .Or. nOper == 5)  .And. oModel:GetValue("GPEA019_RI0","RI0_SITBEN") == "3" ;
+		 .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_CPFANT")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_NRBEAN")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTALTC")))
+		lRet	:= .F.
+		// "Campos da aba Mudança CPF"###"Campos CPF Anterior (RI0_CPFANT) / Número Benefício Anterior (RI0_NRBEAN) / Data Alteração CPF (RI0_DTALTC) não estão todos preenchidos."
+		// "Os campos CPF Anterior (RI0_CPFANT) / Número Benefício Anterior (RI0_NRBEAN) / Data Alteração CPF (RI0_DTALTC) são obrigatórios quando a situação do benefício for igual a 3=Mudança de CPF do beneficiário transferido de outro órgão e não devem ser informados nos demais casos."
+		Help(,,OemToAnsi(STR0036),,OemToAnsi(STR0037) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0038)})
+	ElseIf lRet .And. (nOper == 1 .Or. nOper == 5)  .And. oModel:GetValue("GPEA019_RI0","RI0_SITBEN") <> "3" ;
+		 .And. (!Empty(oModel:GetValue("GPEA019_RI0","RI0_CPFANT")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_NRBEAN")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DTALTC")))
+		lRet	:= .F.
+		// "Campos da aba Mudança CPF"###"Inconsistência"
+		// "Os campos CPF Anterior (RI0_CPFANT) / Número Benefício Anterior (RI0_NRBEAN) / Data Alteração CPF (RI0_DTALTC) são obrigatórios quando a situação do benefício for igual a 3=Mudança de CPF do beneficiário transferido de outro órgão e não devem ser informados nos demais casos."
+		Help(,,OemToAnsi(STR0036),,OemToAnsi(STR0043) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0038)})
+	EndIf
+
+	If lRet .And. ((nOper == 1 .Or. nOper == 5) .And. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DTTERM"))) .And. (oModel:GetValue("GPEA019_RI0","RI0_DTTERM") < oModel:GetValue("GPEA019_RI0","RI0_DTINIB") .Or. ;
+		If(oModel:GetValue("GPEA019_RI0","RI0_CADINI") == "1", oModel:GetValue("GPEA019_RI0","RI0_DTTERM")  >= dDcgIni, .F.)  .Or. ;
+		 If(oModel:GetValue("GPEA019_RI0","RI0_SITBEN") == "2" .And. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DTTRAN")), oModel:GetValue("GPEA019_RI0","RI0_DTTERM")  >= oModel:GetValue("GPEA019_RI0","RI0_DTTRAN") , .F.))
+		lRet	:= .F.
+		// "Inconsistência"###"A Data Término (RI0_DTTERM) não é válida."
+		// "Deverá ser igual ou posterior à Data do Início do Benefício, ou, se Dt.Cad.Ini (RI0_CADINI) igual a 1=Sim, anterior à data de início da obrigatoriedade dos eventos não periódicos para o ente
+		// "público no eSocial, ou, se Sit. do Benefício igual a 2=Benefício transferido de outro órgão, deverá ser anterior a Data de Transferência."
+		Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0060) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0097)} )
+	EndIf
+
+	//Validações relacionadas somente à Alteração/Suspensão
+	If  nOper == 2
+
+		If  lRet .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTAS"))
+			lRet	:= .F.
+			//"Inconsistência"###"O campo Dt. Alteração/Suspensão (RI0_DTAS) não pode estar vazio."###"Informe uma data válida."
+			 Help(,1,OemToAnsi(STR0043),,OemToAnsi(STR0085) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0074)} )
+		EndIf
+
+		If  lRet .And. !fChkHist(oModel:GetValue("GPEA019_RI0","RI0_DTAS"))
+			lRet	:= .F.
+			//"Inconsistência"###"Já existe Alteração/Suspensão na data atual."###"Informe uma data válida."
+			Help(,1,OemToAnsi(STR0043),,OemToAnsi(STR0056) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0074)} )
+		EndIf
+
+		If lRet .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_INDSUP")) .Or. oModel:GetValue("GPEA019_RI0","RI0_INDSUP") == "2") .And. (!Empty(oModel:GetValue("GPEA019_RI0","RI0_MOTSUP")) .Or. !Empty(oModel:GetValue("GPEA019_RI0","RI0_DSSUPM")))
+			lRet	:= .F.
+			//"Inconsistência"###"Os dados de Suspensão estão inválidos."
+			//"O campo Motivo Suspensão (RI0_MOTSUP) deverá ser preenchido apenas quando o campo Indicativo Suspensão (RI0_INDSUP) for igual a 1=Sim e deverá estar vazio nos demais casos ."
+			//"O campo Descrição Suspensão (RI0_DSSUPM) deverá ser preenchido apenas quando o campo Motivo Suspensão (RI0_MOTSUP) for igual a 99 e deverá estar vazio nos demais casos ."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0082) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0083) + CRLF + CRLF + OemToAnsi(STR0084)} )
+		EndIf
+
+		If lRet .And. oModel:GetValue("GPEA019_RI0","RI0_INDSUP") =="1" .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_MOTSUP"))
+			lRet	:= .F.
+			//"Inconsistência"###"O campo Motivo Suspensão (RI0_MOTSUP) não foi selecionado."###"O campo Motivo Suspensão (RI0_MOTSUP) é obrigatório quando o campo Indicativo Suspensão (RI0_INDSUP) for igual a 1=Sim."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0049) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0050)} )
+		EndIf
+
+		If  lRet .And. oModel:GetValue("GPEA019_RI0","RI0_MOTSUP") =="99".And. Empty(oModel:GetValue("GPEA019_RI0","RI0_DSSUPM"))
+			lRet	:= .F.
+			//"Inconsistência"###"O campo Descrição Suspensão (RI0_DSSUPM) está vazio."###"O campo Descrição Suspensão (RI0_DSSUPM) é obrigatório quando o campo Motivo Suspensão (RI0_MOTSUP) for igual a 99."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0053) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0051)} )
+		EndIf
+
+
+	EndIf
+
+	//Validações relacionadas somente ao Término
+	If  nOper == 6
+		If lRet .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTTERM")).Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_TERMOT"))
+			lRet	:= .F.
+			//"Inconsistência"###"Os campos Dt. Término (RI0_DTTERM) e/ou Motivo Término (RI0_TERMOT) são obrigatórios."
+			Help(,1,OemtoAnsi(STR0043),,OemToAnsi(STR0067),1,0)
+		EndIf
+
+		If  lRet .And. oModel:GetValue("GPEA019_RI0","RI0_TERMOT") =="09".And. Empty(oModel:GetValue("GPEA019_RI0","RI0_CNPJSU"))
+			lRet	:= .F.
+			//"Inconsistência"###"O campo CNPJ Sucessor (RI0_CNPJSU) está vazio."###"O campo CNPJ Sucessor (RI0_CNPJSU) é obrigatório quando o campo Motivo Térmico (RI0_TERMOT) for igual a 09 e não deve ser informado nos demais casos."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0089) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0090)} )
+		ElseIf  lRet .And. oModel:GetValue("GPEA019_RI0","RI0_TERMOT") <> "09" .And. !Empty(oModel:GetValue("GPEA019_RI0","RI0_CNPJSU"))
+			lRet	:= .F.
+			//"Inconsistência"###"O campo CNPJ Sucessor (RI0_CNPJSU) está preenchido."###"O campo CNPJ Sucessor (RI0_CNPJSU) é obrigatório quando o campo Motivo Térmico (RI0_TERMOT) for igual a 09 e não deve ser informado nos demais casos."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0088) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0090)} )
+		EndIf
+
+
+		If lRet .And. oModel:GetValue("GPEA019_RI0","RI0_TERMOT") =="10" .And. Empty(oModel:GetValue("GPEA019_RI0","RI0_NVCPF"))
+			lRet	:= .F.
+			// "Inconsistência"###"O campo Novo CPF (RI0_NVCPF) não está preenchido."
+			// "O campo Novo CPF (RI0_NVCPF) é obritório quando o campo Motivo Térmico (RI0_TERMOT) for igual a 10 e não deve ser informado nos demais casos."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0064) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0065)} )
+		ElseIf  lRet .And. oModel:GetValue("GPEA019_RI0","RI0_TERMOT") <>"10" .And. !Empty(oModel:GetValue("GPEA019_RI0","RI0_NVCPF"))
+		lRet	:= .F.
+			// "Inconsistência"###"O campo Novo CPF (RI0_NVCPF) está preenchido."
+			// "O campo Novo CPF (RI0_NVCPF) é obrigatório quando o campo Motivo Térmico (RI0_TERMOT) for igual a 10 e não deve ser informado nos demais casos."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0066) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0065)} )
+		EndIf
+
+	EndIf
+
+	//Validações relacionadas somente a Reativação
+	If  nOper == 4
+		If lRet .And. (Empty(oModel:GetValue("GPEA019_RI0","RI0_DTEFRE")) .Or. Empty(oModel:GetValue("GPEA019_RI0","RI0_DTEFFI")))
+			lRet	:= .F.
+			//"Inconsistência"###"Os campos Dt. Efetivação Reativação  (RI0_DTEFRE) / Dt. Efeitos Financeiros (RI0_DTEFFIM) são obrigatórios."
+			Help(,1,OemtoAnsi(STR0043),,OemToAnsi(STR0075),1,0)
+		EndIf
+
+		If lRet .And. (oModel:GetValue("GPEA019_RI0","RI0_DTEFRE") > dDataBase) .Or. (oModel:GetValue("GPEA019_RI0","RI0_DTEFRE") <= RI0->RI0_DTTERM)
+			lRet	:= .F.
+			// "Inconsistência"###"A Dt. Efetivação Reativação (RI0_DTEFRE) não é válida."###"Deverá ser igual ou anterior à data atual e posterior à Dt. Término (RI0_DTTERM)."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0078) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0079)} )
+		EndIf
+
+		If  lRet .And.  oModel:GetValue("GPEA019_RI0","RI0_DTEFRE") >=  oModel:GetValue("GPEA019_RI0","RI0_DTEFFI")
+			lRet	:= .F.
+			//"Inconsistência"###"A Dt. Efeitos Financeiros (RI0_DTEFFI) não é válida."###"A Dt. Efeitos Financeiros (RI0_DTEFFI) deverá ser posterior à Dt. Efetivação Reativação (RI0_DTEFRE)."
+			Help(,,OemToAnsi(STR0043),,OemToAnsi(STR0076) ,1,0, NIL, NIL, NIL, NIL, NIL, {OemToAnsi(STR0077)} )
+		EndIf
+	EndIf
+
+Return (lRet)
+
+
+/*/{Protheus.doc} gp019Commit()
+Executa gravação dos dados da tabela RI0 e RI9 (Histórico)
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function gp019Commit(oModel)
+
+	Local lRet 		:= .T.
+	Local aErros 	:= {}
+	Local cEvento	:= ""
+	Local cStat2400 := ""
+	Local cStat2410	:= ""
+	Local cStat2420	:= ""
+	Local nNrBenef	:= 0
+	Local cJSon		:= ""
+	Local lGrEvento	:= .T.
+
+	Begin Transaction
+
+		If cVersEnvio >= "9.0" .And. lIntTaf
+			If (nOper == 1  .Or. nOper == 5 ) .And. Findfunction("fInt2410")  // Inclusão ou Retificação
+				cStat2400 := TAFGetStat( "S-2400", SRA->RA_CIC)  //ADMISSAO POR CADASTRO				
+				If cStat2400 == "4"
+					If nOper == 1
+						lRet :=  fInt2410(oModel, nOper, "S2410", @aErros)
+						If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+							fEFDMsg()
+						EndIf
+					ElseIf nOper == 5
+						// Verifica se ocorreu Retificação APENAS dos campos Cód.Verba(RI0_PD) e Vlr. Benefício (RI0_VALOR) - Nesta condição não deve ser enviado para o TAF
+						lGrEvento := fFieldsCom("RI0", oModel:GetModel("GPEA019_RI0"), "RI0_FILIAL|RI0_CIC|RI0_CODUNI", {"RI0_PD","RI0_VALOR"})
+						If lGrEvento
+							cStat2410 := TAFGetStat("S-2410",  AllTrim(SRA->RA_CIC) + ";" + RI0->RI0_NRBEN,,,5)
+							If cStat2410 == "4"
+								lRet :=  fInt2410(oModel, nOper, "S2410", @aErros, .T. )   //Retificação
+								If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+									fEFDMsg()
+								EndIf
+							Else
+								cMsg	:= OemtoAnsi(STR0093) //"Será gerado o evento S-2410 original evento anterior ainda não foi enviado ao TAF/RET"
+								Help(,,OemtoAnsi(STR0054),,cMsg,1,0)
+								lRet :=  fInt2410(oModel, 1, "S2410" , @aErros)
+								If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+									fEFDMsg()
+								EndIf
+							Endif
+						EndIf
+					Endif
+				Else
+					oModel:SetErrorMessage("",,oModel:GetId(),"","",OemtoAnsi(STR0092)) //"O Beneficio não sera integrado ao TAF. O Beneficiario não foi enviado ao RET
+					lRet	:= .F.
+				EndIf
+			Endif
+
+			If nOper == 2 .And. Findfunction("fInt2416New")
+				// Verifica se ocorreu ALTERAÇÃO APENAS dos campos Cód.Verba(RI0_PD) e Vlr. Benefício (RI0_VALOR) - Nesta condição não deve ser enviado para o TAF
+				lGrEvento := fFieldsCom("RI0", oModel:GetModel("GPEA019_RI0"), "RI0_FILIAL|RI0_CIC|RI0_CODUNI", {"RI0_PD","RI0_VALOR"})
+				If lGrEvento
+					//Verifica se o o início do benefício já foi integrado ao TAF
+					cStat2410 	:= TAFGetStat("S-2410",  AllTrim(SRA->RA_CIC) + ";" + RI0->RI0_NRBEN,,,5)
+
+					//Gera o evento S-2416
+					If cStat2410 == "4"
+						lRet :=  fInt2416New(oModel,@aErros)
+						//Verifica se o sistema informa ou não a integração com sucesso no TAF
+						If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+							fEFDMsg()
+						EndIf
+					Else
+						oModel:SetErrorMessage("",,oModel:GetId(),"","",OemtoAnsi(STR0091)) //"O Evento S-2410 (Cadastro de Benefício - Entes Públicos Início)ainda não foi enviado ao TAF/RET."
+						lRet	:= .F.
+					EndIf
+				EndIf
+			EndIf
+
+			If nOper == 6 .And. findfunction("fInt2420")
+				//Verifica se o o início do benefício já foi integrado ao TAF
+				cStat2410 := TAFGetStat( "S-2410", alltrim(RI0->RI0_CPF) + ";" + alltrim(RI0->RI0_NRBEN),,, 5)
+
+				//Gera o evento S-2420
+				If cStat2410 == "4"
+					lRet := fInt2420(oModel, @aErros)
+					If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+						fEFDMsg()
+					EndIf
+				Else
+					oModel:SetErrorMessage("",,oModel:GetId(),"","",OemToAnsi(STR0091))
+					lRet    := .F.
+				EndIf
+			EndIf
+
+			If nOper == 4 .And. findfunction("fInt2418")
+				//Verifica se o término já foi integrado
+				cStat2420 := TAFGetStat( "S-2420", alltrim(RI0->RI0_CPF) + ";" + RI0->RI0_NRBEN + ";" + DtoS(RI0->RI0_DTTERM),,, 3)
+				
+				//Gera o evento S-2418
+				If cStat2420 == "4"
+					lRet :=  fInt2418(oModel, @aErros)
+					If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+						fEFDMsg()
+					EndIf
+
+				ElseIf cStat2420 == "-1" .And. !Empty(RI0->RI0_DTTERM)
+					//Verifica início com data de término
+					cStat2410 := TAFGetStat( "S-2410", alltrim(RI0->RI0_CPF) + ";" + RI0->RI0_NRBEN,,, 5)
+
+					If cStat2410 == "4"
+						lRet :=  fInt2418(oModel, @aErros)
+						If lRet .And. !IsBlind() .And. FindFunction("fEFDMsg")
+							fEFDMsg()
+						EndIf
+					Else
+						oModel:SetErrorMessage("",,oModel:GetId(),"","",OemtoAnsi(STR0091)) //"O Evento S-2410 (Cadastro de Benefício - Entes Públicos Início)ainda não foi enviado ao TAF/RET."
+						lRet	:= .F.
+					EndIf
+				Else
+					oModel:SetErrorMessage("",,oModel:GetId(),"","",OemtoAnsi(STR0098)) //"O Evento S-2418 não pode ser gerado pois não há informação de término no RET."
+					lRet	:= .F.
+				EndIf
+			EndIf
+
+			If !lRet
+				If Len(aErros) > 0
+					oModel:SetErrorMessage("",,oModel:GetId(),"","",OemToAnsi(aErros[1]))
+				EndIf
+				DisarmTransaction()
+				Return .F.
+			EndIf
+		EndIf
+
+		If lRet
+
+			cJSon		:= fRI0ToJson() //RI0 antes de ser modificada
+			nNrBenef	:= RI0->RI0_NRBEN
+
+			If nOper == 4 // Reativação
+				// Limpa campos de Término
+				RecLock("RI0", .F.)
+					RI0->RI0_DTTERM	:= CtoD("//")
+					RI0->RI0_TERMOT	:= ""
+					RI0->RI0_CNPJSU	:= ""
+					RI0->RI0_NVCPF	:= ""
+				RI0->(MsUnlock())
+			EndIf
+			
+			If nOper == 6 // Término		
+				RecLock("RI0", .F.)
+					// Limpa campos de Suspensão
+					RI0->RI0_TPMORT	:= ""
+					RI0->RI0_DTAS	:= CtoD("//")
+					RI0->RI0_INDSUP	:= ""
+					RI0->RI0_MOTSUP	:= ""
+					RI0->RI0_DSSUP	:= ""
+					// Limpa campos de Reativação
+					RI0->RI0_DTEFRE	:= CtoD("//")
+					RI0->RI0_DTEFFI	:= CtoD("//")
+				RI0->(MsUnlock())
+			EndIf
+
+			FWFormCommit( oModel )
+			If lGrEvento
+				fGrvHist(cEvento,nNrBenef,cJSon,lGrEvento)
+			EndIf
+
+			nOper:= 1
+			oBrowseUp:ExecuteFilter(.T.)
+
+		EndIf		
+
+	End Transaction
+
+Return .T.
+
+/*/{Protheus.doc} fGrvHist()
+Grava os dados de Histórico na tabela RI9
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function fGrvHist(cEvento, nNrBenef, cJSon)
+Local dDtMov	:= CtoD("//")
+
+Default cEvento		:= ""
+Default nNrBenef	:= M->RI0_NRBEN
+Default cJSon		:= ""
+
+	If nOper == 1
+		dDtMov	:= RI0->RI0_DTINIB // Data Início do Benefício
+		cEvento	:= "2410"
+	ElseIf nOper == 2
+		dDtMov	:= RI0->RI0_DTAS	// Data da Alteração/Suspensão
+		cEvento := "2416"
+	ElseIf nOper == 4
+		dDtMov	:= RI0->RI0_DTEFRE	// Data da Efetivação da Reativação
+		cEvento := "2418"
+	ElseIf nOper == 5
+		dDtMov	:= If(dDataBase < RI0->RI0_DTINIB, RI0->RI0_DTINIB,dDataBase) // Data Retificação
+		cEvento	:= "2410"
+	ElseIf nOper == 6
+		dDtMov	:= RI0->RI0_DTTERM // Data do Término
+		cEvento := "2420"
+	EndIf
+
+	dbSelectArea("RI9")
+	RI9->(DbSetOrder(1)) // RI9_FILIAL+RI9_MAT+RI9_NRBEN+DTOS(RI9_DTMOVI)+RI9_OPER
+	If nOper == 1 .Or. nOper == 2 .Or. nOper == 4 .Or. nOper == 6 // Inclusão, Alteração/Suspensão, Reativação, Término
+		RecLock("RI9", .T.)
+			RI9->RI9_FILIAL 	:= RI0->RI0_FILIAL
+			RI9->RI9_MAT    	:= RI0->RI0_MAT
+			RI9->RI9_DTMOVI  	:= dDtMov
+			RI9->RI9_NRBENE		:= RI0->RI0_NRBEN
+			RI9->RI9_CODUNI		:= RI0->RI0_CODUNI
+			RI9->RI9_OPER  		:= cValtoChar(nOper)
+			RI9->RI9_EVENTO 	:= cEvento
+			RI9->RI9_SITRI0		:= cJSon
+			RI9->RI9_STATUS		:= "1"
+		RI9->(MsUnlock())
+	ElseIf  nOper == 5 //  Retificação
+		If (RI9->(dbSeek(RI0->RI0_FILIAL + RI0->RI0_MAT + M->RI0_NRBEN + DtoS(dDataBase)+cValToChar(nOper))))
+			RecLock("RI9", .F.) // Retificação no mesmo dia
+		Else
+			// Primeira retificação ou retificação em outra data				
+			RecLock("RI9", .T.) 
+		EndIf
+
+		RI9->RI9_FILIAL 	:= RI0->RI0_FILIAL
+		RI9->RI9_MAT    	:= RI0->RI0_MAT
+		RI9->RI9_DTMOVI  	:= dDtMov
+		RI9->RI9_NRBENE		:= RI0->RI0_NRBEN
+		RI9->RI9_CODUNI		:= RI0->RI0_CODUNI
+		RI9->RI9_OPER  		:= cValtoChar(nOper)			
+		RI9->RI9_EVENTO 	:= cEvento
+		RI9->RI9_STATUS		:= "1"
+		RI9->RI9_SITRI0		:= cJSon
+		RI9->(MsUnlock())	
+
+		// Caso o usuário altere o código do benefício na Retificação, todos os dados do histórico deverão
+		// ser atualizados de forma que essa operação de troca fique registrada no histórico
+		If AllTrim(nNrBenef) <> AllTrim(RI0->RI0_NRBEN)
+			If (RI9->(dbSeek(RI0->RI0_FILIAL + RI0->RI0_MAT + nNrBenef)))
+				While RI9->(!Eof()) .And. (	RI9->RI9_FILIAL + RI9->RI9_MAT + RI9->RI9_NRBENE == RI0->RI0_FILIAL + RI0->RI0_MAT + nNrBenef )
+					RecLock("RI9", .F.)
+					RI9->RI9_NRBENE		:= RI0->RI0_NRBEN
+					RI9->(MsUnlock())	
+				("RI9")->(DbSkip())
+				End Do			
+			EndIf
+		EndIf
+	EndIf
+
+Return
+
+/*/{Protheus.doc} fRI0ToJson()
+Prepara jSon com informações do Benefício anterior à operação realizada
+-Campos com conteúdo vazio serão ignorados
+@since	20/10/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function fRI0ToJson()
+
+	Local aCampos	:= {}
+	Local nI		:= 0
+	Local cExcecao	:= "#" //"RI0_FILIAL|RI0_CODUNI" // Campos que não devem ir para o json
+	Local cType		:= ""
+	Local xConteud	:= ""
+	Local cPrefix	:= IIf(nOper == 1, "M->", "RI0->")
+	Local oJson		:= JsonObject():new() 
+	Local cJSon		:= ""
+
+	aCampos := FWSX3Util():GetAllFields( "RI0" , .T.)
+
+	For nI := 1 To Len(aCampos)
+		If aCampos[nI] $ cExcecao
+			LOOP
+		EndIf		
+		cType := FWSX3Util():GetFieldType( aCampos[nI] ) 
+		If cType == "M" //Memo
+			If nOper == 1
+				xConteud	:= &( cPrefix + aCampos[nI] )
+			ElseIf aCampos[nI] $ "RI0_DSCMEM|RI0_OBSMEM|RI0_OBSAME|RI0_DSSUPM"
+				xConteud := MSMM(getCodMemo(aCampos[nI])[2],,,,3,,,"RI0",,"RDY")
+			EndIf
+			xConteud := AllTrim(SubStr(xConteud,1,255))
+		Else	
+			xConteud	:= &( cPrefix + aCampos[nI] )
+			If cType == "D"
+				xConteud := AllTrim(DtoS(xConteud))
+			ElseIf cType == "C"
+				xConteud := AllTrim(xConteud)
+			EndIf
+		EndIf	
+		If !Empty(xConteud)
+			oJson[aCampos[nI]]	:= xConteud
+		EndIf	
+	Next nI
+
+	cJSon := oJson:toJSON()
+
+Return cJSon
+
+/*/{Protheus.doc} getCodMemo
+Retorna o Memo
+@since	27/10/2021
+@autor	martins.marcio
+@version P12
+/*/
+Function getCodMemo(cNomeMemo)
+	Local aCodMemo := {}
+	Default cNomeMemo := ""
+	If AllTrim(cNomeMemo) == "RI0_DSCMEM"
+		aCodMemo := {"RI0_DSC", RI0->RI0_DSC}
+	ElseIf AllTrim(cNomeMemo) == "RI0_OBSMEM"
+		aCodMemo := {"RI0_OBS", RI0->RI0_OBS}
+	ElseIf AllTrim(cNomeMemo) == "RI0_OBSAME"
+		aCodMemo := {"RI0_OBSALT", RI0->RI0_OBSALT}
+	ElseIf AllTrim(cNomeMemo) == "RI0_DSSUPM"
+		aCodMemo := {"RI0_DSSUP", RI0->RI0_DSSUP}
+	Else
+		aCodMemo := {"", ""}
+	EndIf
+Return aCodMemo
+
+/*/{Protheus.doc} fFieldsCom(cAlias, oAliasStru, cCpoExec, aCpoVld)
+Compara dados gravados com os dados inseridos no componente AddFields (MPFormModel)
+@cAlias, alias com o qual será realizado a comporação com o modelo
+@oAliasStru, o componente AddFields com os campos que estão sendo manipulados como alteração (nOpc 4)
+@cCpodExec, campos que não deverão ser verificados
+@aCpoVld, lista com campos cuja manutenção em conjunto com demais campos dita a continuidade (lComp) ou não do processo envolvido 
+@Exemplo: Campos A, B, C, D e E com campo E em aCpoVld
+@Se eu alterei E e mais nenhum outro campo, retorno .F.
+@Se eu alterei E e mais qualquer outro campo, retorno .T.
+@Se eu alterei A ou B ou C ou D e não alterei E, retorno .T.
+@since	11/02/2022
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function fFieldsCom(cAlias, oAliasStru, cCpoExec, aCpoVld)
+
+	Local aCampos	:= {}
+	Local nX		:= 0
+	Local nI		:= 0
+	Local cType		:= ""
+	Local xConteud	:= ""
+	Local cPrefix	:= cAlias+"->"
+	Local cPrefixM	:= "M->"
+	Local nCont		:= 0
+	Local nCpoVld	:= 0
+	Local lComp		:= .F.
+	Local aAliasStru 	
+	Local aAliasFields
+
+	Default cCpoExec	:= ""
+	Default aCpoVld		:= {}
+
+	If !(Empty(cAlias) .Or. oAliasStru == Nil)
+
+		aAliasStru 		:= oAliasStru:GetStruct()
+		aAliasFields 	:= aAliasStru:GetFields()
+
+		For nX := 1 to Len (aAliasFields)
+			aadd(aCampos,aAliasFields[nX][3])
+		Next nX
+
+		For nI := 1 To Len(aCampos)
+			If aCampos[nI] $ cCpoExec
+				Loop
+			EndIf		
+			cType := FWSX3Util():GetFieldType( aCampos[nI] ) 
+			If cType == "M" //Memo			
+				xConteud := MSMM(getCodMemo(aCampos[nI])[2],,,,3,,,cAlias,,"RDY")
+				xConteud := AllTrim(SubStr(xConteud,1,255))
+				xConteudM	:= &( cPrefixM + aCampos[nI] )
+				xConteudM := AllTrim(SubStr(xConteud,1,255))
+			Else	
+				xConteud	:= &( cPrefix + aCampos[nI] )
+				xConteudM	:= &( cPrefixM + aCampos[nI] )
+				If cType == "D"
+					xConteud := AllTrim(DtoS(xConteud))
+					xConteudM := AllTrim(DtoS(xConteudM))
+				ElseIf cType == "C"
+					xConteud := AllTrim(xConteud)
+					xConteudM := AllTrim(xConteudM)
+				EndIf
+			EndIf
+
+			If xConteud <> xConteudM				
+				If aScan(aCpoVld, {|x| x == aCampos[nI]}) > 0
+					nCpoVld++
+				Else
+					// Caso operação de Alteração, desconsiderar campo de Dt. Alteração
+					If !(nOper == 2 .And. aCampos[nI] == "RI0_DTAS")
+						nCont++
+					EndIf
+				EndIf
+			EndIf	
+
+		Next nI
+
+		If Len(aCpoVld ) > 0
+			If nCont > 0 .And. nCpoVld > 0
+				lComp	:= .T.
+			ElseIf nCont == 0 .And. nCpoVld > 0
+				lComp	:= .F.
+			EndIf
+		EndIf
+
+	EndIf
+
+Return lComp
+
+
+/*/{Protheus.doc} MenuDef
+Opções de Menu
+@since	22/09/2021
+@autor	raquel.andrade
+@version P12
+/*/
+Static Function MenuDef()
+Local aRotina :=  {}
+
+ADD OPTION aRotina TITLE OemToAnsi(STR0039) 	ACTION 'PesqBrw'          	OPERATION 1 ACCESS 0 DISABLE MENU	// "Pesquisar"
+ADD OPTION aRotina TITLE OemToAnsi(STR0040) 	ACTION 'VIEWDEF.GPEA019'	OPERATION 2 ACCESS 0 DISABLE MENU	// "Visualizar"
+ADD OPTION aRotina TITLE OemToAnsi(STR0041) 	ACTION 'VIEWDEF.GPEA019' 	OPERATION 3 ACCESS 0 DISABLE MENU	// "Incluir"
+ADD OPTION aRotina TITLE OemToAnsi(STR0052)		ACTION 'Gp019Oper(2)' 		OPERATION 4 ACCESS 0 DISABLE MENU	// "Alterar/Suspender"
+ADD OPTION aRotina TITLE OemToAnsi(STR0081)		ACTION 'Gp019Oper(4)' 		OPERATION 4 ACCESS 0 DISABLE MENU	// "Reativar"
+ADD OPTION aRotina TITLE OemToAnsi(STR0042) 	ACTION 'Gp019Oper(5)' 		OPERATION 4 ACCESS 0 DISABLE MENU	// "Retificar"
+ADD OPTION aRotina TITLE OemToAnsi(STR0057)		ACTION 'Gp019Oper(6)' 		OPERATION 4 ACCESS 0 DISABLE MENU	// "Término"
+ADD OPTION aRotina TITLE OemToAnsi(STR0099)		ACTION 'Gp019Oper(7)' 		OPERATION 2 ACCESS 0 DISABLE MENU	// "Visualizar Histórico" 
+
+Return aRotina
