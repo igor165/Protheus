@@ -1191,8 +1191,10 @@ User Function BuscaCurral()
     Local aArea   := GetArea()
 	Local oModel  := FwModelActivate()
 	Local oMdlP1  := oModel:GetModel("ZPB_1")
+	Local oMdlP2  := oModel:GetModel("ZPB_2")
 	Local oMdlP3  := oModel:GetModel("ZPB_3")
 	Local oMdlP4  := oModel:GetModel("ZPB_4")
+	Local oMdlP5  := oModel:GetModel("ZPB_5")
     Local cCurral := CriaVar( 'ZPB_BAIA', .F.)
     Local _cQry   := ""
 
@@ -1201,8 +1203,8 @@ User Function BuscaCurral()
     _cQry := " SELECT  DISTINCT D2_LOTECTL " + CRLF+;
         " FROM    SD2010 " + CRLF+;
         " WHERE   D2_FILIAL='" + xFilial('SD2') + "' " + CRLF+;
-        " 	   AND D2_DOC IN (" + U_cValToSQL(M->ZPB_NOTFIS, ";") + ") " + CRLF+;
-        " 	   AND D2_CLIENTE = '" + AllTrim(M->ZPB_CODFOR) + "' " + CRLF+;
+        " 	   AND D2_DOC IN (" + U_cValToSQL(oMdlP5:GetValue("ZPB_NOTFIS"), ";") + ") " + CRLF+;
+        " 	   AND D2_CLIENTE = '" + AllTrim(oMdlP2:GetValue("ZPB_CODFOR")) + "' " + CRLF+;
         " 	   AND D_E_L_E_T_=' '"
     If lower(cUserName) $ 'bernardo,mbernardo,atoshio,admin,administrador'
         MemoWrite("C:\totvs_relatorios\BuscaCurral.sql" , _cQry)
@@ -1296,6 +1298,8 @@ Return lRet
 '--------------------------------------------------------------------------------*/
 User Function ceDocBaia()
 	Local oDlg, oLbx
+	Local oModel  := FwModelActivate()
+	Local oMdlP2  := oModel:GetModel("ZPB_2")
 	Local aCpos  := {}
 	Local aRet   := {}
 	Local _cQry := ""
@@ -1308,7 +1312,7 @@ User Function ceDocBaia()
 		"  FROM SD2010 " + CRLF+;
 		"  WHERE D2_FILIAL  = '" + xFilial('SD2')         + "'" + CRLF+;
 		"    AND D2_EMISSAO = '" + DtoS(M->ZPB_DATA)      + "'" + CRLF+;
-		"    AND D2_CLIENTE = '" + AllTrim(M->ZPB_CODFOR) + "'" + CRLF+;
+		"    AND D2_CLIENTE = '" + AllTrim(oMdlP2:GetValue("ZPB_CODFOR")) + "'" + CRLF+;
 		"    AND D2_QUANT > 0 " + CRLF+;
 		"    AND D2_GRUPO IN ('BOV','01')" + CRLF+;
 		"    AND D2_LOTECTL NOT IN (" + CRLF+;
