@@ -1,7 +1,7 @@
 #INCLUDE 'PROTHEUS.CH'
 #include "fwmvcdef.ch"
 
-Static cTitulo := "Projeção de consumo dieta confinamento"
+Static cTitulo := "Planejamento Anual Confinamento"
 
 User Function LVFATI01()
     Local aArea   		:= FwGetArea()
@@ -21,14 +21,13 @@ Return
 
 Static Function MenuDef()
 	Local aRot := {}
-	
+
 	ADD OPTION aRot TITLE 'Visualizar' 		ACTION 'VIEWDEF.LVFATI01' 			OPERATION MODEL_OPERATION_VIEW   ACCESS 0 //OPERATION 1
 	ADD OPTION aRot TITLE 'Incluir'    		ACTION 'VIEWDEF.LVFATI01' 			OPERATION MODEL_OPERATION_INSERT ACCESS 0 //OPERATION 3
 	ADD OPTION aRot TITLE 'Alterar'    		ACTION 'VIEWDEF.LVFATI01' 			OPERATION MODEL_OPERATION_UPDATE ACCESS 0 //OPERATION 4
 	ADD OPTION aRot TITLE 'Excluir'    		ACTION 'VIEWDEF.LVFATI01' 			OPERATION MODEL_OPERATION_DELETE ACCESS 0 //OPERATION 5
 
 Return aRot
-
 
 Static Function ModelDef()
 	Local oModel   	:= Nil
@@ -38,11 +37,11 @@ Static Function ModelDef()
 	Local aAux		:= {}
 	Local nI
 
-	//aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01GATS(1)"												,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01PER()"												,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"												,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_VLRCEN","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "							,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
+	//aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_VLRCEN","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
 	
 	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOAR","M->ZEF_PESOKG / 30 "												,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_GMD" 		,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "01" ))
@@ -59,7 +58,7 @@ Static Function ModelDef()
 	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_GMD * M->ZEF_PERIOD )"					,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * (M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "02" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_VLRALI","U_I01REC()"														,.F. ,"",0,"" ,NIL, "03" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_DESTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "03" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_DESTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "04" ))
 	aAdd(aAux, FwStruTrigger("ZEF_DESTOT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_RECEIT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
 
@@ -186,7 +185,7 @@ User Function FATI01()
 
 		if len(aParam) >= 4
 			cIdIXB4  := aParam[4]
-		endif 
+		endif
 
 		if len(aParam) >= 5
 			cIdIXB5  := aParam[5]
@@ -254,7 +253,7 @@ User Function FATI01()
 						nVlrTot += oGrid:GetValue("ZEG_VLRTOT")
 					endif
 				endif
-			Next nI 
+			Next nI
 
 			IF nVlrDia > 0
 				oCab:LoadValue("ZEF_CUSCAB",nVlrDia)
@@ -271,7 +270,6 @@ User Function FATI01()
 				oCab:LoadValue("ZEF_RECLIQ",oCab:GetValue("ZEF_RECEIT") - oCab:GetValue("ZEF_DESTOT"))
 				
 				oCab:LoadValue("ZEF_RECTOT",oCab:GetValue("ZEF_RECLIQ") * oCab:GetValue("ZEF_NUMANI"))
-
 
 			endIf
 		endif
@@ -331,7 +329,7 @@ User Function I01PER()
 		oGrid:GoLine(nI)	
 		oGrid:SetValue("ZEG_KGTOTA", oGrid:GetValue("ZEG_KGDIA") * oCab:GetValue("ZEF_NUMANI") * oCab:GetValue("ZEF_PERIOD") )
 		oGrid:SetValue("ZEG_VLRTOT", oGrid:GetValue("ZEG_KGTOTA") * oGrid:GetValue("ZEG_VLRUNI") )
-	Next nI 
+	Next nI
 
 	oGrid:GoLine(nLinAtu)
 	oView:Refresh()
@@ -351,7 +349,7 @@ User Function I01VldP()
 	Local oGrid		:= oModel:GetModel("ZEGDETAIL") 
 	Local nLine 	:= oGrid:GetLine()
 	Local nLinTot	:= oGrid:GetQtdLine()
-	Local nI 
+	Local nI
 	Local cProduto 	:= oGrid:GetValue("ZEG_PRODUT")
 	Local lRet 		:= .T.
 
