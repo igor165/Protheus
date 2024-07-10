@@ -385,7 +385,7 @@ User Function PegaPeso( lGravPeso, nBalanca )
 			MsgAlert("Informe o peso de entrada antes do peso de Saida!")
 			lGravPeso := .F. 
 		else 
-			cBalanca := '000002' // CRIAR PARAMETRO PARA DX6_CODBAL
+			cBalanca := '000002' // CRIAR PARAMETRO PARA DX6_CODBAL]
 			nOpcA := 2
 			
 			if nPeso2 > 0 .and. !MsgYesNo('Peso de saida do caminhão preenchido, deseja informar o peso do caminhão novamente?')

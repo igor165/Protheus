@@ -15,7 +15,6 @@
 	"font-size:12px;" +;
 	"font: 12px Arial;" +;
 	"}"
-
 /*----------------------------------------------------------------------------------,
  | Principal: 					     U_VACOMR10()          		                    |
  | Func:    VACOMR10 	            	          	            	                |
@@ -250,9 +249,14 @@ Static Function fQuadro( nQuadro )
 			endif
 			nRow := iif(nGridLine < nRow,nGridLine,nRow)
 
-			cTxtAux := AllTrim(Transform(aDadosR10[nI][08], "@r 999,999,999"))
-			oPrinter:box ( nRow - 10, nBoxRight-255 , nRow , nBoxRight-220, cBoxPixel)
-			oPrinter:Say ( nRow - 2 , nBoxRight-253 , cTxtAux /*cText>*/,oFBar /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+			cTxtAux := lTrim(Str(aDadosR10[nI][08]))
+			cTxtAux := AllTrim(Transform(aDadosR10[nI][08], "@r 999,999.999"))
+			cTxtAux := StrTran(cTxtAux,",","|")
+			cTxtAux := StrTran(cTxtAux,".",",")
+			cTxtAux := StrTran(cTxtAux,"|",".")
+			cTxtAux := iif(SubStr(cTxtAux,At(",",cTxtAux)+1,2) == '00',SubStr(cTxtAux,1,At(",",cTxtAux)-1),cTxtAux)
+			oPrinter:box ( nRow - 10, nBoxRight-260 , nRow , nBoxRight-220, cBoxPixel)
+			oPrinter:Say ( nRow - 2 , nBoxRight-258 , cTxtAux /*cText>*/,oFBar /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
 			cTxtAux := aDadosR10[nI][07]
 			oPrinter:box ( nRow - 10, nBoxRight-215 , nRow , nBoxRight-200, cBoxPixel)
