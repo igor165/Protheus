@@ -333,16 +333,18 @@ User Function ESTPESV()
 				elseif (oMdl3:GetValue("ZPB_PESOE" ) > 0 .and. oMdl4:GetValue("ZPB_PESOS" ) > 0 ) .and. Empty(oMdl4:GetValue("ZPB_PESOL" ))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso Liquido. [ABA 04]")
 					lRet := .F.
-				elseif Empty(oMdl5:GetValue("ZPB_NOTFIS"))
-					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 05]")
-					lRet := .F.
 				elseif Empty(oMdl5:GetValue("ZPB_DESC"  ))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Produto. [ABA 05]")
 					lRet := .F.
 				end
-
+				
+				if lRet .and. (oMdl4:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl5:GetValue("ZPB_NOTFIS")))
+					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 05]")
+					lRet := .F.
+				endif
+				
 				//Static Function VldPesagem()
-				If AllTrim(oMdl5:GetValue("ZPB_PRODUT")) $ GetMV("MB_PSGARM",,"030001,020023,020017") // os produtos configurados obrigam o preenchimento do campo armazem;
+				If lRet .and. AllTrim(oMdl5:GetValue("ZPB_PRODUT")) $ GetMV("MB_PSGARM",,"030001,020023,020017") // os produtos configurados obrigam o preenchimento do campo armazem;
 					// se VAZIO entao nao continuar o processo
 					If Empty(oMdl5:GetValue("ZPB_LOCAL"))
 						oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Para o produto selecionado é preciso informar o campo armazem.  [ABA 05] ")
@@ -374,7 +376,7 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	Local lPesagManu	:= .f.
 	
 	if nBalanca == 1
-		cBalanca := '000002' // CRIAR PARAMETRO PARA DX6_CODBAL
+		aParBal := {"000002",.T.,.T.,.F.}
 		nOpcA := 1
 		
 		if nPeso1 > 0 .and. !MsgYesNo('Peso de entrada do caminhão preenchido, deseja informar o peso do caminhão novamente?')
@@ -383,11 +385,11 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	else
 		if nPeso1 == 0
 			MsgAlert("Informe o peso de entrada antes do peso de Saida!")
-			lGravPeso := .F. 
-		else 
-			cBalanca := '000002' // CRIAR PARAMETRO PARA DX6_CODBAL]
+			lGravPeso := .F.
+		else
+			//cBalanca := '000006' // CRIAR PARAMETRO PARA DX6_CODBAL]
+			aParBal := {"000006",.T.,.T.,.F.}
 			nOpcA := 2
-			
 			if nPeso2 > 0 .and. !MsgYesNo('Peso de saida do caminhão preenchido, deseja informar o peso do caminhão novamente?')
 				lGravPeso := .F. 
 			endif
@@ -395,10 +397,6 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	endif
 	
 	if lGravPeso .and. (INCLUI .or. ALTERA)
-
-		IF aParBal == nIl     // Para Ser Inicializado Somente Qdo ainda não foi
-			aParBal := AGRX003E( .f., 'OGA050001', cBalanca )
-		EndIF
 
 		AGRX003A( @nPeso, .t.,aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 		
@@ -478,71 +476,6 @@ User Function ReLoadLiquido()
 	nValor := oMdl4:GetValue("ZPB_PESOL") := ABS(oMdl3:GetValue("ZPB_PESOE")  -  oMdl4:GetValue("ZPB_PESOS"))
 
 Return nValor
-
-User Function ZADSalvar(lAuto)
-    Local aAreaZPB  := ZPB->(GetArea())
-    Local lRecLock  := nQualPesagem == 0 // .T.
-	Local oModel 	:= FwModelActivate()
-	Local oMdl1 	:= oModel:GetModel("ZPB_1")
-	Local oMdl3 	:= oModel:GetModel("ZPB_3")
-	Local oMdl4 	:= oModel:GetModel("ZPB_4")
-    Local cChave    := ""
-
-    Default lAuto  := .T.
-
-    MBSaveLog():FULLWrite(, .F., "ZADSALVAR Manual: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) ) )
-    MBSaveLog():FULLWrite(, .F., "ZADSALVAR Auto:   Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(M->ZPB_OPESOE) ) )
-    MBSaveLog():FULLWrite(, .F., "ZADSALVAR Manual: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) ) )
-    MBSaveLog():FULLWrite(, .F., "ZADSALVAR Auto:   Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(M->ZPB_OPESOS) ) )
-
-    If oMdl3:GetValue("ZPB_PESOE") == 0
-        MSGSTOP('<font color="#FF0000" size="5"><b>PESO DE ENTRADA NÃO INFORMADO. SAIDA BLOQUEADA.</b></font>', "Atenção")
-        Return .F.
-    EndIf
-
-    If lAuto .AND. oMdl4:GetValue("ZPB_PESOS") ==0
-        MSGSTOP('<font color="#FF0000" size="5"><b>PESO DE SAÍDA NÃO INFORMADO. SAIDA BLOQUEADA.</b></font>', "Atenção")
-        Return .F.
-    ENDIF
-
-    If lAuto .OR. oMdl3:GetValue("ZPB_PESOE") >0.AND. oMdl4:GetValue("ZPB_PESOS")>0
-        If !Obrigatorio(aGets, aTela) .OR. !VldPesagem()
-            Return .F.
-        EndIf
-    EndIf
-
-	cChave := dToS(oMdl3:GetValue("ZPB_DATA"))+ oMdl1:GetValue("ZPB_CODIGO")
-
-    BeginTran()
-    TryException
-        ZPB->( DbSetOrder(1) )
-        lRecLock:=!ZPB->(DbSeek( xFilial("ZPB") + cChave))
-        RecLock( "ZPB", lRecLock )
-        ZPB->ZPB_FILIAL	:= FwXFilial('ZPB')
-        U_GrvCpo("ZPB")
-       		oMdl1:SetValue("ZPB_STATUS", IiF( oMdl3:GetValue("ZPB_PESOE") >0.AND. oMdl4:GetValue("ZPB_PESOS")>0, "F", "1"))
-        ZPB->(MsUnlock())
-
-        MSUnlockAll()
-
-        If !lAuto
-            cPlacaTGet   := CriaVar( 'DA3_PLACA' , .F.)
-            nQualPesagem := 0
-        EndIf
-
-    CatchException Using oException
-        Alert("Erro ao Gravar Pessagem: " + CRLF + oException:Description)
-        u_ShowException(oException)
-        DisarmTransaction()
-    EndException
-    EndTran()
-    RestArea(aAreaZPB)
-
-    //SetKey( VK_F10, NIL)
-    SetKey( VK_F11, NIL)
-    SetKey( VK_F4 , NIL)
-
-Return .T.
 
 /*--------------------------------------------------------------------------------,
  | Principal: 					     U_MBESTPES()          		              	  |
@@ -654,6 +587,8 @@ User Function PPeso1()
 		MSGSTOP("Informe o campo Peso de Entrada [ABA 03] antes de imprimir o ticket")
 	elseif Empty(oMdl4:GetValue("ZPB_PESOS"))
 		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
+	elseif Empty(oMdl4:GetValue("ZPB_NOTFIS"))
+		MSGSTOP("Informe o campo Notas Fiscais [ABA 05] antes de imprimir o ticket")
 	else 
 		aAdd(aPeso, {;
 				{"ZPB_CODIGO", oMdl1:GetValue("ZPB_CODIGO")},;
@@ -690,13 +625,11 @@ User Function PPeso1()
 		endif 
 
 		if oModel:VldData()
-			if oModel:CommitData()
-				if oModel:CommitData() 
-					AtualPsgemNF() //colocar atualiza pesagem aqui
-					MBSaveLog():FULLWrite(, .F., "PPeso1 - Imprimindo ticket/ Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) )
-					cPlacaTGet   := CriaVar( 'DA3_PLACA' , .F.)
-					nQualPesagem := 0
-				endif
+			if oModel:CommitData() 
+				AtualPsgemNF() //colocar atualiza pesagem aqui
+				MBSaveLog():FULLWrite(, .F., "PPeso1 - Imprimindo ticket/ Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) )
+				cPlacaTGet   := CriaVar( 'DA3_PLACA' , .F.)
+				nQualPesagem := 0
 			endif 
 		endif
 	endif 
@@ -1078,7 +1011,9 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
         SetFunName(cFunBkp)
     EndIf 
 	
-	oDlg1:End()
+	if Type("oDlg1") <> "U"
+		oDlg1:End()
+	endif
 
     RestArea(aArea)
 Return nil
