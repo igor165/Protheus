@@ -588,7 +588,7 @@ User Function PPeso1()
 	elseif Empty(oMdl4:GetValue("ZPB_PESOS"))
 		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
 	elseif Empty(oMdl4:GetValue("ZPB_NOTFIS"))
-		MSGSTOP("Informe o campo Notas Fiscais [ABA 05] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Notas Fiscais [ABA 0] antes de imprimir o ticket")
 	else 
 		aAdd(aPeso, {;
 				{"ZPB_CODIGO", oMdl1:GetValue("ZPB_CODIGO")},;

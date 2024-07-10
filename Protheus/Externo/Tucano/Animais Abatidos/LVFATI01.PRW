@@ -40,7 +40,6 @@ Static Function ModelDef()
 	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
-	//aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_VLRCEN","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
 	
 	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOAR","M->ZEF_PESOKG / 30 "												,.F. ,"",0,"" ,NIL, "01" ))
@@ -73,28 +72,15 @@ Static Function ModelDef()
 	aadd(aAux, FwStruTrigger("ZEG_VLRUNI" 	,"ZEG_VLRTOT","M->ZEG_VLRUNI * M->ZEG_KGTOTA"								 ,.F. ,"",0,"" ,NIL, "01" ))
 	aadd(aAux, FwStruTrigger("ZEG_VLRUNI" 	,"ZEG_VLRDIA","M->ZEG_VLRUNI * M->ZEG_KGDIA"								 ,.F. ,"",0,"" ,NIL, "02" ))
 	aadd(aAux, FwStruTrigger("ZEG_VLRUNI" 	,"ZEG_VLRDIA","U_I01KTOT()"													 ,.F. ,"",0,"" ,NIL, "03" ))
-	//aadd(aAux, FwStruTrigger("ZEG_VLRTOT" 	,"ZEG_VLRDIA","U_I01VTOT()"													 ,.F. ,"",0,"" ,NIL, "01" ))
 	aadd(aAux, FwStruTrigger("ZEG_PRODUT" 	,"ZEG_DESC"  ,"Posicione('SB1',1,FwXFilial('SB1')+ M->ZEG_PRODUT, 'B1_DESC')",.F. ,"",0,"" ,NIL, "02" ))
 
 	For nI := 1 to Len(aAux)
 		oStrGrid:AddTrigger(aAux[nI,1], aAux[nI,2], aAux[nI,3], aAux[nI,4])
 	next nI
 
-	oStrCab:SetProperty('ZEF_NUMANI', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_PERIOD', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_PESOKG', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_GMD'	, MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_RENDIM', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_VLRVEN', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_VLRENT', MODEL_FIELD_OBRIGAT, .T.)
-	oStrCab:SetProperty('ZEF_COPCAB', MODEL_FIELD_OBRIGAT, .T.)
 	
 	oStrCab:SetProperty('ZEF_CODIGO', MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, 'IIF(INCLUI,GETSX8NUM("ZEF","ZEF_CODIGO"),ZEF->ZEF_CODIGO)')) //Inicializador Padrão
 	oStrCab:SetProperty('ZEF_DATA'  , MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, 'IIF(INCLUI,Date(),ZEF->ZEF_DATA)')) //Inicializador Padrão
-	
-	oStrGrid:SetProperty('ZEG_PRODUT', MODEL_FIELD_OBRIGAT, .T.)
-	oStrGrid:SetProperty('ZEG_KGDIA' , MODEL_FIELD_OBRIGAT, .T.)
-	oStrGrid:SetProperty('ZEG_VLRUNI', MODEL_FIELD_OBRIGAT, .T.)
 	
 	oStrGrid:SetProperty('ZEG_FILIAL' , MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, "IIF(!INCLUI,ZEF->ZEF_FILIAL,M->ZEF_FILIAL)")) //Inicializador Padrão
 	oStrGrid:SetProperty('ZEG_CODIGO' , MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, "IIF(!INCLUI,ZEF->ZEF_CODIGO,M->ZEF_CODIGO)")) //Inicializador Padrão
