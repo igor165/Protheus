@@ -348,7 +348,7 @@ User Function I01VldP()
 					lRet := .F. 
 				endif 
 			endif 
-		endif 
+		endif
 	Next nI 
 	oGrid:GoLine(nLine)
 Return lRet 	

@@ -79,11 +79,11 @@ Static Function ModelDef()
 	//Criando o FormModel, adicionando o CabeÃ§alho e Grid
 	oModel := MPFormModel():New("ESTPESV",/* bVldPre */, /* bVldPos */ /*Pos-Validacao*/, bVldCom /*Commit*/,/*Cancel*/)
 
-	oModel:AddFields("ZPB_1",/*cOwner*/ ,oStr1  )
-	oModel:AddFields("ZPB_2","ZPB_1" 	   ,oStr2  )
-	oModel:AddFields("ZPB_3","ZPB_1" 	   ,oStr3  )
-	oModel:AddFields("ZPB_4","ZPB_1" 	   ,oStr4  )
-	oModel:AddFields("ZPB_5","ZPB_1" 	   ,oStr5  )
+	oModel:AddFields("ZPB_1",/*cOwner*/ 	,oStr1  )
+	oModel:AddFields("ZPB_2","ZPB_1" 	   	,oStr2  )
+	oModel:AddFields("ZPB_3","ZPB_1" 	   	,oStr3  )
+	oModel:AddFields("ZPB_4","ZPB_1" 	   	,oStr4  )
+	oModel:AddFields("ZPB_5","ZPB_1" 	   	,oStr5  )
 
 	oModel:SetPrimaryKey({ })
 
@@ -136,14 +136,18 @@ Static Function ViewDef()
 
 	oView:AddOtherObject("BTNPESO1",{|o1Panel,o1OtherObject| CriaBt1(o1Panel,o1OtherObject)})
 	oView:AddOtherObject("BTNPESO2",{|o2Panel,o2OtherObject| CriaBt2(o2Panel,o2OtherObject)})
+	oView:AddOtherObject("BTNPESO3",{|o2Panel,o2OtherObject| CriaBt3(o2Panel,o2OtherObject)})
 
+	oView:CreateVerticalBox('CABEC'		, 85 , 'CAB_1' )
+	oView:CreateVerticalBox('IMPPESO'	, 15 , 'CAB_1' )
 	oView:CreateVerticalBox('PESAR1'	, 10 , 'CAB_3' )
 	oView:CreateVerticalBox('PESAGEM1'	, 90 , 'CAB_3' )
 	oView:CreateVerticalBox('PESAR2'	, 10 , 'CAB_4' )
 	oView:CreateVerticalBox('PESAGEM2'	, 90 , 'CAB_4' )
 
 	//Amarrando a view com as box
-	oView:SetOwnerView('VIEW_1'  	,'CAB_1'	)
+	oView:SetOwnerView('VIEW_1'  	,'CABEC'	)
+	oView:SetOwnerView('BTNPESO3'  	,'IMPPESO'	)
 	oView:SetOwnerView('VIEW_2'  	,'CAB_2'	)
 	oView:SetOwnerView('BTNPESO1'  	,'PESAR1'	)
 	oView:SetOwnerView('VIEW_3'  	,'PESAGEM1'	)
@@ -152,12 +156,15 @@ Static Function ViewDef()
 	oView:SetOwnerView('VIEW_5'  	,'CAB_5'	)
 
     oView:EnableTitleView('VIEW_1'	, 'Dados da Pesagem' 		) 
+    oView:EnableTitleView('BTNPESO3', 'Imprimir ticket'			) 
     oView:EnableTitleView('VIEW_2'	, 'Fornecedor / Motorista'	) 
     oView:EnableTitleView('BTNPESO1', '1º Pesagem' 				) 
     oView:EnableTitleView('VIEW_4'	, '|'						) 
     oView:EnableTitleView('BTNPESO2', '2º Pesagem' 				) 
     oView:EnableTitleView('VIEW_3'	, '|'						) 
     oView:EnableTitleView('VIEW_5'	, 'Nota Fiscal / GTA' 		) 
+
+	oView:SetCloseOnOk( { |oView| .T. } )
 
     SetKey( VK_F11, { || U_PPeso1() } )
 
@@ -338,7 +345,7 @@ User Function ESTPESV()
 					lRet := .F.
 				end
 				
-				if lRet .and. (oMdl4:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl5:GetValue("ZPB_NOTFIS")))
+				if lRet .and. iif(ProcName(6)=='U_PEGAPESO',.f.,(oMdl4:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl5:GetValue("ZPB_NOTFIS"))))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 05]")
 					lRet := .F.
 				endif
@@ -374,7 +381,7 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	Local nPeso1      	:= oMdl3:GetValue("ZPB_PESOE")
 	Local nPeso2      	:= oMdl4:GetValue("ZPB_PESOS")
 	Local lPesagManu	:= .f.
-	
+
 	if nBalanca == 1
 		aParBal := {"000002",.T.,.T.,.F.}
 		nOpcA := 1
@@ -401,56 +408,62 @@ User Function PegaPeso( lGravPeso, nBalanca )
 		AGRX003A( @nPeso, .t.,aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 		
 		if nPeso > 0
-			//if Empty(oSZJGtDad:aCols[nLinha,nPZJTARA]) // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-			if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-				//M->ZPB_OPESOE := nPeso
-				if oMdl3:GetValue("ZPB_PESOE") > 0
-			    	MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-												" - Peso Anterior: " + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) )+;
-												" - Tipo: " + iif(oMdl3:GetValue("ZPB_PEMAN1")== 'M' ,"Manual","Automatica")+;
-												" - Usuario: " + oMdl3:GetValue("ZPB_USRP1"))
-				endif
-
-				MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-										     " - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
-										     " - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
-										     " - Usuario: " + UsrFullName( ))
-
-				oMdl1:LoadValue("ZPB_PLACA" 	, "")
-				oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
+			if lPesagManu
+				lGravPeso := fAutoriza()
+			endif
+			
+			If lGravPeso 
 				
-				oMdl3:SetValue("ZPB_HORA" 	, Time())
-				oMdl3:SetValue("ZPB_PESOE" 	, nPeso )
-				oMdl4:SetValue("ZPB_PESOL" 	, ABS(nPeso - iIf(ValType(oMdl4:GetValue("ZPB_PESOS"))=="U", 0, oMdl4:GetValue("ZPB_PESOS"))))
-				oMdl3:SetValue("ZPB_PEMAN1" , iif(lPesagManu,"M","A") )
-				oMdl3:SetValue("ZPB_USRP1" 	, UsrFullName( ))
-				oView:lModify := .T.
+				if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
+					//M->ZPB_OPESOE := nPeso
+					if oMdl3:GetValue("ZPB_PESOE") > 0
+						MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+													" - Peso Anterior: " + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) )+;
+													" - Tipo: " + iif(oMdl3:GetValue("ZPB_PEMAN1")== 'M' ,"Manual","Automatica")+;
+													" - Usuario: " + oMdl3:GetValue("ZPB_USRP1"))
+					endif
 
-			elseif nOpcA == 2
-				if oMdl4:GetValue("ZPB_PESOS") > 0
-					MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-												" - Peso Anterior: " + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) )+;
-												" - Tipo: " + iif(oMdl4:GetValue("ZPB_PEMAN2")== 'M' ,"Manual","Automatica")+;
-												" - Usuario: " + oMdl4:GetValue("ZPB_USRP2"))
+					MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+												" - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
+												" - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
+												" - Usuario: " + UsrFullName( ))
+
+					cPlacaTGet := oMdl1:GetValue("ZPB_PLACA")
+					oMdl1:LoadValue("ZPB_PLACA" 	, "")
+					oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
+					
+					oMdl3:SetValue("ZPB_HORA" 	, Time())
+					oMdl3:SetValue("ZPB_PESOE" 	, nPeso )
+					oMdl4:SetValue("ZPB_PESOL" 	, ABS(nPeso - iIf(ValType(oMdl4:GetValue("ZPB_PESOS"))=="U", 0, oMdl4:GetValue("ZPB_PESOS"))))
+					oMdl3:SetValue("ZPB_PEMAN1" , iif(lPesagManu,"M","A") )
+					oMdl3:SetValue("ZPB_USRP1" 	, UsrFullName( ))
+					oView:lModify := .T.
+
+				elseif nOpcA == 2
+					if oMdl4:GetValue("ZPB_PESOS") > 0
+						MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+													" - Peso Anterior: " + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) )+;
+													" - Tipo: " + iif(oMdl4:GetValue("ZPB_PEMAN2")== 'M' ,"Manual","Automatica")+;
+													" - Usuario: " + oMdl4:GetValue("ZPB_USRP2"))
+					endif
+
+					MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+												" - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
+												" - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
+												" - Usuario: " + UsrFullName( ))
+					
+					cPlacaTGet := oMdl1:GetValue("ZPB_PLACA")
+					oMdl1:LoadValue("ZPB_PLACA" 	, "")
+					oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
+
+					oMdl4:SetValue("ZPB_DATAF"	, Date())
+					oMdl4:SetValue("ZPB_HORAF"	, Time())
+					oMdl4:SetValue("ZPB_PESOS"	, nPeso )
+					oMdl4:SetValue("ZPB_PESOL"	, ABS(nPeso - iIf(ValType(oMdl3:GetValue("ZPB_PESOE"))=="U", 0, oMdl3:GetValue("ZPB_PESOE"))))
+					oMdl4:SetValue("ZPB_PEMAN2" , iif(lPesagManu,"M","A") )
+					oMdl4:SetValue("ZPB_USRP2" 	, UsrFullName( ))
+					oView:lModify := .T.
 				endif
-
-				MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-										     " - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
-										     " - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
-										     " - Usuario: " + UsrFullName( ))
-				
-				oMdl1:LoadValue("ZPB_PLACA" 	, "")
-				oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
-
-				oMdl4:SetValue("ZPB_DATAF"	, Date())
-				oMdl4:SetValue("ZPB_HORAF"	, Time())
-				oMdl4:SetValue("ZPB_PESOS"	, nPeso )
-				oMdl4:SetValue("ZPB_PESOL"	, ABS(nPeso - iIf(ValType(oMdl3:GetValue("ZPB_PESOE"))=="U", 0, oMdl3:GetValue("ZPB_PESOE"))))
-				oMdl4:SetValue("ZPB_PEMAN2" , iif(lPesagManu,"M","A") )
-				oMdl4:SetValue("ZPB_USRP2" 	, UsrFullName( ))
-				oView:lModify := .T.
-			else
-				MsgAlert("Linha posicionada já possui os dois pesos preenchidos.")
 			endif
 		endif
 	endif
@@ -466,7 +479,6 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	oView:Refresh()
 	RestArea(aArea)
 Return nPeso
-
 User Function ReLoadLiquido()
 	Local oModel 	:= FwModelActivate()
 	Local oMdl3 	:= oModel:GetModel("ZPB_3")
@@ -476,7 +488,6 @@ User Function ReLoadLiquido()
 	nValor := oMdl4:GetValue("ZPB_PESOL") := ABS(oMdl3:GetValue("ZPB_PESOE")  -  oMdl4:GetValue("ZPB_PESOS"))
 
 Return nValor
-
 /*--------------------------------------------------------------------------------,
  | Principal: 					     U_MBESTPES()          		              	  |
  | Func:  fDefinePessagem 	            	          	            	          |
@@ -527,7 +538,7 @@ Static Function CriaBt1(o1Panel,o1OtherObject)
 									" font-size: 16px;" +;
 									" margin: 2px;" +;
 									" font-weight: bold;" +;
-									" background-color: #2C2;" +;
+									" background-color: #ffa500;" +;
 									" border: 2px solid; " +;
 									" border-radius: 20px; }" +;
 			"QPushButton:hover { color: #000000;" +;
@@ -568,6 +579,29 @@ Static Function CriaBt2(o2Panel,o2OtherObject)
 	//oBtPeso2:SetCss("QPushButton { background-color: #2C2; color: #FFF; margin: 2px; font-weight: bold; font-size: 16pt;border: 2px solid green; border-radius: 20px;}")
 Return
 
+Static Function CriaBt3(o3Panel,o3OtherObject)
+	Local cCssBtn := "QPushButton { font-family: Arial, Helvetica, sans-serif;"+;
+									" font-size: 16px;" +;
+									" margin: 2px;" +;
+									" font-weight: bold;" +;
+									" background-color: #2C2;" +;
+									" border: 2px solid; " +;
+									" border-radius: 20px; }" +;
+			"QPushButton:hover { color: #000000;" +;
+								" border: 2px solid #000000;" +;
+								" background-color: #FFFF00; }" +;
+			"QPushButton:pressed { color: #ffa500;" +;
+									" border: 1px solid #000000;" +;
+									" background-color: #FFFFFF; }"
+
+    //TButton():New( 10, 10, "Pesar",oPanel,{|| SelGrid(oOtherObject)}, 60,10,,,.F.,.T.,.F.,,.F.,,,.F. )
+	oBtPeso3 := TButton():New(20,10, "Imprimir", o3Panel,;
+        		{|| U_PPeso1() }, 70 , 25,,,, .T./*lPixel*/)
+    
+	oBtPeso3:SetCss(cCssBtn)
+	//oBtPeso2:SetCss("QPushButton { background-color: #2C2; color: #FFF; margin: 2px; font-weight: bold; font-size: 16pt;border: 2px solid green; border-radius: 20px;}")
+Return
+
 User Function PPeso1()
 	Local oModel	  	:= FWModelActive()
 	Local oMdl1 		:= oModel:GetModel('ZPB_1')
@@ -587,9 +621,9 @@ User Function PPeso1()
 		MSGSTOP("Informe o campo Peso de Entrada [ABA 03] antes de imprimir o ticket")
 	elseif Empty(oMdl4:GetValue("ZPB_PESOS"))
 		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
-	elseif Empty(oMdl4:GetValue("ZPB_NOTFIS"))
+	elseif Empty(oMdl5:GetValue("ZPB_NOTFIS"))
 		MSGSTOP("Informe o campo Notas Fiscais [ABA 0] antes de imprimir o ticket")
-	else 
+	else
 		aAdd(aPeso, {;
 				{"ZPB_CODIGO", oMdl1:GetValue("ZPB_CODIGO")},;
 				{"ZPB_STATUS", oMdl1:GetValue("ZPB_STATUS")},;
@@ -1009,25 +1043,24 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
         SetFunName("VAESTPES")
         FWExecView('Alterar: [ 2º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+' [ IMPRIMIR (F11) ] ', 'VAESTPES', MODEL_OPERATION_UPDATE,,{||.T.})
         SetFunName(cFunBkp)
-    EndIf 
+    EndIf
 	
-	if Type("oDlg1") <> "U"
+	cPlacaTGet := CriaVar( 'DA3_PLACA' , .F.)
+	/* if Type("oDlg1") <> "U"
 		oDlg1:End()
-	endif
+	endif */
 
     RestArea(aArea)
 Return nil
 
 User Function VldNotFis()
-	Local oModel	  	:= FWModelActive()
-	Local oMdl5 		:= oModel:GetModel('ZPB_5')
-
-    Local lRet := .T.
-    if At(&(ReadVar()), oMdl5:GetValue("ZPB_NOTFIS")) > 0
-        Return .F.
-    EndIf
-Return lRet
-
+	//Local oModel	  	:= FWModelActive()
+	//Local oMdl5 		:= oModel:GetModel('ZPB_5')
+    //Local lRet := .T.
+    //if At(&(ReadVar()), oMdl5:GetValue("ZPB_NOTFIS")) > 0
+    //    Return .F.
+    //EndIf
+Return .t. 
 /*--------------------------------------------------------------------------------,
  | Principal: 					     U_MBESTPES()          		                  |
  | Func:  AtualPsgemNF	            	          	            	              |
@@ -1198,7 +1231,7 @@ Return nRetorno // 0 = nao localizado pesagem
 MB : 30.11.2020
 -> Consulta Especifica
 	De acordo com o definido no campo: ZPB_CLIFOR, fazer SQL de Cliente ou Fornecedor;
-	*/
+*/
 User Function F3CliForPes()
 	Local oModel	  	:= FWModelActive()
 	Local oMdl2 		:= oModel:GetModel('ZPB_2')
@@ -1339,3 +1372,95 @@ Static Function fQryUltTrato( cBaia )
 	TEMPSQL->(DbCloseArea())
 
 Return cRetorno
+
+Static Function fAutoriza()
+	Local oDlgSenha
+	Local oSaySenha
+	Local oSayUser
+	Local oGetUser
+	Local oBtnOk
+	Local oBtnNo
+	Local cCodigo   := Space(20)
+	Local cSenha    := Space(30)
+	Local lAutoriza := .F.
+	Local nOpca     := 0
+	Local lMsg 		:= .T.
+
+	DEFINE MSDIALOG oDlgSenha TITLE "Autorização" From 001,001 to 125,300 Pixel STYLE DS_MODALFRAME
+
+	oSayUser  := tSay():New(012,010,{|| "Usuário:"   },oDlgSenha,,,,,,.T.,CLR_BLACK,CLR_WHITE,50,9)
+	oGetUser  := tGet():New(010,050,{|u| if(PCount()>0,cCodigo:=u,cCodigo)}, oDlgSenha,080,9,"@A",{ ||  },,,,,,.T.,,, { || .T. } ,,,,.F.,,,'cCodigo')
+	
+	oSaySenha := tSay():New(024,010,{|| "Digite a senha:"   },oDlgSenha,,,,,,.T.,CLR_BLACK,CLR_WHITE,50,9)
+	oGetSenha := tGet():New(022,050,{|u| if(PCount()>0,cSenha:=u,cSenha)}, oDlgSenha,080,9,"@A",{ ||  },,,,,,.T.,,, { || .T. } ,,,,.F.,.T.,,'cSenha')
+
+	oBtnOk := tButton():New(040,035,"Ok"  , oDlgSenha, {|| nOpca := 1, ::End() },40,12,,,,.T.,,,, { ||  },,)
+	oBtnNo := tButton():New(040,080,"Cancelar"  , oDlgSenha, {|| ::End() },40,12,,,,.T.,,,, { ||  },,)
+
+	ACTIVATE MSDIALOG oDlgSenha CENTERED
+	
+	If nOpca == 1
+		if Lower(AllTrim(cCodigo)) == Lower(cUserName)
+			PswOrder(1)
+			If PswSeek(__cUserID)
+				lAutoriza := PswName(cSenha)
+			EndIf
+		else
+			lMsg := .F.	
+			MsgStop("Usuário informado é diferente do Usuário logado no sistema!","SEM PERMISSÃO")
+		endif
+	Endif
+
+	If !lAutoriza .And. nOpca == 1 .and. lMsg
+		MsgStop("Usuário e/ou senha inválidos!","SEM PERMISSÃO")
+	EndIf
+
+Return lAutoriza
+
+User Function GNotFis()
+	Local oModel	  	:= FWModelActive()
+	Local oMdl1 		:= oModel:GetModel('ZPB_1')
+	Local oMdl5 		:= oModel:GetModel('ZPB_5')
+	Local cValue 		:= StrZero( Val(&(ReadVar())) , TamSX3("ZPB_NOTAFI")[1] )
+	Local cRet 			:= ""
+	Local aNfs 			:= StrToKarr(AllTrim(oMdl5:GetValue("ZPB_NOTFIS")),";")
+	Local nI 
+	Local nDelete		:= 0
+	Local lGrv			:= .T. 
+
+	if Len(aNfs) > 0
+		For nI := 1 to Len(aNfs)
+			if AllTrim(cValue) == aNfs[nI]
+				if nDelete == 0 
+					nDelete := nI
+					exit
+				endif 
+			endif
+		Next nI 
+
+		if nDelete > 0
+			if oMdl1:GetValue("ZPB_STATUS") != 'F'
+				aDel(aNfs,nDelete)
+				aSize(aNfs,Len(aNfs)-1)
+			Else
+				MsgStop("Não é possível excluir notas fiscais quando a pesagem está fechada!")
+				lGrv := .f.
+			endif 
+		else 
+			aAdd(aNfs,cValue)
+		endif
+
+		if lGrv
+			For nI := 1 to Len(aNfs)
+				if nI == 1
+					cRet += aNfs[nI]
+				else
+					cRet += ";"+aNfs[nI]
+				endif
+			Next nI 
+		ENDIF 
+	else
+		cRet := AllTrim(cValue) + iIf( Empty(oMdl5:GetValue("ZPB_NOTFIS")), "", ";" + AllTrim(oMdl5:GetValue("ZPB_NOTFIS")) )
+	ENDIF 
+
+Return cRet 
