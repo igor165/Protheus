@@ -103,7 +103,7 @@ User Function MT131WF(aSolicitac)
             _cQry += " where SC8.C8_FILIAL  = '" + xFilial("SC8") + "'" + CRLF 
             _cQry += " and " + Iif( ValType(aSolicitac[i]) == 'C', "SC8.C8_NUM = '" + aSolicitac[i] + "'" , " SC8.C8_NUM = '" + aSolicitac[i][1] + "' ")+ CRLF 
             _cQry += " and SC8.D_E_L_E_T_ = ' '" + CRLF
-            _cQry += " order by SC8.C8_FILIAL, SC8.C8_NUM, SC8.C8_FORNECE, SC8.C8_LOJA, SC1.C1_DESCRI"
+            _cQry += " order by SC8.C8_FILIAL, SC8.C8_NUM, SC8.C8_ITEM, SC8.C8_FORNECE, SC8.C8_LOJA"
             
             if cUserName $ 'Administrador,ioliveira'
                 MemoWrite("C:\totvs_relatorios\" +"MT131WF" + ".sql" , _cQry)

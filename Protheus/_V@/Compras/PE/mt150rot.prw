@@ -65,9 +65,9 @@ Static Function fGetDados()
     _cQry += " AND C8_LOJA = A2_LOJA" + CRLF 
     _cQry += " AND A2.D_E_L_E_T_ = ''" + CRLF 
     _cQry += " LEFT JOIN "+RetSqlName("SC1")+" C1 ON C8_FILIAL = C1_FILIAL  " + CRLF 
-    _cQry += " AND C8_NUMSC = C1_NUM  " + CRLF 
-    _cQry += " AND C8_ITEMSC = C1_ITEM " + CRLF 
-    _cQry += " AND C8_PRODUTO = C1_PRODUTO " + CRLF 
+    _cQry += " AND C8_NUMSC = C1_NUM  " + CRLF
+    _cQry += " AND C8_ITEMSC = C1_ITEM " + CRLF
+    _cQry += " AND C8_PRODUTO = C1_PRODUTO " + CRLF
     _cQry += " AND C1.D_E_L_E_T_ = ''" + CRLF 
     _cQry += " LEFT join "+RetSqlName("SY1")+" Y1 ON Y1_COD = C1_CODCOMP " + CRLF 
     _cQry += " AND Y1.D_E_L_E_T_ = ''" + CRLF 
@@ -76,7 +76,7 @@ Static Function fGetDados()
     _cQry += " AND C8_FORNECE+C8_LOJA = '"+(SC8->C8_FORNECE+SC8->C8_LOJA)+"' " + CRLF 
     _cQry += " AND C8_NUMPRO = '"+SC8->C8_NUMPRO+"' " + CRLF 
     _cQry += " AND C8.D_E_L_E_T_ = '' "   + CRLF
-    _cQry += " ORDER BY C8_FILIAL, C8_NUM, C8_FORNECE, C8_LOJA, B1_DESC "   + CRLF
+    _cQry += " ORDER BY C8_FILIAL, C8_NUM,C8_ITEM, C8_FORNECE, C8_LOJA"   + CRLF
     
     MemoWrite("C:\totvs_relatorios\" +"MT150WF" + ".sql" , _cQry)
     
