@@ -1,11 +1,12 @@
 #INCLUDE "TOTVS.CH"
 #INCLUDE "RPTDEF.CH"
 #Include "TryException.ch"
-/* Igor Gomes Oliveira 
-    P.E     : MT131WF - Customização de WorkFlow
-    Rotina  : MATA131.PRW
-    Data    : 22/03/2023  
-     */
+/* 
+Igor Gomes Oliveira 
+P.E     : MT131WF - Customização de WorkFlow
+Rotina  : MATA131.PRW
+Data    : 22/03/2023  
+*/
 User Function MT131WF(aSolicitac)
     local aArea         := GetArea()
     Local i,j,x
@@ -16,11 +17,15 @@ User Function MT131WF(aSolicitac)
     Local _cCODCOMP     := Posicione("SY1", 3, xFilial("SY1") + RetCodUsr(), "Y1_COD")
     Local _cGRUPCOM     := SY1->Y1_GRUPCOM
     Local lEnvia        := .f.
+    Local lImpObs       := .t.
     //Local aCotacao      := {}//Enviado como chave para VACOMR10
     Local aImprimir     := {}//Array de dados para VACOMR10
     Local aDados        := {} // dados gerais
     Local aArquivos     := {} // dados gerais
     Local cForMail      := ''
+    Local cAlias        := GetNextAlias()
+    Local cAliasA       := ""
+ 
     Private cTimeIni	:= Time()
     Private cMessage    := ""
     private cServPath   := "\cotacoes\"
@@ -51,6 +56,7 @@ User Function MT131WF(aSolicitac)
 
         nLen := Len(aSolicitac) 
         for i := 1 to nLen
+            lImpObs := .T.
 
             _cQry := " select SC8.C8_FILIAL" + CRLF
             _cQry += " , SC8.C8_NUM" + CRLF
@@ -84,6 +90,7 @@ User Function MT131WF(aSolicitac)
             _cQry += " , SA2.A2_CGC" + CRLF
             _cQry += " , SA2.A2_EMAIL" + CRLF
             _cQry += " , SB1.B1_DESC" + CRLF
+            _cQry += " , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS " + CRLF
             _cQry += " , SC8.R_E_C_N_O_ C8_RECNO" + CRLF
             _cQry += " , SC1.R_E_C_N_O_ C1_RECNO" + CRLF
             _cQry += " , SA2.R_E_C_N_O_ A2_RECNO" + CRLF
@@ -103,31 +110,30 @@ User Function MT131WF(aSolicitac)
             _cQry += " where SC8.C8_FILIAL  = '" + xFilial("SC8") + "'" + CRLF 
             _cQry += " and " + Iif( ValType(aSolicitac[i]) == 'C', "SC8.C8_NUM = '" + aSolicitac[i] + "'" , " SC8.C8_NUM = '" + aSolicitac[i][1] + "' ")+ CRLF 
             _cQry += " and SC8.D_E_L_E_T_ = ' '" + CRLF
-            _cQry += " order by SC8.C8_FILIAL, SC8.C8_NUM, SC8.C8_ITEM, SC8.C8_FORNECE, SC8.C8_LOJA"
+            _cQry += " order by SC8.C8_FILIAL, SC8.C8_NUM, SC8.C8_FORNECE, SC8.C8_LOJA, SC8.C8_ITEM"
             
             if cUserName $ 'Administrador,ioliveira'
                 MemoWrite("C:\totvs_relatorios\" +"MT131WF" + ".sql" , _cQry)
             endif
 
-            DbUseArea(.t., "TOPCONN", TCGenQry(,,ChangeQuery(_cQry)), "TMPSC8", .f., .f.)
+            DbUseArea(.t., "TOPCONN", TCGenQry(,,ChangeQuery(_cQry)), cAlias, .f., .f.)
 
-            while !TMPSC8->(Eof())
-
-                if TMPSC8->C8_FILIAL+TMPSC8->C8_NUM+TMPSC8->C8_FORNECE+TMPSC8->C8_LOJA != cChave
+            while !(cAlias)->(Eof())
+                if (cAlias)->(C8_FILIAL+C8_NUM+C8_FORNECE+C8_LOJA) != cChave
 
                     cMessage := iif(Val(SubStr(Time(),1,2))<12,"Bom dia!! <br>",iif(Val(SubStr(Time(),1,2))>18,"Boa Noite!! <br>","Boa Tarde!! <br>")) + CRLF 
                     cMessage += "<br>"  + CRLF
                     cMessage += "Segue em anexo, a solicitação de Orçamento! <br>" + CRLF
                     cMessage += "Por Gentileza informar Preço, Forma de Pagamento, Frete e Prazo de Entrega.<br>" + CRLF
                     cMessage += " <br>" + CRLF
-                    if !Empty(TMPSC8->MSGMAIL)
-                        For x := 1 to len(TMPSC8->MSGMAIL)
-                            if AllTrim(SubStr(TMPSC8->MSGMAIL,x,5)) != "."
-                                cMessage += SubStr(TMPSC8->MSGMAIL,x,1)
+                    if !Empty((cAlias)->MSGMAIL)
+                        For x := 1 to len((cAlias)->MSGMAIL)
+                            if AllTrim(SubStr((cAlias)->MSGMAIL,x,5)) != "."
+                                cMessage += SubStr((cAlias)->MSGMAIL,x,1)
                             else
-                                cMessage += ".<br>" + CRLF 
+                                cMessage += ".<br>" + CRLF
                             endif
-                            if AllTrim(SubStr(TMPSC8->MSGMAIL,x,Len(TMPSC8->MSGMAIL))) == ""
+                            if AllTrim(SubStr((cAlias)->MSGMAIL,x,Len((cAlias)->MSGMAIL))) == ""
                                 exit
                             endif
                         next x
@@ -144,54 +150,95 @@ User Function MT131WF(aSolicitac)
                     cMessage += "www.vistaalegre.agr.br" + CRLF
 
                     if Empty(aDados)
-                        while !TMPSC8->(Eof())
-                            aAdd(aDados,{TMPSC8->C1_ITEM,;      //01
-                                        TMPSC8->B1_DESC,;       //02
-                                        TMPSC8->C8_FILENT,;     //03
-                                        TMPSC8->C8_FORNECE,;    //04
-                                        TMPSC8->A2_NOME,;       //05
-                                        TMPSC8->C1_PRODUTO,;    //06
-                                        TMPSC8->C1_UM,;         //07
-                                        TMPSC8->C8_QUANT,;      //08
-                                        TMPSC8->C1_EMISSAO,;    //09
-                                        TMPSC8->C8_NUM,;        //10
-                                        TMPSC8->C1_NUM,;        //11
-                                        TMPSC8->A2_END,;        //12
-                                        TMPSC8->A2_MUN,;        //13
-                                        TMPSC8->A2_EST,;        //14
-                                        TMPSC8->A2_TEL,;        //15
-                                        TMPSC8->A2_FAX,;        //16
-                                        TMPSC8->A2_CONTATO,;    //17
-                                        TMPSC8->A2_CGC,;        //18
-                                        TMPSC8->C8_PRAZO,;      //19
-                                        TMPSC8->A2_EMAIL,;      //20
-                                        TMPSC8->C8_FILIAL,;     //21
-                                        TMPSC8->C8_LOJA,;       //22
-                                        cTimeIni,;              //23
-                                        TMPSC8->C8_NUMPRO,;     //24
-                                        TMPSC8->MSGMAIL,;       //25
-                                        TMPSC8->C8_ITEM,;       //26
-                                        TMPSC8->C8_FORNOME})    //27})
-                                        //TMPSC8->C8_ITEMGRD})    //27})
+                        while !(cAlias)->(Eof())
+                            aAdd(aDados,{(cAlias)->C1_ITEM,;      //01
+                                        (cAlias)->B1_DESC,;       //02
+                                        (cAlias)->C8_FILENT,;     //03
+                                        (cAlias)->C8_FORNECE,;    //04
+                                        (cAlias)->A2_NOME,;       //05
+                                        (cAlias)->C1_PRODUTO,;    //06
+                                        (cAlias)->C1_UM,;         //07
+                                        (cAlias)->C8_QUANT,;      //08
+                                        (cAlias)->C1_EMISSAO,;    //09
+                                        (cAlias)->C8_NUM,;        //10
+                                        (cAlias)->C1_NUM,;        //11
+                                        (cAlias)->A2_END,;        //12
+                                        (cAlias)->A2_MUN,;        //13
+                                        (cAlias)->A2_EST,;        //14
+                                        (cAlias)->A2_TEL,;        //15
+                                        (cAlias)->A2_FAX,;        //16
+                                        (cAlias)->A2_CONTATO,;    //17
+                                        (cAlias)->A2_CGC,;        //18
+                                        (cAlias)->C8_PRAZO,;      //19
+                                        (cAlias)->A2_EMAIL,;      //20
+                                        (cAlias)->C8_FILIAL,;     //21
+                                        (cAlias)->C8_LOJA,;       //22
+                                        cTimeIni,;                //23
+                                        (cAlias)->C8_NUMPRO,;     //24
+                                        (cAlias)->MSGMAIL,;       //25
+                                        (cAlias)->C8_ITEM,;       //26
+                                        (cAlias)->C8_FORNOME,;    //27
+                                        (cAlias)->C8_OBS})        //28
+                                        //(cAlias)->C8_ITEMGRD})    //27})
                                     
-                            TMPSC8->(DbSkip())
+                            (cAlias)->(DbSkip())
                         end
-                        TMPSC8->(DBGoTop())
+                        (cAlias)->(DBGoTop())
+                    endif
+
+                    if lImpObs
+                        cAliasA      := GetNextAlias() 
+
+                        _cQry := " select SC8.C8_PRODUTO " + CRLF
+                        _cQry += "  , SB1.B1_DESC " + CRLF
+                        _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
+                        _cQry += "  , SC8.C8_QUANT " + CRLF
+                        _cQry += "  , SB1.B1_UM " + CRLF
+                        _cQry += "  , SC8.C8_NUMSC" + CRLF
+                        _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
+                        _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
+                        _cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
+                        _cQry += "  where SC8.C8_FILIAL  = '" + FWxFilial("SC8") + "' " + CRLF
+                        _cQry += "  and " + Iif( ValType(aSolicitac[i]) == 'C', "SC8.C8_NUM = '" + aSolicitac[i] + "'" , " SC8.C8_NUM = '" + aSolicitac[i][1] + "' ")+ CRLF 
+                        _cQry += "  and SC8.D_E_L_E_T_ = ' ' " + CRLF
+                        _cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+                        _cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+
+                        MpSysOpenQuery(_cQry,cAliasA)
+                        aImprimir := {}
+                        while !(cAliasA)->(EOF())
+                            aAdd(aImprimir,{;
+                                            (cAliasA)->C8_PRODUTO,;
+                                            (cAliasA)->B1_DESC,;
+                                            (cAliasA)->C8_OBS,;
+                                            (cAliasA)->C8_QUANT,;
+                                            (cAliasA)->B1_UM,;
+                                            Iif( ValType(aSolicitac[i]) == 'C',aSolicitac[i],aSolicitac[i][1] ),;
+                                            (cAliasA)->C8_NUMSC,;
+                                            FWxFilial("SC8");
+                                            })
+                            (cAliasA)->(DbSkip())
+                        enddo
+
+                        (cAliasA)->(DbCloseArea())
+                        
+                        IF Len(aImprimir) > 0 
+                            U_VACOMR14(aImprimir)
+                        endif 
+                        
+                        lImpObs := .f.
                     endif
 
                     lEnvia := .t.
-                    
-                    cChave    := TMPSC8->C8_FILIAL+TMPSC8->C8_NUM+TMPSC8->C8_FORNECE+TMPSC8->C8_LOJA
-                    //aCotacao  := {TMPSC8->C8_NUM,TMPSC8->C8_FORNECE,TMPSC8->C8_LOJA,TMPSC8->C8_NUMPRO}
+                    cChave    := (cAlias)->(C8_FILIAL+C8_NUM+C8_FORNECE+C8_LOJA)
                     aImprimir := {}
-
                     for j := 1 to len(aDados)
                         j:=1
                         if aDados[j] == nil 
                             exit
-                        endif 
+                        endif
                         if cChave == aDados[j][21]+aDados[j][10]+aDados[j][04]+aDados[j][22]
-                            aAdd(aImprimir,{ aDados[j][01],;    //01
+                            aAdd(aImprimir,{    aDados[j][01],;    //01
                                                 aDados[j][02],;    //02
                                                 aDados[j][03],;    //03
                                                 aDados[j][04],;    //04
@@ -217,42 +264,45 @@ User Function MT131WF(aSolicitac)
                                                 aDados[j][24],;    //24
                                                 aDados[j][25],;    //24
                                                 aDados[j][26],;    //25
-                                                aDados[j][27]})    //26
+                                                aDados[j][27],;    //25
+                                                aDados[j][28]})    //25
                             aDel(aDados,j)
                         else
                             exit
                         endif
                     next j
     
-                    SC8->(DbGoTo(TMPSC8->C8_RECNO))
-                    SC1->(DbGoTo(TMPSC8->C1_RECNO))
-                    SA2->(DbGoTo(TMPSC8->A2_RECNO))
+                    SC8->(DbGoTo((cAlias)->C8_RECNO))
+                    SC1->(DbGoTo((cAlias)->C1_RECNO))
+                    SA2->(DbGoTo((cAlias)->A2_RECNO))
 
-                    if TMPSC8->C8_FORMAIL != SA2->A2_EMAIL
+                    if (cAlias)->C8_FORMAIL != SA2->A2_EMAIL
                         RecLock("SA2",.F.)
-                            SA2->A2_EMAIL := TMPSC8->C8_FORMAIL
+                            SA2->A2_EMAIL := (cAlias)->C8_FORMAIL
                         SA2->(MsUnlock())
                     endif
 
                     if Empty(SA2->A2_EMAIL)
-                        if Empty(TMPSC8->C8_FORMAIL)
+                        if Empty((cAlias)->C8_FORMAIL)
                             ShowHelpDlg("WFPROC01", {"O e-mail do fornecedor não está preenchido."}, 1, {"Por favor, preencha o e-mail do fornecedor "+SA2->A2_COD+" e use a rotina de o reenvio da cotação em atualização de cotações."}, 1 )
                             lEnvia := .f.
                         else
                             RecLock("SA2",.F.)
-                                SA2->A2_EMAIL := TMPSC8->C8_FORMAIL
+                                SA2->A2_EMAIL := (cAlias)->C8_FORMAIL
                             SA2->(MsUnlock())
-                        ENDIF 
+                        ENDIF
                     endif
                     
-                    cForMail := TMPSC8->C8_FORMAIL
+                    cForMail := (cAlias)->C8_FORMAIL
+                    //cForMail := "igor.oliveira@vistaalegre.agr.br"
 
-                    if lEnvia
+                    if lEnvia   
+
                         U_VACOMR10(aImprimir)
                         
                         aAdd(aArquivos,{ cChave,cForMail })
 
-                        while cChave == TMPSC8->C8_FILIAL+TMPSC8->C8_NUM+TMPSC8->C8_FORNECE+TMPSC8->C8_LOJA
+                        while cChave == (cAlias)->(C8_FILIAL+C8_NUM+C8_FORNECE+C8_LOJA)
                             RecLock("SC1", .f.)
                                 SC1->C1_CODCOMP := _cCODCOMP
                                 SC1->C1_GRUPCOM := _cGRUPCOM
@@ -263,26 +313,26 @@ User Function MT131WF(aSolicitac)
                                 SC8->C8_CODCOMP := _cCODCOMP
                             SC8->(MsUnlock())
                             
-                            TMPSC8->(DbSkip())
+                            (cAlias)->(DbSkip())
                             
-                            SC8->(DbGoTo(TMPSC8->C8_RECNO))
-                            SC1->(DbGoTo(TMPSC8->C1_RECNO))
-                            SA2->(DbGoTo(TMPSC8->A2_RECNO))
+                            SC8->(DbGoTo((cAlias)->C8_RECNO))
+                            SC1->(DbGoTo((cAlias)->C1_RECNO))
+                            SA2->(DbGoTo((cAlias)->A2_RECNO))
                         enddo 
                     else
-                        TMPSC8->(DbSkip())
-                        SC8->(DbGoTo(TMPSC8->C8_RECNO))
-                        SC1->(DbGoTo(TMPSC8->C1_RECNO))
-                        SA2->(DbGoTo(TMPSC8->A2_RECNO))
+                        (cAlias)->(DbSkip())
+                        SC8->(DbGoTo((cAlias)->C8_RECNO))
+                        SC1->(DbGoTo((cAlias)->C1_RECNO))
+                        SA2->(DbGoTo((cAlias)->A2_RECNO))
                     endif
                 endif
             end
 
             if lEnvia .and. !Empty(cChave)
-                    TMPSC8->(DBGoTop())
-                    SC8->(DbGoTo(TMPSC8->C8_RECNO))
+                    (cAlias)->(DBGoTop())
+                    SC8->(DbGoTo((cAlias)->C8_RECNO))
 
-                    while !TMPSC8->(EOF())
+                    while !(cAlias)->(EOF())
 
                         RecLock('SC8', .f.)
                             SC8->C8_WFCO   := "1"
@@ -306,9 +356,9 @@ User Function MT131WF(aSolicitac)
 
                         SC8->(MsUnlock())
                             
-                        TMPSC8->(DbSkip())
+                        (cAlias)->(DbSkip())
 
-                        SC8->(DbGoTo(TMPSC8->C8_RECNO))
+                        SC8->(DbGoTo((cAlias)->C8_RECNO))
                     ENDDO
 
                     if Type("oMainWnd") == 'U' .or. Aviso("Email","Deseja Enviar email de cotação para o Fornecedor? ",{"Sim","Não"}) == 1
@@ -317,10 +367,10 @@ User Function MT131WF(aSolicitac)
                         Next nI 
                     endif
                 endif
-
-            TMPSC8->(DbCloseArea())
         next i
     end transaction
+    
+    (cAlias)->(DbCloseArea())
     RestArea(aArea)
 Return nil
 

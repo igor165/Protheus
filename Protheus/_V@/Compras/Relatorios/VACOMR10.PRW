@@ -39,10 +39,16 @@ User Function VACOMR10(aDados/* aCotacao,cTempo,aConteudo */)
     Private cLocalPath      := "C:\TOTVS_RELATORIOS\COTACOES\"
     Private cMailFornece
 
+	If Len( Directory(cLocalPath + "*.*","D") ) == 0
+        If Makedir(cLocalPath) == 0
+            ConOut('Diretorio Criado com Sucesso.')
+        Else	
+            ConOut( "Não foi possivel criar o diretório. Erro: " + cValToChar( FError() ) )
+            MsgAlert( "Não foi possivel criar o diretório. Erro: " + cValToChar( FError() ), 'Aviso' )
+        EndIf
+    EndIF
+
     if Len(aDadosR10) > 0  
-        //                                /* C8_NUM       + C8_FORNECE       + C8_LOJA          + C8_ITEM          + C8_NUMPRO      + C8_ITEMGRD        */                                        
-        //cKey     := FWxFilial("SC8") + aDadosR10[1][10] + aDadosR10[1][04] + aDadosR10[1][22] + aDadosR10[1][26] + aDadosR10[1][24] + aDadosR10[1][27]
-                                        /* C8_NUM       + C8_FORNECE       + C8_LOJA          + C8_ITEM          + C8_NUMPRO      + C8_ITEMGRD        */  
         if !Empty(aDadosR10[1][27])
             cForNome := aDadosR10[1][27]
         else
@@ -174,7 +180,7 @@ Static Function fQuadro( nQuadro )
 
 	oPrinter:Line( nRow+=nTamLin-10/*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /*nColor*/, cBoxPixel/*cPixel*/ )
 	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Solicitamos proposta para fornecimento de materiais abaixo relacionados."/*cText>*/,oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Obs: Devolver sua proposta neste mesmo impresso."/*cText>*/,oFInfoOBS /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	//;oPrinter:Say ( nRow+=nTamLin, nColLabel, "Obs: Devolver sua proposta neste mesmo impresso."/*cText>*/,oFInfoOBS /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
 	//Dados do fornecedor
 	oPrinter:Line( nRow+=nTamLin-10/*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /*nColor*/, cBoxPixel/*cPixel*/ )
@@ -231,12 +237,12 @@ Static Function fQuadro( nQuadro )
 			nI := nI - 1
 		else
 			oPrinter:Say ( nRow+=nTamLin - 6, nColLabel      , aDadosR10[nI][6]/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-			nGridLine := nRow
-			lpula := .f.
+			nGridLine 	:= nRow
+			lpula 		:= .f.
 			if len(AllTrim(aDadosR10[nI][2])) > 45
 				cTxtAux := AllTrim(aDadosR10[nI][2])
 				while AllTrim(cTxtAux) != ''
-					nAt     := At(" ",cTxtAux,45)
+					nAt     := At(" ",cTxtAux,35)
 					nPos    := Iif(len(cTxtAux)>40,Iif(nAt==0,len(cTxtAux),nAt),len(cTxtAux))
 					cDesc   := SubStr(cTxtAux,1,nPos)
 					cTxtAux := AllTrim(SubStr(cTxtAux,nPos+1,len(cTxtAux)))
@@ -247,7 +253,8 @@ Static Function fQuadro( nQuadro )
 			else
 				oPrinter:Say ( nRow   , nColLabel+50      , aDadosR10[nI][2]/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			endif
-			nRow := iif(nGridLine < nRow,nGridLine,nRow)
+			nBakLine := nRow
+			nRow := nGridLine //iif(nGridLine > nRow,nGridLine,nRow)
 
 			cTxtAux := lTrim(Str(aDadosR10[nI][08]))
 			cTxtAux := AllTrim(Transform(aDadosR10[nI][08], "@r 999,999.999"))
@@ -268,11 +275,7 @@ Static Function fQuadro( nQuadro )
 			oPrinter:box ( nRow - 10         , nBoxRight-75  , nRow , nBoxRight-40 , cBoxPixel)
 			oPrinter:box ( nRow - 10         , nBoxRight-35  , nRow, nBoxRight-5  , cBoxPixel:="-4")
 
-			//cTxtAux := iif((DtPrf := DaySum(sToD(aDadosR10[nI][9]),aDadosR10[nI][19])) == sToD(aDadosR10[nI][9]),'',dToC(DtPrf))
-			//DtPrf := MesDia(DaySum(sToD(aDadosR10[nI][9]),aDadosR10[nI][19]))
-			//cTxtAux := SubStr(DtPrf,3,2)+'/'+SubStr(DtPrf,1,2)
-			//oPrinter:Say ( nRow - 2  , nBoxRight-33 , cTxtAux/*cText>*/,oFBar /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-			nRow := iif(nGridLine < nRow , nRow,nGridLine)
+			nRow := iif(nBakLine > nRow , nBakLine, nRow)
 			oPrinter:Line( nRow+=nTamLin-10 /*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
 		endif
 	next nI
@@ -282,7 +285,6 @@ Static Function fQuadro( nQuadro )
 	oPrinter:box ( nRow - 10       , nBoxRight-115 , nRow, nBoxRight-80 , cBoxPixel:="-4")
 	oPrinter:Line( nRow+=nTamLin-10, nBoxCol       , nRow, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
 
-	//FimPagina(2)// Verifica se a página está no final
 	FimPagina(3)// Verifica se a página está no final
 	oPrinter:Say ( nRow+=nTamLin, nColLabel , "Local de Entrega....:"/*cText>*/ ,oFLabel /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow         , nColInfo + 50  , SM0->M0_NOMECOM /*cText>*/    ,oFInfo /*oFont*/ , /*nWidth*/, /*nClrText*/, /*nAngle*/ )
@@ -292,10 +294,10 @@ Static Function fQuadro( nQuadro )
 	oPrinter:Say ( nRow         , nColInfo + 50  , cTxtAux /*cText>*/    ,oFInfo /*oFont*/ , /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
 	cTxtAux := Alltrim(Transform(SM0->M0_CGC, "@R 99.999.999/9999-99"))+' / '+Alltrim(Transform(SM0->M0_INSC, "@R 999.999.999.999"))
-	oPrinter:Say ( nRow+=nTamLin, nColLabel,  "CNPJ / IE...........:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo + 50, cTxtAux/*cText>*/            , oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow+=nTamLin, nColLabel, "OBS: COTAÇÃO"/*cText>*/   , oFInfoOBS/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-	oPrinter:Line( nRow+=nTamLin-10, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
+	oPrinter:Say ( nRow+=nTamLin	, nColLabel			,  "CNPJ / IE...........:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow         	, nColInfo + 50		, cTxtAux/*cText>*/            , oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow+=nTamLin	, nColLabel			, "OBS: COTAÇÃO"/*cText>*/   , oFInfoOBS/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
+	oPrinter:Line( nRow+=nTamLin-10	, nBoxCol/*nLeft*/	, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
 
 	FimPagina(4)// Verifica se a página está no final
 	oPrinter:Say ( nRow+=nTamLin, nColLabel         , "Condições de Fornecimentos:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
@@ -304,10 +306,6 @@ Static Function fQuadro( nQuadro )
 	oPrinter:Say ( nRow+=nTamLin, nColLabel         , "Entrega Local:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow+=nTamLin, nColLabel         , "Prazo Entrega:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow         , nColLabel+nCol2   , "Frete:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-
-	oPrinter:Say ( nRow+=nTamLin, nColLabel+nCol2+20, "Local de Entrega:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-	nRow+=nTamLin
-	oPrinter:Say ( nRow+=nTamLin,nColLabel+nCol2+20, "Local de Entrega:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
 
 	cTxtAux := "Página " + Alltrim(Str(nNumPag+=1))
 	oPrinter:Say ( ((nTamLin*nTotLinha)*0.92)-9,nColLabel   , "Agropecuária Vista Alegre LTDA"/*cText>*/   , oFInfo/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
@@ -465,6 +463,7 @@ Static Function SendMail()
 						SC8->(DBSkip())
 					enddo
 					if lEnvia
+						//cMailFornece := "igor.oliveira@vistaalegre.agr.br"
 						cMessage := StrTran(cMessage, "{%NUMCOT%}", SubStr(cKey, TamSX3("C8_FILIAL")[1]+1,TamSX3("C8_NUM")[1]))
 						u_EnvMail(cMailFornece, /*_cCc*/, /*_cBCC*/, "Solicitação de proposta de cotação V@ " + SubStr(cKey, 1, TamSX3("C8_FILIAL")[1] + TamSX3("C8_NUM")[1]) + ".", {cServPath + cArqName + ".pdf"}, cMessage, /*_lAudit*/)
 						//u_EnvMail("igor.oliveira@vistaalegre.agr.br" , /*_cCc*/, /*_cBCC*/, "Solicitação de proposta de cotação V@ " + SubStr(cKey, 1, TamSX3("C8_FILIAL")[1] + TamSX3("C8_NUM")[1]) + ".", {cServPath + cArqName + ".pdf"}, cMessage, /*_lAudit*/)
@@ -476,95 +475,3 @@ Static Function SendMail()
 
 	RestArea(aArea)
 Return
-/*
-Static Function fGetDados()
-    Local aArea     := GetArea()
-    Local aDadosR10    := {}
-    Local _cQry     := ''
-
-    _cQry := " select C8_FILENT,C8_ITEM, " + CRLF 
-    _cQry += " 		C8_FORNECE, " + CRLF 
-    _cQry += " 		C8_LOJA, " + CRLF 
-    _cQry += " 		C8_UM, " + CRLF 
-    _cQry += " 		C8_PRODUTO, " + CRLF 
-    _cQry += " 		C8_QUANT,  " + CRLF 
-    _cQry += " 		C8_NUM, " + CRLF 
-    _cQry += " 		C8_NUMSC, " + CRLF 
-    _cQry += " 		C8_FORNOME, " + CRLF 
-    _cQry += " 		C8_PRAZO, " + CRLF 
-    _cQry += " 		ISNULL(CONVERT(VARCHAR(2047), CONVERT(VARBINARY(2047), C8_MSGMAIL)),'') AS MSGMAIL , " + CRLF 
-    _cQry += " 		C8_WFEMAIL " + CRLF 
-    _cQry += " 		C8_NUM, " + CRLF 
-    _cQry += " 		A2_NOME, " + CRLF 
-    _cQry += " 		A2_END, " + CRLF
-    _cQry += " 		A2_EST, " + CRLF 
-    _cQry += " 		A2_TEL, " + CRLF
-    _cQry += " 		A2_FAX, " + CRLF
-    _cQry += " 		A2_EMAIL, " + CRLF 
-    _cQry += " 		A2_MUN, " + CRLF 
-    _cQry += " 		A2_CGC, " + CRLF 
-    _cQry += " 		A2_CONTATO, " + CRLF 
-    _cQry += " 		B1_DESC, " + CRLF 
-    _cQry += " 		C1_CODCOMP, " + CRLF 
-    _cQry += " 		C1_EMISSAO, " + CRLF 
-    _cQry += " 		C1_NUM, " + CRLF 
-    _cQry += " 		Y1_EMAIL " + CRLF 
-    _cQry += " from "+RetSqlName("SC8")+" C8 " + CRLF 
-    _cQry += " LEFT JOIN "+RetSqlName("SB1")+" B1 ON C8_PRODUTO = B1_COD " + CRLF 
-    _cQry += " AND B1.D_E_L_E_T_ = '' " + CRLF 
-    _cQry += " LEFT JOIN "+RetSqlName("SA2")+" A2 ON C8_FORNECE = A2_COD " + CRLF
-    _cQry += " AND C8_LOJA = A2_LOJA" + CRLF 
-    _cQry += " AND A2.D_E_L_E_T_ = ''" + CRLF 
-    _cQry += " LEFT JOIN "+RetSqlName("SC1")+" C1 ON C8_FILIAL = C1_FILIAL  " + CRLF 
-    _cQry += " AND C8_NUMSC = C1_NUM  " + CRLF 
-    _cQry += " AND C8_ITEMSC = C1_ITEM " + CRLF 
-    _cQry += " AND C8_PRODUTO = C1_PRODUTO " + CRLF 
-    _cQry += " AND C1.D_E_L_E_T_ = ''" + CRLF 
-    _cQry += " LEFT join "+RetSqlName("SY1")+" Y1 ON Y1_COD = C1_CODCOMP " + CRLF 
-    _cQry += " AND Y1.D_E_L_E_T_ = ''" + CRLF 
-    _cQry += " WHERE C8_FILIAL = '"+FWxFilial("SC8")+"' " + CRLF 
-    _cQry += " AND C8_NUM = '"+aSolicit[1]+"' " + CRLF 
-    _cQry += " AND C8_FORNECE+C8_LOJA = '"+aSolicit[2]+"' " + CRLF 
-    _cQry += " AND C8_NUMPRO = '"+aSolicit[3]+"' " + CRLF 
-    _cQry += " AND C8.D_E_L_E_T_ = '' "   + CRLF
-
-    if lower(cUserName) $ 'mbernardo,ioliveira,Administrador,atoshio'
-        MemoWrite("C:\totvs_relatorios\" +"VACOMR10" + ".sql" , _cQry)
-    endif
-
-    dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),"TEMPSQL",.F.,.F.)
-
-    While !TEMPSQL->(Eof())
-        aAdd(aDadosR10,{TEMPSQL->C8_ITEM,;     //01    
-                    TEMPSQL->B1_DESC,;      //02
-                    TEMPSQL->C8_FILENT,;    //03
-                    TEMPSQL->C8_FORNECE,;   //04
-                    TEMPSQL->A2_NOME,;      //05
-                    TEMPSQL->C8_PRODUTO,;   //06
-                    TEMPSQL->C8_UM,;        //07
-                    TEMPSQL->C8_QUANT,;     //08
-                    TEMPSQL->C1_EMISSAO,;   //09
-                    TEMPSQL->C8_NUM,;       //10
-                    TEMPSQL->C1_NUM,;       //11
-                    TEMPSQL->A2_END,;       //12
-                    TEMPSQL->A2_MUN,;       //13
-                    TEMPSQL->A2_EST,;       //14
-                    TEMPSQL->A2_TEL,;       //15
-                    TEMPSQL->A2_FAX,;       //16
-                    TEMPSQL->A2_CONTATO,;   //17
-                    TEMPSQL->A2_CGC,;       //18
-                    TEMPSQL->C8_PRAZO,;     //19
-                    TEMPSQL->A2_EMAIL,;     //20
-                    TEMPSQL->C8_FILIAL,;    //21
-                    TEMPSQL->C8_LOJA,;      //22
-                    cTimeIni,;              //23
-                    TEMPSQL->C8_NUMPRO,;    //24
-                    TEMPSQL->MSGMAIL,;      //25
-                    TEMPSQL->C8_ITEM,;      //26
-                    TEMPSQL->C8_FORNOME})   //27})
-        TEMPSQL->(dbSkip())
-    enddo
-    TEMPSQL->(dbCloseArea())
-    RestArea(aArea)
-Return aDadosR10 
-*/

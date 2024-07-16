@@ -164,6 +164,8 @@ Static Function ViewDef()
     oView:EnableTitleView('VIEW_3'	, '|'						) 
     oView:EnableTitleView('VIEW_5'	, 'Nota Fiscal / GTA' 		) 
 
+	oView:SetContinuousForm(.T.)
+	
 	oView:SetCloseOnOk( { |oView| .T. } )
 
     SetKey( VK_F11, { || U_PPeso1() } )
