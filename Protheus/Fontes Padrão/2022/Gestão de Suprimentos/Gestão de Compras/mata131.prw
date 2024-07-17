@@ -804,15 +804,14 @@ Local oView 	 := FwViewActive()
 Local lView 	 := oView <> Nil .And. oView:IsActive()
 Local aSaveLines := FWSaveRows()
 
-
 Pergunte("MTA131",.F.)
-nMaxFornec := MV_PAR01 
+nMaxFornec := MV_PAR01
 
 If  ((!Empty(oModelGrid:GetValue("C8_FORNECE")).And. Empty(oModelGrid:GetValue("C8_LOJA"))) .OR. ;
 			(Empty(oModelGrid:GetValue("C8_FORNECE")).And. !Empty(oModelGrid:GetValue("C8_LOJA"))) .OR.; 
 			(Empty(oModelGrid:GetValue("C8_FORNOME")).And.(Empty(oModelGrid:GetValue("C8_FORNECE")).And.Empty(oModelGrid:GetValue("C8_LOJA")).And.!oModelGrid:IsDeleted())))		
 		Help(Nil, 1, "A131VALSC8", Nil, STR0135, 1, 0, Nil, Nil, Nil, Nil, Nil, {STR0136})
-	lRet := .F. 
+	lRet := .F.
 EndIf 	
 
 If lRet 

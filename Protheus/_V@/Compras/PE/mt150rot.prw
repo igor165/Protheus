@@ -57,7 +57,8 @@ Static Function fGetDados()
     _cQry += " 		C1_CODCOMP, " + CRLF 
     _cQry += " 		C1_EMISSAO, " + CRLF 
     _cQry += " 		C1_NUM, " + CRLF 
-    _cQry += " 		Y1_EMAIL " + CRLF 
+    _cQry += " 		Y1_EMAIL, " + CRLF 
+    _cQry += " 		ISNULL(CAST(CAST(C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS " + CRLF 
     _cQry += " from "+RetSqlName("SC8")+" C8 " + CRLF 
     _cQry += " LEFT JOIN "+RetSqlName("SB1")+" B1 ON C8_PRODUTO = B1_COD " + CRLF 
     _cQry += " AND B1.D_E_L_E_T_ = '' " + CRLF 
@@ -65,9 +66,9 @@ Static Function fGetDados()
     _cQry += " AND C8_LOJA = A2_LOJA" + CRLF 
     _cQry += " AND A2.D_E_L_E_T_ = ''" + CRLF 
     _cQry += " LEFT JOIN "+RetSqlName("SC1")+" C1 ON C8_FILIAL = C1_FILIAL  " + CRLF 
-    _cQry += " AND C8_NUMSC = C1_NUM  " + CRLF 
-    _cQry += " AND C8_ITEMSC = C1_ITEM " + CRLF 
-    _cQry += " AND C8_PRODUTO = C1_PRODUTO " + CRLF 
+    _cQry += " AND C8_NUMSC = C1_NUM  " + CRLF
+    _cQry += " AND C8_ITEMSC = C1_ITEM " + CRLF
+    _cQry += " AND C8_PRODUTO = C1_PRODUTO " + CRLF
     _cQry += " AND C1.D_E_L_E_T_ = ''" + CRLF 
     _cQry += " LEFT join "+RetSqlName("SY1")+" Y1 ON Y1_COD = C1_CODCOMP " + CRLF 
     _cQry += " AND Y1.D_E_L_E_T_ = ''" + CRLF 
@@ -76,7 +77,7 @@ Static Function fGetDados()
     _cQry += " AND C8_FORNECE+C8_LOJA = '"+(SC8->C8_FORNECE+SC8->C8_LOJA)+"' " + CRLF 
     _cQry += " AND C8_NUMPRO = '"+SC8->C8_NUMPRO+"' " + CRLF 
     _cQry += " AND C8.D_E_L_E_T_ = '' "   + CRLF
-    _cQry += " ORDER BY C8_FILIAL, C8_NUM, C8_FORNECE, C8_LOJA, B1_DESC "   + CRLF
+    _cQry += " ORDER BY C8_FILIAL, C8_NUM, C8_FORNECE, C8_LOJA,C8_ITEM"   + CRLF
     
     MemoWrite("C:\totvs_relatorios\" +"MT150WF" + ".sql" , _cQry)
     
@@ -109,7 +110,8 @@ Static Function fGetDados()
                     TEMPSQL->C8_NUMPRO,;    //24
                     TEMPSQL->MSGMAIL,;      //25
                     TEMPSQL->C8_ITEM,;      //26
-                    TEMPSQL->C8_FORNOME})   //27})
+                    TEMPSQL->C8_FORNOME,;   //27
+                    TEMPSQL->C8_OBS})       //28    
         TEMPSQL->(dbSkip())
     enddo
     TEMPSQL->(dbCloseArea())

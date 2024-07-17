@@ -33,19 +33,66 @@ User Function MT150END()
                 MsUnlock()
             EndIf
         EndIf
-        aDados := fGetDados()
+
+        aDados := fGetD2()
         if Len(aDados) > 0
-            U_VACOMR10(aDados)
+            U_VACOMR14(aDados) // envia para o fornecedor
         ENDIF
+
+        aDados := fGetD1()
+        if Len(aDados) > 0
+            U_VACOMR10(aDados) // envia para o fornecedor
+        ENDIF
+
+
     ENDIF
     RestArea(aArea)
 RETURN 
 
-Static Function fGetDados()
+Static Function fGetD2()
+    Local cAliasA       := GetNextAlias() 
+    Local _cQry
+    LOcal aDados     := {}
+
+    _cQry := " select SC8.C8_PRODUTO " + CRLF
+    _cQry += "  , SB1.B1_DESC " + CRLF
+    _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
+    _cQry += "  , SC8.SC8.C8_QUANT " + CRLF
+    _cQry += "  , SB1.B1_UM " + CRLF
+    _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
+    _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
+    _cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
+    _cQry += "  WHERE C8_FILIAL = '"+FWxFilial("SC8")+"' " + CRLF 
+    _cQry += "  AND C8_NUM = '"+SC8->C8_NUM+"' " + CRLF 
+    _cQry += "  AND C8_FORNECE+C8_LOJA = '"+(SC8->C8_FORNECE+SC8->C8_LOJA)+"' " + CRLF 
+    _cQry += "  AND C8_NUMPRO = '"+SC8->C8_NUMPRO+"' " + CRLF 
+    _cQry += "  AND SC8.D_E_L_E_T_ = '' "   + CRLF
+    _cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM " + CRLF
+    _cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM " + CRLF
+
+    MpSysOpenQuery(_cQry,cAliasA)
+    aDados := {}
+    while !(cAliasA)->(EOF())
+        aAdd(aDados,{;
+                        (cAliasA)->C8_PRODUTO,;
+                        (cAliasA)->B1_DESC,;
+                        (cAliasA)->C8_OBS,;
+                        (cAliasA)->C8_QUANT,;
+                        (cAliasA)->B1_UM;
+                        })
+        (cAliasA)->(DbSkip())
+    enddo
+
+    (cAliasA)->(DbCloseArea())
+                        
+Return aDados
+
+Static Function fGetD1()
     Local aArea     := GetArea()
     Local aDados    := {}
     Local _cQry     := ''
     Local cTime150  := Time()
+    Local cAlias    := GetNextAlias()
 
     _cQry := " select C8_FILENT,C8_ITEM, " + CRLF 
     _cQry += " 		C8_FORNECE, " + CRLF 
@@ -63,7 +110,6 @@ Static Function fGetDados()
     _cQry += " 		C8_FORNOME, " + CRLF
     _cQry += " 		ISNULL(CONVERT(VARCHAR(2047), CONVERT(VARBINARY(2047), C8_MSGMAIL)),'') AS MSGMAIL , " + CRLF 
     _cQry += " 		C8_WFEMAIL, " + CRLF 
-    _cQry += " 		C8_NUM, " + CRLF 
     _cQry += " 		A2_NOME, " + CRLF 
     _cQry += " 		A2_END, " + CRLF
     _cQry += " 		A2_EST, " + CRLF 
@@ -84,7 +130,8 @@ Static Function fGetDados()
     _cQry += "      C1_DESCRI," + CRLF
     _cQry += "      C1_PRODUTO," + CRLF
     _cQry += "      C1_QUANT," + CRLF
-    _cQry += " 		Y1_EMAIL " + CRLF
+    _cQry += " 		Y1_EMAIL, " + CRLF
+    _cQry += " 		ISNULL(CAST(CAST(C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS " + CRLF
     _cQry += " from "+RetSqlName("SC8")+" C8 " + CRLF 
     _cQry += " LEFT JOIN "+RetSqlName("SB1")+" B1 ON C8_PRODUTO = B1_COD " + CRLF 
     _cQry += " AND B1.D_E_L_E_T_ = '' " + CRLF 
@@ -103,48 +150,46 @@ Static Function fGetDados()
     _cQry += " AND C8_FORNECE+C8_LOJA = '"+(SC8->C8_FORNECE+SC8->C8_LOJA)+"' " + CRLF 
     _cQry += " AND C8_NUMPRO = '"+SC8->C8_NUMPRO+"' " + CRLF 
     _cQry += " AND C8.D_E_L_E_T_ = '' "   + CRLF
+    _cQry += " ORDER BY C8_FILIAL, C8_NUM, C8_FORNECE, C8_LOJA,C8_ITEM"   + CRLF
     
     if lower(cUserName) $ 'mbernardo,ioliveira,Administrador,atoshio'
         MemoWrite("C:\totvs_relatorios\" +"MT150GRV" + ".sql" , _cQry)
     endif 
-    dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),"TEMPSQL",.F.,.F.)
+    dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),cAlias,.F.,.F.)
 
-    While !TEMPSQL->(Eof())
-        aAdd(aDados,{TEMPSQL->C1_ITEM,;      //01
-                    TEMPSQL->B1_DESC,;       //02
-                    TEMPSQL->C8_FILENT,;     //03
-                    TEMPSQL->C8_FORNECE,;    //04
-                    TEMPSQL->A2_NOME,;       //05
-                    TEMPSQL->C1_PRODUTO,;    //06
-                    TEMPSQL->C1_UM,;         //07
-                    TEMPSQL->C8_QUANT,;      //08
-                    TEMPSQL->C1_EMISSAO,;    //09
-                    TEMPSQL->C8_NUM,;        //10
-                    TEMPSQL->C1_NUM,;        //11
-                    TEMPSQL->A2_END,;        //12
-                    TEMPSQL->A2_MUN,;        //13
-                    TEMPSQL->A2_EST,;        //14
-                    TEMPSQL->A2_TEL,;        //15
-                    TEMPSQL->A2_FAX,;        //16
-                    TEMPSQL->A2_CONTATO,;    //17
-                    TEMPSQL->A2_CGC,;        //18
-                    TEMPSQL->C1_DATPRF,;     //19
-                    TEMPSQL->A2_EMAIL,;      //20
-                    TEMPSQL->C8_FILIAL,;     //21
-                    TEMPSQL->C8_LOJA,;       //22
-                    cTime150,;               //23
-                    TEMPSQL->C8_NUMPRO,;     //24
-                    TEMPSQL->MSGMAIL,;
-                    TEMPSQL->C8_ITEM,;      //26
-                    TEMPSQL->C8_FORNOME})   //27})       //25
-                    //TEMPSQL->C8_ITEMGRD})   //27})       //25
+    While !(cAlias)->(Eof())
+        aAdd(aDados,{(cAlias)->C1_ITEM,;      //01
+                    (cAlias)->B1_DESC,;       //02
+                    (cAlias)->C8_FILENT,;     //03
+                    (cAlias)->C8_FORNECE,;    //04
+                    (cAlias)->A2_NOME,;       //05
+                    (cAlias)->C1_PRODUTO,;    //06
+                    (cAlias)->C1_UM,;         //07
+                    (cAlias)->C8_QUANT,;      //08
+                    (cAlias)->C1_EMISSAO,;    //09
+                    (cAlias)->C8_NUM,;        //10
+                    (cAlias)->C1_NUM,;        //11
+                    (cAlias)->A2_END,;        //12
+                    (cAlias)->A2_MUN,;        //13
+                    (cAlias)->A2_EST,;        //14
+                    (cAlias)->A2_TEL,;        //15
+                    (cAlias)->A2_FAX,;        //16
+                    (cAlias)->A2_CONTATO,;    //17
+                    (cAlias)->A2_CGC,;        //18
+                    (cAlias)->C1_DATPRF,;     //19
+                    (cAlias)->A2_EMAIL,;      //20
+                    (cAlias)->C8_FILIAL,;     //21
+                    (cAlias)->C8_LOJA,;       //22
+                    cTime150,;                //23
+                    (cAlias)->C8_NUMPRO,;     //24
+                    (cAlias)->MSGMAIL,;
+                    (cAlias)->C8_ITEM,;      //26
+                    (cAlias)->C8_FORNOME,;   //27
+                    (cAlias)->C8_OBS})       //28
+                    //(cAlias)->C8_ITEMGRD})   //27})       //25
                     
-        TEMPSQL->(dbSkip())
+        (cAlias)->(dbSkip())
     enddo
-    TEMPSQL->(dbCloseArea())
+    (cAlias)->(dbCloseArea())
     RestArea(aArea)
 Return aDados 
-
-/* User Function MT150END()
-
-Return .T.  */

@@ -20,7 +20,6 @@ ________________________________________________________________________________
 User Function PesqFor()
 	Private lRet           := .F.
 	
-
 	Private cQuery1 := ""
 	Private cFiltro := ""
 	Private cOrdem  := " ORDER BY SA2.A2_COD, SA2.A2_LOJA"	
