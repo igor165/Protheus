@@ -16,73 +16,68 @@
 User Function VAPCPA09()
 
 //Local aParBox     := {}
-Local cQryDtV     := ""
-Local cPrgRot     := "VAPCPA09"
+	Local cQryDtV         := ""
+	Local cPrgRot         := "VAPCPA09"
 
-Private lShwZer   := .F.
-Private lShwGer   := .T.
-Private nOpcRotas := 1
-Private aDadSel   := {}
-Private aLinAlf   := {}
-Private aParRet   := {}
-//Private aChgDie   := {}
-//Private aChgCur   := {}
-//Private cChgDie   := ""
-//Private cChgCur   := ""
-//Private aAlf      := {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'}
-Private aTik    := {LoadBitmap( GetResources(), "LBTIK" ), LoadBitmap( GetResources(), "LBNO" )}
-Private __dDtPergunte := StoD("")
+	Private lShwZer       := .F.
+	Private lShwGer       := .T.
+	Private nOpcRotas     := 1
+	Private aDadSel       := {}
+	Private aLinAlf       := {}
+	Private aParRet       := {}
+// Private aChgDie    := {}
+// Private aChgCur    := {}
+// Private cChgDie    := ""
+// Private cChgCur    := ""
+// Private aAlf       := {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'}
+	Private aTik          := {LoadBitmap( GetResources(), "LBTIK" ), LoadBitmap( GetResources(), "LBNO" )}
+	Private __dDtPergunte := StoD("")
 
 //AAdd(aParBox,{1,"Data      ", dDataBase, "", "", ""   , "", 50, .F.}) // aParRet[1]
 
 //If (Len(aDadSel) == 0)
 //	If (ParamBox(aParBox, "Data da Roteirizacao", @aParRet))
-aDadSel := {"ROTA01", dDataBase, "0001", "03"}
+	aDadSel := {"ROTA01", dDataBase, "0001", "03"}
 //	EndIf
 //EndIf
 
-U_PosSX1({{cPrgRot, "01", DTOS(dDataBase)}})
+	U_PosSX1({{cPrgRot, "01", iIf(cUserName $ "Administrador,atoshio", DTOS(dDataBase), DTOS(dDataBase))}})
 
-While ((nOpcRotas > 0))
+	While ((nOpcRotas > 0))
 
-	If (Len(aParRet) < 1)
+		If (Len(aParRet) < 1)
 //		If (!ParamBox(aParBox, "Data da Roteirizacao", @aParRet))
-		If (!Pergunte(cPrgRot, .T.))
-			Return (Nil)
-		EndIf
-		__dDtPergunte := MV_PAR01
-		
-		AAdd(aParRet, MV_PAR01)
-	EndIf
+			If (!Pergunte(cPrgRot, .T.))
+				Return (Nil)
+			EndIf
+			__dDtPergunte := MV_PAR01
 
-	cQryDtV := " SELECT MAX(Z0R.Z0R_VERSAO) AS DATVER" + CRLF
-	cQryDtV += " FROM " + RetSqlName("Z0R") + " Z0R " + CRLF
-	cQryDtV += " WHERE Z0R.Z0R_FILIAL = '" + xFilial("Z0R") + "' " + CRLF
-	cQryDtV += "   AND Z0R.Z0R_DATA = '" + DTOS(aParRet[1]) + "' "
-	cQryDtV += "   AND Z0R.D_E_L_E_T_ = ' ' " + CRLF
-	
-	TCQUERY cQryDtV NEW ALIAS "QRYDTV"
-	
-	If (!(QRYDTV->(EOF())))
-		If (!Empty(QRYDTV->DATVER))
-			aDadSel[3] := QRYDTV->DATVER
+			AAdd(aParRet, MV_PAR01)
 		EndIf
-	EndIf
-	
-	QRYDTV->(DBCloseArea())
-	
-	//If (nOpcRotas = 0)
-	//	aChgDie := {}
-	//	aChgCur := {}
-	//EndIf
-	
-	If (Len(aParRet) > 0)
-		aDadSel[2] := aParRet[1]
-		VAPCPA09A(lShwZer, lShwGer)
-	Else
-		nOpcRotas := 0
-	EndIf
-EndDo
+
+		cQryDtV := " SELECT MAX(Z0R.Z0R_VERSAO) AS DATVER" + CRLF
+		cQryDtV += " FROM " + RetSqlName("Z0R") + " Z0R " + CRLF
+		cQryDtV += " WHERE Z0R.Z0R_FILIAL = '" + xFilial("Z0R") + "' " + CRLF
+		cQryDtV += "   AND Z0R.Z0R_DATA = '" + DTOS(aParRet[1]) + "' "
+		cQryDtV += "   AND Z0R.D_E_L_E_T_ = ' ' " + CRLF
+
+		TCQUERY cQryDtV NEW ALIAS "QRYDTV"
+
+		If (!(QRYDTV->(EOF())))
+			If (!Empty(QRYDTV->DATVER))
+				aDadSel[3] := QRYDTV->DATVER
+			EndIf
+		EndIf
+
+		QRYDTV->(DBCloseArea())
+
+		If (Len(aParRet) > 0)
+			aDadSel[2] := aParRet[1]
+			VAPCPA09A(lShwZer, lShwGer)
+		Else
+			nOpcRotas := 0
+		EndIf
+	EndDo
 
 Return (Nil)
 
@@ -112,7 +107,6 @@ Local oTFntSb              := TFont():New('Courier new', , 16, .T., .T., , , , ,
 Local oTFntTC              := TFont():New('Courier new', , 26, .T., .T.)
 Local oTFntLg              := TFont():New('Courier new', , 18, .T., .T.)
 Local oTFntLgN             := TFont():New('Courier new', , 19, .T., .T.)
-Local oTFntLgT             := TFont():New('Courier new', , 22, .T., .T.)
 
 //TFont():New( [ cName ], [ uPar2 ], [ nHeight ], [ uPar4 ], [ lBold ], [ uPar6 ], [ uPar7 ], [ uPar8 ], [ uPar9 ], [ lUnderline ], [ lItalic ] )
 Local nLinLin              := 001
@@ -281,23 +275,7 @@ TCQUERY cQryRot NEW ALIAS "QRYROT"
 nCrAux  := 1
 nLinLeg := 030
 While !(QRYROT->(EOF()))
-	// MONTA ESTRUTURA DE COR DA DIETA
-	/*
-	-> levando para outro lugar,
-	-> sql criado pelo toshio
-	If (ALLTRIM(QRYROT->LOTE) != 'SEM LOTE')
-		If (aScan(aCrDie , { |x| x[1] == QRYROT->DIETA}) < 1)
-			If (nCrAux < Len(aCrDBs))
-				AAdd(aCrDie, {QRYROT->DIETA, aCrDBs[nCrAux]})
-				nCrAux++
-			Else
-				MsgInfo("Nao existem mais cores disponiveis para as dietas! (VA_CRDIEXX). Abortando...")
-				nOpcRotas := 0
-				Return (Nil)
-			EndIf
-		EndIf
-	EndIf
-	*/
+
 	// TIPO - 1 = CURRAL / 4 = PASTO 
 	If (QRYROT->TIPO == '1')
 		// CONF - 01 = BLOCO VELHO / 02 = BLOCO NOVO / 99 = PASTO
@@ -354,80 +332,84 @@ If (Len(aTFldr)==1)
 	aAdd(aTFldr, "CONFINAMENTO 02")
 EndIf
 
-// MONTA ESTRUTURA DE COR DA DIETA E MONTA O ARRAY PARA PROCESAMENTO DA ROTEIRIZACAO
-_cQry := " WITH DADOS AS ( " + CRLF+;
-		 " 	 SELECT Z08.Z08_CONFNA AS CONF, Z08.Z08_TIPO AS TIPO, Z08.Z08_CODIGO, Z08.Z08_LINHA AS LINHA, Z08.Z08_SEQUEN AS SEQ  " + CRLF+;
-		 " 		  , ISNULL(SB8.B8_LOTECTL, 'SEM LOTE') AS LOTE, Z05.Z05_CABECA AS QUANT, (SELECT DISTINCT(Z0M.Z0M_DESCRI) FROM Z0M010 Z0M WHERE Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA) AS PLANO  " + CRLF+;
-		 " 		  , DATEDIFF(day, (SELECT MIN(SB8A.B8_XDATACO) FROM SB8010 SB8A WHERE SB8A.B8_LOTECTL = SB8.B8_LOTECTL AND SB8A.B8_FILIAL = '"+FWxFilial("SB8")+"' AND SB8A.B8_SALDO > 0 AND SB8A.D_E_L_E_T_ <> '*'),  GETDATE()) AS DIAS  " + CRLF+;
-		 "        , Z05.Z05_DIETA DIETA " + CRLF +;
-		 "		  , Z0R.Z0R_DATA AS DTTRT" + CRLF+;
-		 "		  , Z0R.Z0R_VERSAO AS VERSAO" + CRLF+;
-		 "		  , Z0T.Z0T_ROTA AS ROTA  " + CRLF+;
-		 " 		  , (SELECT DISTINCT(SB1.B1_DESC) FROM SB1010 SB1 WHERE SB1.B1_COD = Z05.Z05_DIETA) AS DIEDSC  " + CRLF+;
-		 " 		  , (SELECT COUNT(Z06.Z06_TRATO)  FROM Z06010 Z06 WHERE Z06.D_E_L_E_T_ <> '*' AND Z06.Z06_FILIAL = '"+FWxFilial("Z06")+"' AND Z06.Z06_DATA = Z0R.Z0R_DATA AND Z06.Z06_VERSAO = Z0R.Z0R_VERSAO AND Z06.Z06_LOTE = SB8.B8_LOTECTL) AS NRTRT  " + CRLF+;
-		 " 		  , (SELECT SUM(Z04.Z04_TOTREA)   FROM Z04010 Z04 WHERE Z04.Z04_DTIMP  = DATEADD(dd, -1, cast('" + dToS( __dDtPergunte ) + "' as datetime)) AND Z04.Z04_FILIAL = '"+FWxFilial("Z04")+"' AND Z04.D_E_L_E_T_ <> '*' AND Z04.Z04_LOTE = SB8.B8_LOTECTL) AS Z04_TOTREA  " + CRLF+;
-		 " 		  , (SELECT Z05A.Z05_KGMNDI FROM Z05010 Z05A WHERE Z05A.Z05_DATA = DATEADD(DAY, -1, Z0R.Z0R_DATA) AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '"+FWxFilial("Z05")+"' AND Z05A.D_E_L_E_T_ <> '*') AS KGMN  " + CRLF+;
-		 " 		  , (SELECT Z05A.Z05_KGMSDI FROM Z05010 Z05A WHERE Z05A.Z05_DATA = DATEADD(DAY, -1, Z0R.Z0R_DATA) AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '"+FWxFilial("Z05")+"' AND Z05A.D_E_L_E_T_ <> '*') AS KGMS  " + CRLF+;
-		 " 		  , (SELECT Z05A.Z05_KGMNDI FROM Z05010 Z05A WHERE Z05A.Z05_DATA = Z0R.Z0R_DATA AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '"+FWxFilial("Z05")+"' AND Z05A.D_E_L_E_T_ <> '*') AS KGMNDIA  " + CRLF+;
-		 " 		  , (SELECT Z05A.Z05_KGMSDI FROM Z05010 Z05A WHERE Z05A.Z05_DATA = Z0R.Z0R_DATA AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '"+FWxFilial("Z05")+"' AND Z05A.D_E_L_E_T_ <> '*') AS KGMSDIA  " + CRLF+;
-		 " 	 FROM Z08010 Z08  " + CRLF+;
-		 " 	 LEFT JOIN SB8010 SB8 ON SB8.B8_X_CURRA = Z08.Z08_CODIGO AND SB8.B8_FILIAL = '"+FWxFilial("SB8")+"' AND SB8.D_E_L_E_T_ <> '*' AND SB8.B8_SALDO > 0  " + CRLF+;
-		 " 	 LEFT JOIN Z0O010 Z0O ON Z0O.Z0O_LOTE = SB8.B8_LOTECTL AND ('" + dToS( __dDtPergunte ) + "' BETWEEN Z0O.Z0O_DATAIN AND Z0O.Z0O_DATATR OR (Z0O.Z0O_DATAIN <= '" + dToS( __dDtPergunte ) + "' AND Z0O.Z0O_DATATR = '        ')) AND Z0O.Z0O_FILIAL = '"+FWxFilial("Z0O")+"' AND Z0O.D_E_L_E_T_ <> '*'  " + CRLF+;
-		 " 	 LEFT JOIN Z0R010 Z0R ON Z0R.Z0R_DATA = '" + dToS( __dDtPergunte ) + "' AND Z0R.Z0R_VERSAO = '0001' AND Z0R.Z0R_FILIAL = '"+FWxFilial("Z0R")+"' AND Z0R.D_E_L_E_T_ <> '*'  " + CRLF+;
-		 " 	 LEFT JOIN Z05010 Z05 ON Z05.Z05_DATA = Z0R.Z0R_DATA AND Z05.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05.Z05_LOTE = SB8.B8_LOTECTL AND Z05.Z05_FILIAL = '"+FWxFilial("Z05")+"' AND Z05.D_E_L_E_T_ <> '*'  " + CRLF+;
-		 " 	 LEFT JOIN Z0T010 Z0T ON Z0T.Z0T_DATA = Z0R.Z0R_DATA AND Z0T.Z0T_VERSAO = Z0R.Z0R_VERSAO AND Z0T.Z0T_CURRAL = Z08_CODIGO AND Z0T.Z0T_FILIAL = '"+FWxFilial("Z0T")+"' AND Z0T.D_E_L_E_T_ <> '*'  " + CRLF+;
-		 " 	 WHERE Z08.D_E_L_E_T_ <> '*'  " + CRLF+;
-		 " 	   AND Z08.Z08_FILIAL = '"+FWxFilial("Z08")+"' " + CRLF+;
-		 "	   AND Z08.Z08_CONFNA <> ' '  " + CRLF+;
-		 " 	   AND Z08.Z08_MSBLQL <> '1'  " + CRLF+;
-		 " 	   AND SB8.B8_SALDO > 0  " + CRLF+;
-		 "		--AND Z05_CURRAL IN ('H01','H02','A01')" + CRLF+;
-		 " 	 GROUP BY Z08.Z08_CONFNA, Z08.Z08_TIPO, Z08.Z08_CODIGO, Z08.Z08_LINHA, Z08.Z08_SEQUEN, SB8.B8_LOTECTL, Z05.Z05_CABECA, Z0O.Z0O_CODPLA, Z05.Z05_DIETA, " + CRLF+;
-		 "			  Z05.Z05_KGMNDI, Z05.Z05_KGMSDI, Z0R.Z0R_DATA, Z0R.Z0R_VERSAO, Z0T.Z0T_ROTA, Z05_FILIAL, Z05_VERSAO, Z05_DATA, Z05_LOTE" + CRLF+;
-		 " ) " + CRLF+;
-		 "  " + CRLF+;
-		 " SELECT CASE	 " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE 'FINAL'				 THEN 1  " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE '%ADAPTACAO03%FINAL%' THEN 2 " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE 'ADAPTACAO03'		 THEN 3 " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE 'ADAPTACAO02'		 THEN 4 " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE 'ADAPTACAO01'		 THEN 5 " + CRLF+;
-		 " 			WHEN RTRIM(DIETA) LIKE 'RECEPCAO'			 THEN 6 " + CRLF+;
-		 " 																		 ELSE 7 " + CRLF+;
-		 " 		  END ORDEM_POR_RACAO " + CRLF+;
-		 " 		  , CONF " + CRLF+;
-		 " 		  , KGMNDIA " + CRLF+;
-		 " 		  , NRTRT " + CRLF+;
-		 " 		  , QUANT " + CRLF+;
-		 " 		  , DIETA " + CRLF+;
-		 " 		  , Z08_CODIGO CURRAL " + CRLF+;
-		 " 		  , LOTE " + CRLF+;
-		 " 		  , ROUND( (KGMNDIA/NRTRT)*QUANT, 2) QTD_POR_TRATO " + CRLF+;
-		 " FROM DADOS " + CRLF+;
-		 " ORDER BY 1, 2, DIETA DESC, Z08_CODIGO "
+	// MONTA ESTRUTURA DE COR DA DIETA E MONTA O ARRAY PARA PROCESAMENTO DA ROTEIRIZACAO
+	_cQry := " WITH DADOS AS ( " + CRLF+;
+		" 	 SELECT Z08.Z08_CONFNA AS CONF, Z08.Z08_TIPO AS TIPO, Z08.Z08_CODIGO, Z08.Z08_LINHA AS LINHA, Z08.Z08_SEQUEN AS SEQ  " + CRLF+;
+		" 		  , ISNULL(SB8.B8_LOTECTL, 'SEM LOTE') AS LOTE, Z05.Z05_CABECA AS QUANT, (SELECT DISTINCT(Z0M.Z0M_DESCRI) FROM "+RetSqlName("Z0M")+" Z0M WHERE Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA) AS PLANO  " + CRLF+;
+		" 		  , DATEDIFF(day, (SELECT MIN(SB8A.B8_XDATACO) FROM "+RetSqlName("SB8")+" SB8A WHERE SB8A.B8_LOTECTL = SB8.B8_LOTECTL AND SB8A.B8_FILIAL = '" + xFilial("SB8") + "' AND SB8A.B8_SALDO > 0 AND SB8A.D_E_L_E_T_ <> '*'),  GETDATE()) AS DIAS  " + CRLF+;
+		" 		  /*, (SELECT  STRING_AGG(CONVERT(VARCHAR(1), Z06_TRATO)+'-'+RTRIM(Z06_DIETA), ';') DIETA " + CRLF+;
+		"		        FROM (SELECT COUNT (Z06A.Z06_TRATO) Z06_TRATO, Z06A.Z06_DIETA  " + CRLF+;
+		"		                FROM "+RetSqlName("Z06")+" Z06A " + CRLF+;
+		"					   WHERE Z05.Z05_FILIAL = Z06A.Z06_FILIAL AND Z05.Z05_DATA = Z06A.Z06_DATA AND Z05.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05.Z05_LOTE = Z06A.Z06_LOTE AND Z06A.D_E_L_E_T_ = ' ' " + CRLF+;
+		"					GROUP BY Z06A.Z06_FILIAL, Z06A.Z06_LOTE, Z06A.Z06_DIETA) AS TRATO " + CRLF+;
+		"					) DIETA*/" + CRLF+;
+		"		  , Z05.Z05_DIETA DIETA" + CRLF+;
+		"		  , Z0R.Z0R_DATA AS DTTRT" + CRLF+;
+		"		  , Z0R.Z0R_VERSAO AS VERSAO" + CRLF+;
+		"		  , Z0T.Z0T_ROTA AS ROTA  " + CRLF+;
+		" 		  , (SELECT DISTINCT(SB1.B1_DESC) FROM "+RetSqlName("SB1")+" SB1 WHERE SB1.B1_COD = Z05.Z05_DIETA) AS DIEDSC  " + CRLF+;
+		" 		  , (SELECT COUNT(Z06.Z06_TRATO)  FROM "+RetSqlName("Z06")+" Z06 WHERE Z06.D_E_L_E_T_ <> '*' AND Z06.Z06_FILIAL = '" + xFilial("Z06") + "' AND Z06.Z06_DATA = Z0R.Z0R_DATA AND Z06.Z06_VERSAO = Z0R.Z0R_VERSAO AND Z06.Z06_LOTE = SB8.B8_LOTECTL) AS NRTRT  " + CRLF+;
+		" 		  , (SELECT SUM(Z04.Z04_TOTREA)   FROM "+RetSqlName("Z04")+" Z04 WHERE Z04.Z04_DTIMP  = DATEADD(dd, -1, cast('" + dToS( __dDtPergunte ) + "' as datetime)) AND Z04.Z04_FILIAL = '" + xFilial("Z04") + "' AND Z04.D_E_L_E_T_ <> '*' AND Z04.Z04_LOTE = SB8.B8_LOTECTL) AS Z04_TOTREA  " + CRLF+;
+		" 		  , (SELECT Z05A.Z05_KGMNDI FROM "+RetSqlName("Z05")+" Z05A WHERE Z05A.Z05_DATA = DATEADD(DAY, -1, Z0R.Z0R_DATA) AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '" + xFilial("Z05") + "' AND Z05A.D_E_L_E_T_ <> '*') AS KGMN  " + CRLF+;
+		" 		  , (SELECT Z05A.Z05_KGMSDI FROM "+RetSqlName("Z05")+" Z05A WHERE Z05A.Z05_DATA = DATEADD(DAY, -1, Z0R.Z0R_DATA) AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '" + xFilial("Z05") + "' AND Z05A.D_E_L_E_T_ <> '*') AS KGMS  " + CRLF+;
+		" 		  , (SELECT Z05A.Z05_KGMNDI FROM "+RetSqlName("Z05")+" Z05A WHERE Z05A.Z05_DATA = Z0R.Z0R_DATA AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '" + xFilial("Z05") + "' AND Z05A.D_E_L_E_T_ <> '*') AS KGMNDIA  " + CRLF+;
+		" 		  , (SELECT Z05A.Z05_KGMSDI FROM "+RetSqlName("Z05")+" Z05A WHERE Z05A.Z05_DATA = Z0R.Z0R_DATA AND Z05A.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05A.Z05_LOTE = SB8.B8_LOTECTL AND Z05A.Z05_FILIAL = '" + xFilial("Z05") + "' AND Z05A.D_E_L_E_T_ <> '*') AS KGMSDIA  " + CRLF+;
+		" 	 FROM      " + RetSqlName("Z08") + " Z08 " + CRLF+;
+		" 	 LEFT JOIN " + RetSqlName("SB8") + " SB8 ON SB8.B8_FILIAL  = '" + xFilial("SB8") + "' AND SB8.B8_X_CURRA = Z08.Z08_CODIGO AND SB8.D_E_L_E_T_ <> '*' AND SB8.B8_SALDO > 0  " + CRLF+;
+		" 	 LEFT JOIN " + RetSqlName("Z0O") + " Z0O ON Z0O.Z0O_FILIAL = '" + xFilial("Z0O") + "' AND Z0O.Z0O_LOTE = SB8.B8_LOTECTL AND ('" + dToS( __dDtPergunte ) + "' BETWEEN Z0O.Z0O_DATAIN AND Z0O.Z0O_DATATR OR (Z0O.Z0O_DATAIN <= '" + dToS( __dDtPergunte ) + "' AND Z0O.Z0O_DATATR = '        ')) AND Z0O.D_E_L_E_T_ <> '*'  " + CRLF+;
+		" 	 LEFT JOIN " + RetSqlName("Z0R") + " Z0R ON Z0R.Z0R_FILIAL = '" + xFilial("Z0R") + "' AND Z0R.Z0R_DATA = '" + dToS( __dDtPergunte ) + "' AND Z0R.Z0R_VERSAO = '0001' AND Z0R.D_E_L_E_T_ <> '*'  " + CRLF+;
+		" 	 LEFT JOIN " + RetSqlName("Z05") + " Z05 ON Z05.Z05_FILIAL = '" + xFilial("Z05") + "' AND Z05.Z05_DATA = Z0R.Z0R_DATA AND Z05.Z05_VERSAO = Z0R.Z0R_VERSAO AND Z05.Z05_LOTE = SB8.B8_LOTECTL AND Z05.D_E_L_E_T_ <> '*'  " + CRLF+;
+		" 	 LEFT JOIN " + RetSqlName("Z0T") + " Z0T ON Z0T.Z0T_FILIAL = '" + xFilial("Z0T") + "' AND Z0T.Z0T_DATA = Z0R.Z0R_DATA AND Z0T.Z0T_VERSAO = Z0R.Z0R_VERSAO AND Z0T.Z0T_CURRAL = Z08_CODIGO AND Z0T.D_E_L_E_T_ <> '*'  " + CRLF+;
+		" 	 WHERE " + CRLF+;
+		" 	       Z08.Z08_FILIAL  = '"    + xFilial("Z08") + "' " + CRLF+;
+		"	   AND Z08.Z08_CONFNA <> ' ' " + CRLF+;
+		" 	   AND Z08.Z08_MSBLQL <> '1' " + CRLF+;
+		" 	   AND SB8.B8_SALDO    >  0  " + CRLF+;
+		"	   AND Z08.D_E_L_E_T_ <> '*' " + CRLF+;
+		" 	 GROUP BY Z08.Z08_CONFNA, Z08.Z08_TIPO, Z08.Z08_CODIGO, Z08.Z08_LINHA, Z08.Z08_SEQUEN, SB8.B8_LOTECTL, Z05.Z05_CABECA, Z0O.Z0O_CODPLA, Z05.Z05_DIETA, " + CRLF+;
+		"			  Z05.Z05_KGMNDI, Z05.Z05_KGMSDI, Z0R.Z0R_DATA, Z0R.Z0R_VERSAO, Z0T.Z0T_ROTA, Z05_FILIAL, Z05_VERSAO, Z05_DATA, Z05_LOTE" + CRLF+;
+		" ) " + CRLF+;
+		"  " + CRLF+;
+		" SELECT CASE	 " + CRLF+;
+		" 			WHEN RTRIM(Substring(DIETA,3,20)) LIKE '060601022'			   THEN 1  " + CRLF+;
+		" 			WHEN RTRIM(Substring(DIETA,3,20)) LIKE '%060601030%060601022%' THEN 2 " + CRLF+;
+		" 			WHEN RTRIM(Substring(DIETA,3,20)) LIKE '060601029'		       THEN 4 " + CRLF+;
+		" 			WHEN RTRIM(Substring(DIETA,3,20)) LIKE '060601028'		       THEN 5 " + CRLF+;
+		" 																		   ELSE 7 " + CRLF+;
+		" 		  END ORDEM_POR_RACAO " + CRLF+;
+		" 		  , CONF " + CRLF+;
+		" 		  , KGMNDIA " + CRLF+;
+		" 		  , NRTRT " + CRLF+;
+		" 		  , QUANT " + CRLF+;
+		" 		  , DIETA " + CRLF+;
+		" 		  , Z08_CODIGO CURRAL " + CRLF+;
+		" 		  , LOTE " + CRLF+;
+		" 		  , ROUND( (KGMNDIA/NRTRT)*QUANT, 2) QTD_POR_TRATO " + CRLF+;
+		" FROM DADOS " + CRLF+;
+		" ORDER BY 1, 2, DIETA DESC, Z08_CODIGO "
 
-TCQUERY _cQry NEW ALIAS "QRYESTR"
-MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa09_Estrutura_E_Roteirizacao.SQL", _cQry)
+	TCQUERY _cQry NEW ALIAS "QRYESTR"
+	MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa09_Estrutura_E_Roteirizacao.SQL", _cQry)
 
-nCrAux  := 1
-While !(QRYESTR->(EOF()))
+	nCrAux  := 1
+	While !(QRYESTR->(EOF()))
 
-	aAdd( aDadRotZao, { AllTrim(QRYESTR->CURRAL),;  // 01
-					    AllTrim(QRYESTR->LOTE)  ,;  // 02
-					    QRYESTR->QTD_POR_TRATO  ,;  // 03
-					    AllTrim(QRYESTR->DIETA) ,;  // 04
-					    .F.					  } ) // 05
-	If (aScan(aCrDie , { |x| x[1] == QRYESTR->DIETA}) == 0)
-		If (nCrAux < Len(aCrDBs))
-			// https://shdo.wordpress.com/online/tabela-de-cores-rgb/
-			AAdd(aCrDie, { QRYESTR->DIETA, aCrDBs[nCrAux] })
-			nCrAux++
-		Else
-			MsgInfo("Nao existem mais cores disponiveis para as dietas! (VA_CRDIEXX). Abortando...")
-			nOpcRotas := 0
-			Return (Nil)
+		aAdd( aDadRotZao, { AllTrim(QRYESTR->CURRAL),;  // 01
+		AllTrim(QRYESTR->LOTE)  ,;  // 02
+		QRYESTR->QTD_POR_TRATO  ,;  // 03
+		AllTrim(QRYESTR->DIETA) ,;  // 04
+		.F.					  } ) // 05
+		If (aScan(aCrDie , { |x| x[1] == QRYESTR->DIETA}) == 0)
+			If (nCrAux < Len(aCrDBs))
+				// https://shdo.wordpress.com/online/tabela-de-cores-rgb/
+				AAdd(aCrDie, { QRYESTR->DIETA, aCrDBs[nCrAux] })
+				nCrAux++
+			Else
+				MsgInfo("Nao existem mais cores disponiveis para as dietas! (VA_CRDIEXX). Abortando...")
+				nOpcRotas := 0
+				Return (Nil)
+			EndIf
 		EndIf
-	EndIf
 
 	QRYESTR->(DBSkip())
 EndDo
@@ -763,6 +745,7 @@ Else
 EndIf
 
 oTFntGr := TFont():New('Courier new',,14,.T.,.T.)
+oTFntTo :=  TFont():New('Arial Blac',,14,.T.,.T.)
 oTFntLC := TFont():New('Courier new',,18,.T.,.T.)
 oTFntPs := TFont():New('Courier new',,16,.T.,.T.)
 oTFntSb := TFont():New('Courier new',,14,.T.,.T.,,,,,.T.)
@@ -771,45 +754,36 @@ AAdd(aTFldr, "VISAO GERAL")
 AAdd(aTFldr, "PASTO")
 AAdd(aTFldr, "RESUMO")
 
-
 nColLeg := (aPObjs[1][4]/2) - 080 - 20 //nColLeg := aSize[6] - 460
-aOperador 		:= StrTokArr(GetMV("MV_OPERADO") + ";",";") 
-cOper1 := AllTrim(Posicione("Z0U",1,xFilial("Z0U")+aOperador[1],"Z0U_NOME"))
-cOper2 := AllTrim(Posicione("Z0U",1,xFilial("Z0U")+aOperador[2],"Z0U_NOME"))
 
 DEFINE MSDIALOG oDlgRotas TITLE OemToAnsi("Rotas do Trato") From aPObjs[1][1], aPObjs[1][2] To aPObjs[1][3], aPObjs[1][4] of oDlgRotas PIXEL 
  
-/*Toshio - 20220921
-Operador
-*/ 
-	//TSay():New(005, 380, {|| "Qtd de Tratos:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
- 	oTSTotTr := TSay():New(001, (aPObjs[1][4]/2) - 250, {|| "Operador1: "+AllTrim(cOper1)+" / Operador2: "+AllTrim(cOper2)}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
-
  	TSay():New(005, 005, {|| "Data Trato"}, oDlgRotas,,oTFntGr,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
  	TGet():New(015, 005, {|| dDtTrt}, oDlgRotas, 100, 016, "@D",,,,oTFntGr,.F.,,.T.,,.F.,,.F.,.F.,,.T.,.F.,,"dDtTrt")
  
  	TSay():New(005, 110, {|| "Rotas"}, oDlgRotas,,oTFntGr,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
  	oTCRot := TComboBox():New(015, 110, {|u| If(PCount() == 0, cRotTrt, cRotTrt := u)}, aRotCmb, 100, 20, oDlgRotas,,,, CLR_BLACK, CLR_WHITE,.T.,,,,,,,,,"cRotTrt")
  	oTCRot:bChange := {|| aDadSel[1] := cRotTrt, nOpcRotas := 3, oDlgRotas:End()}
- 
-	_nLin := 35
- 	TSay():New(_nLin, nCol:=005, {|| "Total Selecionado Trato:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
- 	oTSTotTr := TSay():New(_nLin, nCol+=110, {|| TRANSFORM(nTotTrt, "@E 999,999,999.99")}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
-	nQtdTrt := fQtdTrato(aParRet[1], aDadSel[1])
-	TSay():New(_nLin, nCol+=65, {|| "Qtd de Tratos:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
- 	oTSTotTr := TSay():New(_nLin, nCol+60, {|| TRANSFORM(nQtdTrt, "@E 99")}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
 
+	/*Arthur Toshio - 2022-08-14*/
+	_cTotal := fLoadTotal(aParRet[1])
+	TSay():New(005, 220, {|| "Total por Dieta:"}, oDlgRotas,,oTFntTo,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
+ 	oTSTotTr := TSay():New(005, 270, {|| AllTrim(_cTotal)}, oDlgRotas,,oTFntTo,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
+
+	_nLin := 35
+ 	TSay():New(_nLin, nCol:=005, {|| "Total da Rota:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
+ 	oTSTotTr := TSay():New(_nLin, nCol+=50, {|| TRANSFORM(nTotTrt, "@E 999,999,999.99")}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
+	nQtdTrt := fQtdTrato(aParRet[1], aDadSel[1])
+	TSay():New(_nLin, nCol+=60, {|| "Qtd de Tratos:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
+ 	oTSTotTr := TSay():New(_nLin, nCol+65, {|| TRANSFORM(nQtdTrt, "@E 99")}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
 
 	_cCurral := fLoadCurrais(aParRet[1], aDadSel[1])
 	_nLin := 45
-	TSay():New(_nLin, 005, {|| "Currais Selecionados:"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
- 	oTSTotTr := TSay():New(_nLin, 100, {|| AllTrim(_cCurral)}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 260, 30)
+	TSay():New(_nLin, 005, {|| "Currais :"}, oDlgRotas,,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
+ 	oTSTotTr := TSay():New(_nLin, 50, {|| AllTrim(_cCurral)}, oDlgRotas,,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 260, 30)
   
- 	tButton():New(010, (aPObjs[1][4]/2) - 280, "Sugerir Rotas"      , oDlgRotas, {|| nOpcRotas := 3, SugRotas(), oDlgRotas:End()}, 60, 15,,,, .T.) // "Cria\Recria Trato"
- 	//tButton():New(010, (aPObjs[1][4]/2) - 220, "Cria\Recria Trato", oDlgRotas, {|| nOpcRotas := 3, U_RecriaTrato(), oDlgRotas:End()}, 60, 15,,,, .T.) // "Cria\Recria Trato"
- 	tButton():New(010, (aPObjs[1][4]/2) - 220, "Zerar Rota"       , oDlgRotas, {|| nOpcRotas := 3, ZERROT(), oDlgRotas:End()}, 60, 15,,,, .T.) // "Cria\Recria Trato"
- 	tButton():New(010, (aPObjs[1][4]/2) - 160, "Operador Pá"       , oDlgRotas, {|| nOpcRotas := 3, U_AltOpePC(), oDlgRotas:End()}, 60, 15,,,, .T.) // "Cria\Recria Trato"
- 	//tButton():New(010, (aPObjs[1][4]/2) - 160, cShwGer            , oDlgRotas, {|| nOpcRotas := 2, oDlgRotas:End()}          , 60, 15,,,, .T.) // "Visao Geral ?" "Visao Detalhada ?"
+  	tButton():New(010, (aPObjs[1][4]/2) - 220, "Dados do Trato"   , oDlgRotas, {|| nOpcRotas := 1, U_LVRELT03(), oDlgRotas:End()}, 60, 15,,,, .T.) // "Mostra Zerados ?" "Esconde Zerados ?"
+ 	tButton():New(010, (aPObjs[1][4]/2) - 160, "Zerar Rota"       , oDlgRotas, {|| nOpcRotas := 3, ZERROT(),    oDlgRotas:End()}, 60, 15,,,, .T.) // "Cria\Recria Trato"
  	tButton():New(010, (aPObjs[1][4]/2) - 100, cShwZer            , oDlgRotas, {|| nOpcRotas := 1, oDlgRotas:End()}          , 60, 15,,,, .T.) // "Mostra Zerados ?" "Esconde Zerados ?"
  	tButton():New(010, (aPObjs[1][4]/2) - 040, "Fechar"           , oDlgRotas, {|| nOpcRotas := 0, oDlgRotas:End()}          , 32, 15,,,,.T.) // "Fechar"
  
@@ -823,19 +797,19 @@ Operador
  		EndIf
  		
 		If nColDieta == 1
-			TSay():New(nLinLeg, nColLeg-(90*3), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgT,,,,.T.,;
+			TSay():New(nLinLeg, nColLeg-(95*3), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgN,,,,.T.,;
 						aCrDie[nCntAll][2], CLR_WHITE, 140, 15)
 			nColDieta++
 		ElseIf nColDieta == 2
-			TSay():New(nLinLeg, nColLeg-(90*2), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgT,,,,.T.,;
+			TSay():New(nLinLeg, nColLeg-(95*2), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgN,,,,.T.,;
 						aCrDie[nCntAll][2], CLR_WHITE, 140, 15)
 			nColDieta++
 		ElseIf nColDieta == 3
-			TSay():New(nLinLeg, nColLeg-(90*1), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgT,,,,.T.,;
+			TSay():New(nLinLeg, nColLeg-(90*1), &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgN,,,,.T.,;
 						aCrDie[nCntAll][2], CLR_WHITE, 140, 15)
 			nColDieta++
 		Else
-			TSay():New(nLinLeg, nColLeg, &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgT,,,,.T.,;
+			TSay():New(nLinLeg, nColLeg, &("{|| '" + ALLTRIM(cDscDie) + "'}"), oDlgRotas,,oTFntLgN,,,,.T.,;
 						aCrDie[nCntAll][2], CLR_WHITE, 140, 15)
 			nColDieta := 1
  	 		nLinLeg += 009
@@ -859,7 +833,7 @@ Operador
 		nCurLin := 005
 		nCurCol := 005
 		
-		If (cChvCnf != aDadTl[nCntAll][01]) .OR. Empty(aPnlRot) //27-05-2022
+		If (cChvCnf != aDadTl[nCntAll][01]) .OR. Empty(aPnlRot)
 			
 			cChvCnf := aDadTl[nCntAll][01]
 			cChvLin := ""
@@ -928,7 +902,6 @@ Operador
 					Else
 						nCrFnt := aRot[aScan(aRot, {|x| x[1] = aDadSel[1]})][2] //aCorTl[6]
 					EndIf
-					//nCrFnt := aRot[aScan(aRot, {|x| x[1] = aDadSel[1]})][2] //aCorTl[6]
 				ElseIf (Empty(aDadTl[nCntAll][nCntLin][nCntCur][09]))
 					nCrFnt := CLR_WHITE //aCorTl[4]
 				Else
@@ -939,6 +912,7 @@ Operador
 				
 				//nCrFnt := CLR_WHITE
 				// aba resumo
+				//If (lPShwGer .and. Len(aCurLin)>0)
 				If (lPShwGer)
 										
 					AAdd(aCurLin[nChvCnf][nCntLin - 1], TPanel():New(000, nCurCol-005, aDadTl[nCntAll][nCntLin][nCntCur][01], aLinCnf[nChvCnf][Len(aLinCnf[nChvCnf])], oTFntLC, .T.,, IIf(nCrFnt = CLR_WHITE, CLR_BLACK, CLR_WHITE)/*nCrFnt*/, nCrFnt/*aCorTl[1]*/, 032, 010)) //cabecalho curral com o numero
@@ -1132,19 +1106,21 @@ Operador
 		 	TSay():New(040, 005, {|| "Total Currais SEM Rotas:"}, oTFldr:aDialogs[Len(oTFldr:aDialogs)],,oTFntLg,,,,.T., CLR_BLACK, CLR_WHITE, 200, 20)
 		 	TSay():New(040, 120, {|| TRANSFORM(nTotCSR, "@E 999,999,999.99")}, oTFldr:aDialogs[Len(oTFldr:aDialogs)],,oTFntLg,,,,.T., CLR_RED, CLR_WHITE, 200, 20)
 		 	
-		 	AAdd(aHdrRes, {"Rota"         , "ROTA"       , ""                 , 10, 0, ""                      , "", "C", "ZRT"   , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Dieta"        , "DIETA"      , ""                 , 20, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-//			AAdd(aHdrRes, {"Descricao"    , "DSCDIE"     , ""                 , 40, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Total Trato"  , "TOTTRT"     , "@E 999,999,999.99", 14, 2, ""                      , "", "N", ""      , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Veiculo"      , "VEIC"       , ""                 , 06, 0, "U_GRVVEI(&(ReadVar()))", "", "C", "ZV0VEI", "R", "", "", "", "A"})
-			AAdd(aHdrRes, {"Descricao"    , "DSCVEI"     , ""                 , 20, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Capacidade"   , "CPVEIC"     , "@E 999,999.999   ", 10, 3, ""                      , "", "N", ""      , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Operador"     , "OPVEIC"     , ""                 , 14, 0, "U_GRVOPR(&(ReadVar()))", "", "C", "Z0U"   , "R", "", "", "", "A"})
-			AAdd(aHdrRes, {"Descricao"    , "DSCOPE"     , ""                 , 20, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-			//AAdd(aHdrRes, {"Quant. Trato" , "Z05_NROTRA" , "@E 99"            , 02, 2, ""                      , "", "N", ""      , "R", "", "", "", "V"})
-			AAdd(aHdrRes, {"Lista Currais", "CURRAIS"     , ""                 , 40, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-			//AAdd(aHdrRes, {"Status"     , "STATUS" , ""                 , 20, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
-			//AAdd(aHdrRes, {"Cod.Arquivo", "CODARQ" , ""                 , 10, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
+		 	/* 01 */ AAdd(aHdrRes, {"Rota"            , "ROTA"       , ""                 , 10, 0, ""                               , "", "C", "ZRT"   , "R", "", "", "", "V"})
+			/* 02 */ AAdd(aHdrRes, {"Dieta"           , "DIETA"      , ""                 , 20, 0, ""                               , "", "C", ""      , "R", "", "", "", "V"})
+			/* 00 */ AAdd(aHdrRes, {"Descricao"       , "DSCDIE"     , ""                 , 40, 0, ""                               , "", "C", ""      , "R", "", "", "", "V"})
+			/* 03 */ AAdd(aHdrRes, {"Total Trato"     , "TOTTRT"     , "@E 999,999,999.99", 14, 2, ""                               , "", "N", ""      , "R", "", "", "", "V"})
+			/* 04 */ AAdd(aHdrRes, {"Veiculo"         , "VEIC"       , ""                 , 06, 0, "U_GRVVEI(&(ReadVar()))"         , "", "C", "ZV0VEI", "R", "", "", "", "A"})
+			/* 05 */ AAdd(aHdrRes, {"Descricao"       , "DSCVEI"     , ""                 , 20, 0, ""                               , "", "C", ""      , "R", "", "", "", "V"})
+			///* 06 */ AAdd(aHdrRes, {"Capacidade"      , "CPVEIC"     , "@E 999,999.999   ", 10, 3, ""                               , "", "N", ""      , "R", "", "", "", "V"})
+			/* 07 */ AAdd(aHdrRes, {"Operador"        , "OPVEIC"     , ""                 , 14, 0, "U_GRVOPR(&(ReadVar()))"         , "", "C", "Z0U"   , "R", "", "", "", "A"})
+			/* 08 */ AAdd(aHdrRes, {"Descricao"       , "DSCOPE"     , ""                 , 20, 0, ""                               , "", "C", ""      , "R", "", "", "", "V"})
+			/* 09 */ AAdd(aHdrRes, {"Quant. Trato"    , "Z05_NROTRA" , "@E 99"            , 02, 2, ""                               , "", "N", ""      , "R", "", "", "", "V"})
+			/* 10 */ AAdd(aHdrRes, {"Qt. Carreg"      , "QTDCAGMTO"  , "@E 99"            , 02, 2, "U_GatTotPorCarreg(&(ReadVar()))", "", "N", ""      , "R", "", "", "", "A"})
+			/* 11 */ AAdd(aHdrRes, {"Total Por Carreg", "TOTCAGMTO"  , "@E 999,999,999.99", 14, 2, ""                               , "", "N", ""      , "R", "", "", "", "V"})
+			/* 12 */ AAdd(aHdrRes, {"Lista Currais"   , "CURRAIS"    , ""                 , 40, 0, ""                               , "", "C", ""      , "R", "", "", "", "V"})
+			//AAdd(aHdrRes, {"Status"        , "STATUS" , ""                 , 20, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
+			//AAdd(aHdrRes, {"Cod.Arquivo"   , "CODARQ" , ""                 , 10, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
 			
 			AAdd(aHdrRTr, {"Trato"      , "TRATO" , ""                 , 10, 0, ""                      , "", "C", ""      , "R", "", "", "", "V"})
 			AAdd(aHdrRTr, {"Total Trato", "TOTTRT" , "@E 999,999,999.99", 14, 2, ""                      , "", "N", ""      , "R", "", "", "", "V"})
@@ -1154,11 +1130,17 @@ Operador
 			
             // Atualizar Z0S
 			cQryRes := " with ROT as ( " + CRLF +;
-					   " 	select Z0T.Z0T_ROTA, Z05.Z05_DIETA, sum(Z05.Z05_KGMNDI*Z05.Z05_CABECA) TOTTRT " + CRLF +;
+					   " 	select Z0T.Z0T_ROTA, Z05.Z05_DIETA, sum(Z05.Z05_KGMNDI*Z05.Z05_CABECA) TOTTRT, Z05_NROTRA " + CRLF +;
+					   "	, ISNULL((SELECT DISTINCT STRING_AGG(B1_XDESC,', ') " + CRLF +;
+					   "				FROM " +RetSqlName("SB1")+ " " + CRLF +;
+					   "			WHERE B1_COD IN (SELECT DISTINCT Z06_DIETA" + CRLF +;
+					   "								FROM " +RetSqlName("Z06")+ " Z06 " + CRLF +;
+					   "								WHERE Z06_FILIAL = Z05_FILIAL AND Z06_DATA = Z05_DATA AND Z06_LOTE= Z05_LOTE AND Z06.D_E_L_E_T_ = ' '" + CRLF +;
+					   "							GROUP BY Z06_FILIAL, Z06_DATA, Z06_LOTE, Z06_DIETA )),'' ) AS DESRC" + CRLF +;
 					   " 	, ISNULL((SELECT STRING_AGG(RTRIM(Z0T_CURRAL), '; ') CURRAL  " + CRLF +;
 					   " 				FROM (SELECT Z0T_CURRAL  " + CRLF +;
 					   " 						FROM " +RetSqlName("Z0T")+ " Z0T1  " + CRLF +;
-					   " 						WHERE Z0T1.Z0T_FILIAL = Z0T_FILIAL  " + CRLF +;
+					   " 						WHERE Z0T1.Z0T_FILIAL = Z05.Z05_FILIAL  " + CRLF +;
 					   " 						AND Z0T1.Z0T_DATA   = Z0T.Z0T_DATA   " + CRLF +;
 					   " 						AND Z0T1.Z0T_ROTA   = Z0T.Z0T_ROTA  " + CRLF +;
 					   " 					 " + CRLF +;
@@ -1177,15 +1159,18 @@ Operador
 					   " 	and Z05.Z05_DATA   = '" + DTOS(aDadSel[2]) + "' " + CRLF +;
 					   " 	and Z05.Z05_VERSAO = '" + aDadSel[3] + "' " + CRLF +;
 					   " 	and Z05.D_E_L_E_T_ = ' ' " + CRLF +;
-					   " 	group by Z0T.Z0T_ROTA, Z05.Z05_DIETA,  Z0T_DATA " + CRLF +;
+					   " 	group by Z0T.Z0T_ROTA, Z05.Z05_DIETA, Z05_NROTRA, Z0T_DATA, Z05_FILIAL, Z05_DATA, Z05_LOTE " + CRLF +;
 					   " 	--ORDER BY 1 " + CRLF +;
 					   " )" + CRLF +;
 					   "" + CRLF +;
 					   ", DADOS AS (" + CRLF +;
 					   " 	select DISTINCT Z0S.Z0S_ROTA AS ROTA " + CRLF +;
 					   "        , ROT.Z05_DIETA AS DIETA "  + CRLF +;
-					   " 		, case Z0S.Z0S_DIETA when '' then ROT.TOTTRT    else Z0S.Z0S_TOTTRT end AS TOTTRT " + CRLF +;
+					   "        , ROT.DESRC AS DESCRI "  + CRLF +;
+					   "        , ROT.Z05_NROTRA Z05_NROTRA "  + CRLF +;
+					   " 		, SUM(ROT.TOTTRT) TOTTRT --, case Z0S.Z0S_DIETA when '' then ROT.TOTTRT    else Z0S.Z0S_TOTTRT end AS TOTTRT " + CRLF +;
 					   " 		, Z0S.Z0S_EQUIP AS EQUIP " + CRLF +;
+					   " 		, Z0S.Z0S_QTCARR AS Z0S_QTCARR " + CRLF +;
 					   " 		, case ROT.Z05_DIETA when '' then '                              '  " + CRLF +;
 					   " 									else Z0S.Z0S_OPERAD end AS OPERAD " + CRLF +;
 					   " 		, case Z0S.Z0S_DIETA when '' then 0 else ZV0.ZV0_CAPACI end AS CAPAC, ROT.CURRAIS " + CRLF +;
@@ -1210,15 +1195,19 @@ Operador
 					   " 						) " + CRLF +;
 					   " 	) " + CRLF +;
 					   " 	and Z0S.D_E_L_E_T_ = ' ' " + CRLF +;
+					   " 	GROUP BY Z0S.Z0S_ROTA, ROT.Z05_DIETA, ROT.DESRC, ROT.Z05_NROTRA, Z05_NROTRA, Z0S.Z0S_EQUIP, Z0S.Z0S_QTCARR, Z0S_DIETA, Z0S_OPERAD, ZV0_CAPACI, ROT.CURRAIS " + CRLF +;
 					   " )" + CRLF +;
 					   "" + CRLF +;
 					   "  SELECT ROTA" + CRLF +;
 					   " 	   , DIETA DIETA" + CRLF +;
-					   " 	   , TOTTRT" + CRLF +;
+					   " 	   , DESCRI DSCDIE" + CRLF +;
+					   " 	   , TOTTRT " + CRLF +;
 					   " 	   , EQUIP" + CRLF +;
 					   " 	   , OPERAD" + CRLF +;
 					   " 	   , CAPAC" + CRLF +;
 					   " 	   , CURRAIS" + CRLF +;
+					   " 	   , Z05_NROTRA " + CRLF +;
+					   " 	   , Z0S_QTCARR " + CRLF +;
 					   "  FROM DADOS"
 
 			MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa09_Resumo.SQL", cQryRes)
@@ -1226,25 +1215,25 @@ Operador
 			TCQUERY cQryRes NEW ALIAS "QRYRES"
 			
 			While (!QRYRES->(EOF()))
-				AAdd(aClsRes, {QRYRES->ROTA,;
-				 			   QRYRES->DIETA,; // POSICIONE("SB1", 1, FWxFilial("SB1") + QRYRES->DIETA, "B1_DESC"),;
-				 			   QRYRES->TOTTRT,; 
-				 			   QRYRES->EQUIP,;
-				 			   POSICIONE("ZV0", 1, FWxFilial("ZV0") + QRYRES->EQUIP, "ZV0_DESC"),;
-				 			   QRYRES->CAPAC,;
-				 			   QRYRES->OPERAD,;
-				 			   POSICIONE("Z0U", 1, FWxFilial("Z0U") + QRYRES->OPERAD, "Z0U_NOME"),;
-				 			   ; //cStts,;
-				 			   ; //QRYRES->CODARQ,;
-				 			   QRYRES->CURRAIS,;
-				 			   .F.})
-			
+				/* 01 */ AAdd(aClsRes, {QRYRES->ROTA,;
+				/* 02 */  			   QRYRES->DIETA,;  
+									   QRYRES->DSCDIE,;
+				/* 03 */  			   QRYRES->TOTTRT,; 
+				/* 04 */  			   QRYRES->EQUIP,;
+				/* 05 */  			   POSICIONE("ZV0", 1, FWxFilial("ZV0") + QRYRES->EQUIP, "ZV0_DESC"),;
+				/* 07 */  			   QRYRES->OPERAD,;
+				/* 08 */  			   POSICIONE("Z0U", 1, FWxFilial("Z0U") + QRYRES->OPERAD, "Z0U_NOME"),;
+				/* 09 */  			   QRYRES->Z05_NROTRA,;
+				/* 10 */ 			   QRYRES->Z0S_QTCARR,;
+				/* 11 */ 			   QRYRES->TOTTRT / QRYRES->Z05_NROTRA / QRYRES->Z0S_QTCARR,;
+				/* 12 */  			   QRYRES->CURRAIS,;
+				/* 13 */  			   .F.})
 				QRYRES->(DBSkip()) 
 			EndDo
 			QRYRES->(DBCloseArea())
-	//				   MsNewGetDados():New( Top, Left                   , Bottom         ,  Right  , [ nStyle], [ cLinhaOk]  , [ cTudoOk]   , [ cIniCpos]  , [ aAlter]         , F, Max, [ cFieldOk]  ,   ,              , [ oWnd]                              , [ aPartHeader], [ aParCols], [ uChange], [ cTela], [ aColsSize] )
-			oGrdRTr := MsNewGetDados():New( 005, (aPObjs[1][4]/2) - 100, 085             , (aPObjs[1][4]/2),          , "AllwaysTrue", "AllwaysTrue",              ,                   , 0, 999, "AllwaysTrue", "", "AllwaysTrue", oTFldr:aDialogs[Len(oTFldr:aDialogs)], aHdrRTr       , aClsRTr)
-			oGrdRes := MsNewGetDados():New( 090, 005                   , (aPObjs[1][3]/2), (aPObjs[1][4]/2), GD_UPDATE, "AllwaysTrue", "AllwaysTrue",              , {"VEIC", "OPVEIC"}, 0, 999, "AllwaysTrue", "", "AllwaysTrue", oTFldr:aDialogs[Len(oTFldr:aDialogs)], aHdrRes       , aClsRes, {|| U_ChgTrR(n)})
+	//				   MsNewGetDados():New( Top, Left                   , Bottom         ,  Right         , [ nStyle] , [ cLinhaOk]  , [ cTudoOk]   , [ cIniCpos]  , [ aAlter]                      , F, Max, [ cFieldOk]  ,   ,              , [ oWnd]                              , [ aPartHeader], [ aParCols], [ uChange], [ cTela], [ aColsSize] )
+			oGrdRTr := MsNewGetDados():New( 005, (aPObjs[1][4]/2) - 100, 085             , (aPObjs[1][4]/2),          , "AllwaysTrue", "AllwaysTrue",              ,                                , 0, 999, "AllwaysTrue", "", "AllwaysTrue", oTFldr:aDialogs[Len(oTFldr:aDialogs)], aHdrRTr       , aClsRTr)
+			oGrdRes := MsNewGetDados():New( 090, 005                   , (aPObjs[1][3]/2), (aPObjs[1][4]/2), GD_UPDATE, "AllwaysTrue", "AllwaysTrue",              , {"VEIC", "OPVEIC", "QTDCAGMTO"}, 0, 999, "AllwaysTrue", "", "AllwaysTrue", oTFldr:aDialogs[Len(oTFldr:aDialogs)], aHdrRes       , aClsRes, {|| U_ChgTrR(n)})
 			oGrdRes:oBrowse:SetBlkBackColor({|| SetClrResumo(oGrdRes) })
 		EndIf
 	EndIf
@@ -1680,15 +1669,30 @@ If (aDadSel[4] != STRZERO(nAbaSel, 2))
 	aDadSel[4] := STRZERO(nAbaSel, 2)
 	lRetCrA := .T.
 	
-	If (nAbaSel = 3)
+	 If (nAbaSel = 3)
+	// If ( oTFldr:aDialogs[oTFldr:nOption]:cCaption == "VISAO GERAL" )
 		nOpcRotas := 2
 	Else
 		nOpcRotas := 3
+		// nOpcRotas := aScan( oTFldr:aDialogs, { |x| AllTrim(x:cCaption) == "VISAO GERAL" })
 		lShwGer := .F.
 	EndIf
 EndIf
 
 Return (lRetCrA)
+
+/* MB : 06.09.2021
+	# Gatilho para Calcular campo virtual;
+		* Qtde por carregamento = Total Trato / Quant Trato / Quant Carregamento */
+User Function GatTotPorCarreg(nQuant)
+	aCols[n, 11] := aCols[n, 04] / nQuant
+	
+	If (Z0S->(DBSeek(xFilial("Z0S")+DTOS(aDadSel[2])+aDadSel[3]+aCols[n][1])))
+		RecLock("Z0S", .F.)
+			Z0S->Z0S_QTCARR := nQuant
+		Z0S->(MSUnlock())
+	EndIf
+Return .T.
 
 /* ==================================================================================================================== */
 User Function GRVVEI(cVeic)
@@ -2343,6 +2347,32 @@ Local cRet := ""
 				
 	If (!cTMP->(EOF()))
 		cRet := AllTrim(cTMP->CURRAL)
+	EndIf
+	cTMP->(DBCloseArea())
+
+Return cRet
+
+/*Arthur Toshio: 14.08.2022 */
+Static Function fLoadTotal(dData)
+Local cRet := ""
+
+	_cQry := "	WITH DIETA AS ( " + CRLF
+	_cQry += "	select Z05_FILIAL" + CRLF
+	_cQry += "	     , Z05_DATA" + CRLF
+	_cQry += "		 , Z05_DIETA" + CRLF
+	_cQry += "		 , CONCAT(RTRIM(Z05_DIETA),' - ' ,SUM((Z05_CABECA * Z05_KGMNDI)),' KG') KGTOTAL" + CRLF
+	_cQry += "		 , SUM((Z05_CABECA * Z05_KGMNDI)) KG_TOTAL" + CRLF
+	_cQry += "	  from " + RetSqlName("Z05") + " Z05" + CRLF
+	_cQry += "	 where Z05_FILIAL = '" + FWxFilial("Z05") + "' " + CRLF
+	_cQry += "	   and Z05_DATA = '" + DtoS(dData) + "' " + CRLF
+	_cQry += "	   and Z05.D_E_L_E_T_ = ' ' " + CRLF
+	_cQry += "group by Z05_FILIAL, Z05_DATA, Z05_DIETA" + CRLF
+	_cQry += ") " + CRLF
+	_cQry += "SELECT STRING_AGG(KGTOTAL,';    ') KGTOTAL FROM DIETA" + CRLF
+	TCQUERY _cQry NEW ALIAS "cTMP"
+				
+	If (!cTMP->(EOF()))
+		cRet := AllTrim(cTMP->KGTOTAL)
 	EndIf
 	cTMP->(DBCloseArea())
 
