@@ -8,14 +8,13 @@ User Function MT131FOR()
 
 
     //if MsgYesNo("O Produto: "+SB1->B1_COD+" - "+AllTrim(SB1->B1_DESC)+" | Possui indicação de fornecedor. Deseja adciona-lo à cotação?")
-        if SA2->(DbSeek(FWxFilial("SA2")+SB1->B1_XFORNEC+SB1->B1_XLOJA))
-            
+        //if SA2->(DbSeek(FWxFilial("SA2")+SB1->B1_XFORNEC+SB1->B1_XLOJA))
             aDel(aFornec,Len(aFornec))
             aSize(aFornec,Len(aFornec)-1)
             
             aAdd(aFornec, {SB1->B1_XFORNEC,SB1->B1_XLOJA,"SUGESTAO","SA2",SA2->(Recno())})
             
-        endif
+        //endif
     //endif
 
     SA2->(DbGoTo(nRecno))
