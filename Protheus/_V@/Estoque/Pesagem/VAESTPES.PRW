@@ -1466,3 +1466,35 @@ User Function GNotFis()
 	ENDIF 
 
 Return cRet 
+
+/* 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+Teste 
+ */
