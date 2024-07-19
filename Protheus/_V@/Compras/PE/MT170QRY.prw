@@ -19,60 +19,65 @@ User Function MT170QRY()
 
 Return  (cNewQry)
 
-User Function MT170FIM()
-   
-   Local aSolic     := PARAMIXB[1]
-   
-   Local aArea      := FWGetArea()
-   Local aDados     := {}
-   Local aRet       := {}
-   Local nI, nX    
-   Local lAdd       := .T.
-   Local cSolic     := iif(len(aSolic)>0,aSolic[1,2],'')
-
-   For nI := 1 to Len(aSolic)
-       
-       if SB1->(DBSeek(FWxFilial("SB1")+aSolic[nI,1]))
-           cGrupo  := SB1->B1_GRUPO
-           cProd   := SB1->B1_COD
-           
-           if Len(aDados) == 0
-               aAdd(aDados,{cGrupo,cSolic,{cProd}})
-
-               cSolic := StrZero((Val(cSolic)+1),TamSx3("C1_NUM")[1])
-
-           else
-               lAdd := .T. 
-
-               For nX := 1 to Len(aDados)
-                   if aDados[nX,1] == cGrupo
-                       aAdd(aDados[nX,3],cProd)
-                       lAdd := .F.
-                       exit
-                   endif
-               next nX
-
-               if lAdd
-                   aAdd(aDados,{cGrupo,cSolic,{cProd}})
-
-                   cSolic := StrZero((Val(cSolic)+1),TamSx3("C1_NUM")[1])
-               endif
-               
-           endif
-
-       else
-           MsgStop("Produto "+AllTrim(aSolic[nI,1])+" não encontrado!")
-       endif 
-   Next nI
-
-   For nI := 1 to Len(aDados)
-       cSolic := aDados[nI,2]
-
-       For nX := 1 to Len(aDados[nI,3])
-           cProd := aDados[nI,3,nX]
-           aAdd(aRet,{cProd,cSolic,StrZero(nX,TamSx3("C1_ITEM")[1])})
-       next nX
-   Next nI
-
-   FwRestArea(aArea)
-Return aRet
+//User Function MT170FIM()
+//   
+//   aSolic    := PARAMIXB[1]
+//   
+//   Local aArea         := FWGetArea()
+//   Local aDados        := {}
+//   Local aRet          := {}
+//   Local nI, nX    
+//   Local lAdd          := .T.
+//   Local cSolic        := aSolic[1,2]
+//   Local aResultado    := {}
+//
+//   For nI := 1 to Len(aSolic)
+//       
+//       if SB1->(DBSeek(FWxFilial("SB1")+aSolic[nI,1]))
+//           cGrupo  := SB1->B1_GRUPO
+//           cProd   := SB1->B1_COD
+//           
+//           if Len(aDados) == 0
+//               aAdd(aDados,{cGrupo,cSolic,{cProd}})
+//
+//               cSolic := StrZero((Val(cSolic)+1),TamSx3("C1_NUM")[1])
+//
+//           else
+//               lAdd := .T. 
+//
+//               For nX := 1 to Len(aDados)
+//                   if aDados[nX,1] == cGrupo
+//                       aAdd(aDados[nX,3],cProd)
+//                       lAdd := .F.
+//                       exit
+//                   endif
+//               next nX
+//
+//               if lAdd
+//                   aAdd(aDados,{cGrupo,cSolic,{cProd}})
+//
+//                   cSolic := StrZero((Val(cSolic)+1),TamSx3("C1_NUM")[1])
+//               endif
+//               
+//           endif
+//
+//       else
+//           MsgStop("Produto "+AllTrim(aSolic[nI,1])+" não encontrado!")
+//       endif 
+//   Next nI
+//
+//   For nI := 1 to Len(aDados)
+//       cSolic := aDados[nI,2]
+//
+//      // aResultado := ComGeraDoc(aDados[nI,3],.T.,.F.,.F.,.F.,SomaPrazo(dDataBase, 30),"MATA170",/*08*/,1)
+//       For nX := 1 to Len(aDados[nI,3])
+//           cProd := aDados[nI,3,nX]
+//           aAdd(aRet,{cProd,cSolic,StrZero(nX,TamSx3("C1_ITEM")[1])})
+//       next nX
+//   Next nI
+//   
+//  // aSolic := {}
+//  // aSolic := aClone(aRet)
+//
+//   FwRestArea(aArea)
+//Return aRet 
