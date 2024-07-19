@@ -38,6 +38,7 @@ User Function VAESTI03()
 	Private cPath       := "C:\TOTVS_RELATORIOS\"
 	Private __cRet
 	Private _Copia 		:= .F.
+	Private lMsErroAuto := .F.
 
 	SetFunName("VAESTI03")
 	
@@ -860,12 +861,8 @@ Static Function Morte()
 	Local _atotitem		:= {}
 	Local aMsg			:= {}
 	Local cMsg			:= ""
-	Local cDoc			:= ''
 	
 	lMsErroAuto := .F.
-	
-	DbSelectArea("SD3")
-	SD3->(DbSetOrder(1))
 
 	DbSelectArea("ZSM")
 	ZSM->(DbSetOrder(1))
@@ -892,26 +889,25 @@ Static Function Morte()
 				dData := dDataBase
 			ENDIF
 
+			ZSM->(DBSeek(FwXFilial("ZMS")+oCab:GetValue("ZMS_MOTIVO")))
+			cMtObs := AllTrim(ZSM->ZSM_DESC)
 
+			_aCab1 := { {"D3_FILIAL"	, fwXFilial("ZMS")					, NIL},;
+						{"D3_DOC" 		, NextNumero("SD3",2,"D3_DOC",.T.)	, NIL},;
+						{"D3_TM" 		, cTM	 							, NIL},;
+						{"D3_CC" 		, ""								, NIL},;
+						{"D3_EMISSAO" 	, dData								, NIL}}
+			
+			_atotitem := {}
+			
 			For nI := 1 to oGridM:GetQtdLine()
-				
-				cDoc := NextNumero("SD3",2,"D3_DOC",.T.)
-				
 				oGridM:GoLine(nI)
 				if !oGridM:isDeleted()
 					if Empty(oGridM:GetValue("ZMS_D3DOC"))
 
-							ZSM->(DBSeek(FwXFilial("ZMS")+oCab:GetValue("ZMS_MOTIVO")))
-								cMtObs := AllTrim(ZSM->ZSM_DESC)
-
 							SB8->(DBSeek(FwXFilial("ZMS")+oGridM:GetValue("ZMS_LOTE")+oGridM:GetValue("ZMS_CURRAL")))
-								cLocal := AllTrim(oGridM:GetValue("ZMS_CURRAL"))
-
-							_aCab1 := { {"D3_FILIAL"	, fwXFilial("ZMS"), NIL},;
-										{"D3_DOC" 		, cDoc			, NIL},;
-										{"D3_TM" 		, cTM	 		, NIL},;
-										{"D3_CC" 		, ""			, NIL},;
-										{"D3_EMISSAO" 	, dData			, NIL}}
+							
+							cLocal := AllTrim(oGridM:GetValue("ZMS_CURRAL"))
 
 							_aItem := { {"D3_COD" 		, oGridM:GetValue("ZMS_PRDBOV")							,NIL},;
 										{"D3_UM" 		, "UN" 													,NIL},; 
@@ -926,34 +922,35 @@ Static Function Morte()
 							
 							aAdd(_atotitem,_aItem)
 
-							if len(_atotitem) >= 1
-								MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,3)
-								If lMsErroAuto 
-									Mostraerro()
-									lRet := .F.
-									DisarmTransaction()
-								else
-
-									SD3->(DbSetOrder(2))
-
-									IF (SD3->(DBSeek(FWxFilial("ZMS") + cDoc)))
-
-										oGridM:SetValue("ZMS_D3DOC", cDoc)
-										oGridM:SetValue("ZMS_D3REC", SD3->(Recno()))
-									
-										aAdd(aMsg,{"Nº do Doc: [ "+cDoc+" ]",;
-												"Linha [ " + StrZero(nI,TamSX3("ZMS_ITEM")[1]) + " ] " +CRLF})
-									
-										SD3->(DBSkip())
-									ENDIF
-								ENDIF	
-							ENDIF
 					else
 						MsgAlert("Movimentação já realizada anteriormente!!!" + CRLF +;
-							"Nº do Doc: [ "+cDoc+" ]", "Atenção!!!")
+							"Nº do Doc: [ "+oGridM:GetValue("ZMS_D3DOC")+" ]", "Atenção!!!")
 					EndIf
 				EndIf
-			NEXT
+			NEXT nI 
+
+			if len(_atotitem) >= 1
+				MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,3)
+				If lMsErroAuto
+					Mostraerro()
+					lRet := .F.
+					DisarmTransaction()
+				else
+					For nI := 1 to oGridM:GetQtdLine()
+						oGridM:GoLine(nI)
+						if !oGridM:isDeleted()
+							if Empty(oGridM:GetValue("ZMS_D3DOC"))
+								oGridM:SetValue("ZMS_D3DOC", SD3->D3_DOC)
+								oGridM:SetValue("ZMS_D3REC", SD3->(Recno()))
+							
+								aAdd(aMsg,{"Nº do Doc: [ "+SD3->D3_DOC+" ]",;
+										"Linha [ " + StrZero(nI,TamSX3("ZMS_ITEM")[1]) + " ] " +CRLF})
+							endif
+						endif
+					NEXT nI 
+				
+				ENDIF	
+			ENDIF
 			
 		else 
 			lRet := .F.
@@ -966,17 +963,16 @@ Static Function Morte()
             		'ZMS_TIPO' , "Atenção")
 	ENDIF
 
-		if len(aMsg) >= 1
-			for nI := 1 to len(aMsg)
-				cMsg += aMsg[nI][1] + " | " +aMsg[nI][2]
-				cMsg += CRLF
-			next
-			MsgAlert("Movimentação realizada!!!" + CRLF +;
-					cMsg, "Atenção!!")
-		endif
+	if len(aMsg) >= 1
+		for nI := 1 to len(aMsg)
+			cMsg += aMsg[nI][1] + " | " +aMsg[nI][2]
+			cMsg += CRLF
+		next
+		MsgAlert("Movimentação realizada!!!" + CRLF +;
+				cMsg, "Atenção!!")
+	endif
 	
 	ZSM->(DBCloseArea())
-	//SD3->(DBCloseArea())
 	
 	oView:Refresh()
 
@@ -999,12 +995,7 @@ Static Function Estorno()
 	Local _atotitem		:= {}
 	local nI
 
-	Private l241Auto := .t.
-	
 	lMsErroAuto := .F.
-
-	DbSelectArea("SD3")
-	SD3->(DbSetOrder(2))
 	
 	if oCab:GetValue("ZMS_D3EST") != 'S'
 		if MsgYesNo("Não será possivel alterar/incluir registros nesse cadastro após movimentação, Confirma?", "Atenção!")
@@ -1013,43 +1004,37 @@ Static Function Estorno()
 					oGridM:GoLIne(nI)
 					if !oGridM:isDeleted()
 						if !Empty(oGridM:GetValue("ZMS_D3REC"))
-							//IF 
-								SD3->(DBGoTo(oGridM:GetValue("ZMS_D3REC")))
-								
-								aCab := { {"D3_DOC" , oGridM:GetValue("ZMS_D3DOC"),Nil}}
+							aCab := { {"D3_DOC" , oGridM:GetValue("ZMS_D3DOC"),Nil}}
 
-								aItem := {	{"D3_COD"		,oGridM:GetValue("ZMS_PRDBOV")								,	NIL},;
-										  	{"D3_UM"		,"UN"														,	NIL},;
-										  	{"D3_QUANT"		,oGridM:GetValue("ZMS_QTDE")								,	NIL},;
-										  	{"D3_LOCAL"		,"01"														,	NIL},;
-										  	{"D3_X_CURRA" 	, oGridM:GetValue("ZMS_LOCAL")								,	NIL},;
-											{"D3_CUSTO1" 	, 0.01														,	NIL},;
-											{"D3_LOTECTL" 	, oGridM:GetValue("ZMS_LOTE")								,	NIL},;
-											{"D3_X_OBS"    	, SD3->D3_X_OBS												,	NIL},;	
-											{"D3_OBSERVA"	, AllTrim(oCab:GetValue("ZMS_OBS"))				    		,	NIL},;
-											{"D3_OBS"		, SD3->D3_X_OBS + "-" + AllTrim(oCab:GetValue("ZMS_OBS"))   ,	NIL},;
-										  	{"D3_ESTORNO"	,"S"														,	NIL}}
+							aItem := {	{"D3_COD"		,oGridM:GetValue("ZMS_PRDBOV")								,	NIL},;
+										{"D3_UM"		,"UN"														,	NIL},;
+										{"D3_QUANT"		,oGridM:GetValue("ZMS_QTDE")								,	NIL},;
+										{"D3_LOCAL"		,"01"														,	NIL},;
+										{"D3_X_CURRA" 	, oGridM:GetValue("ZMS_LOCAL")								,	NIL},;
+										{"D3_CUSTO1" 	, 0.01														,	NIL},;
+										{"D3_LOTECTL" 	, oGridM:GetValue("ZMS_LOTE")								,	NIL},;
+										{"D3_OBSERVA"	, AllTrim(oCab:GetValue("ZMS_OBS"))				    		,	NIL},;
+										{"D3_ESTORNO"	,"S"														,	NIL}}
 
-								aAdd(_atotitem,_aItem)
+							aAdd(_atotitem,_aItem)
 
-								if len(_atotitem) >= 1
+							if len(_atotitem) >= 1
 
-									MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,6)
-								
-									If lMsErroAuto 
-										conout("Erro")
-										Mostraerro()
-										lRet := .F.
-										DisarmTransaction()
-									else
-										conout("Ok")
-										oCab:LoadValue("ZMS_D3EST", 'S')
-										oGridM:LoadValue("ZMS_D3REC", 0)
-										lRet := .T.
-										lEst := .T. 
-									ENDIF	
-								ENDIF
-							//ENDIF 
+								MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,6)
+							
+								If lMsErroAuto 
+									conout("Erro")
+									Mostraerro()
+									lRet := .F.
+									DisarmTransaction()
+								else
+									conout("Ok")
+									oCab:LoadValue("ZMS_D3EST", 'S')
+									oGridM:LoadValue("ZMS_D3REC", 0)
+									lRet := .T.
+									lEst := .T. 
+								ENDIF	
+							ENDIF
 						endif 
 					endif 
 				next
@@ -1068,8 +1053,6 @@ Static Function Estorno()
 		MsgAlert("Cadastro já foi estornado!", "Atenção!")
 	endif 
 
-	//SD3->(DBCloseArea())
-	
 Return lRet
 
 Static Function Nascimento()
@@ -1088,11 +1071,11 @@ Static Function Nascimento()
 	Local _aCab1	 	:= {}
 	Local _aItem 		:= {}
 	Local _atotitem		:= {}
-	Local cDoc			:= ''
 	Local cMsg			:= ""
 	Local aMsg			:= {}
 	Local nRecno
-	
+	Local cAlias		:= ''
+
 	lMsErroAuto := .F.
 
 	for nI := 1 to oGridM:GetQtdLine()
@@ -1101,13 +1084,20 @@ Static Function Nascimento()
 			if oGridM:GetValue("ZMS_QTDE") == 0
 				MsgAlert('Linha' + Str(nI) + ' com quantidade zerada' + CRLF+;
 						'Verifique a Quantidade ou Apague a linha', "Atenção!!!")
-						//oModel:SetErrorMessage("","","","","HELP", , )
 				Return .F.
 			endif 
 		endif
 	next
 
 	if oCab:GetValue("ZMS_TIPO") == 'N'
+		
+		/* IF select("SD3") == 0
+			DbSelectArea("SD3")
+		endif  */
+
+		DbSelectArea("SB8")
+		SB8->(DbSetOrder(7))
+
 		if !EMPTY(oCab:GetValue("ZMS_RESPON"))
 			
 			if !Empty(oCab:GetValue("ZMS_DATA"))
@@ -1117,106 +1107,105 @@ Static Function Nascimento()
 				dData := dDataBase
 			ENDIF
 
+			cMtObs := "Nascimento"
+			
+			_aCab1 := { {"D3_FILIAL"	, fwXFilial("ZMS")					, NIL},;
+						{"D3_DOC" 		, GetSxENum("SD3","D3_DOC")			, NIL},;
+						{"D3_TM" 		, cTM	 							, NIL},;
+						{"D3_CC" 		, ""								, NIL},;
+						{"D3_EMISSAO" 	, dData								, NIL}}
+			
+			_atotitem := {}
+			
 			For nI := 1 to oGridM:GetQtdLine()
-				
 				oGridM:GoLine(nI)
 				if !oGridM:isDeleted()
-						if Empty(oGridM:GetValue("ZMS_D3DOC"))  
-							cMtObs := "Nascimento"
-							
-							DbSelectArea("SD3")
-							SD3->(DbSetOrder(1))
-							
-							DbSelectArea("SB8")
-							SB8->(DbSetOrder(7))
-							SB8->(DBSeek(FwXFilial("ZMS")+oGridM:GetValue("ZMS_LOTE")+oGridM:GetValue("ZMS_CURRAL")))
+					if Empty(oGridM:GetValue("ZMS_D3DOC"))  
+						
+						SB8->(DBSeek(FwXFilial("ZMS")+oGridM:GetValue("ZMS_LOTE")+oGridM:GetValue("ZMS_CURRAL")))
 
-							cLocal := AllTrim(oGridM:GetValue("ZMS_CURRAL"))
+						cLocal := AllTrim(oGridM:GetValue("ZMS_CURRAL"))
 
-							_atotitem := {}
-							cDoc := NextNumero("SD3",2,"D3_DOC",.T.)
-							
-							_aCab1 := { {"D3_FILIAL"	, fwXFilial("ZMS"), NIL},;
-										{"D3_DOC" 		, cDoc			, NIL},;
-										{"D3_TM" 		, cTM	 		, NIL},;
-										{"D3_CC" 		, ""			, NIL},;
-										{"D3_EMISSAO" 	, dData			, NIL}}
-
-							_aItem := { {"D3_COD" 		, oGridM:GetValue("ZMS_PRDBOV")							,NIL},;
-										{"D3_UM" 		, "UN" 													,NIL},; 
-										{"D3_X_QTD" 	, 1 													,NIL},;
-										{"D3_QUANT" 	, oGridM:GetValue("ZMS_QTDE")	 						,NIL},;
-										{"D3_X_CURRA" 	, cLocal												,NIL},;
-										{"D3_CUSTO1" 	, 0.01													,NIL},;
-										{"D3_LOTECTL" 	, oGridM:GetValue("ZMS_LOTE")							,NIL},;
-										{"D3_X_OBS"    	, cMtObs /* + "" + AllTrim(oCab:GetValue("ZMS_OBS")) */	,NIL},;
-										{"D3_OBSERVA"	, AllTrim(oCab:GetValue("ZMS_OBS"))				    	,NIL},;
-										{"D3_OBS"		, cMtObs + "-" + AllTrim(oCab:GetValue("ZMS_OBS"))     	,NIL}}
-							
-							aAdd(_atotitem,_aItem)
-									
-							if len(_atotitem) >= 1
-
-								MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,3)
-							
-								If lMsErroAuto
-									Mostraerro()
-									lRet := .F.
-									DisarmTransaction()
-								else
-
-									SD3->(DbSetOrder(2))
-										IF (SD3->(DBSeek(FWxFilial("ZMS") + cDoc)))
-											oGridM:SetValue("ZMS_D3DOC", cDoc)
-											oGridM:SetValue("ZMS_D3REC", SD3->(Recno()))
-											
-											aAdd(aMsg,{"Nº do Doc: [ "+cDoc+" ]",;
-													"Linha [ " + StrZero(nI,TamSX3("ZMS_ITEM")[1]) + " ] " +CRLF})
-												SD3->(DBSkip())
-										ENDIF
-									
-										_cQry := " select * " + CRLF 
-										_cQry += " from "+RetSqlName("SB8")+"" + CRLF 
-										_cQry += " WHERE B8_FILIAL = '"+fwXFilial("SB8")+"'" + CRLF 
-										_cQry += " AND B8_LOTECTL = '"+oGridM:GetValue("ZMS_LOTE")+"'" + CRLF 
-										_cQry += " AND B8_PRODUTO = '"+oGridM:GetValue("ZMS_PRDBOV")+"'" + CRLF 
-										_cQry += " AND D_E_L_E_T_ = '' " + CRLF 
-
-										DbUseArea(.t., "TOPCONN", TCGenQry(,,ChangeQuery(_cQry)), "__TB8", .t., .f.)
-
-										If !__TB8->(Eof())
-											
-											nRecno := __TB8->R_E_C_N_O_
-
-											if Empty(__TB8->B8_XDATACO) .or. Empty(__TB8->B8_X_CURRA) .or. Empty(__TB8->B8_XPESOCO)
-
-												cUpd := " UPDATE " + retSQLName("SB8") + " " + CRLF 
-												cUpd += " 		SET B8_X_CURRA = '" + oGridM:GetValue("ZMS_CURRAL") + "' " + CRLF 
-												cUpd += " 		, B8_XDATACO = '"+dToS(dData)+"' " + CRLF 
-												cUpd += " 		, B8_XPESOCO = "+cValToChar(nPeso)+" " + CRLF // CRIAR PARAMETRO EM PRODUCAO PARA ALTERAR PESO INICIAL  
-												cUpd += " 		WHERE R_E_C_N_O_ = "+cValToChar(nRecno)+" " 
-												
-												if Lower(cUserName) $ "ioliveira,bernardo,atoshio,admin"
-													MemoWrite("C:\totvs_relatorios\SQL_UPDSB8__VAESTI03.sql" , cUpd)
-												endif 
-												
-												If (TCSqlExec(cUpd) < 0)
-													conout("TCSQLError() " + TCSQLError())
-												else
-													ConOut("Update SB8 realizado!")
-												EndIf
-
-											endif 
-										ENDIF
-										__TB8->(DbCloseArea())
-									ENDIF
-								ENDIF
-						else
-							MsgAlert("Movimentação já realizada anteriormente!!!" + CRLF +;
-								"Nº do Doc: [ "+cDoc+" ]", "Atenção!!!")
-						EndIf
+						_aItem := { {"D3_COD" 		, oGridM:GetValue("ZMS_PRDBOV")							,NIL},;
+									{"D3_UM" 		, "UN" 													,NIL},; 
+									{"D3_X_QTD" 	, 1 													,NIL},;
+									{"D3_QUANT" 	, oGridM:GetValue("ZMS_QTDE")	 						,NIL},;
+									{"D3_X_CURRA" 	, cLocal												,NIL},;
+									{"D3_CUSTO1" 	, 0.01													,NIL},;
+									{"D3_LOTECTL" 	, oGridM:GetValue("ZMS_LOTE")							,NIL},;
+									{"D3_X_OBS"    	, cMtObs /* + "" + AllTrim(oCab:GetValue("ZMS_OBS")) */	,NIL},;
+									{"D3_OBSERVA"	, AllTrim(oCab:GetValue("ZMS_OBS"))				    	,NIL},;
+									{"D3_OBS"		, cMtObs + "-" + AllTrim(oCab:GetValue("ZMS_OBS"))     	,NIL}}
+						
+						aAdd(_atotitem,_aItem)
+					else
+						MsgAlert("Movimentação já realizada anteriormente!!!" + CRLF +;
+							"Nº do Doc: [ "+oGridM:GetValue("ZMS_D3DOC")+" ]", "Atenção!!!")
+					EndIf
 				EndIf
-			NEXT
+			NEXT nI
+
+			if len(_atotitem) >= 1
+
+				MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,3)
+			
+				If lMsErroAuto
+					Mostraerro()
+					lRet := .F.
+					RollBackSX8()
+					DisarmTransaction()
+				else
+					ConfirmSX8()
+					
+					For nI := 1 to oGridM:GetQtdLine()
+						oGridM:GoLine(nI)
+						if !oGridM:isDeleted()
+							if Empty(oGridM:GetValue("ZMS_D3DOC"))  
+								oGridM:SetValue("ZMS_D3DOC", SD3->D3_DOC)
+								oGridM:SetValue("ZMS_D3REC", SD3->(Recno()))
+
+								aAdd(aMsg,{"Nº do Doc: [ "+SD3->D3_DOC+" ]",;
+										"Linha [ " + StrZero(nI,TamSX3("ZMS_ITEM")[1]) + " ] " +CRLF})
+
+								cAlias := GetNextAlias()
+							
+								_cQry := " select * " + CRLF 
+								_cQry += " from "+RetSqlName("SB8")+"" + CRLF 
+								_cQry += " WHERE B8_FILIAL = '"+fwXFilial("SB8")+"'" + CRLF 
+								_cQry += " AND B8_LOTECTL = '"+oGridM:GetValue("ZMS_LOTE")+"'" + CRLF 
+								_cQry += " AND B8_PRODUTO = '"+oGridM:GetValue("ZMS_PRDBOV")+"'" + CRLF 
+								_cQry += " AND D_E_L_E_T_ = '' " + CRLF 
+
+								DbUseArea(.t., "TOPCONN", TCGenQry(,,ChangeQuery(_cQry)), cAlias, .t., .f.)
+
+								If !(cAlias)->(Eof())
+									
+									nRecno := (cAlias)->R_E_C_N_O_
+
+									if Empty((cAlias)->B8_XDATACO) .or. Empty((cAlias)->B8_X_CURRA) .or. Empty((cAlias)->B8_XPESOCO)
+										cUpd := " UPDATE " + retSQLName("SB8") + " " + CRLF
+										cUpd += " 		SET B8_X_CURRA = '" + oGridM:GetValue("ZMS_CURRAL") + "' " + CRLF 
+										cUpd += " 		, B8_XDATACO = '"+dToS(dData)+"' " + CRLF 
+										cUpd += " 		, B8_XPESOCO = "+cValToChar(nPeso)+" " + CRLF
+										cUpd += " 		WHERE R_E_C_N_O_ = "+cValToChar(nRecno)+" " 
+										
+										if Lower(cUserName) $ "ioliveira,bernardo,atoshio,admin"
+											MemoWrite("C:\totvs_relatorios\SQL_UPDSB8__VAESTI03.sql" , cUpd)
+										endif 
+										
+										If (TCSqlExec(cUpd) < 0)
+											conout("TCSQLError() " + TCSQLError())
+										else
+											ConOut("Update SB8 realizado!")
+										EndIf
+									endif 
+								ENDIF
+								(cAlias)->(DbCloseArea())
+							endIf
+						endIf
+					Next nI 
+				ENDIF
+			ENDIF
 		else 
 			lRet := .F.
 			MsgAlert("Campo [ Responsável ] vazio!!", "Atenção")//( ,, 'Help',, '.', 'ZMS_RESPON' , 1, 0 )
@@ -1249,7 +1238,6 @@ Return lRet
 /* Igor Oliveira 03/06/2022
 	Iniciador Padrao e Browse */
 user function RelMeV3()
-//user function INIMEDV3()
 	Local aArea     := GetArea()
 	Local oModel  	 	:= FWModelActive()
 	Local nOpc			:= oModel:GetOperation()
@@ -1264,7 +1252,6 @@ user function RelMeV3()
 return cRet
 	
 User Function INIMEDV3()
-//User Function RelMeV3()
 return Iif(Empty(ZMS->ZMS_MEDIC),"", Posicione("SB1", 1, fwXFilial('SB1')+ZMS->ZMS_MEDIC, 'B1_DESC'))
 
 /* Validação Campo ZMS_MEDIC  */
@@ -1290,7 +1277,6 @@ User Function VLDTPV3()
 
 	if !oGridM:IsEmpty()
 		if !(AllTrim(oGridM:GetValue("ZMS_LOTE")) == "" .and. oGridM:GetQtdLine() == 1)
-			//oModel:SetErrorMessage("","","","","HELP", 'Tipo só pode ser alterado com a lista vazia', "Apague as linhas ou inicie um novo processo")
 			if MsgYesNo("Tipo só pode ser alterado com a lista vazia" + CRLF +;
 					 "Deseja apagar todas as linhas da grid?", "Atenção!!!")
 				oGridM:ClearData()
@@ -1360,3 +1346,172 @@ If dbSeek( “A1_COD” )
 	cTitulo := X3Titulo()
 EndIf
 Return */
+
+
+Static Function Nasco1()
+	Local aArea 	 	:= GetArea() 
+	Local oModel  	 	:= FWModelActive()
+	Local oView			:= FWViewActive()
+	Local oCab 			:= oModel:GetModel("ZMSMASTER")
+	Local oGridM 		:= oModel:GetModel("ZMSDETAIL")
+	local nI
+	Local cTM 			:= GetMV("MV_TMNASC")
+	Local nPeso			:= GetMV("MV_PESNASC") // peso nascimento 
+	Local lRet 			:= .T.
+	Local dData			
+	Local cLocal		:= ''	
+	Local _cQry,cUpd	:= ''	
+	Local _aCab1	 	:= {}
+	Local _aItem 		:= {}
+	Local _atotitem		:= {}
+	Local cMsg			:= ""
+	Local aMsg			:= {}
+	Local nRecno
+	Local cAlias		:= ''
+
+	lMsErroAuto := .F.
+
+	for nI := 1 to oGridM:GetQtdLine()
+		oGridM:GoLIne(nI)
+		if !oGridM:isDeleted()
+			if oGridM:GetValue("ZMS_QTDE") == 0
+				MsgAlert('Linha' + Str(nI) + ' com quantidade zerada' + CRLF+;
+						'Verifique a Quantidade ou Apague a linha', "Atenção!!!")
+				Return .F.
+			endif 
+		endif
+	next
+
+	if oCab:GetValue("ZMS_TIPO") == 'N'
+
+		DbSelectArea("SB8")
+		SB8->(DbSetOrder(7))
+
+		if !EMPTY(oCab:GetValue("ZMS_RESPON"))
+			
+			if !Empty(oCab:GetValue("ZMS_DATA"))
+				dData := oCab:GetValue("ZMS_DATA")
+			else 
+				oCab:SetValue("ZMS_DATA", dDataBase)
+				dData := dDataBase
+			ENDIF
+
+			For nI := 1 to oGridM:GetQtdLine()
+				oGridM:GoLine(nI)
+				if !oGridM:isDeleted()
+						if Empty(oGridM:GetValue("ZMS_D3DOC"))  
+							cMtObs := "Nascimento"
+							
+							SB8->(DBSeek(FwXFilial("ZMS")+oGridM:GetValue("ZMS_LOTE")+oGridM:GetValue("ZMS_CURRAL")))
+
+							cLocal := AllTrim(oGridM:GetValue("ZMS_CURRAL"))
+
+							_atotitem := {}
+							
+							_aCab1 := { {"D3_FILIAL"	, fwXFilial("ZMS")					, NIL},;
+										{"D3_DOC" 		, GetSxENum("SD3","D3_DOC")			, NIL},;
+										{"D3_TM" 		, cTM	 							, NIL},;
+										{"D3_CC" 		, ""								, NIL},;
+										{"D3_EMISSAO" 	, dData								, NIL}}
+
+							_aItem := { {"D3_COD" 		, oGridM:GetValue("ZMS_PRDBOV")							,NIL},;
+										{"D3_UM" 		, "UN" 													,NIL},; 
+										{"D3_X_QTD" 	, 1 													,NIL},;
+										{"D3_QUANT" 	, oGridM:GetValue("ZMS_QTDE")	 						,NIL},;
+										{"D3_X_CURRA" 	, cLocal												,NIL},;
+										{"D3_CUSTO1" 	, 0.01													,NIL},;
+										{"D3_LOTECTL" 	, oGridM:GetValue("ZMS_LOTE")							,NIL},;
+										{"D3_X_OBS"    	, cMtObs /* + "" + AllTrim(oCab:GetValue("ZMS_OBS")) */	,NIL},;
+										{"D3_OBSERVA"	, AllTrim(oCab:GetValue("ZMS_OBS"))				    	,NIL},;
+										{"D3_OBS"		, cMtObs + "-" + AllTrim(oCab:GetValue("ZMS_OBS"))     	,NIL}}
+							
+							aAdd(_atotitem,_aItem)
+									
+							if len(_atotitem) >= 1
+
+								MSExecAuto({|x,y,z| MATA241(x,y,z)},_aCab1,_atotitem,3)
+							
+								If lMsErroAuto
+									Mostraerro()
+									lRet := .F.
+									RollBackSX8()
+									DisarmTransaction()
+								else
+									ConfirmSX8()
+									
+									oGridM:SetValue("ZMS_D3DOC", SD3->D3_DOC)
+									oGridM:SetValue("ZMS_D3REC", SD3->(Recno()))
+									
+									aAdd(aMsg,{"Nº do Doc: [ "+SD3->D3_DOC+" ]",;
+											"Linha [ " + StrZero(nI,TamSX3("ZMS_ITEM")[1]) + " ] " +CRLF})
+
+									cAlias := GetNextAlias()
+								
+									_cQry := " select * " + CRLF 
+									_cQry += " from "+RetSqlName("SB8")+"" + CRLF 
+									_cQry += " WHERE B8_FILIAL = '"+fwXFilial("SB8")+"'" + CRLF 
+									_cQry += " AND B8_LOTECTL = '"+oGridM:GetValue("ZMS_LOTE")+"'" + CRLF 
+									_cQry += " AND B8_PRODUTO = '"+oGridM:GetValue("ZMS_PRDBOV")+"'" + CRLF 
+									_cQry += " AND D_E_L_E_T_ = '' " + CRLF 
+
+									DbUseArea(.t., "TOPCONN", TCGenQry(,,ChangeQuery(_cQry)), cAlias, .t., .f.)
+
+									If !(cAlias)->(Eof())
+										
+										nRecno := (cAlias)->R_E_C_N_O_
+
+										if Empty((cAlias)->B8_XDATACO) .or. Empty((cAlias)->B8_X_CURRA) .or. Empty((cAlias)->B8_XPESOCO)
+											cUpd := " UPDATE " + retSQLName("SB8") + " " + CRLF
+											cUpd += " 		SET B8_X_CURRA = '" + oGridM:GetValue("ZMS_CURRAL") + "' " + CRLF 
+											cUpd += " 		, B8_XDATACO = '"+dToS(dData)+"' " + CRLF 
+											cUpd += " 		, B8_XPESOCO = "+cValToChar(nPeso)+" " + CRLF
+											cUpd += " 		WHERE R_E_C_N_O_ = "+cValToChar(nRecno)+" " 
+											
+											if Lower(cUserName) $ "ioliveira,bernardo,atoshio,admin"
+												MemoWrite("C:\totvs_relatorios\SQL_UPDSB8__VAESTI03.sql" , cUpd)
+											endif 
+											
+											If (TCSqlExec(cUpd) < 0)
+												conout("TCSQLError() " + TCSQLError())
+											else
+												ConOut("Update SB8 realizado!")
+											EndIf
+										endif 
+									ENDIF
+									(cAlias)->(DbCloseArea())
+								ENDIF
+							ENDIF
+						else
+							MsgAlert("Movimentação já realizada anteriormente!!!" + CRLF +;
+								"Nº do Doc: [ "+oGridM:GetValue("ZMS_D3DOC")+" ]", "Atenção!!!")
+						EndIf
+				EndIf
+			NEXT
+		else 
+			lRet := .F.
+			MsgAlert("Campo [ Responsável ] vazio!!", "Atenção")//( ,, 'Help',, '.', 'ZMS_RESPON' , 1, 0 )
+		ENDIF 
+	else 
+		lRet := .F.
+		MsgAlert("Campo Tipo inválido para esta operação!!." + CRLF +; 
+					'Para prosseguir preencha o campo com o Tipo [ N ]' + CRLF +;
+            		'ZMS_TIPO' , "Atenção")
+	endif
+	
+	if len(aMsg) >= 1
+		for nI := 1 to len(aMsg)
+			cMsg += aMsg[nI][1] + " | " +aMsg[nI][2]
+			cMsg += CRLF
+		next 
+		MsgAlert("Movimentação realizada!!!" + CRLF +;
+				cMsg, "Atenção!!")
+	endif
+
+	oView:Refresh()
+
+	if lRet
+		U_zSaveZMSMd2()
+	endif
+
+	RestArea(aArea)
+Return lRet 

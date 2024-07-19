@@ -333,12 +333,8 @@ While !(QRYROT->(EOF()))
 EndDo
 QRYROT->(DBCloseArea())
 
-//MUDAR aDadTl
-//aDatC1 := {}
 aDatC2 := {}
 nWidth := iif(lShwGer,(aPObjs[1][4]/2) / Len(aDadTl),((aPObjs[1][4]/2) / Len(aDadTl))-30) 
-//nWidth := (aPObjs[1][4]/2) / Len(aDadTl)
-//nQuebra := iif(lShwGer,(Int(nwidth / 30)),(Int(nwidth / 30))-1 )
 nQuebra := (Int(nwidth / 30)) 
 
 For nI := 1 to Len(aDadTl)
@@ -349,30 +345,17 @@ For nI := 1 to Len(aDadTl)
 		if (Len(aDadTl[nI][nX]) * 30) > nwidth 
 			
 			lQuebra := .T.
-			//aDatC1 := {}
 			aAdd(aDatC2[nI],{aDadTl[nI][nX][1]})
 
 			For nY := 2 to Len(aDadTl[nI][nX])
 				if nY > nQuebra .and. lQuebra
 					aAdd(aDatC2[nI],{aDadTl[nI][nX][1]})
-					//aAdd(aDatC2[nI][Len(aDatC2[nI])], {})
-					//aDatC2[nI][Len(aDatC2[nI])] := aClone(aDatC1)
 
-					//TESTE
-
-					//aDatC1 := {}
 					lQuebra := .F.
 				endif
 				aAdd(aDatC2[nI][Len(aDatC2[nI])],aDadTl[nI][nX][nY])
-				//aAdd(aDatC1,aDadTl[nI][nX][nY])
 			Next nY
 
-			//if Len(aDatC1) > 0 
-			//	aAdd(aDatC2[nI],{aDadTl[nI][nX][1]})
-			//	For nY := 1 to Len(aDatC1)
-			//		aAdd(aDatC2[nI][Len(aDatC2[nI])], aDatC1[nI])
-			//	Next nY 
-			//endif
 		else
 			aAdd(aDatC2[nI],aDadTl[nI][nX])
 		endif 
