@@ -114,8 +114,8 @@ Static Function ViewDef()
 	oView:AddGrid('VIEW_ITENS', oStFilho, 'ZMSDETAIL')
 
 	//Setando o dimensionamento de tamanho
-	oView:CreateHorizontalBox('CABEC', 25)
-	oView:CreateHorizontalBox('GRID' , 75)
+	oView:CreateHorizontalBox('CABEC', 50)
+	oView:CreateHorizontalBox('GRID' , 50)
 
 	//Amarrando a view com as box
 	oView:SetOwnerView('VIEW_CAB'  ,'CABEC')
@@ -129,7 +129,7 @@ Static Function ViewDef()
 	oView:AddIncrementField( 'VIEW_ITENS', 'ZMS_ITEM' )
 
 	//Tratativa padrÃ£o para fechar a tela
-	oView:SetCloseOnOk( { |oView| .T. } )
+	oView:SetCloseOnOk( { |oView| .F. } )
 	
 	oView:AddUserButton( 'Cadastrar Motivo','', {|oView| U_VAESTI04()} )
 
@@ -1073,7 +1073,7 @@ Static Function Estorno()
 Return lRet
 
 Static Function Nascimento()
-	Local aArea 	 	:= GetArea() 
+	Local aArea 	 	:= SX3->(GetArea() )
 	Local oModel  	 	:= FWModelActive()
 	Local oView			:= FWViewActive()
 	Local oCab 			:= oModel:GetModel("ZMSMASTER")
@@ -1354,9 +1354,9 @@ RETURN lRet
 /* 
 User Function Teste( )
 Local cTitulo
-dbSelectArea(“SX3”)
+dbSelectArea(?SX3?)
 dbSetOrder(2)
-If dbSeek( “A1_COD” )   
+If dbSeek( ?A1_COD? )   
 	cTitulo := X3Titulo()
 EndIf
 Return */

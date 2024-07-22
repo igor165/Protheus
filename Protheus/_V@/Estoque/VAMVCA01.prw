@@ -4096,7 +4096,7 @@ static function Selecao(oModel, oView)
 		EndIf
 	Next
 
-6	aHeadVL := {}
+	aHeadVL := {}
 	/*01*/aAdd(aHeadVL, { "Lote"	   , "VW_LOTE"	, X3Picture("Z0D_LOTE")	  , TamSX3("Z0D_LOTE")[1]		 , 0 ,"AllwaysTrue()", X3Uso("Z0D_LOTE")	, "C", "   ", "V","","","","V","","","" } )
 	/*02*/aAdd(aHeadVL, { "Curral"	   , "VW_CURRAL", X3Picture("Z0D_CURRAL") , 10/*TamSX3("Z0D_CURRAL")[1]*/, 0 ,"AllwaysTrue()", X3Uso("Z0D_CURRAL")	, "C", "   ", "V","","","","V","","","" } )
 	/*03*/aAdd(aHeadVL, { "Raca"	   , "VW_RACA"	, X3Picture("Z0D_RACA")   , TamSX3("Z0D_RACA")[1]        , 0 ,"AllwaysTrue()", X3Uso("Z0D_RACA")	, "C", "   ", "V","","","","V","","","" } )
