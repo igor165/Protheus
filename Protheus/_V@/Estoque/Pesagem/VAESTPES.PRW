@@ -105,9 +105,9 @@ Static Function ViewDef()
 	Local oStr4   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOS|ZPB_PESOS|ZPB_DATAF|ZPB_HORAF|ZPB_PEMAN2|ZPB_USRP2|ZPB_PESOL" }) 
 	Local oStr5   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_NOTAFI|ZPB_NOTFIS|ZPB_PRODUT|ZPB_DESC|ZPB_BAIA|ZPB_LOCAL|ZPB_OBSERV|ZPB_NROGTA|ZPB_QTANIM" }) 
 	Local nI 		
-	Local aAux		:= {}
-	Local aAuxC 	:= {}
-	Local oView     := NIL
+	Local aAux			:= {}
+	Local aAuxC 		:= {}
+	Local oView     	:= NIL
 
 	aAux    := oStr4:GetFields()
 	aAuxC	:= aClone(aAux)
@@ -128,11 +128,11 @@ Static Function ViewDef()
 	oView:AddField("VIEW_5" , oStr5  , "ZPB_5")
 
 	//Setando o dimensionamento de tamanho
-	oView:CreateHorizontalBox('CAB_1', 12)
-	oView:CreateHorizontalBox('CAB_2', 22)
-	oView:CreateHorizontalBox('CAB_3', 22)
-	oView:CreateHorizontalBox('CAB_4', 22)
-	oView:CreateHorizontalBox('CAB_5', 22)
+	oView:CreateHorizontalBox('CAB_1', 20)
+	oView:CreateHorizontalBox('CAB_2', 20)
+	oView:CreateHorizontalBox('CAB_3', 20)
+	oView:CreateHorizontalBox('CAB_4', 20)
+	oView:CreateHorizontalBox('CAB_5', 20)
 
 	oView:AddOtherObject("BTNPESO1",{|o1Panel,o1OtherObject| CriaBt1(o1Panel,o1OtherObject)})
 	oView:AddOtherObject("BTNPESO2",{|o2Panel,o2OtherObject| CriaBt2(o2Panel,o2OtherObject)})

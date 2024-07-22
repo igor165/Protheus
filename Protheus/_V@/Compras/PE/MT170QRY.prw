@@ -19,23 +19,6 @@ User Function MT170QRY()
 
 Return  (cNewQry)
 
-User Function MT170SC1()
-    
-    If IsBlind()
-        cUser := "ricardo.santana"
-    else
-        cUser := cUserName
-    endif 
-
-    if Empty(SC1->C1_GRPRD)
-        RecLock("SC1",.f.)
-            SC1->C1_GRPRD   := Posicione("SB1",1,FWxFilial("SB1")+SC1->C1_PRODUTO,"B1_GRUPO")
-            SC1->C1_SOLICIT := cUser
-        SC1->(MsUnLock())
-    endif
-
-Return
-
 //User Function MT170FIM()
 //   
 //   aSolic    := PARAMIXB[1]
