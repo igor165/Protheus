@@ -34,16 +34,16 @@ User Function MT150END()
             EndIf
         EndIf
 
-        aDados := fGetD2()
-        if Len(aDados) > 0
-            U_VACOMR14(aDados) // envia para o fornecedor
-        ENDIF
 
         aDados := fGetD1()
         if Len(aDados) > 0
             U_VACOMR10(aDados) // envia para o fornecedor
         ENDIF
 
+        aDados := fGetD2()
+        if Len(aDados) > 0
+            U_VACOMR14(aDados) // NAO envia para o fornecedor
+        ENDIF
 
     ENDIF
     RestArea(aArea)
@@ -57,7 +57,7 @@ Static Function fGetD2()
     _cQry := " select SC8.C8_PRODUTO " + CRLF
     _cQry += "  , SB1.B1_DESC " + CRLF
     _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
-    _cQry += "  , SC8.SC8.C8_QUANT " + CRLF
+    _cQry += "  , SC8.C8_QUANT " + CRLF
     _cQry += "  , SB1.B1_UM " + CRLF
     _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
     _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
@@ -78,7 +78,10 @@ Static Function fGetD2()
                         (cAliasA)->B1_DESC,;
                         (cAliasA)->C8_OBS,;
                         (cAliasA)->C8_QUANT,;
-                        (cAliasA)->B1_UM;
+                        (cAliasA)->B1_UM,;
+                        SC8->C8_NUMSC,;
+                        SC8->C8_NUMSC,;
+                        FWxFilial("SC8");
                         })
         (cAliasA)->(DbSkip())
     enddo

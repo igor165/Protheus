@@ -1,10 +1,13 @@
 #INCLUDE "TOTVS.CH"
 #INCLUDE "RPTDEF.CH"
+#INCLUDE "color.ch"
 #Include "TryException.ch"
 
 #DEFINE oFBar      TFont():New( "Courier New"/*cName*/, /*uPar2*/, -08/*nHeight*/, /*uPar4*/, .T./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
 #DEFINE oFTitLabel TFont():New( "Courier New"/*cName*/, /*uPar2*/, -16/*nHeight*/, /*uPar4*/, .T./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
 #DEFINE oFLabel    TFont():New( "Courier New"/*cName*/, /*uPar2*/, -12/*nHeight*/, /*uPar4*/, .T./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
+
+#DEFINE oFLabelRed TFont():New( "Courier New"/*cName*/, /*uPar2*/, -16/*nHeight*/, /*uPar4*/, .T./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
 #DEFINE oFInfo     TFont():New( "Arial"      /*cName*/, /*uPar2*/, -12/*nHeight*/, /*uPar4*/, .f./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
 #DEFINE oFGrid     TFont():New( "Courier New"/*cName*/, /*uPar2*/, -10/*nHeight*/, /*uPar4*/, .f./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
 #DEFINE oFInfoOBS  TFont():New( "Arial"      /*cName*/, /*uPar2*/, -12/*nHeight*/, /*uPar4*/, .T./*lBold*/, /*uPar6*/, /*uPar7*/, /*uPar8*/, /*uPar9*/, .F./*lUnderline*/, .F./*lItalic*/ )
@@ -15,6 +18,50 @@
 	"font-size:12px;" +;
 	"font: 12px Arial;" +;
 	"}"
+
+User Function VACOMR15() //U_VACOMR15()
+	Local _cQry, cAliasA
+	Local aImprimir := {}
+
+	cAliasA      := GetNextAlias() 
+
+	_cQry := " select SC8.C8_PRODUTO " + CRLF
+	_cQry += "  , SB1.B1_DESC " + CRLF
+	_cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
+	_cQry += "  , SC8.C8_QUANT " + CRLF
+	_cQry += "  , SB1.B1_UM " + CRLF
+	_cQry += "  , SC8.C8_NUMSC" + CRLF
+	_cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
+	_cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
+	_cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
+	_cQry += "  where SC8.C8_FILIAL  = '" + FWxFilial("SC8") + "' " + CRLF
+	_cQry += "  and SC8.C8_NUM = '007448' "+ CRLF 
+	_cQry += "  and SC8.D_E_L_E_T_ = ' ' " + CRLF
+	_cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+	_cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+
+	MpSysOpenQuery(_cQry,cAliasA)
+	aImprimir := {}
+	while !(cAliasA)->(EOF())
+		aAdd(aImprimir,{;
+						(cAliasA)->C8_PRODUTO,;
+						(cAliasA)->B1_DESC,;
+						(cAliasA)->C8_OBS,;
+						(cAliasA)->C8_QUANT,;
+						(cAliasA)->B1_UM,;
+						(cAliasA)->C8_NUMSC,;
+						(cAliasA)->C8_NUMSC,;
+						FWxFilial("SC8");
+						})
+		(cAliasA)->(DbSkip())
+	enddo
+
+	(cAliasA)->(DbCloseArea())
+	
+	IF Len(aImprimir) > 0 
+		U_VACOMR14(aImprimir)
+	endif 
+Return
 /*----------------------------------------------------------------------------------,
  | Principal: 					     U_VACOMR10()          		                    |
  | Func:    VACOMR10 	            	          	            	                |
@@ -123,6 +170,9 @@ Static Function fQuadro( nQuadro )
 	oPrinter:Say ( nRow         , nColInfo+nCol2 , cTxtAux/*cText>*/             , oFInfo/*oFont*/   , /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Line( nRow+=nTamLin-10/*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /*nColor*/, cBoxPixel/*cPixel*/ )
    
+	oPrinter:Say ( nRow+=nTamLin, nColLabel+nCol2, "NÃO ENVIAR PARA O FORNECEDOR!"/*cText>*/   , oFLabelRed/*oFont*/  , /*nWidth*/, CLR_RED, /*nAngle*/ )
+	oPrinter:Line( nRow+=nTamLin-10/*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /*nColor*/, cBoxPixel/*cPixel*/ )
+   
     HeaderGrid()
 	for nI := 1 to len(aDadosR14)
 		if FimPagina(1) // Verifica se a Página está no final
@@ -135,7 +185,7 @@ Static Function fQuadro( nQuadro )
 			if len(AllTrim(aDadosR14[nI][2])) > 45 
 				cTxtAux := AllTrim(aDadosR14[nI][2])
 				while AllTrim(cTxtAux) != ''
-					nAt     := At(" ",cTxtAux,35)
+					nAt     := At(" ",cTxtAux,40)
 					nPos    := Iif(len(cTxtAux)>40,Iif(nAt==0,len(cTxtAux),nAt),len(cTxtAux))
 					cDesc   := SubStr(cTxtAux,1,nPos)
 					cTxtAux := AllTrim(SubStr(cTxtAux,nPos+1,len(cTxtAux)))
@@ -149,23 +199,24 @@ Static Function fQuadro( nQuadro )
             nLineProd := nRow
 			nRow := nBakLine
 			
-            nBakLine := nRow
+            //nBakLine := nRow
 			lpula := .f.
 			if len(AllTrim(aDadosR14[nI][3])) > 35
 				cTxtAux := AllTrim(aDadosR14[nI][3])
 				while AllTrim(cTxtAux) != ''
-					nAt     := At(" ",cTxtAux,45)
+					nAt     := At(" ",cTxtAux,40)
 					nPos    := Iif(len(cTxtAux)>40,Iif(nAt==0,len(cTxtAux),nAt),len(cTxtAux))
 					cDesc   := SubStr(cTxtAux,1,nPos)
 					cTxtAux := AllTrim(SubStr(cTxtAux,nPos+1,len(cTxtAux)))
 
-					oPrinter:Say ( iif(lPula,nRow+=nTamLin-8,nRow)   , nBoxRight-255      , cDesc/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+					oPrinter:Say ( iif(lPula,nRow+=nTamLin-8,nRow)   , nBoxRight-275      , cDesc/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 					lPula := .t.
 				enddo
 			else
-				oPrinter:Say ( nRow   , nBoxRight-255      , aDadosR14[nI][3]/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+				oPrinter:Say ( nRow   , nBoxRight-275      , aDadosR14[nI][3]/*cText>*/,oFGrid /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			endif
-			nLineObs := nBakLine
+			nLineObs := nRow
+			
 			nRow := nBakLine //iif(nLineObs >= nRow,nLineObs,nRow)
 
             //qtde
@@ -184,23 +235,9 @@ Static Function fQuadro( nQuadro )
 			oPrinter:Say ( nRow - 2 , nBoxRight-33 , cTxtAux/*cText>*/,oFBar /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
             nRow := iif(iif(nLineProd > nLineObs,nLineProd,nLineObs) < nRow , nRow, iif(nLineProd > nLineObs,nLineProd,nLineObs))
-			oPrinter:Line( nRow+=nTamLin-10 /*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
+			oPrinter:Line( nRow+=nTamLin-15 /*nTop*/, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
 		endif
 	next nI
-
-	FimPagina(3)// Verifica se a Página está no final
-	oPrinter:Say ( nRow+=nTamLin, nColLabel , "Local de Entrega....:"/*cText>*/ ,oFLabel /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo + 50  , SM0->M0_NOMECOM /*cText>*/    ,oFInfo /*oFont*/ , /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-
-	cTxtAux := AllTrim( SM0->M0_ENDENT )
-	oPrinter:Say ( nRow+=nTamLin, nColLabel , "Endereço de Entrega.:"/*cText>*/ ,oFLabel /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo + 50  , cTxtAux /*cText>*/    ,oFInfo /*oFont*/ , /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-
-	cTxtAux := Alltrim(Transform(SM0->M0_CGC, "@R 99.999.999/9999-99"))+' / '+Alltrim(Transform(SM0->M0_INSC, "@R 999.999.999.999"))
-	oPrinter:Say ( nRow+=nTamLin, nColLabel,  "CNPJ / IE...........:"/*cText>*/   , oFLabel/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo + 50, cTxtAux/*cText>*/            , oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow+=nTamLin, nColLabel, "OBS: COTAÇÃO"/*cText>*/   , oFInfoOBS/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
-	oPrinter:Line( nRow+=nTamLin-10, nBoxCol/*nLeft*/, nRow/*nBottom*/, nBoxRight/*nRight*/, /* cColor */, cBoxPixel/*cPixel*/ )
 
 	cTxtAux := "Página " + Alltrim(Str(nNumPag+=1))
 	oPrinter:Say ( ((nTamLin*nTotLinha)*0.92)-9,nColLabel   , "Agropecuária Vista Alegre LTDA"/*cText>*/   , oFInfo/*oFont*/, /*nWidth*/, RGB(0,0,0)/*nClrText*/, /*nAngle*/ )
@@ -210,7 +247,7 @@ Return
 Static Function HeaderGrid()
 	oPrinter:Say ( nRow+=nTamLin, nColLabel     , "CÓDIGO"/*cText>*/    ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
-	oPrinter:Say ( nRow+=nTamLin - 6, nBoxRight-255 , "OBSERVAÇÃO"/*cText>*/      ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow+=nTamLin - 6, nBoxRight-275 , "OBSERVAÇÃO"/*cText>*/      ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow             , nColLabel+50  , "PRODUTO"/*cText>*/   ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow             , nColLabel     , "INTERNO"/*cText>*/   ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow             , nBoxRight-75  , "QTDE"/*cText>*/      ,oFheader /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )

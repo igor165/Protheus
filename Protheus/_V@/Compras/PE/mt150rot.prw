@@ -21,10 +21,55 @@ user function SendWF(cAlias, nReg, nOpc)
         aDados := fGetDados()
         U_VACOMR10(aDados)
         //U_MT131WF({{SC8->C8_NUM, SC8->C8_FORNECE+SC8->C8_LOJA, }})
+
+        aDados := fGetD2()
+        if Len(aDados) > 0
+            U_VACOMR14(aDados) // NAO envia para o fornecedor
+        ENDIF
     endif
 
 return nil
 
+Static Function fGetD2()
+    Local cAliasA       := GetNextAlias() 
+    Local _cQry
+    LOcal aDados     := {}
+
+    _cQry := " select SC8.C8_PRODUTO " + CRLF
+    _cQry += "  , SB1.B1_DESC " + CRLF
+    _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
+    _cQry += "  , SC8.C8_QUANT " + CRLF
+    _cQry += "  , SB1.B1_UM " + CRLF
+    _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
+    _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
+    _cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
+    _cQry += "  WHERE C8_FILIAL = '"+FWxFilial("SC8")+"' " + CRLF 
+    _cQry += "  AND C8_NUM = '"+SC8->C8_NUM+"' " + CRLF 
+    _cQry += "  AND C8_FORNECE+C8_LOJA = '"+(SC8->C8_FORNECE+SC8->C8_LOJA)+"' " + CRLF 
+    _cQry += "  AND C8_NUMPRO = '"+SC8->C8_NUMPRO+"' " + CRLF 
+    _cQry += "  AND SC8.D_E_L_E_T_ = '' "   + CRLF
+    _cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM " + CRLF
+    _cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM " + CRLF
+
+    MpSysOpenQuery(_cQry,cAliasA)
+    aDados := {}
+    while !(cAliasA)->(EOF())
+        aAdd(aDados,{;
+                        (cAliasA)->C8_PRODUTO,;
+                        (cAliasA)->B1_DESC,;
+                        (cAliasA)->C8_OBS,;
+                        (cAliasA)->C8_QUANT,;
+                        (cAliasA)->B1_UM,;
+                        SC8->C8_NUMSC,;
+                        SC8->C8_NUMSC,;
+                        FWxFilial("SC8");
+                        })
+        (cAliasA)->(DbSkip())
+    enddo
+
+    (cAliasA)->(DbCloseArea())
+                        
+Return aDados
 Static Function fGetDados()
     Local aArea     := GetArea()
     Local aDados    := {}

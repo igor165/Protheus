@@ -284,8 +284,8 @@ User Function I03GPRE()
 		
 		If FwFldGet("ZMS_D3EST") == "S" 
 			Help( ,, "HELP","ESTI03Pos", "Não é permitida exclusão de uma movimentação realizada.", 1, 0)
-			lRet := .F. 
-		else 
+			lRet := .F.
+		else
 			for nI := 1 to oGridM:GetQtdLine()
 				oGridM:GoLIne(nI)
 				if !oGridM:isDeleted()

@@ -186,49 +186,6 @@ User Function MT131WF(aSolicitac)
                         (cAlias)->(DBGoTop())
                     endif
 
-                    if lImpObs
-                        cAliasA      := GetNextAlias() 
-
-                        _cQry := " select SC8.C8_PRODUTO " + CRLF
-                        _cQry += "  , SB1.B1_DESC " + CRLF
-                        _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
-                        _cQry += "  , SC8.C8_QUANT " + CRLF
-                        _cQry += "  , SB1.B1_UM " + CRLF
-                        _cQry += "  , SC8.C8_NUMSC" + CRLF
-                        _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
-                        _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
-                        _cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
-                        _cQry += "  where SC8.C8_FILIAL  = '" + FWxFilial("SC8") + "' " + CRLF
-                        _cQry += "  and " + Iif( ValType(aSolicitac[i]) == 'C', "SC8.C8_NUM = '" + aSolicitac[i] + "'" , " SC8.C8_NUM = '" + aSolicitac[i][1] + "' ")+ CRLF 
-                        _cQry += "  and SC8.D_E_L_E_T_ = ' ' " + CRLF
-                        _cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
-                        _cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
-
-                        MpSysOpenQuery(_cQry,cAliasA)
-                        aImprimir := {}
-                        while !(cAliasA)->(EOF())
-                            aAdd(aImprimir,{;
-                                            (cAliasA)->C8_PRODUTO,;
-                                            (cAliasA)->B1_DESC,;
-                                            (cAliasA)->C8_OBS,;
-                                            (cAliasA)->C8_QUANT,;
-                                            (cAliasA)->B1_UM,;
-                                            Iif( ValType(aSolicitac[i]) == 'C',aSolicitac[i],aSolicitac[i][1] ),;
-                                            (cAliasA)->C8_NUMSC,;
-                                            FWxFilial("SC8");
-                                            })
-                            (cAliasA)->(DbSkip())
-                        enddo
-
-                        (cAliasA)->(DbCloseArea())
-                        
-                        IF Len(aImprimir) > 0 
-                            U_VACOMR14(aImprimir)
-                        endif 
-                        
-                        lImpObs := .f.
-                    endif
-
                     lEnvia := .t.
                     cChave    := (cAlias)->(C8_FILIAL+C8_NUM+C8_FORNECE+C8_LOJA)
                     aImprimir := {}
@@ -328,7 +285,47 @@ User Function MT131WF(aSolicitac)
                 endif
             end
 
+
             if lEnvia .and. !Empty(cChave)
+                    cAliasA      := GetNextAlias() 
+
+                    _cQry := " select SC8.C8_PRODUTO " + CRLF
+                    _cQry += "  , SB1.B1_DESC " + CRLF
+                    _cQry += "  , ISNULL(CAST(CAST(SC8.C8_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS C8_OBS  " + CRLF
+                    _cQry += "  , SC8.C8_QUANT " + CRLF
+                    _cQry += "  , SB1.B1_UM " + CRLF
+                    _cQry += "  , SC8.C8_NUMSC" + CRLF
+                    _cQry += "  from "+RetSqlName("SC8")+" SC8 " + CRLF
+                    _cQry += "  LEFT JOIN "+RetSqlName("SB1")+" SB1 ON C8_PRODUTO = B1_COD  " + CRLF
+                    _cQry += "  AND SB1.D_E_L_E_T_ = ''  " + CRLF
+                    _cQry += "  where SC8.C8_FILIAL  = '" + FWxFilial("SC8") + "' " + CRLF
+                    _cQry += "  and " + Iif( ValType(aSolicitac[i]) == 'C', "SC8.C8_NUM = '" + aSolicitac[i] + "'" , " SC8.C8_NUM = '" + aSolicitac[i][1] + "' ")+ CRLF 
+                    _cQry += "  and SC8.D_E_L_E_T_ = ' ' " + CRLF
+                    _cQry += "  GROUP BY SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+                    _cQry += "  order by SC8.C8_PRODUTO,SB1.B1_DESC,SC8.C8_OBS,SC8.C8_QUANT,SB1.B1_UM, SC8.C8_NUMSC " + CRLF
+
+                    MpSysOpenQuery(_cQry,cAliasA)
+                    aImprimir := {}
+                    while !(cAliasA)->(EOF())
+                        aAdd(aImprimir,{;
+                                        (cAliasA)->C8_PRODUTO,;
+                                        (cAliasA)->B1_DESC,;
+                                        (cAliasA)->C8_OBS,;
+                                        (cAliasA)->C8_QUANT,;
+                                        (cAliasA)->B1_UM,;
+                                        Iif( ValType(aSolicitac[i]) == 'C',aSolicitac[i],aSolicitac[i][1] ),;
+                                        (cAliasA)->C8_NUMSC,;
+                                        FWxFilial("SC8");
+                                        })
+                        (cAliasA)->(DbSkip())
+                    enddo
+
+                    (cAliasA)->(DbCloseArea())
+                    
+                    IF Len(aImprimir) > 0 
+                        U_VACOMR14(aImprimir)
+                    endif 
+                    
                     (cAlias)->(DBGoTop())
                     SC8->(DbGoTo((cAlias)->C8_RECNO))
 

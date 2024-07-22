@@ -18,8 +18,13 @@ user function Mt110Grv()
     if Inclui .or. lCopia
         RecLock("SC1", .f.)
             SC1->C1_XAPROV  := Replicate(SC1->C1_APROV, TamSX3("C1_XAPROV")[1])
-        MsunLock()
+        SC1->(MsunLock())
 
+        if !Empty(SC1->C1_OBS) .and. ALLTRIM(SC1->C1_OBS) != "SC gerada por Ponto de Pedido."
+            RecLock("SB1", .f.)
+                SB1->B1_XDESC := ALLTRIM(SC1->C1_OBS)
+            SB1->(MsunLock())
+        endif
     endif	
 
 return nil
