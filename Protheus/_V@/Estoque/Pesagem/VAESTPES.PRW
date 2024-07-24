@@ -71,9 +71,9 @@ Static Function ModelDef()
 	Local oModel   	:= Nil
 	Local oStr1   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_FILIAL|ZPB_PLACA|ZPB_CODIGO|ZPB_STATUS" }) 
 	Local oStr2   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_CPFMOT|ZPB_CODMOT|ZPB_NOMMOT|ZPB_CLIFOR|ZPB_CODFOR|ZPB_LOJFOR|ZPB_NOMFOR" }) 
-	Local oStr3   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOE|ZPB_PESOE|ZPB_DATA|ZPB_HORA|ZPB_PEMAN1|ZPB_USRP1"}) 
-	Local oStr4   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOS|ZPB_PESOS|ZPB_DATAF|ZPB_HORAF|ZPB_PEMAN2|ZPB_USRP2|ZPB_PESOL" }) 
-	Local oStr5   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_NOTAFI|ZPB_NOTFIS|ZPB_PRODUT|ZPB_DESC|ZPB_BAIA|ZPB_LOCAL|ZPB_OBSERV|ZPB_NROGTA|ZPB_QTANIM" }) 
+	Local oStr4   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOE|ZPB_PESOE|ZPB_DATA|ZPB_HORA|ZPB_PEMAN1|ZPB_USRP1"}) 
+	Local oStr5   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOS|ZPB_PESOS|ZPB_DATAF|ZPB_HORAF|ZPB_PEMAN2|ZPB_USRP2|ZPB_PESOL" }) 
+	Local oStr3   	:= FWFormStruct(1, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_NOTAFI|ZPB_NOTFIS|ZPB_PRODUT|ZPB_DESC|ZPB_BAIA|ZPB_LOCAL|ZPB_OBSERV|ZPB_NROGTA|ZPB_QTANIM" }) 
 	Local bVldCom  	:= {|| u_zSaveZPB()	}
 	
 	//Criando o FormModel, adicionando o CabeÃ§alho e Grid
@@ -101,19 +101,19 @@ Static Function ViewDef()
 	Local oModel     	:= FWLoadModel("VAESTPES")
 	Local oStr1   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_FILIAL|ZPB_PLACA|ZPB_CODIGO|ZPB_STATUS" }) 
 	Local oStr2   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_CPFMOT|ZPB_CODMOT|ZPB_NOMMOT|ZPB_CLIFOR|ZPB_CODFOR|ZPB_LOJFOR|ZPB_NOMFOR" }) 
-	Local oStr3   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOE|ZPB_PESOE|ZPB_DATA|ZPB_HORA|ZPB_PEMAN1|ZPB_USRP1"}) 
-	Local oStr4   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOS|ZPB_PESOS|ZPB_DATAF|ZPB_HORAF|ZPB_PEMAN2|ZPB_USRP2|ZPB_PESOL" }) 
-	Local oStr5   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_NOTAFI|ZPB_NOTFIS|ZPB_PRODUT|ZPB_DESC|ZPB_BAIA|ZPB_LOCAL|ZPB_OBSERV|ZPB_NROGTA|ZPB_QTANIM" }) 
+	Local oStr3   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_NOTAFI|ZPB_NOTFIS|ZPB_PRODUT|ZPB_DESC|ZPB_BAIA|ZPB_LOCAL|ZPB_OBSERV|ZPB_NROGTA|ZPB_QTANIM" }) 
+	Local oStr4   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOE|ZPB_PESOE|ZPB_DATA|ZPB_HORA|ZPB_PEMAN1|ZPB_USRP1"}) 
+	Local oStr5   		:= FWFormStruct(2, 'ZPB',{|cCampo| AllTrim(cCampo) $ "ZPB_OPESOS|ZPB_PESOS|ZPB_DATAF|ZPB_HORAF|ZPB_PEMAN2|ZPB_USRP2|ZPB_PESOL" }) 
 	Local nI 		
 	Local aAux			:= {}
 	Local aAuxC 		:= {}
 	Local oView     	:= NIL
 
-	aAux    := oStr4:GetFields()
+	aAux    := oStr5:GetFields()
 	aAuxC	:= aClone(aAux)
 	For nI := 1 to Len(aAuxC)
 		if aAuxC[nI,1] == "ZPB_DATA" .OR. aAuxC[nI,1] == "ZPB_HORA" 
-			oStr4:RemoveField(aAuxC[nI,1])
+			oStr5:RemoveField(aAuxC[nI,1])
 		endif
 	Next
 
@@ -140,29 +140,29 @@ Static Function ViewDef()
 
 	oView:CreateVerticalBox('CABEC'		, 85 , 'CAB_1' )
 	oView:CreateVerticalBox('IMPPESO'	, 15 , 'CAB_1' )
-	oView:CreateVerticalBox('PESAR1'	, 10 , 'CAB_3' )
-	oView:CreateVerticalBox('PESAGEM1'	, 90 , 'CAB_3' )
-	oView:CreateVerticalBox('PESAR2'	, 10 , 'CAB_4' )
-	oView:CreateVerticalBox('PESAGEM2'	, 90 , 'CAB_4' )
+	oView:CreateVerticalBox('PESAR1'	, 10 , 'CAB_4' )
+	oView:CreateVerticalBox('PESAGEM1'	, 90 , 'CAB_4' )
+	oView:CreateVerticalBox('PESAR2'	, 10 , 'CAB_5' )
+	oView:CreateVerticalBox('PESAGEM2'	, 90 , 'CAB_5' )
 
 	//Amarrando a view com as box
 	oView:SetOwnerView('VIEW_1'  	,'CABEC'	)
 	oView:SetOwnerView('BTNPESO3'  	,'IMPPESO'	)
 	oView:SetOwnerView('VIEW_2'  	,'CAB_2'	)
 	oView:SetOwnerView('BTNPESO1'  	,'PESAR1'	)
-	oView:SetOwnerView('VIEW_3'  	,'PESAGEM1'	)
+	oView:SetOwnerView('VIEW_4'  	,'PESAGEM1'	)
 	oView:SetOwnerView('BTNPESO2'  	,'PESAR2'	)
-	oView:SetOwnerView('VIEW_4'  	,'PESAGEM2'	)
-	oView:SetOwnerView('VIEW_5'  	,'CAB_5'	)
+	oView:SetOwnerView('VIEW_5'  	,'PESAGEM2'	)
+	oView:SetOwnerView('VIEW_3'  	,'CAB_3'	)
 
     oView:EnableTitleView('VIEW_1'	, 'Dados da Pesagem' 		) 
     oView:EnableTitleView('BTNPESO3', 'Imprimir ticket'			) 
     oView:EnableTitleView('VIEW_2'	, 'Fornecedor / Motorista'	) 
     oView:EnableTitleView('BTNPESO1', '1º Pesagem' 				) 
-    oView:EnableTitleView('VIEW_4'	, '|'						) 
+    oView:EnableTitleView('VIEW_5'	, '|'						) 
     oView:EnableTitleView('BTNPESO2', '2º Pesagem' 				) 
-    oView:EnableTitleView('VIEW_3'	, '|'						) 
-    oView:EnableTitleView('VIEW_5'	, 'Nota Fiscal / GTA' 		) 
+    oView:EnableTitleView('VIEW_4'	, '|'						) 
+    oView:EnableTitleView('VIEW_3'	, 'Nota Fiscal / GTA' 		) 
 
 	oView:SetContinuousForm(.T.)
 	
@@ -190,14 +190,14 @@ User Function zSaveZPB()
 	If nOpc == MODEL_OPERATION_INSERT .OR. nOpc == MODEL_OPERATION_UPDATE
 
 		RecLock('ZPB', lRecLock := !DbSeek( FwXFilial("ZPB") +;
-									dToS(oMdl3:GetValue('ZPB_DATA'))+;
+									dToS(oMdl4:GetValue('ZPB_DATA'))+;
 									oMdl1:GetValue('ZPB_CODIGO') ))
 
 			ZPB->ZPB_FILIAL	:= FwXFilial("ZPB")
 			ZPB->ZPB_CODIGO	:= oMdl1:GetValue("ZPB_CODIGO")
 			ZPB->ZPB_PLACA 	:= oMdl1:GetValue("ZPB_PLACA")
 			
-			if  oMdl4:GetValue("ZPB_PESOS") > 0 
+			if  oMdl5:GetValue("ZPB_PESOS") > 0 
 				ZPB->ZPB_STATUS	:= "F"
 			else 
 				ZPB->ZPB_STATUS	:= oMdl1:GetValue("ZPB_STATUS")
@@ -211,43 +211,43 @@ User Function zSaveZPB()
 			ZPB->ZPB_LOJFOR	:= oMdl2:GetValue("ZPB_LOJFOR")
 			ZPB->ZPB_NOMFOR	:= oMdl2:GetValue("ZPB_NOMFOR")
 
-			ZPB->ZPB_PEMAN1	:= oMdl3:GetValue("ZPB_PEMAN1")
-			ZPB->ZPB_USRP1 	:= oMdl3:GetValue("ZPB_USRP1")
+			ZPB->ZPB_PEMAN1	:= oMdl4:GetValue("ZPB_PEMAN1")
+			ZPB->ZPB_USRP1 	:= oMdl4:GetValue("ZPB_USRP1")
 
-			IF ZPB->ZPB_OPESOE != oMdl3:GetValue("ZPB_PESOE")
-				ZPB->ZPB_OPESOE	:= oMdl3:GetValue("ZPB_PESOE")
+			IF ZPB->ZPB_OPESOE != oMdl4:GetValue("ZPB_PESOE")
+				ZPB->ZPB_OPESOE	:= oMdl4:GetValue("ZPB_PESOE")
 			ENDIF 
 
-			ZPB->ZPB_PESOE 	:= oMdl3:GetValue("ZPB_PESOE")
-			ZPB->ZPB_DATA  	:= oMdl3:GetValue("ZPB_DATA")
-			ZPB->ZPB_HORA  	:= oMdl3:GetValue("ZPB_HORA")
+			ZPB->ZPB_PESOE 	:= oMdl4:GetValue("ZPB_PESOE")
+			ZPB->ZPB_DATA  	:= oMdl4:GetValue("ZPB_DATA")
+			ZPB->ZPB_HORA  	:= oMdl4:GetValue("ZPB_HORA")
 
-			IF ZPB->ZPB_OPESOS != oMdl4:GetValue("ZPB_PESOS")
-				ZPB->ZPB_OPESOS	:= oMdl4:GetValue("ZPB_PESOS")
+			IF ZPB->ZPB_OPESOS != oMdl5:GetValue("ZPB_PESOS")
+				ZPB->ZPB_OPESOS	:= oMdl5:GetValue("ZPB_PESOS")
 			ENDIF 
 
-			ZPB->ZPB_PESOS 	:= oMdl4:GetValue("ZPB_PESOS")
-			ZPB->ZPB_DATAF 	:= oMdl4:GetValue("ZPB_DATAF")
-			ZPB->ZPB_HORAF 	:= oMdl4:GetValue("ZPB_HORAF")
-			ZPB->ZPB_PESOL 	:= oMdl4:GetValue("ZPB_PESOL")
-			ZPB->ZPB_PEMAN2	:= oMdl4:GetValue("ZPB_PEMAN2")
-			ZPB->ZPB_USRP2 	:= oMdl4:GetValue("ZPB_USRP2")
+			ZPB->ZPB_PESOS 	:= oMdl5:GetValue("ZPB_PESOS")
+			ZPB->ZPB_DATAF 	:= oMdl5:GetValue("ZPB_DATAF")
+			ZPB->ZPB_HORAF 	:= oMdl5:GetValue("ZPB_HORAF")
+			ZPB->ZPB_PESOL 	:= oMdl5:GetValue("ZPB_PESOL")
+			ZPB->ZPB_PEMAN2	:= oMdl5:GetValue("ZPB_PEMAN2")
+			ZPB->ZPB_USRP2 	:= oMdl5:GetValue("ZPB_USRP2")
 
-			ZPB->ZPB_LOCAL 	:= oMdl5:GetValue("ZPB_LOCAL")
-			ZPB->ZPB_OBSERV	:= oMdl5:GetValue("ZPB_OBSERV")
-			ZPB->ZPB_NROGTA	:= oMdl5:GetValue("ZPB_NROGTA")
-			ZPB->ZPB_QTANIM	:= oMdl5:GetValue("ZPB_QTANIM")
-			ZPB->ZPB_NOTFIS	:= oMdl5:GetValue("ZPB_NOTFIS")
-			ZPB->ZPB_PRODUT	:= oMdl5:GetValue("ZPB_PRODUT")
-			ZPB->ZPB_DESC  	:= oMdl5:GetValue("ZPB_DESC")
-			ZPB->ZPB_BAIA  	:= oMdl5:GetValue("ZPB_BAIA")
+			ZPB->ZPB_LOCAL 	:= oMdl3:GetValue("ZPB_LOCAL")
+			ZPB->ZPB_OBSERV	:= oMdl3:GetValue("ZPB_OBSERV")
+			ZPB->ZPB_NROGTA	:= oMdl3:GetValue("ZPB_NROGTA")
+			ZPB->ZPB_QTANIM	:= oMdl3:GetValue("ZPB_QTANIM")
+			ZPB->ZPB_NOTFIS	:= oMdl3:GetValue("ZPB_NOTFIS")
+			ZPB->ZPB_PRODUT	:= oMdl3:GetValue("ZPB_PRODUT")
+			ZPB->ZPB_DESC  	:= oMdl3:GetValue("ZPB_DESC")
+			ZPB->ZPB_BAIA  	:= oMdl3:GetValue("ZPB_BAIA")
 		ZPB->(MsUnlock())
 	//Se for ExclusÃ£o
 	ElseIf nOpc == MODEL_OPERATION_DELETE
 
 		//Se conseguir posicionar, exclui o regist
 		If ZPB->(DbSeek( FwXFilial("ZPB") +;
-						dToS(oMdl3:GetValue('ZPB_DATA'))+;
+						dToS(oMdl4:GetValue('ZPB_DATA'))+;
 						oMdl1:GetValue('ZPB_CODIGO') ))
 
 
@@ -313,8 +313,8 @@ User Function ESTPESV()
 						oStr2:SetProperty( 'ZPB_CODMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 01]+"'" ) )
 						oStr2:SetProperty( 'ZPB_CPFMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 02]+"'" ) )
 						oStr2:SetProperty( 'ZPB_NOMMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 03]+"'" ) )
-						oStr5:SetProperty( 'ZPB_PRODUT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 04]+"'" ) )
-						oStr5:SetProperty( 'ZPB_DESC'  , MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 05]+"'" ) )
+						oStr3:SetProperty( 'ZPB_PRODUT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 04]+"'" ) )
+						oStr3:SetProperty( 'ZPB_DESC'  , MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 05]+"'" ) )
 					EndIf
 				EndIf
 			endif 			
@@ -336,33 +336,33 @@ User Function ESTPESV()
 				elseif Empty(oMdl2:GetValue("ZPB_CODFOR"))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nome Cli/For. [ABA 02]!")
 					lRet := .F.
-				elseif Empty(oMdl3:GetValue("ZPB_PESOE" ))
+				elseif Empty(oMdl4:GetValue("ZPB_PESOE" ))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso de entrada. [ABA 03]")
 					lRet := .F.
-				elseif (oMdl3:GetValue("ZPB_PESOE" ) > 0 .and. oMdl4:GetValue("ZPB_PESOS" ) > 0 ) .and. Empty(oMdl4:GetValue("ZPB_PESOL" ))
+				elseif (oMdl4:GetValue("ZPB_PESOE" ) > 0 .and. oMdl5:GetValue("ZPB_PESOS" ) > 0 ) .and. Empty(oMdl5:GetValue("ZPB_PESOL" ))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso Liquido. [ABA 04]")
 					lRet := .F.
-				elseif Empty(oMdl5:GetValue("ZPB_DESC"  ))
+				elseif Empty(oMdl3:GetValue("ZPB_DESC"  ))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Produto. [ABA 05]")
 					lRet := .F.
 				end
 				
-				if lRet .and. iif(ProcName(6)=='U_PEGAPESO',.f.,(oMdl4:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl5:GetValue("ZPB_NOTFIS"))))
+				if lRet .and. iif(ProcName(6)=='U_PEGAPESO',.f.,(oMdl5:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl3:GetValue("ZPB_NOTFIS"))))
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 05]")
 					lRet := .F.
 				endif
 				
 				//Static Function VldPesagem()
-				If lRet .and. AllTrim(oMdl5:GetValue("ZPB_PRODUT")) $ GetMV("MB_PSGARM",,"030001,020023,020017") // os produtos configurados obrigam o preenchimento do campo armazem;
+				If lRet .and. AllTrim(oMdl3:GetValue("ZPB_PRODUT")) $ GetMV("MB_PSGARM",,"030001,020023,020017") // os produtos configurados obrigam o preenchimento do campo armazem;
 					// se VAZIO entao nao continuar o processo
-					If Empty(oMdl5:GetValue("ZPB_LOCAL"))
+					If Empty(oMdl3:GetValue("ZPB_LOCAL"))
 						oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Para o produto selecionado é preciso informar o campo armazem.  [ABA 05] ")
 						lRet := .F.
 					EndIf
 				EndIf
 
 				//Static Function VldPesagem()
-				//If !Empty(oMdl5:GetValue("ZPB_NROGTA")) .AND. Empty(oMdl5:GetValue("ZPB_QTANIM"))
+				//If !Empty(oMdl3:GetValue("ZPB_NROGTA")) .AND. Empty(oMdl3:GetValue("ZPB_QTANIM"))
 				//	Alert("O campo de quant. de animal [ZPB_QTANIM] não foi informado. O mesmo é obrigatório" + CRLF +;
 				//		"Esta operacao foi cancelada.")
 				//	Return .F.
@@ -376,12 +376,12 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	Local aArea         := GetArea()
 	Local oModel 		:= FwModelActivate()
 	Local oMdl1 		:= oModel:GetModel("ZPB_1")
-	Local oMdl3 		:= oModel:GetModel("ZPB_3")
 	Local oMdl4 		:= oModel:GetModel("ZPB_4")
+	Local oMdl5 		:= oModel:GetModel("ZPB_5")
 	Local oView 		:= FWViewActive()
 	Local nPeso 		:= 0
-	Local nPeso1      	:= oMdl3:GetValue("ZPB_PESOE")
-	Local nPeso2      	:= oMdl4:GetValue("ZPB_PESOS")
+	Local nPeso1      	:= oMdl4:GetValue("ZPB_PESOE")
+	Local nPeso2      	:= oMdl5:GetValue("ZPB_PESOS")
 	Local lPesagManu	:= .f.
 
 	if nBalanca == 1
@@ -418,11 +418,11 @@ User Function PegaPeso( lGravPeso, nBalanca )
 				
 				if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
 					//M->ZPB_OPESOE := nPeso
-					if oMdl3:GetValue("ZPB_PESOE") > 0
+					if oMdl4:GetValue("ZPB_PESOE") > 0
 						MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-													" - Peso Anterior: " + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) )+;
-													" - Tipo: " + iif(oMdl3:GetValue("ZPB_PEMAN1")== 'M' ,"Manual","Automatica")+;
-													" - Usuario: " + oMdl3:GetValue("ZPB_USRP1"))
+													" - Peso Anterior: " + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) )+;
+													" - Tipo: " + iif(oMdl4:GetValue("ZPB_PEMAN1")== 'M' ,"Manual","Automatica")+;
+													" - Usuario: " + oMdl4:GetValue("ZPB_USRP1"))
 					endif
 
 					MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
@@ -434,19 +434,19 @@ User Function PegaPeso( lGravPeso, nBalanca )
 					oMdl1:LoadValue("ZPB_PLACA" 	, "")
 					oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
 					
-					oMdl3:SetValue("ZPB_HORA" 	, Time())
-					oMdl3:SetValue("ZPB_PESOE" 	, nPeso )
-					oMdl4:SetValue("ZPB_PESOL" 	, ABS(nPeso - iIf(ValType(oMdl4:GetValue("ZPB_PESOS"))=="U", 0, oMdl4:GetValue("ZPB_PESOS"))))
-					oMdl3:SetValue("ZPB_PEMAN1" , iif(lPesagManu,"M","A") )
-					oMdl3:SetValue("ZPB_USRP1" 	, UsrFullName( ))
+					oMdl4:SetValue("ZPB_HORA" 	, Time())
+					oMdl4:SetValue("ZPB_PESOE" 	, nPeso )
+					oMdl5:SetValue("ZPB_PESOL" 	, ABS(nPeso - iIf(ValType(oMdl5:GetValue("ZPB_PESOS"))=="U", 0, oMdl5:GetValue("ZPB_PESOS"))))
+					oMdl4:SetValue("ZPB_PEMAN1" , iif(lPesagManu,"M","A") )
+					oMdl4:SetValue("ZPB_USRP1" 	, UsrFullName( ))
 					oView:lModify := .T.
 
 				elseif nOpcA == 2
-					if oMdl4:GetValue("ZPB_PESOS") > 0
+					if oMdl5:GetValue("ZPB_PESOS") > 0
 						MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
-													" - Peso Anterior: " + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) )+;
-													" - Tipo: " + iif(oMdl4:GetValue("ZPB_PEMAN2")== 'M' ,"Manual","Automatica")+;
-													" - Usuario: " + oMdl4:GetValue("ZPB_USRP2"))
+													" - Peso Anterior: " + AllTrim( cValToChar(oMdl5:GetValue("ZPB_PESOS")) )+;
+													" - Tipo: " + iif(oMdl5:GetValue("ZPB_PEMAN2")== 'M' ,"Manual","Automatica")+;
+													" - Usuario: " + oMdl5:GetValue("ZPB_USRP2"))
 					endif
 
 					MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
@@ -458,12 +458,12 @@ User Function PegaPeso( lGravPeso, nBalanca )
 					oMdl1:LoadValue("ZPB_PLACA" 	, "")
 					oMdl1:LoadValue("ZPB_PLACA" 	, cPlacaTGet)
 
-					oMdl4:SetValue("ZPB_DATAF"	, Date())
-					oMdl4:SetValue("ZPB_HORAF"	, Time())
-					oMdl4:SetValue("ZPB_PESOS"	, nPeso )
-					oMdl4:SetValue("ZPB_PESOL"	, ABS(nPeso - iIf(ValType(oMdl3:GetValue("ZPB_PESOE"))=="U", 0, oMdl3:GetValue("ZPB_PESOE"))))
-					oMdl4:SetValue("ZPB_PEMAN2" , iif(lPesagManu,"M","A") )
-					oMdl4:SetValue("ZPB_USRP2" 	, UsrFullName( ))
+					oMdl5:SetValue("ZPB_DATAF"	, Date())
+					oMdl5:SetValue("ZPB_HORAF"	, Time())
+					oMdl5:SetValue("ZPB_PESOS"	, nPeso )
+					oMdl5:SetValue("ZPB_PESOL"	, ABS(nPeso - iIf(ValType(oMdl4:GetValue("ZPB_PESOE"))=="U", 0, oMdl4:GetValue("ZPB_PESOE"))))
+					oMdl5:SetValue("ZPB_PEMAN2" , iif(lPesagManu,"M","A") )
+					oMdl5:SetValue("ZPB_USRP2" 	, UsrFullName( ))
 					oView:lModify := .T.
 				endif
 			endif
@@ -483,11 +483,11 @@ User Function PegaPeso( lGravPeso, nBalanca )
 Return nPeso
 User Function ReLoadLiquido()
 	Local oModel 	:= FwModelActivate()
-	Local oMdl3 	:= oModel:GetModel("ZPB_3")
 	Local oMdl4 	:= oModel:GetModel("ZPB_4")
+	Local oMdl5 	:= oModel:GetModel("ZPB_5")
 	Local nValor 	:= 0
 
-	nValor := oMdl4:GetValue("ZPB_PESOL") := ABS(oMdl3:GetValue("ZPB_PESOE")  -  oMdl4:GetValue("ZPB_PESOS"))
+	nValor := oMdl5:GetValue("ZPB_PESOL") := ABS(oMdl4:GetValue("ZPB_PESOE")  -  oMdl5:GetValue("ZPB_PESOS"))
 
 Return nValor
 /*--------------------------------------------------------------------------------,
@@ -597,8 +597,8 @@ Static Function CriaBt3(o3Panel,o3OtherObject)
 									" background-color: #FFFFFF; }"
 
     //TButton():New( 10, 10, "Pesar",oPanel,{|| SelGrid(oOtherObject)}, 60,10,,,.F.,.T.,.F.,,.F.,,,.F. )
-	oBtPeso3 := TButton():New(20,10, "Imprimir", o3Panel,;
-        		{|| U_PPeso1() }, 70 , 25,,,, .T./*lPixel*/)
+	oBtPeso3 := TButton():New(15,10, "Imprimir", o3Panel,;
+        		{|| U_PPeso1() }, 70 , 23,,,, .T./*lPixel*/)
     
 	oBtPeso3:SetCss(cCssBtn)
 	//oBtPeso2:SetCss("QPushButton { background-color: #2C2; color: #FFF; margin: 2px; font-weight: bold; font-size: 16pt;border: 2px solid green; border-radius: 20px;}")
@@ -608,30 +608,30 @@ User Function PPeso1()
 	Local oModel	  	:= FWModelActive()
 	Local oMdl1 		:= oModel:GetModel('ZPB_1')
 	Local oMdl2 		:= oModel:GetModel('ZPB_2')
-	Local oMdl3 		:= oModel:GetModel('ZPB_3')
 	Local oMdl4 		:= oModel:GetModel('ZPB_4')
 	Local oMdl5 		:= oModel:GetModel('ZPB_5')
+	Local oMdl3 		:= oModel:GetModel('ZPB_3')
 	Local aPeso 		:= {}
 	
 	if Empty(oMdl2:GetValue("ZPB_CPFMOT"))
 		MSGSTOP("Informe o campo CPF Motorista [ABA 02] antes de imprimir o ticket")
 	elseif Empty(oMdl2:GetValue("ZPB_CODFOR"))
 		MSGSTOP("Informe o campo Codigo Fornecedor [ABA 02] antes de imprimir o ticket")
-	elseif Empty(oMdl5:GetValue("ZPB_PRODUT"))
+	elseif Empty(oMdl3:GetValue("ZPB_PRODUT"))
 		MSGSTOP("Informe o campo Produto [ABA 05] antes de imprimir o ticket")
-	elseif Empty(oMdl3:GetValue("ZPB_PESOE"))
+	elseif Empty(oMdl4:GetValue("ZPB_PESOE"))
 		MSGSTOP("Informe o campo Peso de Entrada [ABA 03] antes de imprimir o ticket")
-	elseif Empty(oMdl4:GetValue("ZPB_PESOS"))
+	elseif Empty(oMdl5:GetValue("ZPB_PESOS"))
 		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
-	elseif Empty(oMdl5:GetValue("ZPB_NOTFIS"))
+	elseif Empty(oMdl3:GetValue("ZPB_NOTFIS"))
 		MSGSTOP("Informe o campo Notas Fiscais [ABA 0] antes de imprimir o ticket")
 	else
 		aAdd(aPeso, {;
 				{"ZPB_CODIGO", oMdl1:GetValue("ZPB_CODIGO")},;
 				{"ZPB_STATUS", oMdl1:GetValue("ZPB_STATUS")},;
 				{"ZPB_PLACA" , oMdl1:GetValue("ZPB_PLACA")},;
-				{"ZPB_DATA"  , oMdl3:GetValue("ZPB_DATA")},;
-				{"ZPB_HORA"  , oMdl3:GetValue("ZPB_HORA")},;
+				{"ZPB_DATA"  , oMdl4:GetValue("ZPB_DATA")},;
+				{"ZPB_HORA"  , oMdl4:GetValue("ZPB_HORA")},;
 				{"ZPB_CPFMOT", oMdl2:GetValue("ZPB_CPFMOT")},;
 				{"ZPB_CODMOT", oMdl2:GetValue("ZPB_CODMOT")},;
 				{"ZPB_NOMMOT", oMdl2:GetValue("ZPB_NOMMOT")},;
@@ -639,19 +639,19 @@ User Function PPeso1()
 				{"ZPB_CODFOR", oMdl2:GetValue("ZPB_CODFOR")},;
 				{"ZPB_LOJFOR", oMdl2:GetValue("ZPB_LOJFOR")},;
 				{"ZPB_NOMFOR", oMdl2:GetValue("ZPB_NOMFOR")},;
-				{"ZPB_NOTFIS", oMdl5:GetValue("ZPB_NOTFIS")},;
-				{"ZPB_PRODUT", oMdl5:GetValue("ZPB_PRODUT")},;
-				{"ZPB_DESC"  , oMdl5:GetValue("ZPB_DESC")},;
-				{"ZPB_PESOE" , oMdl3:GetValue("ZPB_PESOE")},;
-				{"ZPB_PESOS" , oMdl4:GetValue("ZPB_PESOS")},;
-				{"ZPB_DATAF" , oMdl4:GetValue("ZPB_DATAF")},;
-				{"ZPB_HORAF" , oMdl4:GetValue("ZPB_HORAF")},;
-				{"ZPB_PESOL" , oMdl4:GetValue("ZPB_PESOL")},;
-				{"ZPB_LOCAL" , oMdl5:GetValue("ZPB_LOCAL")},;
-				{"ZPB_BAIA"  , oMdl5:GetValue("ZPB_BAIA")},;
-				{"ZPB_OBSERV", oMdl5:GetValue("ZPB_OBSERV")},;
-				{"ZPB_NROGTA", oMdl5:GetValue("ZPB_NROGTA")},;
-				{"ZPB_QTANIM", oMdl5:GetValue("ZPB_QTANIM")};
+				{"ZPB_NOTFIS", oMdl3:GetValue("ZPB_NOTFIS")},;
+				{"ZPB_PRODUT", oMdl3:GetValue("ZPB_PRODUT")},;
+				{"ZPB_DESC"  , oMdl3:GetValue("ZPB_DESC")},;
+				{"ZPB_PESOE" , oMdl4:GetValue("ZPB_PESOE")},;
+				{"ZPB_PESOS" , oMdl5:GetValue("ZPB_PESOS")},;
+				{"ZPB_DATAF" , oMdl5:GetValue("ZPB_DATAF")},;
+				{"ZPB_HORAF" , oMdl5:GetValue("ZPB_HORAF")},;
+				{"ZPB_PESOL" , oMdl5:GetValue("ZPB_PESOL")},;
+				{"ZPB_LOCAL" , oMdl3:GetValue("ZPB_LOCAL")},;
+				{"ZPB_BAIA"  , oMdl3:GetValue("ZPB_BAIA")},;
+				{"ZPB_OBSERV", oMdl3:GetValue("ZPB_OBSERV")},;
+				{"ZPB_NROGTA", oMdl3:GetValue("ZPB_NROGTA")},;
+				{"ZPB_QTANIM", oMdl3:GetValue("ZPB_QTANIM")};
 		})
 
 		if Len(aPeso) > 0
@@ -1038,12 +1038,12 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
     If INCLUI 
 	    MBSaveLog():FULLWrite(, .F., "Carregado Tela 2 - Inclusão, Placa: " + cPlacaTGet)
         SetFunName("VAESTPES")
-        FWExecView('Inclusão: [ 1º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+' [ IMPRIMIR (F11) ] ', 'VAESTPES', MODEL_OPERATION_INSERT,,{||.T.})
+        FWExecView('Inclusão: [ 1º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+'  ', 'VAESTPES', MODEL_OPERATION_INSERT,,{||.T.})
         SetFunName(cFunBkp)
     ElseIf ALTERA
 	    MBSaveLog():FULLWrite(, .F., "Carregado Tela 2 - Alteração, Placa: " + cPlacaTGet)
         SetFunName("VAESTPES")
-        FWExecView('Alterar: [ 2º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+' [ IMPRIMIR (F11) ] ', 'VAESTPES', MODEL_OPERATION_UPDATE,,{||.T.})
+        FWExecView('Alterar: [ 2º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+' ', 'VAESTPES', MODEL_OPERATION_UPDATE,,{||.T.})
         SetFunName(cFunBkp)
     EndIf
 	
@@ -1057,9 +1057,9 @@ Return nil
 
 User Function VldNotFis()
 	//Local oModel	  	:= FWModelActive()
-	//Local oMdl5 		:= oModel:GetModel('ZPB_5')
+	//Local oMdl3 		:= oModel:GetModel('ZPB_3')
     //Local lRet := .T.
-    //if At(&(ReadVar()), oMdl5:GetValue("ZPB_NOTFIS")) > 0
+    //if At(&(ReadVar()), oMdl3:GetValue("ZPB_NOTFIS")) > 0
     //    Return .F.
     //EndIf
 Return .t. 
@@ -1084,12 +1084,12 @@ Static Function AtualPsgemNF()
     Local aArea   := GetArea()
     Local _cQry   := ""
     Local nI      := 0
-    Local aNotFis := StrToKarr(AllTrim(oMdl5:GetValue("ZPB_NOTFIS")),";")
+    Local aNotFis := StrToKarr(AllTrim(oMdl3:GetValue("ZPB_NOTFIS")),";")
     Local nLinAtu := 0
 
-    If Empty(oMdl5:GetValue("ZPB_NOTFIS")) .OR.;
+    If Empty(oMdl3:GetValue("ZPB_NOTFIS")) .OR.;
              oMdl2:GetValue("ZPB_CLIFOR") <> 'C' .OR.;
-            !(AllTrim(oMdl2:GetValue("ZPB_CODFOR"))==GetMV("MB_PSGCFOR",,"000001") .AND. (oMdl3:GetValue("ZPB_PESOE")>0.AND.oMdl4:GetValue("ZPB_PESOS")>0))// MB_PSGCFOR : Cliente/Fornecedor na pesagem
+            !(AllTrim(oMdl2:GetValue("ZPB_CODFOR"))==GetMV("MB_PSGCFOR",,"000001") .AND. (oMdl4:GetValue("ZPB_PESOE")>0.AND.oMdl5:GetValue("ZPB_PESOS")>0))// MB_PSGCFOR : Cliente/Fornecedor na pesagem
         Return nil
     EndIf
 
@@ -1111,7 +1111,7 @@ Static Function AtualPsgemNF()
             " 	FROM SD2 " + CRLF +;
             " ) " + CRLF +;
             "" + CRLF +;
-            " SELECT *, '" + cValToChar(oMdl4:GetValue("ZPB_PESOL")) + "'*(( D2_QUANT*100)/QTD_TOTAL/100) PESO_RATEADO " + CRLF +;
+            " SELECT *, '" + cValToChar(oMdl5:GetValue("ZPB_PESOL")) + "'*(( D2_QUANT*100)/QTD_TOTAL/100) PESO_RATEADO " + CRLF +;
             " FROM SD2 " + CRLF +;
             " CROSS JOIN SOMA_QTD_SD2 "
 
@@ -1122,16 +1122,16 @@ Static Function AtualPsgemNF()
         While !TEMPSQL->(Eof())
             nLinAtu += 1
 
-            MBSaveLog():FULLWrite(, .F., "AtualPsgemNF Lock: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA")) + " Peso Entrada - "   + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) ) + " Peso Saida - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) ) )
+            MBSaveLog():FULLWrite(, .F., "AtualPsgemNF Lock: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA")) + " Peso Entrada - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) ) + " Peso Saida - "   + AllTrim( cValToChar(oMdl5:GetValue("ZPB_PESOS")) ) )
 
             SD2->(DbGoTo(TEMPSQL->RECNO))
             RecLock("SD2", .F.)
-            SD2->D2_XNRPSAG := xFilial("ZPB")+DtoS(oMdl3:GetValue("ZPB_DATA"))+oMdl1:GetValue("ZPB_CODIGO")
+            SD2->D2_XNRPSAG := xFilial("ZPB")+DtoS(oMdl4:GetValue("ZPB_DATA"))+oMdl1:GetValue("ZPB_CODIGO")
             SD2->D2_XPESLIQ := TEMPSQL->PESO_RATEADO
-            SD2->D2_XDTABAT := DataValida(oMdl4:GetValue("ZPB_DATAF")+1, .T.)
+            SD2->D2_XDTABAT := DataValida(oMdl5:GetValue("ZPB_DATAF")+1, .T.)
             SD2->(MsUnlock())
             
-            MBSaveLog():FULLWrite(, .F., "AtualPsgemNF Unlock: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso Entrada - "   + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) ) + " Peso Saida - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOS")) ) )
+            MBSaveLog():FULLWrite(, .F., "AtualPsgemNF Unlock: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso Entrada - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) ) + " Peso Saida - "   + AllTrim( cValToChar(oMdl5:GetValue("ZPB_PESOS")) ) )
 
             TEMPSQL->(DBSkip())
 
@@ -1161,18 +1161,18 @@ User Function BuscaCurral()
 	Local oModel	  	:= FWModelActive()
 	Local oMdl1 		:= oModel:GetModel('ZPB_1')
 	Local oMdl2 		:= oModel:GetModel('ZPB_2')
+	Local oMdl4 		:= oModel:GetModel('ZPB_4')
 	Local oMdl3 		:= oModel:GetModel('ZPB_3')
-	Local oMdl5 		:= oModel:GetModel('ZPB_5')
     Local aArea   := GetArea()
     Local cCurral := CriaVar( 'ZPB_BAIA', .F.)
     Local _cQry   := ""
 
-    MBSaveLog():FULLWrite(, .F., "BuscaCurral Entrada: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) ) )
+    MBSaveLog():FULLWrite(, .F., "BuscaCurral Entrada: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) ) )
 
     _cQry := " SELECT  DISTINCT D2_LOTECTL " + CRLF+;
         " FROM    SD2010 " + CRLF+;
         " WHERE   D2_FILIAL='" + xFilial('SD2') + "' " + CRLF+;
-        " 	   AND D2_DOC IN (" + U_cValToSQL(oMdl5:GetValue("ZPB_NOTFIS"), ";") + ") " + CRLF+;
+        " 	   AND D2_DOC IN (" + U_cValToSQL(oMdl3:GetValue("ZPB_NOTFIS"), ";") + ") " + CRLF+;
         " 	   AND D2_CLIENTE = '" + AllTrim(oMdl2:GetValue("ZPB_CODFOR")) + "' " + CRLF+;
         " 	   AND D_E_L_E_T_=' '"
     If lower(UsrFullName( )) $ 'bernardo,mbernardo,atoshio,admin,administrador'
@@ -1187,7 +1187,7 @@ User Function BuscaCurral()
     
     TEMPSQL->(DbCloseArea())
     
-    MBSaveLog():FULLWrite(, .F., "BuscaCurral Saida: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl3:GetValue("ZPB_PESOE")) ) )
+    MBSaveLog():FULLWrite(, .F., "BuscaCurral Saida: Placa - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) + " Peso - "   + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) ) )
 
     RestArea(aArea)
 Return PadR(cCurral, TamSX3('ZPB_BAIA')[1])
@@ -1275,7 +1275,7 @@ User Function ceDocBaia()
 	Local _cQry := ""
 	Local oModel	  	:= FWModelActive()
 	Local oMdl2 		:= oModel:GetModel('ZPB_2')
-	Local oMdl3 		:= oModel:GetModel('ZPB_3')
+	Local oMdl4 		:= oModel:GetModel('ZPB_4')
 	Local cAlias := GetNextAlias()
 	Local lRet   := .F.
 
@@ -1284,7 +1284,7 @@ User Function ceDocBaia()
 		"        SUM(D2_QUANT) QTDE " + CRLF+;
 		"  FROM SD2010 " + CRLF+;
 		"  WHERE D2_FILIAL  = '" + xFilial('SD2')         + "'" + CRLF+;
-		"    AND D2_EMISSAO = '" + DtoS(oMdl3:GetValue("ZPB_DATA"))      + "'" + CRLF+;
+		"    AND D2_EMISSAO = '" + DtoS(oMdl4:GetValue("ZPB_DATA"))      + "'" + CRLF+;
 		"    AND D2_CLIENTE = '" + AllTrim(oMdl2:GetValue("ZPB_CODFOR")) + "'" + CRLF+;
 		"    AND D2_QUANT > 0 " + CRLF+;
 		"    AND D2_GRUPO IN ('BOV','01')" + CRLF+;
@@ -1422,10 +1422,10 @@ Return lAutoriza
 User Function GNotFis()
 	Local oModel	  	:= FWModelActive()
 	Local oMdl1 		:= oModel:GetModel('ZPB_1')
-	Local oMdl5 		:= oModel:GetModel('ZPB_5')
+	Local oMdl3 		:= oModel:GetModel('ZPB_3')
 	Local cValue 		:= StrZero( Val(&(ReadVar())) , TamSX3("ZPB_NOTAFI")[1] )
 	Local cRet 			:= ""
-	Local aNfs 			:= StrToKarr(AllTrim(oMdl5:GetValue("ZPB_NOTFIS")),";")
+	Local aNfs 			:= StrToKarr(AllTrim(oMdl3:GetValue("ZPB_NOTFIS")),";")
 	Local nI 
 	Local nDelete		:= 0
 	Local lGrv			:= .T. 
@@ -1462,7 +1462,7 @@ User Function GNotFis()
 			Next nI 
 		ENDIF 
 	else
-		cRet := AllTrim(cValue) + iIf( Empty(oMdl5:GetValue("ZPB_NOTFIS")), "", ";" + AllTrim(oMdl5:GetValue("ZPB_NOTFIS")) )
+		cRet := AllTrim(cValue) + iIf( Empty(oMdl3:GetValue("ZPB_NOTFIS")), "", ";" + AllTrim(oMdl3:GetValue("ZPB_NOTFIS")) )
 	ENDIF 
 
 Return cRet 

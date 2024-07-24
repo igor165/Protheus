@@ -32,7 +32,7 @@ User Function VACOMR10(aDados/* aCotacao,cTempo,aConteudo */)
     Local cForNome          := ''
     Private cTimeIni	    := Time()
     Private oPrinter        := nil
-    Private aDadosR10       := aDados
+    Private aDadosR10       := aClone(aDados)
     Private cKey            := ""
     Private cArqName        := ""
     Private cServPath       := "\COTACOES\"
@@ -242,7 +242,7 @@ Static Function fQuadro( nQuadro )
 			if len(AllTrim(aDadosR10[nI][2])) > 45
 				cTxtAux := AllTrim(aDadosR10[nI][2])
 				while AllTrim(cTxtAux) != ''
-					nAt     := At(" ",cTxtAux,35)
+					nAt     := At(" ",cTxtAux,40)
 					nPos    := Iif(len(cTxtAux)>40,Iif(nAt==0,len(cTxtAux),nAt),len(cTxtAux))
 					cDesc   := SubStr(cTxtAux,1,nPos)
 					cTxtAux := AllTrim(SubStr(cTxtAux,nPos+1,len(cTxtAux)))

@@ -34,7 +34,6 @@ User Function MT150END()
             EndIf
         EndIf
 
-
         aDados := fGetD1()
         if Len(aDados) > 0
             U_VACOMR10(aDados) // envia para o fornecedor

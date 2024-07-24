@@ -22,7 +22,7 @@ user function Mt110Grv()
 
         if !Empty(SC1->C1_OBS) .and. ALLTRIM(SC1->C1_OBS) != "SC gerada por Ponto de Pedido."
             RecLock("SB1", .f.)
-                SB1->B1_XDESC := ALLTRIM(SC1->C1_OBS)
+                SB1->B1_C1DESC := ALLTRIM(SC1->C1_OBS)
             SB1->(MsunLock())
         endif
     endif	

@@ -385,9 +385,9 @@ Return
 
 Static Function QuebraTexto(cText,nInicio,nPosFinal,nPosInicio,oFont,nLen)
     Local nAt, nPos
-    Local cDesc 
+    Local cDesc
     Local lpula
-    Private nGdLine
+    Local nGdLine
     
     iif(nLen==nil,nLen:=45,nLen)
 
@@ -497,12 +497,19 @@ Static Function fGetDados()
     _cQry += " FROM "+RetSqlName("SC7")+" SC7 " + CRLF 
     _cQry += " JOIN "+RetSqlName("SB1")+" SB1 ON SC7.C7_PRODUTO = SB1.B1_COD
     _cQry += " AND SB1.D_E_L_E_T_ = ''
-    _cQry += " WHERE SC7.C7_NUM = '"+SC7->C7_NUM+"' " + CRLF 
-    _cQry += " AND SC7.C7_FORNECE = '"+SC7->C7_FORNECE+"' " + CRLF 
-    _cQry += " AND SC7.C7_LOJA = '"+SC7->C7_LOJA+"' " + CRLF 
-    _cQry += " AND SC7.C7_FILIAL = '"+SC7->C7_FILIAL+"' " + CRLF 
+    _cQry += " WHERE SC7.C7_NUM = '028113' " + CRLF 
+    _cQry += " AND SC7.C7_FORNECE = '000011' " + CRLF 
+    _cQry += " AND SC7.C7_LOJA = '01' " + CRLF 
+    _cQry += " AND SC7.C7_FILIAL = '0101003' " + CRLF 
     _cQry += " AND SC7.D_E_L_E_T_ = '' " + CRLF
     _cQry += " ORDER BY SB1.B1_DESC " + CRLF
+
+    //_cQry += " WHERE SC7.C7_NUM = '"+SC7->C7_NUM+"' " + CRLF 
+    //_cQry += " AND SC7.C7_FORNECE = '"+SC7->C7_FORNECE+"' " + CRLF 
+    //_cQry += " AND SC7.C7_LOJA = '"+SC7->C7_LOJA+"' " + CRLF 
+    //_cQry += " AND SC7.C7_FILIAL = '"+SC7->C7_FILIAL+"' " + CRLF 
+    //_cQry += " AND SC7.D_E_L_E_T_ = '' " + CRLF
+    //_cQry += " ORDER BY SB1.B1_DESC " + CRLF
 
     if lower(cUserName) $ 'mbernardo,ioliveira,Administrador,atoshio,ioliveira'
         MemoWrite("C:\totvs_relatorios\" +"VACOMR11" + ".sql" , _cQry)

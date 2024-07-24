@@ -18,7 +18,7 @@
 	"font-size:12px;" +;
 	"font: 12px Arial;" +;
 	"}"
-
+/* 
 User Function VACOMR15() //U_VACOMR15()
 	Local _cQry, cAliasA
 	Local aImprimir := {}
@@ -61,7 +61,8 @@ User Function VACOMR15() //U_VACOMR15()
 	IF Len(aImprimir) > 0 
 		U_VACOMR14(aImprimir)
 	endif 
-Return
+Return */
+
 /*----------------------------------------------------------------------------------,
  | Principal: 					     U_VACOMR10()          		                    |
  | Func:    VACOMR10 	            	          	            	                |
@@ -81,7 +82,7 @@ User Function VACOMR14(aDados/* aCotacao,cTempo,aConteudo */)
     Local cServPath         := "\COTACOES_OBS\"
     Local cLocalPath        := "C:\TOTVS_RELATORIOS\COTACOES_OBS\"
     Private oPrinter        := nil
-    Private aDadosR14       := aDados
+    Private aDadosR14       := aClone(aDados)
 
     If Len( Directory(cLocalPath + "*.*","D") ) == 0
         If Makedir(cLocalPath) == 0
