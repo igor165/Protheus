@@ -102,10 +102,12 @@ Local cFiltro := ""
                              "		SELECT  Y1_COD" + CRLF +;
                              "		FROM	" + RetSQLName("SY1") + CRLF +;
                              "		WHERE	Y1_USER = '" + RetCodUsr() + "' AND D_E_L_E_T_=' '" + CRLF +;
-                             "	) AND D_E_L_E_T_ = ' ' ";
+                             "	) AND D_E_L_E_T_ = ' ' "+ CRLF +;
+                             "	AND C1_COTACAO <> '' "+ CRLF +;
+                             "	AND C1_PEDIDO = '' ";
                ), '_TMP' )
    
-   While !_TMP->(Eof()) .AND. LEN(cFiltro) < 1000
+   While !_TMP->(Eof()) .AND. LEN(cFiltro) < 500
 
         If At( _TMP->C1_COTACAO, cFiltro) == 0
             cFiltro += if(Empty(cFiltro),"", ".OR.") + "C8_NUM=='" + _TMP->C1_COTACAO + "'"
