@@ -10,12 +10,17 @@ Programa Fonte
 mata110.prx
 
 Sintaxe
-MT110VLD - Valida o registro na Solicitação de Compras ( [ ExpN1 ] ) --> ExpL1 
+MT110VLD - Valida o registro na Solicitação de Compras ( [ ExpN1 ] ) --> ExpL1
 
 */
 User Function MT110VLD()
     Local nOpc  := Paramixb[1]
-    Local lRet := .T.
+    Local lRet  := .T.
+    Local lBloq := GetMv("MV_BLQSOL")
+    
+    if Valtype("lBloq") <> 'U' .and. !lBloq // se o parametro MV_BLQSOL == .F., a alteração das solicitaçoes foi liberada por um dos usuários no parametro MV_BLQSLUS
+        Return .T.
+    endif
 
     if nOpc == 4
         if SC1->C1_APROV == 'L'
@@ -26,5 +31,3 @@ User Function MT110VLD()
         endif
     endif
 Return lRet
-
-

@@ -138,21 +138,20 @@ Static Function ViewDef()
 	oView:AddOtherObject("BTNPESO2",{|o2Panel,o2OtherObject| CriaBt2(o2Panel,o2OtherObject)})
 	oView:AddOtherObject("BTNPESO3",{|o2Panel,o2OtherObject| CriaBt3(o2Panel,o2OtherObject)})
 
-	oView:CreateVerticalBox('CABEC'		, 85 , 'CAB_1' )
-	oView:CreateVerticalBox('IMPPESO'	, 15 , 'CAB_1' )
 	oView:CreateVerticalBox('PESAR1'	, 10 , 'CAB_4' )
 	oView:CreateVerticalBox('PESAGEM1'	, 90 , 'CAB_4' )
 	oView:CreateVerticalBox('PESAR2'	, 10 , 'CAB_5' )
-	oView:CreateVerticalBox('PESAGEM2'	, 90 , 'CAB_5' )
+	oView:CreateVerticalBox('PESAGEM2'	, 80 , 'CAB_5' )
+	oView:CreateVerticalBox('IMPPESO'	, 10 , 'CAB_5' )
 
 	//Amarrando a view com as box
-	oView:SetOwnerView('VIEW_1'  	,'CABEC'	)
-	oView:SetOwnerView('BTNPESO3'  	,'IMPPESO'	)
+	oView:SetOwnerView('VIEW_1'  	,'CAB_1'	)
 	oView:SetOwnerView('VIEW_2'  	,'CAB_2'	)
 	oView:SetOwnerView('BTNPESO1'  	,'PESAR1'	)
 	oView:SetOwnerView('VIEW_4'  	,'PESAGEM1'	)
 	oView:SetOwnerView('BTNPESO2'  	,'PESAR2'	)
 	oView:SetOwnerView('VIEW_5'  	,'PESAGEM2'	)
+	oView:SetOwnerView('BTNPESO3'  	,'IMPPESO'	)
 	oView:SetOwnerView('VIEW_3'  	,'CAB_3'	)
 
     oView:EnableTitleView('VIEW_1'	, 'Dados da Pesagem' 		) 
@@ -337,18 +336,18 @@ User Function ESTPESV()
 					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nome Cli/For. [ABA 02]!")
 					lRet := .F.
 				elseif Empty(oMdl4:GetValue("ZPB_PESOE" ))
-					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso de entrada. [ABA 03]")
+					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso de entrada. [ABA 04]")
 					lRet := .F.
 				elseif (oMdl4:GetValue("ZPB_PESOE" ) > 0 .and. oMdl5:GetValue("ZPB_PESOS" ) > 0 ) .and. Empty(oMdl5:GetValue("ZPB_PESOL" ))
-					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso Liquido. [ABA 04]")
+					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Peso Liquido. [ABA 05]")
 					lRet := .F.
 				elseif Empty(oMdl3:GetValue("ZPB_DESC"  ))
-					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Produto. [ABA 05]")
+					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Produto. [ABA 03]")
 					lRet := .F.
 				end
 				
 				if lRet .and. iif(ProcName(6)=='U_PEGAPESO',.f.,(oMdl5:GetValue("ZPB_PESOS") > 0 .and. Empty(oMdl3:GetValue("ZPB_NOTFIS"))))
-					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 05]")
+					oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Preencha o Campo Nota Fiscal. [ABA 03]")
 					lRet := .F.
 				endif
 				
@@ -356,7 +355,7 @@ User Function ESTPESV()
 				If lRet .and. AllTrim(oMdl3:GetValue("ZPB_PRODUT")) $ GetMV("MB_PSGARM",,"030001,020023,020017") // os produtos configurados obrigam o preenchimento do campo armazem;
 					// se VAZIO entao nao continuar o processo
 					If Empty(oMdl3:GetValue("ZPB_LOCAL"))
-						oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Para o produto selecionado é preciso informar o campo armazem.  [ABA 05] ")
+						oModel:SetErrorMessage("","","","","HELP", 'Campo Obrigatório', "Para o produto selecionado é preciso informar o campo armazem.  [ABA 03] ")
 						lRet := .F.
 					EndIf
 				EndIf
@@ -382,10 +381,12 @@ User Function PegaPeso( lGravPeso, nBalanca )
 	Local nPeso 		:= 0
 	Local nPeso1      	:= oMdl4:GetValue("ZPB_PESOE")
 	Local nPeso2      	:= oMdl5:GetValue("ZPB_PESOS")
+	Local cBalEnt		:= SuperGetMv("MV_BALENT", ,"000002")
+	Local cBalSai		:= SuperGetMv("MV_BALSAI", ,"000005")
 	Local lPesagManu	:= .f.
 
 	if nBalanca == 1
-		aParBal := {"000002",.T.,.T.,.F.}
+		aParBal := {cBalEnt,.T.,.T.,.F.}
 		nOpcA := 1
 		
 		if nPeso1 > 0 .and. !MsgYesNo('Peso de entrada do caminhão preenchido, deseja informar o peso do caminhão novamente?')
@@ -397,7 +398,7 @@ User Function PegaPeso( lGravPeso, nBalanca )
 			lGravPeso := .F.
 		else
 			//cBalanca := '000006' // CRIAR PARAMETRO PARA DX6_CODBAL]
-			aParBal := {"000006",.T.,.T.,.F.}
+			aParBal := {cBalSai,.T.,.T.,.F.}
 			nOpcA := 2
 			if nPeso2 > 0 .and. !MsgYesNo('Peso de saida do caminhão preenchido, deseja informar o peso do caminhão novamente?')
 				lGravPeso := .F. 
@@ -472,7 +473,7 @@ User Function PegaPeso( lGravPeso, nBalanca )
 
 	if lGravPeso
 		if oModel:VldData()
-			if oModel:CommitData() 
+			if oModel:CommitData()
 				MBSaveLog():FULLWrite(, .F., "PegaPeso COMMIT / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) )
 			endif
 		endif
@@ -597,8 +598,8 @@ Static Function CriaBt3(o3Panel,o3OtherObject)
 									" background-color: #FFFFFF; }"
 
     //TButton():New( 10, 10, "Pesar",oPanel,{|| SelGrid(oOtherObject)}, 60,10,,,.F.,.T.,.F.,,.F.,,,.F. )
-	oBtPeso3 := TButton():New(15,10, "Imprimir", o3Panel,;
-        		{|| U_PPeso1() }, 70 , 23,,,, .T./*lPixel*/)
+	oBtPeso3 := TButton():New(20,10, "Imprimir", o3Panel,;
+        		{|| U_PPeso1() }, 50 , 35,,,, .T./*lPixel*/)
     
 	oBtPeso3:SetCss(cCssBtn)
 	//oBtPeso2:SetCss("QPushButton { background-color: #2C2; color: #FFF; margin: 2px; font-weight: bold; font-size: 16pt;border: 2px solid green; border-radius: 20px;}")
@@ -618,11 +619,11 @@ User Function PPeso1()
 	elseif Empty(oMdl2:GetValue("ZPB_CODFOR"))
 		MSGSTOP("Informe o campo Codigo Fornecedor [ABA 02] antes de imprimir o ticket")
 	elseif Empty(oMdl3:GetValue("ZPB_PRODUT"))
-		MSGSTOP("Informe o campo Produto [ABA 05] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Produto [ABA 03] antes de imprimir o ticket")
 	elseif Empty(oMdl4:GetValue("ZPB_PESOE"))
-		MSGSTOP("Informe o campo Peso de Entrada [ABA 03] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Peso de Entrada [ABA 04] antes de imprimir o ticket")
 	elseif Empty(oMdl5:GetValue("ZPB_PESOS"))
-		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Peso de Saida [ABA 05] antes de imprimir o ticket")
 	elseif Empty(oMdl3:GetValue("ZPB_NOTFIS"))
 		MSGSTOP("Informe o campo Notas Fiscais [ABA 0] antes de imprimir o ticket")
 	else
@@ -679,11 +680,11 @@ User Function PPeso2()
 	elseif Empty(ZPB->ZPB_CODFOR)
 		MSGSTOP("Informe o campo Codigo Fornecedor [ABA 02] antes de imprimir o ticket")
 	elseif Empty(ZPB->ZPB_PRODUT)
-		MSGSTOP("Informe o campo Produto [ABA 05] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Produto [ABA 03] antes de imprimir o ticket")
 	elseif Empty(ZPB->ZPB_PESOE)
-		MSGSTOP("Informe o campo Peso de Entrada [ABA 03] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Peso de Entrada [ABA 04] antes de imprimir o ticket")
 	elseif Empty(ZPB->ZPB_PESOS)
-		MSGSTOP("Informe o campo Peso de Saida [ABA 04] antes de imprimir o ticket")
+		MSGSTOP("Informe o campo Peso de Saida [ABA 05] antes de imprimir o ticket")
 	else 
 		aAdd(aPeso, {;
 				{"ZPB_CODIGO", ZPB->ZPB_CODIGO},;
@@ -1000,6 +1001,7 @@ Return nil
 
 User Function Tela2Pesagem(cAlias, nReg, nOpc)
     Local aArea          := GetArea()
+	Local lAltMan		 := .F. 
 
     Private _cNotaFiscal := CriaVar( 'D2_DOC', .F.)
 
@@ -1013,6 +1015,9 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
             MsgInfo(_cHTML)
             return nil
         EndIf
+	else 
+		cPlacaTGet	:= ZPB->ZPB_PLACA
+		lAltMan := .T.
     EndIf
 
     If nOpc == 3 // nao pode ter o nReg aqui ....
@@ -1041,16 +1046,23 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
         FWExecView('Inclusão: [ 1º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+'  ', 'VAESTPES', MODEL_OPERATION_INSERT,,{||.T.})
         SetFunName(cFunBkp)
     ElseIf ALTERA
+		if lAltMan
+			if !MsgYesNo("<font color='#000000' size='15'><b>Placa:</font><font color='#FF0000' size='15'> "+cPlacaTGet+"</b></font>" + CRLF +;
+						 "<font color='#000000' size='15'><b>Status:</font><font color='#FF0000' size='15'> "+IIF(ZPB->ZPB_STATUS == '1','1º Pesagem','Finalizado')+"</b></font>" + CRLF ;
+						, "CONFIRMA ALTERAÇÃO?")
+        		cPlacaTGet := CriaVar( 'DA3_PLACA' , .F.)
+				RestArea(aArea)
+				return nil
+			endif 
+		endif 
+
 	    MBSaveLog():FULLWrite(, .F., "Carregado Tela 2 - Alteração, Placa: " + cPlacaTGet)
         SetFunName("VAESTPES")
         FWExecView('Alterar: [ 2º Pesagem: Placa '+cPlacaTGet+' ] '+Space(10)+' ', 'VAESTPES', MODEL_OPERATION_UPDATE,,{||.T.})
         SetFunName(cFunBkp)
     EndIf
-	
+
 	cPlacaTGet := CriaVar( 'DA3_PLACA' , .F.)
-	/* if Type("oDlg1") <> "U"
-		oDlg1:End()
-	endif */
 
     RestArea(aArea)
 Return nil
