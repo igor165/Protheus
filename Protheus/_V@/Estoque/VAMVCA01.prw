@@ -1359,6 +1359,7 @@ oStruZ0D:AddTrigger(aAuxZ0D7[1], aAuxZ0D7[2], aAuxZ0D7[3], aAuxZ0D7[4])
 	oModel:SetPrimaryKey( { "Z0C_FILIAL", "Z0C_CODIGO" } )
 
 	oModel:GetModel('Z0EDETAIL'):SetOptional(.T.)
+	oModel:GetModel('Z0EDETAIL'):SetMaxLine(10000)
 
 	// Faz relacionamento entre os componentes do model
 	oModel:SetRelation( 'Z0DDETAIL', { { 'Z0D_FILIAL', 'FWxFilial( "Z0D" )' }, { 'Z0D_CODIGO', 'Z0C_CODIGO' } }, Z0D->( IndexKey( 1 ) ) )
