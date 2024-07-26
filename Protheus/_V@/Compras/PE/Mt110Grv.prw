@@ -107,16 +107,16 @@ Local cFiltro := ""
                              "	AND C1_PEDIDO = '' ";
                ), '_TMP' )
    
-   While !_TMP->(Eof()) .AND. LEN(cFiltro) < 500
+    While !_TMP->(Eof()) .AND. LEN(cFiltro) < 1000
 
-        If At( _TMP->C1_COTACAO, cFiltro) == 0
-            cFiltro += if(Empty(cFiltro),"", ".OR.") + "C8_NUM=='" + _TMP->C1_COTACAO + "'"
-        EndIf
+            If At( _TMP->C1_COTACAO, cFiltro) == 0
+                cFiltro += if(Empty(cFiltro),"", ".OR.") + "C8_NUM=='" + _TMP->C1_COTACAO + "'"
+            EndIf
 
-       _TMP->(DbSkip())
-   EndDo
+        _TMP->(DbSkip())
+    EndDo
 
-   cFiltro := "( " + cFiltro + " ) .AND. C8_VALIDA >= '" + dToS(MsDate()) + "'"
+    cFiltro := "( " + cFiltro + " ) "
 
 RestArea(aArea)
 

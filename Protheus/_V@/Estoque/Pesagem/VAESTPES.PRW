@@ -652,7 +652,9 @@ User Function PPeso1()
 				{"ZPB_BAIA"  , oMdl3:GetValue("ZPB_BAIA")},;
 				{"ZPB_OBSERV", oMdl3:GetValue("ZPB_OBSERV")},;
 				{"ZPB_NROGTA", oMdl3:GetValue("ZPB_NROGTA")},;
-				{"ZPB_QTANIM", oMdl3:GetValue("ZPB_QTANIM")};
+				{"ZPB_QTANIM", oMdl3:GetValue("ZPB_QTANIM")},;
+				{"ZPB_USRP1" , oMdl4:GetValue("ZPB_USRP1")},;
+				{"ZPB_USRP2" , oMdl5:GetValue("ZPB_USRP2")},;
 		})
 
 		if Len(aPeso) > 0
@@ -882,16 +884,20 @@ Static Function fQuadro( nQuadro ,aPeso)
 	oPrinter:Say ( nRow         , nColLabel+nCol2, "Baia........:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow         , nColInfo+nCol2 , aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_BAIA"})][2]/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
+	cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOE"})][2], X3Picture("ZBC_PESO") ) ) + Space(10)+;
+			Alltrim(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_USRP1"})][2])
 	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Peso Entrada...:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOE"})][2], X3Picture("ZBC_PESO") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow         , nColInfo ,  cAux /* AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOE"})][2], X3Picture("ZBC_PESO") ) ) *//*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
 	If !Empty(StrTran(DtoC(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_DATAF"})][2]),"/","")+StrTran(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_HORAF"})][2],":",""))
 		cAux := DtoC(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_DATA"})][2])+" - "+SubS(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_HORA"})][2],1,5)
 		oPrinter:Say ( nRow         , nColInfo+nCol2, cAux /*cText>*/, oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	EndIf
-
+	
+	cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOS"})][2], X3Picture("ZBC_PESO") ) ) + Space(10)+;
+			Alltrim(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_USRP1"})][2])
 	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Peso Saida.....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOS"})][2], X3Picture("ZBC_PESO") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow         , nColInfo ,  cAux /* AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOS"})][2], X3Picture("ZBC_PESO") ) ) *//*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
 	If !Empty(StrTran(DtoC(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_DATAF"})][2]),"/","")+StrTran(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_HORAF"})][2],":",""))
 		cAux := DtoC(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_DATAF"})][2])+" - "+SubS(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_HORAF"})][2],1,5)
@@ -920,8 +926,10 @@ Static Function fQuadro( nQuadro ,aPeso)
 		Endif
 	EndDo
 	nRow += (nTamLin*(nTotLinOBS-nCountLinOBS))
-	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Responsável pela Pesagem.....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	oPrinter:Say ( nRow         , nColInfo+65 , UsrFullName( )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+//	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Impressão por.....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+//	oPrinter:Say ( nRow         , nColInfo+65 , UsrFullName( )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow+=nTamLin, nColLabel+nCol2, "Impressão por....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+	oPrinter:Say ( nRow         , nColInfo+nCol2, UsrFullName( )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 Return
 
 /*--------------------------------------------------------------------------------,
@@ -1066,7 +1074,6 @@ User Function Tela2Pesagem(cAlias, nReg, nOpc)
 
     RestArea(aArea)
 Return nil
-
 User Function VldNotFis()
 	//Local oModel	  	:= FWModelActive()
 	//Local oMdl3 		:= oModel:GetModel('ZPB_3')
