@@ -223,7 +223,7 @@ User Function zSaveZPB()
 
 			IF ZPB->ZPB_OPESOS != oMdl5:GetValue("ZPB_PESOS")
 				ZPB->ZPB_OPESOS	:= oMdl5:GetValue("ZPB_PESOS")
-			ENDIF 
+			ENDIF
 
 			ZPB->ZPB_PESOS 	:= oMdl5:GetValue("ZPB_PESOS")
 			ZPB->ZPB_DATAF 	:= oMdl5:GetValue("ZPB_DATAF")
@@ -308,12 +308,15 @@ User Function ESTPESV()
 					oStr1:SetProperty( 'ZPB_PLACA', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+cPlacaTGet+"'" ) )
 					//oMdl1:GetValue("ZPB_PLACA") := cPlacaTGet
 					_aMotorista  := UltPesagemXPlaca(cPlacaTGet)
-					If (!Empty(_aMotorista)) // preenchimento de campos automaticamente de acordo com a ultima pesagem do caminhao
+					If Len(_aMotorista) > 0 // preenchimento de campos automaticamente de acordo com a ultima pesagem do caminhao
 						oStr2:SetProperty( 'ZPB_CODMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 01]+"'" ) )
 						oStr2:SetProperty( 'ZPB_CPFMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 02]+"'" ) )
 						oStr2:SetProperty( 'ZPB_NOMMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 03]+"'" ) )
 						oStr3:SetProperty( 'ZPB_PRODUT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 04]+"'" ) )
 						oStr3:SetProperty( 'ZPB_DESC'  , MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 05]+"'" ) )
+						if ValType(_aMotorista[1][12]) == "C"
+							oStr3:SetProperty( 'ZPB_OBSERV', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 12]+"'" ) )
+						EndIf
 					EndIf
 				EndIf
 			endif 			
@@ -508,7 +511,7 @@ Static Function UltPesagemXPlaca(cPlaca)
 	Local _cQry    := ""
 	Local aRetorno := {}
 
-	_cQry := " SELECT	TOP 1 R_E_C_N_O_ RECNO--, * " + CRLF
+	_cQry := " SELECT TOP 1 R_E_C_N_O_ RECNO--, ltrim(ISNULL(CAST(CAST(ZPB_OBSERV AS VARBINARY(8000)) AS VARCHAR(8000)),'')) AS OBS,* " + CRLF
 	_cQry += " FROM	"+RetSqlName("ZPB")+" " + CRLF
 	_cQry += " WHERE	ZPB_PLACA = '"+ cPlaca +"' " + CRLF
 	_cQry += "     AND D_E_L_E_T_=' ' " + CRLF
@@ -519,17 +522,17 @@ Static Function UltPesagemXPlaca(cPlaca)
 	dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),"TEMPSQL",.F.,.F.)
 	if !TEMPSQL->(Eof())
 		ZPB->(DbGoTo(TEMPSQL->RECNO))
-		aAdd( aRetorno, { ZPB->ZPB_CODMOT,;
-							ZPB->ZPB_CPFMOT,;
-							ZPB->ZPB_NOMMOT,;
-							ZPB->ZPB_PRODUT,;
-							ZPB->ZPB_DESC  ,;
-							ZPB->ZPB_CLIFOR,;
-							ZPB->ZPB_CODFOR,;
-							ZPB->ZPB_LOJFOR,;
-							ZPB->ZPB_NOMFOR,;
-							ZPB->ZPB_LOCAL ,;
-							ZPB->ZPB_BAIA  ,;
+		aAdd( aRetorno, {   ZPB->ZPB_CODMOT ,;
+							ZPB->ZPB_CPFMOT ,;
+							ZPB->ZPB_NOMMOT ,;
+							ZPB->ZPB_PRODUT ,;
+							ZPB->ZPB_DESC   ,;
+							ZPB->ZPB_CLIFOR ,;
+							ZPB->ZPB_CODFOR ,;
+							ZPB->ZPB_LOJFOR ,;
+							ZPB->ZPB_NOMFOR ,;
+							ZPB->ZPB_LOCAL  ,;
+							ZPB->ZPB_BAIA   ,;
 							ZPB->ZPB_OBSERV } )
 	EndIf
 	TEMPSQL->(DbCloseArea())
@@ -713,7 +716,9 @@ User Function PPeso2()
 				{"ZPB_BAIA"  , ZPB->ZPB_BAIA},;
 				{"ZPB_OBSERV", ZPB->ZPB_OBSERV},;
 				{"ZPB_NROGTA", ZPB->ZPB_NROGTA},;
-				{"ZPB_QTANIM", ZPB->ZPB_QTANIM};
+				{"ZPB_QTANIM", ZPB->ZPB_QTANIM},;
+				{"ZPB_USRP1", ZPB->ZPB_USRP1},;
+				{"ZPB_USRP2", ZPB->ZPB_USRP2};
 		})
 
 		if Len(aPeso) > 0
@@ -895,7 +900,7 @@ Static Function fQuadro( nQuadro ,aPeso)
 	EndIf
 	
 	cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOS"})][2], X3Picture("ZBC_PESO") ) ) + Space(10)+;
-			Alltrim(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_USRP1"})][2])
+			Alltrim(aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_USRP2"})][2])
 	oPrinter:Say ( nRow+=nTamLin, nColLabel, "Peso Saida.....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 	oPrinter:Say ( nRow         , nColInfo ,  cAux /* AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_PESOS"})][2], X3Picture("ZBC_PESO") ) ) *//*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 

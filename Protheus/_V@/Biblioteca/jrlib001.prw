@@ -1050,7 +1050,7 @@ local nLen, i
     
     if aColsGrv == nil  
         nLen := FCount()      
-        for i := 1 to nLen 
+        for i := 1 to nLen
             cCpo := Eval(bCampo3, i)
             if SX3->(DbSeek(cCpo)) .and. SX3->X3_CONTEXT != "V" .and. Type("M->"+(cCpo)) != "U"
                 &(cCpo) := M->&(cCpo)
@@ -1135,6 +1135,7 @@ local nOrderSx3, nRecSx3, nCodObsF
 
     end
 
+TESTE 1205
     DbGoTo(nRecSx3)
     DbSetOrder(nOrderSx3)
     DbSelectArea(cAliasOld)

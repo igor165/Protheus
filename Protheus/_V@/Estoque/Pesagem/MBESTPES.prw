@@ -540,9 +540,9 @@ Static Function ZADSalvar(lAuto)
         ZPB->( DbSetOrder(1) )
         lRecLock:=!ZPB->(DbSeek( xFilial("ZPB") + cChave))
         RecLock( "ZPB", lRecLock )
-        ZPB->ZPB_FILIAL	:= xFilial('ZPB')
-        U_GrvCpo("ZPB")
-        ZPB->ZPB_STATUS := IiF(M->ZPB_PESOE>0.AND.M->ZPB_PESOS>0, "F", "1")
+            ZPB->ZPB_FILIAL	:= xFilial('ZPB')
+            U_GrvCpo("ZPB")
+            ZPB->ZPB_STATUS := IiF(M->ZPB_PESOE>0.AND.M->ZPB_PESOS>0, "F", "1")
         ZPB->(MsUnlock())
 
         // While __lSX8
