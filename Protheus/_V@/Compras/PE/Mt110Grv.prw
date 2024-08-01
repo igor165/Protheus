@@ -115,9 +115,11 @@ Local cFiltro := ""
 
         _TMP->(DbSkip())
     EndDo
-
-    cFiltro := "( " + cFiltro + " ) "
-
+    
+    if AllTrim(cFiltro) <> ""
+        cFiltro := "( " + cFiltro + " ) "
+    endif 
+    
 RestArea(aArea)
 
 Return cFiltro

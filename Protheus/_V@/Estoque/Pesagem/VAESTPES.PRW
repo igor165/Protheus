@@ -233,7 +233,7 @@ User Function zSaveZPB()
 			ZPB->ZPB_USRP2 	:= oMdl5:GetValue("ZPB_USRP2")
 
 			ZPB->ZPB_LOCAL 	:= oMdl3:GetValue("ZPB_LOCAL")
-			ZPB->ZPB_OBSERV	:= oMdl3:GetValue("ZPB_OBSERV")
+			ZPB->ZPB_OBSERV	:= AllTrim(oMdl3:GetValue("ZPB_OBSERV"))
 			ZPB->ZPB_NROGTA	:= oMdl3:GetValue("ZPB_NROGTA")
 			ZPB->ZPB_QTANIM	:= oMdl3:GetValue("ZPB_QTANIM")
 			ZPB->ZPB_NOTFIS	:= oMdl3:GetValue("ZPB_NOTFIS")
@@ -314,13 +314,13 @@ User Function ESTPESV()
 						oStr2:SetProperty( 'ZPB_NOMMOT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 03]+"'" ) )
 						oStr3:SetProperty( 'ZPB_PRODUT', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 04]+"'" ) )
 						oStr3:SetProperty( 'ZPB_DESC'  , MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 05]+"'" ) )
-						if ValType(_aMotorista[1][12]) == "C"
-							oStr3:SetProperty( 'ZPB_OBSERV', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+_aMotorista[01, 12]+"'" ) )
-						EndIf
+						
+						//oStr3:SetProperty( 'ZPB_OBSERV', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, '"'+SubStr(_aMotorista[01, 12],1,Len(_aMotorista[01, 12])-2)+'"' ) )
+						oStr3:SetProperty( 'ZPB_OBSERV', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, '"'+_aMotorista[01, 12]+'"' ) )
 					EndIf
 				EndIf
 			endif 			
-		elseif Alltrim(cIdPonto) == 'MODELPOS' 
+		elseif Alltrim(cIdPonto) == 'MODELPOS'
 			nOper := oModel:nOperation
 			if nOper == 3 .or. nOper == 4
 				oMdl1 := oModel:GetModel( 'ZPB_1' )
@@ -533,7 +533,7 @@ Static Function UltPesagemXPlaca(cPlaca)
 							ZPB->ZPB_NOMFOR ,;
 							ZPB->ZPB_LOCAL  ,;
 							ZPB->ZPB_BAIA   ,;
-							ZPB->ZPB_OBSERV } )
+							Replace( ZPB->ZPB_OBSERV, Chr(13)+Chr(10), " " ) } )
 	EndIf
 	TEMPSQL->(DbCloseArea())
 	RestArea(aArea)

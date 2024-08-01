@@ -1273,6 +1273,7 @@ User Function I04INI()
 	Local oModel 	:= FWModelActive()
 	Local oGrid  	:= oModel:GetModel("ZFFDETAIL")
 	Local oStru  	:= oModel:GetModel("ZFFMASTER")
+	Local ogZFI 	:= oModel:GetModel("ZFIDETAIL")
 	Local cRet 		
 	Local nLine 	:= oGrid:GetQtdLine()
 	Local aSaveRows := FWSaveRows()
@@ -1311,6 +1312,8 @@ User Function I04INI()
 			cRet := oGrid:GetValue("ZFF_ORIGEM")
 		elseif cCampo == 'ZFI_LOJA'
 			cRet := oGrid:GetValue("ZFF_RLOJA")
+		//elseif cCampo == 'ZFI_NFOR'
+		//	cRet := ogZFI:GetValue("ZFI_FORNEC")
 		endif
 	endif
 
