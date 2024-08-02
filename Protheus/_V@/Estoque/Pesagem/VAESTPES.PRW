@@ -1452,7 +1452,7 @@ User Function GNotFis()
 	Local aNfs 			:= StrToKarr(AllTrim(oMdl3:GetValue("ZPB_NOTFIS")),";")
 	Local nI 
 	Local nDelete		:= 0
-	Local lGrv			:= .T. 
+	Local lGrv			:= .T.
 
 	if Len(aNfs) > 0
 		For nI := 1 to Len(aNfs)
