@@ -34,7 +34,7 @@ Static Function ModelDef()
 	Local oStZVG    := FWFormStruct(1, 'ZVG')
 	Local oStZVH    := FWFormStruct(1, 'ZVH')
 	Local oStZVJ    := FWFormStruct(1, 'ZVJ')
-	Local bVldPos   := {|| zVldZVGTab()}
+	Local bVldPos   := {|| zMdlPos()}
 	Local bVldCom   := {|| zCommit()}
     Local aZVHRel   := {}
     Local aZVJRel   := {}
@@ -45,7 +45,7 @@ Static Function ModelDef()
     aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_LOCAL"  ,"SB1->B1_LOCPAD"					,.F.,""     ,,""                              				,NIL,"02"))
     aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_QUANT"  ,"0"									,.F.,""     ,,""                              				,NIL,"03"))
     aAdd(aGatilhos, FWStruTriggger( "ZVH_LOCAL" , "ZVH_B2QATU" ,"SB2->B2_QATU"						,.T.,"SB2"  ,1,"FwxFilial('SB2')+M->ZVH_PROD+M->ZVH_LOCAL"  ,NIL,"01"))
-    aAdd(aGatilhos, FWStruTriggger( "ZVH_QUANT ", "ZVH_QTAPOS" ,"M->ZVH_B2QATU - M->ZVH_QUANT"		,.F.,""     ,,""                              				,NIL,"01"))
+    //aAdd(aGatilhos, FWStruTriggger( "ZVH_QUANT ", "ZVH_QTAPOS" ,"M->ZVH_B2QATU - M->ZVH_QUANT"		,.F.,""     ,,""                              				,NIL,"01"))
 
 	For nI := 1 To Len(aGatilhos)
         oStZVH:AddTrigger(  aGatilhos[nI][01],; //Campo Origem
@@ -67,7 +67,8 @@ Static Function ModelDef()
     oStZVH:SetProperty( 'ZVH_QTAPOS', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "IIF(INCLUI,0,ZVH->ZVH_B2QATU - ZVH->ZVH_QUANT)") )
     oStZVH:SetProperty( 'ZVH_DESC'	, MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "IIF(INCLUI,'',Posicione('SB1',1,FwXfilial('SB1')+ZVH->ZVH_PROD,'B1_DESC'))") )
 
-    oStZVH:SetProperty( 'ZVH_LOCAL', MODEL_FIELD_VALID, FwBuildFeature( STRUCT_FEATURE_VALID, "U_I08VLDP()") )
+    oStZVH:SetProperty( 'ZVH_PROD' , MODEL_FIELD_VALID, FwBuildFeature( STRUCT_FEATURE_VALID, "U_I08VLDP()") )
+    oStZVH:SetProperty( 'ZVH_LOCAL', MODEL_FIELD_VALID, FwBuildFeature( STRUCT_FEATURE_VALID, "U_I08VLDL()") )
     oStZVH:SetProperty( 'ZVH_QUANT', MODEL_FIELD_VALID, FwBuildFeature( STRUCT_FEATURE_VALID, "U_I08VHDQ()") )
     
     oStZVJ:SetProperty( 'ZVJ_DESC' , MODEL_FIELD_INIT , FwBuildFeature( STRUCT_FEATURE_INIPAD, "IIF(INCLUI,'',Posicione('SB1',1,FwXfilial('SB1')+ZVJ->ZVJ_PROD,'B1_DESC'))") )
@@ -138,10 +139,7 @@ Static Function ViewDef()
 
 	oView:AddUserButton( 'Adicionar Lotes','', {|oView| aLotes := MrkLotes(.T.)} )
 
-    //Tratativa padrão para fechar a tela
-
-	oView:SetCloseOnOk( { |oView| .T. } )
-	//O formulário da interface será colocado dentro do container
+	oView:SetCloseOnOk( {||.T.} )
 Return oView
 User Function ESTI08M()
 	Local aParam 		:= PARAMIXB
@@ -179,6 +177,10 @@ User Function ESTI08M()
 
 				oStZVG:SetProperty( 'ZVG_TIPO', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+IIF(valtype(cTpMov)=='C',SubStr(cTpMov,1,1),"R")+"'" ) )
 			endif
+		elseif cIdPonto == "MODELCANCEL"
+			if ValType(aLotes) == 'A'
+				aLotes := {}
+			endif 
 		elseif Alltrim(cIdPonto) == 'FORMPRE' .AND. cIdModel == 'ZVHDETAIL' .AND. cIdIXB5 == 'ISENABLE'
 			oModel 	  := FwModelActivate()
 			oMdlZVG   := oModel:GetModel("ZVGMASTER")
@@ -228,10 +230,10 @@ Static Function zCommit()
 	ZVG->(DbSetOrder(1))
 
 	DbSelectArea('ZVH')
-	ZVH->(DbSetOrder(2))//ZVH_FILIAL + ZVH_CODIGO + ZVH_ITEM
+	ZVH->(DbSetOrder(1))//ZVH_FILIAL + ZVH_CODIGO + ZVH_ITEM
 	
 	DbSelectArea('ZVJ')
-	ZVJ->(DbSetOrder(2))//ZVJ_FILIAL + ZVJ_CODIGO + ZVJ_ITEM
+	ZVJ->(DbSetOrder(1))//ZVJ_FILIAL + ZVJ_CODIGO + ZVJ_ITEM + ZVJ_ITEMVH
 	
 	If nOpc == MODEL_OPERATION_INSERT .OR. nOpc == MODEL_OPERATION_UPDATE
 
@@ -266,7 +268,8 @@ Static Function zCommit()
 						If !oMdlZVJ:isDeleted()
 							RecLock('ZVJ', lRecLock := !ZVJ->(DbSeek( FwXFilial("ZVJ") +;
 											oMdlZVJ:GetValue('ZVJ_CODIGO') +;
-											oMdlZVJ:GetValue('ZVJ_ITEM'))))
+											oMdlZVJ:GetValue('ZVJ_ITEM') +;
+											oMdlZVJ:GetValue('ZVJ_ITEMVH'))))
 
 								ZVJ->ZVJ_FILIAL := FwXFilial("ZVJ")
 								ZVJ->ZVJ_CODIGO := oMdlZVJ:GetValue('ZVJ_CODIGO')
@@ -291,7 +294,7 @@ Static Function zCommit()
 								ZVJ->(MsUnlock())
 							EndIf
 						EndIf
-				Next nX 
+				Next nX
 			Else		
 				If ZVH->(DbSeek( FwXFilial("ZVH") +;
 						oMdlZVH:GetValue('ZVH_CODIGO') +;
@@ -334,8 +337,8 @@ Static Function zCommit()
 				ZVH->(MsUnlock())
 
 				For nX := 1 to oMdlZVJ:GetQtdLine()
-					oMdlZVJ:GoLine(nI)
-					If ZVJ->(DbSeek( FwXFilial("ZVJ") +oMdlZVJ:GetValue('ZVJ_CODIGO') +oMdlZVJ:GetValue('ZVJ_ITEM')))
+					oMdlZVJ:GoLine(nX)
+					If ZVJ->(DbSeek( FwXFilial("ZVJ") +oMdlZVJ:GetValue('ZVJ_CODIGO') +oMdlZVJ:GetValue('ZVJ_ITEM') + oMdlZVJ:GetValue('ZVJ_ITEMVH')))
 
 						RecLock('ZVJ', .F.)
 							ZVJ->(DbDelete())
@@ -350,49 +353,45 @@ Static Function zCommit()
 		INCLUI := .T.
 	EndIf
 
+	aLotes := {}
+
 	RestArea(aArea)
 Return lRet
-Static Function zVldZVGTab()
+Static Function zMdlPos()
 	Local aArea     := GetArea()
 	Local oModel    := FWModelActive()
 	Local oMdlZVG   := oModel:GetModel("ZVGMASTER")
     Local oMdlZVH   := oModel:GetModel("ZVHDETAIL")
-    Local oMdlZVJ   := oModel:GetModel("ZVJDETAIL")
+    Local oMdlTOT   := oModel:GetModel("TOTAIS")
 	Local cCodigo 	:= oMdlZVG:GetValue("ZVG_CODIGO")
 	Local nOpc      := oModel:GetOperation()
 	Local lRet      := .T.
+	Local nI
 
-	//Se for InclusÃ£o
-	If nOpc == MODEL_OPERATION_INSERT
+	If nOpc == MODEL_OPERATION_INSERT .or. nOpc == MODEL_OPERATION_UPDATE
 		oMdlZVG:LoadValue("ZVG_CODIGO","")
 
 		oMdlZVG:LoadValue("ZVG_CODIGO",cCodigo)
-		//for nI := 1 to nLinhas
-		//	oGridM:GoLIne(nI)
-		//	if !oGridM:isDeleted()
-		//		if oGridM:GetValue("ZMS_QTDE") == 0
-		//			oModel:SetErrorMessage("","","","","HELP", 'Linha ' + cValToChar(nI) + ' com quantidade zerada', "Verifique a Quantidade ou Apague a linha")
-		//			Return .F.
-		//		endif
-		//	endif
-		//next
 
-		//DbSelectArea('ZVG')
-		//ZVG->(DbSetOrder(1)) 
-//
-		////Se conseguir posicionar, tabela jÃ¡ existe
-		//If ZVG->(DbSeek( xFilial("ZVG") +;
-		//		oModel:GetValue('ZVGMASTER', 'ZVG_COD')))
-        //       // dToS(oModel:GetValue('ZVGMASTER', 'ZVG_DATA'))))
-		//	Aviso('Atenção', 'Esse código de tabela já existe!', {'OK'}, 02)
-		//	lRet := .F.
-		//EndIf
-/* 	ElseIf nOpc == MODEL_OPERATION_DELETE
-		IF oCab:GetValue("ZVG_STATUS") == 'M'
-			MsgAlert("Registro com movimentação realizada, não é permitido a exclusão!", "Atenção")
-			lRet  := .F.
-		endif */
+		for nI := 1 to oMdlZVH:GetQtdLine()
+			oMdlZVH:GoLIne(nI)
 
+			if !oMdlZVH:isDeleted()
+				if oMdlTOT:GetValue("XX_TOTAL") <> oMdlZVH:GetValue('ZVH_QUANT')
+					oModel:SetErrorMessage("","","","","HELP", 'Grid Inválida', "Quantidade informada na Grid de Itens não confere com a quantidade informada na grid de Produtos!" +CRLF +;
+																				"Item--------: " + oMdlZVH:GetValue('ZVH_ITEM') + CRLF +;
+																				"Produto-----: " + AllTrim(oMdlZVH:GetValue('ZVH_PROD')) + CRLF +;
+																				"Qtd Produto-: " + Transform(oMdlZVH:GetValue('ZVH_QUANT'),"@E 999,999,999.999")+ CRLF +;
+																				"Qtd Itens---: " + Transform(oMdlTOT:GetValue('XX_TOTAL'),"@E 999,999,999.999")  )
+					Return .F.
+				endif
+			endif
+		next
+	elseIf nOpc == MODEL_OPERATION_DELETE
+		if oMdlZVG:GetValue("ZVG_STATUS") == 'M'
+			oModel:SetErrorMessage("","","","","HELP", 'Operação Inválida', "Modo de edição não permitido quando o campo Status é igual a [M = Movimentado]")
+			lRet := .F. 
+		endif
 	EndIf
 
 	RestArea(aArea)
@@ -460,20 +459,15 @@ Static function MrkLotes(lAdd)
 			Alert("Esta operação não pode ser realizada neste modo de edição.")
 			Return .F.
 		EndIf
+
+    	if oModel:GetModel("ZVGMASTER"):GetValue("ZVG_STATUS") == 'M'
+			Alert("Esta operação não pode ser realizada se o campo Status for igual a [ M=Movimentado ] .")
+			Return .F.
+		endif 
 	EndIf
 
 	aSize := MsAdvSize(.F.)
 
-	/*
-	 MsAdvSize (http://tdn.totvs.com/display/public/mp/MsAdvSize+-+Dimensionamento+de+Janelas)
-	 aSize[1] = 1 -> Linha inicial á²¥a trabalho.
-	 aSize[2] = 2 -> Coluna inicial á²¥a trabalho.
-	 aSize[3] = 3 -> Linha final á²¥a trabalho.
-	 aSize[4] = 4 -> Coluna final á²¥a trabalho.
-	 aSize[5] = 5 -> Coluna final dialog (janela).
-	 aSize[6] = 6 -> Linha final dialog (janela).
-	 aSize[7] = 7 -> Linha inicial dialog (janela).
-	*/
 	aAdd(aHeadMrk,{ " "			, "cStat"      	, "@BMP"         			, 1,0,"","","C","","V","","","","V","","",""})
 	aAdd(aHeadMrk,{ "Lote"		, "B8_LOTECTL"	, X3Picture("B8_LOTECTL")	, TamSX3("B8_LOTECTL")[1]	, 0, "AllwaysTrue()", X3Uso("B8_LOTECTL")	, "C", "", "V" } )
 	aAdd(aHeadMrk,{ "Curral"	, "B8_X_CURRA"	, X3Picture("B8_X_CURRA")	, TamSX3("B8_X_CURRA")[1]	, 0, "AllwaysTrue()", X3Uso("B8_X_CURRA")	, "C", "", "V" } )
@@ -564,27 +558,15 @@ static function seekAll(lAdd)
 	Local _cQry   := ""
 	Local cFiltro := ""
     Local cAlias  := GetNextAlias()
-	Local oModel
-	Local oView
-	Local oMdlZVH
-	Local oMdlZVJ
 
-	If lAdd
-		oModel 	 := FWModelActive()
-		oView	 := FWViewActive()
-		oMdlZVH := oModel:GetModel( 'ZVHDETAIL' )
-		oMdlZVJ := oModel:GetModel( 'ZVJDETAIL' )
-
-		If Len(aLotes) > 0
-
-			cFiltro += " and B8_LOTECTL+B8_X_CURRA+B8_LOCAL not in ("
-			for nI := 1 to Len(aLotes)
-				cFiltro += iIf(nI > 1, ",", "") + "'" +  aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_LOTE"})][2] +;
-														 aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_CURRAL"})][2] +; 
-														 aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_B8LOC"})][2] +"'"
-			Next
-			cFiltro += " ) " + CRLF
-		EndIf
+	If Len(aLotes) > 0
+		cFiltro += " and B8_LOTECTL+B8_X_CURRA+B8_LOCAL not in ("
+		for nI := 1 to Len(aLotes)
+			cFiltro += iIf(nI > 1, ",", "") + "'" +  aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_LOTE"})][2] +;
+														aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_CURRAL"})][2] +; 
+														aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_B8LOC"})][2] +"'"
+		Next
+		cFiltro += " ) " + CRLF
 	EndIf
 
 	_cQry := " SELECT DISTINCT 'LBTIK' CSTAT,B8_X_CURRA,B8_LOTECTL,B8_LOCAL,SUM(B8_SALDO) B8_SALDO" + CRLF
@@ -688,12 +670,19 @@ Static Function ConfirmAdd(lAdd)
 		oMdlZVH	:= oModel:GetModel("ZVHDETAIL")
 		oMdlZVJ := oModel:GetModel("ZVJDETAIL")
 
+		aLotes := aClone(aLote)
+
 		For nI := 1 to oMdlZVH:GetQtdLine()
 			oMdlZVH:GoLine(nI)
-			oMdlZVH:SetValue("ZVH_QUANT",oMdlZVH:GetValue("ZVH_QUANT"))
-		next nI 
-	endif 
+			oMdlZVH:SetValue("ZVH_QUANT", 0)
+		next nI
+	endif
+	
 	oDlgMrk:End()
+	
+	if lAdd
+		MsgAlert("Informe a quantidade em todas as linhas novamente!")
+	endif 
 	RestArea(aArea)
 Return aLote
 
@@ -721,42 +710,61 @@ User Function ESTI08C() // INICIADOR PADRAO DO CÓGIGO
     endif
 
 Return cRet
+User Function I08VLDP() // validação do produto e Produto - grid ZVH]
+    Local aArea     := FwGetArea()
+    Local oModel    := FWModelActive()
+    Local oMdlZVH   := oModel:GetModel("ZVHDETAIL")
+    Local oMdlZVJ   := oModel:GetModel("ZVJDETAIL")
+    Local lRet      := .T. 
+	Local nI
 
-User Function I08VLDP() // validação do produto - grid ZVH
+	DbSelectArea("SB1")
+    SB1->(DBSetOrder(1))//B1_FILIAL+B1_COD
+
+	if !(SB1->(DBSeek(FwxFilial("SB1")+oMdlZVH:GetValue("ZVH_PROD"))))
+        oModel:SetErrorMessage("","","","","HELP", 'Produto não encontrado', "Preencha corretamente o campo Produto")
+        return .F.
+    else
+		For nI := 1 to oMdlZVJ:GetQtdLine()
+			oMdlZVJ:GoLine(nI)
+			oMdlZVJ:SetValue("ZVJ_PROD",oMdlZVH:GetValue("ZVH_PROD"))
+			//oMdlZVJ:LoadValue("ZVJ_DESC",Posicione('SB1',1,FwXfilial('SB1')+oMdlZVH:GetValue("ZVH_PROD"),'B1_DESC'))
+		Next nI
+	endif 
+
+    FwRestArea(aArea)
+Return lRet 
+User Function I08VLDL() // validação do produto e Local - grid ZVH
     Local aArea     := FwGetArea()
     Local oModel    := FWModelActive()
     Local oMdlZVH   := oModel:GetModel("ZVHDETAIL")
     Local lRet      := .T. 
 
-    DbSelectArea("SB1")
-    SB1->(DBSetOrder(1))//B1_FILIAL+B1_COD
-    
-    if !(SB1->(DBSeek(FwxFilial("SB1")+oMdlZVH:GetValue("ZVH_PROD"))))
-        oModel:SetErrorMessage("","","","","HELP", 'Produto não encontrado', "Preencha corretamente o campo Produto")
-        return .F. 
-    else
-        DbSelectArea("SB2")
-        SB2->(DBSetOrder(1))//B2_FILIAL+B2_COD+B2_LOCAL
+	IF Empty(oMdlZVH:GetValue("ZVH_PROD"))
+		oModel:SetErrorMessage("","","","","HELP", 'Informe o produto', "Informe o Produto antes de informar o armazem!")
+		return .F.
+	else 
+		DbSelectArea("SB2")
+		SB2->(DBSetOrder(1))//B2_FILIAL+B2_COD+B2_LOCAL
 
-        IF !(SB2->((DBSeek(FwxFilial("SB2")+oMdlZVH:GetValue("ZVH_PROD")+oMdlZVH:GetValue("ZVH_LOCAL")))))
-            oModel:SetErrorMessage("","","","","HELP", 'Produto sem saldo', "Verifique se o armazem e o produto estão corretos!")
-            return .F.
-        else 
-            If SB2->B2_QATU == 0
-                oModel:SetErrorMessage("","","","","HELP", 'Produto sem saldo', "Verifique se o armazem e o produto estão corretos!")
-                return .F. 
-            //else
-            //    oMdlZVH:SetValue("ZVH_B2QATU",SB2->B2_QATU)
-            EndIf 
-        endif   
-    endif   
-    
+		IF !(SB2->((DBSeek(FwxFilial("SB2")+oMdlZVH:GetValue("ZVH_PROD")+oMdlZVH:GetValue("ZVH_LOCAL")))))
+			oModel:SetErrorMessage("","","","","HELP", 'Produto sem saldo', "Verifique se o armazem e o produto estão corretos!")
+			return .F.
+		else 
+			If SB2->B2_QATU == 0
+				oModel:SetErrorMessage("","","","","HELP", 'Produto sem saldo', "Verifique se o armazem e o produto estão corretos!")
+				return .F. 
+			EndIf 
+		endif   
+	endif   
+
     FwRestArea(aArea)
 Return lRet 
 
 User Function I08VHDQ() // validação do produto - grid ZVH
     Local lRet := .t. 
     Local oModel    := FWModelActive()
+	Local oView 	:= FWViewActive()
     Local oMdlZVG   := oModel:GetModel("ZVGMASTER")
     Local oMdlZVH   := oModel:GetModel("ZVHDETAIL")
     Local oMdlZVJ   := oModel:GetModel("ZVJDETAIL")
@@ -770,51 +778,58 @@ User Function I08VHDQ() // validação do produto - grid ZVH
         Return .F. 
     else	
 		
-		For nI := 1 to oMdlZVJ:GetQtdLine()
-			oMdlZVJ:Goline(nI)
-			oMdlZVJ:DeleteLine()
-		Next nI
-		
-		//oMdlZVJ:SetNoInsertLine(.F.)
+		oMdlZVJ:SetNoInsertLine(.F.)
 		
 		nQtdLote := Len(aLotes)
-		For nI := 1 To oMdlZVH:GetQtdLine()
-			oMdlZVH:GoLine(nI)
-			For nX := 1 To oMdlZVJ:GetQtdLine()
-				oMdlZVJ:GoLine(nI)
+			
+		oMdlZVH:LoadValue("ZVH_QTAPOS",oMdlZVH:GetValue("ZVH_B2QATU") - oMdlZVH:GetValue("ZVH_QUANT") )
 
-				if !lTipo
-					oMdlZVJ:LoadValue("ZVJ_QTDE"     ,oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote)
-				endif
-			Next nX
+		For nX := 1 To oMdlZVJ:GetQtdLine()
+			oMdlZVJ:GoLine(nX)
+
+			if !lTipo
+				oMdlZVJ:LoadValue("ZVJ_QTDE"     ,oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote)
+			endif
+		Next nX
+		
+		if !lTipo
 			oMdlTOT:LoadValue("XX_TOTAL"     ,ROUND((oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote) * Len(aLotes),4))
-		Next nI
+		endif
 
 		nPos := nX - 1
 
-        For nI := nPos To nQtdLote
-            oMdlZVJ:AddLine()
-            
-            oMdlZVJ:SetValue("ZVJ_ITEMVH"   , oMdlZVH:GetValue("ZVH_ITEM"))
-            oMdlZVJ:SetValue("ZVJ_LOTE"     , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_LOTE"})][2])
-            oMdlZVJ:SetValue("ZVJ_CURRAL"   , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_CURRAL"})][2])
-            oMdlZVJ:SetValue("ZVJ_SALDO"    , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_SALDO"})][2])
-            oMdlZVJ:SetValue("ZVJ_B8LOC"    , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_B8LOC"})][2])
-            oMdlZVJ:SetValue("ZVJ_PROD"     , oMdlZVH:GetValue("ZVH_PROD"))
-            oMdlZVJ:SetValue("ZVJ_B1LOC"    , oMdlZVH:GetValue("ZVH_LOCAL"))
-            if lTipo
+		For nI := nPos To nQtdLote
+			
+			oMdlZVJ:SetValue("ZVJ_CODIGO"   , oMdlZVH:GetValue("ZVH_CODIGO"))
+			oMdlZVJ:SetValue("ZVJ_ITEMVH"   , oMdlZVH:GetValue("ZVH_ITEM"))
+			oMdlZVJ:SetValue("ZVJ_LOTE"     , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_LOTE"})][2])
+			oMdlZVJ:SetValue("ZVJ_CURRAL"   , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_CURRAL"})][2])
+			oMdlZVJ:SetValue("ZVJ_SALDO"    , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_SALDO"})][2])
+			oMdlZVJ:SetValue("ZVJ_B8LOC"    , aLotes[nI][aScan(aLotes[nI], {|x| Upper(x[1]) == "ZVJ_B8LOC"})][2])
+			oMdlZVJ:SetValue("ZVJ_PROD"     , oMdlZVH:GetValue("ZVH_PROD"))
+			oMdlZVJ:SetValue("ZVJ_B1LOC"    , oMdlZVH:GetValue("ZVH_LOCAL"))
+			if lTipo
 				oMdlZVJ:SetValue("ZVJ_QTDE"     , 0)
 			else
 				oMdlZVJ:LoadValue("ZVJ_QTDE"     ,oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote)
 			endif
-        Next nI
 
-		oMdlTOT:LoadValue("XX_TOTAL"     ,ROUND((oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote) * Len(aLotes),4))
-        
-		//oMdlZVJ:SetNoInsertLine(.T.)
+			if nI < nQtdLote
+				oMdlZVJ:AddLine()
+			endif
+		Next nI
+
+		if !lTipo 
+			oMdlTOT:LoadValue("XX_TOTAL"     ,ROUND((oMdlZVH:GetValue("ZVH_QUANT") / nQtdLote) * Len(aLotes),4))
+		endif
+
+
+		oMdlZVJ:SetNoInsertLine(.T.)
 		
         oMdlZVJ:Goline(1)
-    endif 
+		
+		oView:Refresh()
+    endif
 Return lret 
 
 User Function I08VJDQ() // validação do QUANTIDADE  - grid ZVJ_QTDE
@@ -866,6 +881,14 @@ Static Function I08HPRE(oGrid, nLine, cAction, cField)
 		For nI := 1 to oMdlZVJ:GetQtdLine()
 			oMdlZVJ:Goline(nI)
 			oMdlZVJ:DeleteLine()
+		Next nI 
+		oMdlZVJ:SetNoDeleteLine(.t.)
+	elseIf cAction == 'UNDELETE'
+
+		oMdlZVJ:SetNoDeleteLine(.F.)
+		For nI := 1 to oMdlZVJ:GetQtdLine()
+			oMdlZVJ:Goline(nI)
+			oMdlZVJ:UnDeleteLine()
 		Next nI 
 		oMdlZVJ:SetNoDeleteLine(.t.)
 	EndIf
