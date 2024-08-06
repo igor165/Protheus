@@ -83,6 +83,7 @@ Static Function ModelDef()
 	oModel:SetDescription("Dados do Cadastro "+cTitulo)
 	oModel:GetModel("ZAVMASTER"):SetDescription("Formulário do Cadastro "+cTitulo)
 
+
 Return oModel
 
 Static Function ViewDef()
