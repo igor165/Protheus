@@ -475,8 +475,21 @@ for i := 1 to Len(aDados)
 						 "Processando [VAEST020: ProcZ02]" + _ENTER_ + "Processando dados ["+ StrZero(i,5) + " de " + StrZero(Len(aDados),5) + ": " + AllTrim(aDados[i,04]) +"]",;
 						  .T./* lConOut */,;
 						  /* lAlert */ )
-		//Toshio
-        aAuxNumOp := FWMsgRun(, {|| ProcLote( aDados[i,04], Upper(aDados[i,06]), Val(aDados[i,08]), aDados[i,09], aDados[i,10] ) },;
+        
+        
+        //TODO
+        /*
+        // ProcLote(cLote, cRacao, nQuant, cArmz, cArmzRac)
+        // procLote( aDados[i,04], Upper(aDados[i,06]), Val(aDados[i,08]), aDados[i,09] )
+
+        Antes de enviar os parametros para o PrcLote
+        Fazer laço e criar Array com as posições para passar na função PrcLote no lugar dessas posições
+         - Upper(aDados[i,06]), Val(aDados[i,08]), aDados[i,10] 
+        
+
+        */
+
+        FWMsgRun(, {|| aAuxNumOp := ProcLote( aDados[i,04], Upper(aDados[i,06]), Val(aDados[i,08]), aDados[i,09], aDados[i,10] ) },;
 							"Processando [VAEST020: ProcZ02]",;
 							"Processando dados ["+ StrZero(i,5) + " de " + StrZero(Len(aDados),5) + ": " + AllTrim(aDados[i,04]) +"]")
 		AAdd( aNumOp , aAuxNumOp )
@@ -593,7 +606,7 @@ cSql := " with estoque as ( " +_ENTER_+;
 						  .T./* lConOut */,;
 						  /* lAlert */ )
             // u_vaest021( cIndividuo, nQtdIndiv, cArmz, cRacao, nQuant, cArmzRac, Lote  ) TODO: Enviar em Array cRacao, nQuant, cArmzRec
-			aAuxNumOp := FWMsgRun(, {|| u_vaest021( (cAlias)->B1_COD, (cAlias)->B8_SALDO, cArmz, cRacao, nQuant*(cAlias)->(B8_SALDO/TOTAL), cArmzRac, (cAlias)->B8_LOTECTL ) },;
+			FWMsgRun(, {|| aAuxNumOp := u_vaest021( (cAlias)->B1_COD, (cAlias)->B8_SALDO, cArmz, cRacao, round(nQuant*(cAlias)->(B8_SALDO/TOTAL),4), cArmzRac, (cAlias)->B8_LOTECTL ) },;
 							"Processando [VAEST020: ProcLote]",;
 							"Processando dados ["+ StrZero(i,5) + ' de ' + StrZero(nRegistros,5) + ": " + AllTrim((cAlias)->B1_COD) +"]")
 			AAdd( aNumOp , aAuxNumOp )
@@ -604,7 +617,7 @@ cSql := " with estoque as ( " +_ENTER_+;
 						  .T./* lConOut */,;
 						  /* lAlert */ )
             // u_vaest021( cIndividuo, nQtdIndiv, cArmz, cRacao, nQuant, cArmzRac, Lote  ) TODO: Enviar em Array cRacao, nQuant, cArmzRec
-			aAuxNumOp := FWMsgRun(, {|| u_vaest021( (cAlias)->B1_COD, (cAlias)->B8_SALDO, cArmz, cRacao, nQuant-nQtdApro, cArmzRac, (cAlias)->B8_LOTECTL ) },;
+			FWMsgRun(, {|| aAuxNumOp :=  u_vaest021( (cAlias)->B1_COD, (cAlias)->B8_SALDO, cArmz, cRacao, nQuant-nQtdApro, cArmzRac, (cAlias)->B8_LOTECTL ) },;
 							"Processando [VAEST020: ProcLote]",;
 							"Processando dados ["+ StrZero(i,5) + ' de ' + StrZero(nRegistros,5) + ": " + AllTrim((cAlias)->B1_COD) +"]")
 			AAdd( aNumOp , aAuxNumOp )

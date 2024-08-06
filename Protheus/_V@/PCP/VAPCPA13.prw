@@ -29,7 +29,6 @@
 	// Alert("miguel")
 #ENDIF
 
-
 /*---------------------------------------------------------------------------------,
  | Analista : 								                                       |
  | Data		:                                                                      |
@@ -1576,6 +1575,7 @@ User Function ExpBatTrt( )
 	Local nTotMN        := 0
 	Local nTTrMN        := 0
 	Local nPrcMT        := 0
+	local nQtdPreItem   := 0
 	Local nDivisa       := 0
 	Local nQtdPre       := 0
 	Local nPerIng       := 0
@@ -1590,141 +1590,14 @@ User Function ExpBatTrt( )
 	Local cMsgExp       := ""
 	Local nAllOuSoVazio := 0
 	Local lAux          := .T.
+	local lAgua         := .f.
 	Local aPhibro       := {}
 	Local _cRoteiro		:= ""
 	Local aAguaZ0Y		:= {}
 	Local nIagua		:= 0
 	Local aOperador 	:= {}	
 	Local cOperador 
-
-	// EQUIPAMENTO				// ROTA
-	// If (Empty(aParRet[3])) .AND. (Empty(aParRet[6]))
-	// 	nAllOuSoVazio := AVISO("Atenção",;
-		// 						'Campo EQUIPAMENTO não localizado.'+CRLF+'Deseja gerar para TODOS ou somente os VAZIOS ???',;
-		// 						{ "Vazios", "Todos", "Cancelar" }, 2)
-	// 	If (nAllOuSoVazio == 3) // Cancelar
-	// 		return nil
-	// 	EndIf
-
-	// 	/*
-	// 		MB : 22.02.2021
-	// 			Validar se existe versao maior que 0001; se tiver entao a operacao nao pode continuar;
-		// 	*/
-	// 	if nAllOuSoVazio==2 .AND. (!Empty(cAux:=fTemVersaoMaior()))
-	// 		MsgInfo("Esta operação será cancelada pois foi encontrata exportação adicional: " + cAux)
-	// 		return nil
-	// 	EndIf
-
-	// 	// * TODOS * VAZIOS * CANCELAR
-	// 	If (aParRet[4] == 1) // 4 == operacao // 1 == Trato; 2 = Fabrica
-
-	// 		cQryEqp := " SELECT"
-	// 		cQryEqp += " DISTINCT"
-	// 		cQryEqp += " Z0S.Z0S_EQUIP AS EQUIP " + _ENTER_
-	// 		cQryEqp += " FROM " + RetSqlName("Z0S") + " Z0S " + _ENTER_
-	// 		cQryEqp += " WHERE Z0S.Z0S_FILIAL = '" + xFilial("Z0S")   + "'" + _ENTER_
-	// 		cQryEqp += "   AND Z0S.Z0S_DATA   = '" + DTOS(aParRet[1]) + "'" + _ENTER_
-	// 		cQryEqp += "   AND Z0S.Z0S_VERSAO = '" + aParRet[2] + "'" + _ENTER_
-
-	// 		If ( nAllOuSoVazio == 1 )
-	// 			cQryEqp += " AND Z0S.Z0S_EQUIP  = ' '" + _ENTER_
-	// 		EndIf
-	// 		// If(!Empty(aParRet[3])) // EQUIPAMENTO
-	// 		// 	cQryEqp += "   AND Z0S.Z0S_EQUIP NOT IN (SELECT Z0X.Z0X_EQUIP AS EQUIP " + _ENTER_
-	// 		// 	cQryEqp += "		                     FROM " + RetSqlName("Z0X") + " Z0X " + _ENTER_
-	// 		// 	cQryEqp += "                             WHERE Z0X.Z0X_FILIAL = '" + xFilial("Z0S") + "'" + _ENTER_
-	// 		// 	cQryEqp += "		                       AND Z0X.Z0X_DATA   = Z0S.Z0S_DATA " + _ENTER_
-	// 		// 	cQryEqp += "                               AND Z0X.Z0X_VERSAO = Z0S.Z0S_VERSAO " + _ENTER_
-	// 		// 	cQryEqp += "   							   AND Z0X.D_E_L_E_T_ = ' ') " + _ENTER_
-	// 		// EndIf
-	// 		cQryEqp += "   AND Z0S.D_E_L_E_T_ = ' ' " + _ENTER_
-
-	// 	ElseIf (aParRet[4] == 2)
-
-	// 		cQryEqp := " SELECT Z0J.Z0J_EQUIPA AS EQUIP " + _ENTER_
-	// 		cQryEqp += " FROM " + RetSqlName("Z0J") + " Z0J " + _ENTER_
-	// 		cQryEqp += " WHERE Z0J.Z0J_FILIAL = '" + xFilial("Z0J") + "'" + _ENTER_
-	// 		cQryEqp += "   AND Z0J.Z0J_DATA   = '" + DTOS(aParRet[1]) + "'" + _ENTER_
-	// 		// cQryEqp += "   AND Z0J.Z0J_VERSAO = '" + aParRet[2] + "'" + _ENTER_
-	// 		cQryEqp += "   AND Z0J.D_E_L_E_T_ = ' ' " + _ENTER_
-	// 		// cQryEqp += "   AND Z0J.Z0J_EQUIPA <> '' " + _ENTER_
-
-	// 	EndIf
-
-	// 	TCQUERY cQryEqp NEW ALIAS "QRYEQP"
-
-	// 	While (!(QRYEQP->(EOF())))
-	// 		If (aScan(aEqpJsn, {|x| x = QRYEQP->EQUIP}) < 1)
-	// 			AAdd(aEqpJsn, QRYEQP->EQUIP)
-	// 		EndIf
-	// 		QRYEQP->(DBSkip())
-	// 	EndDo
-	// 	QRYEQP->(DBCloseArea())
-
-	// Else
-
-	// 	// 23/11/2020 - Arthur Toshio
-	// 	/*
-	// 	Atualmente a rotina verifica na Z0X equipamento por equipamento
-	// 	*/
-	// 	cQryExp := " SELECT MAX(Z0X.Z0X_VERSAO) AS VERSAO, Z0X.Z0X_STATUS  Z0X_STATUS " + _ENTER_
-	// 	cQryExp += " FROM " + RetSqlName("Z0X") + " Z0X "  + _ENTER_
-	// 	cQryExp += " WHERE Z0X.Z0X_FILIAL = '" + xFilial("Z0X") + "'" + _ENTER_
-	// 	cQryExp += "   AND Z0X.Z0X_DATA = '" + DTOS(aParRet[1]) + "'" + _ENTER_
-	// 	/* MB : 20.02
-	// 		É preciso validar novamente se o equipamento esta preenchido,
-	// 		pois acima agora tem 2 validacoes: EQUIPAMENTOS e ROTA
-	// 	*/
-	// 	// EQUIPAMENTO
-	// 	if(!Empty(aParRet[3]))
-	// 		cQryExp += "   AND Z0X.Z0X_EQUIP = '" + aParRet[3] + "'" + _ENTER_
-	// 	EndIf
-	// 	// ROTA
-	// 	if (!Empty(aParRet[6]))
-	// 		cQryExp += "   AND Z0X_CODIGO = (SELECT DISTINCT Z0Y_CODEI " + _ENTER_
-	// 		cQryExp += "                       FROM  " + RetSqlName("Z0Y") + "" + _ENTER_
-	// 		cQryExp += "				      WHERE Z0Y_FILIAL = '" + FWxFilial("Z0Y") + "'" + _ENTER_
-	// 		cQryExp += "   						AND Z0Y_DATA = '" + DTOS(aParRet[1]) + "'" + _ENTER_
-	// 		cQryExp += "				        AND Z0Y_ROTA IN (" + AllTrim(aParRet[6]) + ")" + _ENTER_
-	// 		cQryExp += "						AND D_E_L_E_T_ = ' ') " + _ENTER_
-	// 	EndIf
-	// 	cQryExp += "   AND Z0X.D_E_L_E_T_ = ' '  " + _ENTER_
-	// 	cQryExp += " GROUP BY Z0X_STATUS "
-
-	// 	TCQUERY cQryExp NEW ALIAS "QRYVER"
-
-	// 	If !(QRYVER->(EOF()))
-	// 		If(QRYVER->Z0X_STATUS $ "P,I")
-	// 			MsgInfo("Já Existe um Arquivo Importado ou Processado para o equipamento " +cEquip+" no dia " +AllTrim(Str(DAY(aParRet[1])))+ "-" +AllTrim(Str(Month(aParRet[1])))+"-" +AllTrim(Str(Year(aParRet[1])))+". Por favor verifique os parâmetros")
-	// 			lRet := .F.
-	// 		Else
-	// 			aParRet[2] := Soma1(QRYVER->VERSAO)
-	// 			cArqExC := "programacao-" +AllTrim(Str(DAY(aParRet[1])))+ "-" +;
-		// 				AllTrim(Str(Month(aParRet[1])))+"-" +;
-		// 				AllTrim(Str(Year(aParRet[1])))+"-" +;
-		// 				cEquip+;
-		// 				"-V" +aParRet[2]+".csv"
-	// 		EndIf
-	// 	EndIf
-	// 	QRYVER->(DBCloseArea())
-
-	// 	If!lRet
-	// 		RestArea(aArea)
-	// 		Return (Nil)
-	// 	EndIf
-	// 	If(Empty(aParRet[2]))
-	// 		aParRet[2] := StrZero(1, TamSX3('Z0R_VERSAO')[1]) // "0001"
-	// 	EndIf
-
-	// 	AAdd(aEqpJsn, aParRet[3])
-	// EndIf
-
-	/* 
-		MB : 19.08.2021
-			-> Verificar se existe EXPORTACAO gerada;
-				Se houver, nao sera permitido continuar a geracao GERAL (para todos);
-				apenas por caminhão;
-	*/
+	
 	If (Empty(aParRet[3]) .and. Empty(aParRet[6])) .and.;
 			TemExpGerada()
 
@@ -2301,6 +2174,8 @@ User Function ExpBatTrt( )
 
 					For nCntTrt := 1 To nNrTrt
 
+						nQtdPreItem := 0
+						lAgua := .f.
 						nTTrMS := 0
 						If (aParRet[4] == 1) // 4 == operacao // 1 == Trato; 2 = Fabrica
 							cQryTTr :=    " SELECT Z06.Z06_CURRAL" +CRLF +;
@@ -2438,7 +2313,8 @@ User Function ExpBatTrt( )
 								" FROM ( " + _ENTER_ +;
 								" 		 SELECT DISTINCT " + _ENTER_ +;
 								" 		       ZG1.ZG1_COD AS RECEITA, ZG1.ZG1_COMP AS ITEM" + _ENTER_ +;
-								" 		     ,	ZG1.ZG1_QUANT AS QUANT, Z0V.Z0V_INDMS AS INDMS" + _ENTER_ +;
+								" 		     , ZG1.ZG1_QUANT / ISNULL((SELECT SUM(ZG.ZG1_QUANT) QTDE FROM ZG1010 ZG WHERE ZG.ZG1_FILIAL = ZG1.ZG1_FILIAL AND ZG.ZG1_COD = ZG1.ZG1_COD AND ZG.ZG1_SEQ = ZG1.ZG1_SEQ AND  ZG.D_E_L_E_T_ = ' ' ),1) AS QUANT " + _ENTER_ +;
+								" 		     , Z0V.Z0V_INDMS AS INDMS" + _ENTER_ +;
 								" 		     ,	ZG1.ZG1_TIMER AS TIMER,	ZG1.ZG1_TRT AS SEQ " + _ENTER_ +;
 								" 		      FROM " + RetSqlName("ZG1") + " ZG1 " + _ENTER_ +;
 								" 		RIGHT JOIN " + RetSqlName("Z0V") + " Z0V ON Z0V.Z0V_FILIAL = '" + FWxFilial("Z0V") + "'" + _ENTER_ +;
@@ -2516,6 +2392,9 @@ User Function ExpBatTrt( )
 							Break
 						EndIf
 
+
+
+
 						While (!QRYREC->(EOF()))
 
 							// MB : 21.02.2020
@@ -2536,6 +2415,11 @@ User Function ExpBatTrt( )
 								EndIf
 								TMPSG1->(DbCloseArea())
 							EndIf
+
+							/*27/03/2024 - Toshio*/
+							IF alltrim(QRYREC->ITEM) == GetMV( "MB_PCPA13A",, "990012") 
+								lAgua := .t.
+							EndIf 
 
 							If (cTipo_carreg := iIf(nPos==0, "", aTipo_carreg[nPos, 3])) == "P" .OR. (cTipo_carreg := iIf(nPos==0, "", aTipo_carreg[nPos, 3])) == "I" // Phibro
 								aAdd( aPhibro, {;
@@ -2563,7 +2447,7 @@ User Function ExpBatTrt( )
 								aResult[# 'ordens' ][nCntOrd][# 'pesosrequisitados' ][nCntTrt][nCntCmp] := Round(Round((QRYREC->QUANT * nTTrMS) / (QRYREC->INDMS/100),0)/nDivisa,0)*nDivisa
 								aResult[# 'ordens' ][nCntOrd][# 'tolerancias' ][nCntTrt][nCntCmp]       := '0'
 
-								nTTrMN += Round((QRYREC->QUANT * nTTrMS)/(QRYREC->INDMS/100), 0)
+								nTTrMN += Round((QRYREC->QUANT * nTTrMS)/(QRYREC->INDMS/100), 2)
 
 							ElseIf (aParRet[4] == 2)
 
@@ -2587,17 +2471,20 @@ User Function ExpBatTrt( )
 								nQtdPre := Round((QRYREC->QUANT / QRYREC->QB) * nTTrMS, -(Len(AllTrim(STR(nDivisa))) * -1)) //Round ( Round((QRYREC->QUANT / QRYREC->QB) * nTTrMS, 0) / nDivisa, 0) * nDivisa
 							EndIf
 
+							nQtdPreItem += nQtdPre
+							
+
 							// MB : 24.11.2021
 							If AllTrim(QRYREC->ITEM) == GetMV( "MB_PCPA13A",, "990012") .and. (aTipo_carreg[nPos, 3] == "V") // AGUA // Alert('Agua') e origem =v (automação)
 								if (nPos := aScan( _aReceitaOrigem, { |x| x[1] == cCodRec } )) > 0
 									While nPos > 0
 
-										If _aReceitaOrigem[ nPos, 3 ] == "P"
+										If _aReceitaOrigem[ nPos, 3 ] == "P" .and. _aReceitaOrigem[ nPos, 1 ] == cCodRec
 											_nDesAgua := GetMV( "MB_PCPA13P",, 70 )
 											nQtdPre -= _nDesAgua // Desconto Phibro
 											// fCriaZ0YAgua( "P", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, nCntCmp+1 )
 											aAdd( aAguaZ0Y, { "P", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, n2CntCmp+2 } )
-										ElseIf _aReceitaOrigem[ nPos, 3 ] == "I"
+										ElseIf _aReceitaOrigem[ nPos, 3 ] == "I" .and. _aReceitaOrigem[ nPos, 1 ] == cCodRec
 											_nDesAgua := GetMV( "MB_PCPA13I",, 50 )
 											nQtdPre -= _nDesAgua // Desconto Imbife
 											// fCriaZ0YAgua( "I", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, nCntCmp+2 )
@@ -2622,11 +2509,11 @@ User Function ExpBatTrt( )
 							    	/*  - Ultima linha do trato incluir a linha por ultimo
 							    		- Receita que nao possue agua	*/
 							    	While nPos > 0
-							    		If _aReceitaOrigem[ nPos, 3 ] == "P"
+							    		If _aReceitaOrigem[ nPos, 3 ] == "P" .and. _aReceitaOrigem[ nPos, 1 ] == cCodRec
 							    			_nDesAgua := GetMV( "MB_PCPA13P",, 70 )
 							    			// fCriaZ0YAgua( "P", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, ++n2CntCmp )
 							    			aAdd( aAguaZ0Y, { "P", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, n2CntCmp+2 } )
-							    		ElseIf _aReceitaOrigem[ nPos, 3 ] == "I"
+							    		ElseIf _aReceitaOrigem[ nPos, 3 ] == "I" .and. _aReceitaOrigem[ nPos, 1 ] == cCodRec
 							    			_nDesAgua := GetMV( "MB_PCPA13I",, 50 )
 							    			// fCriaZ0YAgua( "I", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, ++n2CntCmp )
 							    			aAdd( aAguaZ0Y, { "I", cSeqOrd, nCntTrt, cCodRec, _nDesAgua, aOrdCur, nCntOrd, @aCsvAux, n2CntCmp+3 } )
@@ -2706,7 +2593,7 @@ User Function ExpBatTrt( )
 								
 								QRYREC->(DBSkip())
 							EndDo
-
+							
 							for nIagua := 1 to len(aAguaZ0Y)
 								fCriaZ0YAgua( aAguaZ0Y[ nIagua, 01],;
 											  aAguaZ0Y[ nIagua, 02],;
@@ -2753,9 +2640,17 @@ User Function ExpBatTrt( )
 							// Carregamento
 							For nCntBat := 1 To Len(aCsvAux)
 								If(aParRet[4] == 1)
-									nPerIng := AllTrim(STRTRAN(STR(Round((aCsvAux[nCntBat][2] * 100) / ( nTTrMN + (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )))  , 4)), ".", ",")) + ";" // % ingrediente
-								ElseIf (aParRet[4] == 2)
-									nPerIng :=  AllTrim(STRTRAN(STR(Round((aCsvAux[nCntBat][2] * 100) / (nTTrMS)  , 4)), ".", ",")) + ";" // % ingrediente
+									//nPerIng := AllTrim(STRTRAN(STR(Round((aCsvAux[nCntBat][2] * 100) / ( nTTrMN +  If (!lAgua, (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )),0))  , 4)), ".", ",")) + ";" // % ingrediente
+									//nPerIng := AllTrim(STRTRAN(STR(round((aCsvAux[nCntBat][2] *100) / (nQtdPreItem + If (!lAgua, (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )),0)),4)), ".", ",")) + ";" // % ingrediente
+									
+									//nPerIng := AllTrim(STRTRAN(STR(((aCsvAux[nCntBat][2] *100) / (nQtdPreItem + If(!lAgua, (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )),0)))), ".", ",")) + ";" // % ingrediente
+									//nPerIng := AllTrim(STRTRAN(STR(round((aCsvAux[nCntBat][2] *100) / (nQtdPreItem + If(!lAgua, (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )),0)), 4)), ".", ",")) + ";" // % ingrediente
+									nPerIng := AllTrim(STRTRAN(STR(round((aCsvAux[nCntBat][2] *100) / (nQtdPreItem + If(lAgua,0,(GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )))), 4)), ".", ",")) + ";" // % ingrediente
+									
+								ElseIf (aParRet[4] == 2) 	
+									nPerIng :=  AllTrim(STRTRAN(STR(Round((aCsvAux[nCntBat][2] * 100) / (nTTrMS + If(!lAgua, (GetMV( "MB_PCPA13P",, 70 ) + GetMV( "MB_PCPA13I",, 50 )),0)), 4)), ".", ",")) + ";" // % ingrediente
+									
+									
 								EndIf
 
 								cCsvEBt += aCsvAux[nCntBat][1]
@@ -3999,25 +3894,34 @@ If Type("cFile") == "U"
 	Private cFile 		:= "C:\TOTVS_RELATORIOS\JOBPrcLote_" + DtoS(__DATA) + ".TXT"
 EndIf
 	_cQry := " WITH DADOS AS ( " + CRLF 
-   	_cQry += " select Z0Y_CODEI, Z0X.R_E_C_N_O_ RECNO " + CRLF 
+   	_cQry += " select Z0Y_CODEI, Z0X.R_E_C_N_O_ RECNO, Z0X_OPERAC OPERACAO " + CRLF 
    	_cQry += "   FROM "+RetSqlName("Z0Y")+" Z0Y " + CRLF 
-	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0Y_FILIAL AND Z0X_CODIGO = Z0Y_CODEI AND Z0X_DATA = Z0Y_DATA AND Z0X.D_E_L_E_T_ =' '  " + CRLF 
+	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0Y_FILIAL AND Z0X_CODIGO = Z0Y_CODEI AND Z0X_DATA = Z0Y_DATA AND Z0X.D_E_L_E_T_ =' ' --AND Z0X_OPERAC <> '1' " + CRLF 
+	_cQry += " 	 WHERE ( Z0Y_QTDREA > 0 OR Z0Y_PESDIG > 0)  " + CRLF 
+	_cQry += " 	   AND Z0Y_DATPRC = ' '  " + CRLF 
+	_cQry += " 	   AND Z0Y_CONFER = 'T' " + CRLF 
+	_cQry += " 	   AND Z0Y_DATA = '" +DTOS(__DATA)+ "' " + CRLF
+	_cQry += " 	   AND Z0Y.D_E_L_E_T_ =' '  " + CRLF
+	_cQry += " 	UNION  " + CRLF
+	_cQry += " select TOP(1) Z0Y_CODEI, Z0X.R_E_C_N_O_ RECNO, Z0X_OPERAC OPERACAO " + CRLF 
+   	_cQry += "   FROM "+RetSqlName("Z0Y")+" Z0Y " + CRLF 
+	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0Y_FILIAL AND Z0X_CODIGO = Z0Y_CODEI AND Z0X_DATA = Z0Y_DATA AND Z0X.D_E_L_E_T_ =' ' --AND Z0X_OPERAC = '1' " + CRLF 
 	_cQry += " 	 WHERE ( Z0Y_QTDREA > 0 OR Z0Y_PESDIG > 0)  " + CRLF 
 	_cQry += " 	   AND Z0Y_DATPRC = ' '  " + CRLF 
 	_cQry += " 	   AND Z0Y_CONFER = 'T' " + CRLF 
 	_cQry += " 	   AND Z0Y_DATA = '" +DTOS(__DATA)+ "' " + CRLF 
 	_cQry += " 	   AND Z0Y.D_E_L_E_T_ =' '  " + CRLF 
 	_cQry += " 	UNION  " + CRLF 
-   	_cQry += " select Z0W_CODEI, Z0X.R_E_C_N_O_ RECNO " + CRLF 
+   	_cQry += " select TOP(1) Z0W_CODEI, Z0X.R_E_C_N_O_ RECNO, Z0X_OPERAC OPERACAO " + CRLF 
    	_cQry += "   FROM "+RetSqlName("Z0W")+" Z0W " + CRLF 
-	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0W_FILIAL AND Z0X_CODIGO = Z0W_CODEI AND Z0X_DATA = Z0W_DATA AND Z0X.D_E_L_E_T_ =' '  " + CRLF 
+	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0W_FILIAL AND Z0X_CODIGO = Z0W_CODEI AND Z0X_DATA = Z0W_DATA AND Z0X.D_E_L_E_T_ =' '  --AND Z0X_OPERAC = '1'" + CRLF 
 	_cQry += " 	 WHERE ( Z0W_QTDREA > 0 OR Z0W_PESDIG > 0)  " + CRLF 
 	_cQry += " 	   AND Z0W_DATPRC = ' '  " + CRLF 
 	_cQry += " 	   AND Z0W_CONFER = 'T' " + CRLF 
 	_cQry += " 	   AND Z0W_DATA = '" +DTOS(__DATA)+ "'" + CRLF 
 	_cQry += " 	   AND Z0W.D_E_L_E_T_ =' '  " + CRLF 
 	_cQry += " 	   ) " + CRLF 
-	_cQry += " 	   SELECT DISTINCT RECNO FROM DADOS " + CRLF
+	_cQry += " 	   SELECT DISTINCT RECNO, OPERACAO FROM DADOS ORDER BY OPERACAO DESC " + CRLF
 	
 	//_cQry := " SELECT X.R_E_C_N_O_ RECNO
 	//_cQry += " FROM	  "+RetSqlName("Z0X")+" X
@@ -4870,6 +4774,10 @@ Local nDifOpe 		:= 0
 						Break
 					EndIf
 					*/
+
+
+					//nDifOpe := NoRound( Abs(( Val(aDados[nI, nPKGRecal]) - Val(aDados[nI, nPKGFornec]) )  / Val(aDados[nI, nPKGRecal]) * 100),2)
+					
 					_cQry := " UPDATE "+RetSqlName("Z0Y")+" " + _ENTER_
 					_cQry += " 	SET  Z0Y_QTDREA =  " + StrTran(aDados[nI, nPKGFornec],",",".") + "" + _ENTER_
 
@@ -5267,7 +5175,7 @@ cTitulo := "Tipos de Motivos"
 		%noParser%
 		SELECT X5_CHAVE, X5_DESCRI
 		FROM %table:SX5%
-		WHERE X5_FILIAL=%FWxFilial:SX5%
+		WHERE X5_FILIAL=%xFilial:SX5%
 		  AND X5_TABELA='ZX'
 		  AND %notDel%
 	endSQL

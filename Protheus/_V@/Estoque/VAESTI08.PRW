@@ -1,5 +1,6 @@
 #include "protheus.ch" 
 #INCLUDE 'FWMVCDEF.CH'
+#include "TryException.ch"
 
 Static cTitulo := "Apontamento de Feno" 
 
@@ -28,6 +29,7 @@ Static Function MenuDef()
 	ADD OPTION aRot TITLE 'Incluir'    		ACTION 'U_I08TELA1' 			    OPERATION MODEL_OPERATION_INSERT ACCESS 0 //OPERATION 3
 	ADD OPTION aRot TITLE 'Alterar'    		ACTION 'VIEWDEF.VAESTI08' 			OPERATION MODEL_OPERATION_UPDATE ACCESS 0 //OPERATION 4
 	ADD OPTION aRot TITLE 'Excluir'    		ACTION 'VIEWDEF.VAESTI08' 			OPERATION MODEL_OPERATION_DELETE ACCESS 0 //OPERATION 5
+	ADD OPTION aRot TITLE 'Processar'  		ACTION 'U_I08PROC'		 			OPERATION 6 					 ACCESS 0 //OPERATION 5
 Return aRot
 
 Static Function ModelDef()
@@ -185,11 +187,15 @@ User Function ESTI08M()
 			oModel 	  := FwModelActivate()
 			oMdlZVG   := oModel:GetModel("ZVGMASTER")
 			oMdlZVH   := oModel:GetModel("ZVHDETAIL")
+			oMdlZVJ   := oModel:GetModel("ZVJDETAIL")
 			
 			if oModel:GetOperation() == 4
 				if oMdlZVG:GetValue("ZVG_STATUS") == 'M'
 					oMdlZVH:SetNoInsertLine(.T.)
 					oMdlZVH:SetNoDeleteLine(.T.)
+
+					oMdlZVJ:SetNoInsertLine(.T.)
+					oMdlZVJ:SetNoDeleteLine(.T.)
 				endif
 			endif
 		elseif Alltrim(cIdPonto) == 'FORMPRE' .AND. cIdModel == 'ZVJDETAIL' .AND. cIdIXB5 == 'ISENABLE'
@@ -379,10 +385,10 @@ Static Function zMdlPos()
 			if !oMdlZVH:isDeleted()
 				if oMdlTOT:GetValue("XX_TOTAL") <> oMdlZVH:GetValue('ZVH_QUANT')
 					oModel:SetErrorMessage("","","","","HELP", 'Grid Inválida', "Quantidade informada na Grid de Itens não confere com a quantidade informada na grid de Produtos!" +CRLF +;
-																				"Item--------: " + oMdlZVH:GetValue('ZVH_ITEM') + CRLF +;
-																				"Produto-----: " + AllTrim(oMdlZVH:GetValue('ZVH_PROD')) + CRLF +;
+																				"Item-----------: " + oMdlZVH:GetValue('ZVH_ITEM') + CRLF +;
+																				"Produto--------: " + AllTrim(oMdlZVH:GetValue('ZVH_PROD')) + CRLF +;
 																				"Qtd Produto-: " + Transform(oMdlZVH:GetValue('ZVH_QUANT'),"@E 999,999,999.999")+ CRLF +;
-																				"Qtd Itens---: " + Transform(oMdlTOT:GetValue('XX_TOTAL'),"@E 999,999,999.999")  )
+																				"Qtd Itens------: " + Transform(oMdlTOT:GetValue('XX_TOTAL'),"@E 999,999,999.999")  )
 					Return .F.
 				endif
 			endif
@@ -894,3 +900,153 @@ Static Function I08HPRE(oGrid, nLine, cAction, cField)
 	EndIf
 
 Return lRet
+
+User Function I08PROC()
+	Local aArea  	:= FWGetArea()
+	Local cQry 	 	:= ""
+	Local cAlias 	:= ""
+	Local aDados	:= {}
+	Local cSequen   := ""
+	Local lBrk 		:= .F. 
+
+	Private __DATA  
+	Private cFile 	
+
+	IF ZVG->ZVG_STATUS == 'M'
+		MsgStop("Movimentação já realizada!")
+		Return nil
+	else
+		Begin Transaction
+			DbSelectArea('ZVG') //ZVG_FILIAL + ZVG_CODIGO=
+			ZVG->(DbSetOrder(1))
+
+			DbSelectArea('Z04')
+			Z04->(DbSetOrder(1))// Z04_FILIAL+Z04_SEQUEN+Z04_LOTE
+
+			__DATA  := ZVG->ZVG_DATA
+			cFile 	:= "C:\TOTVS_RELATORIOS\I08PROC_" + DtoS(__DATA) + ".TXT"
+			
+			cAlias 	:= GetNextAlias()
+			
+			cQry := " SELECT MAX(Z02.Z02_SEQUEN) AS SEQ " + CRLF
+			cQry += " FROM " + RetSqlName("Z02") + " Z02 " + CRLF
+			cQry += " WHERE Z02.Z02_FILIAL = '" + fwxFilial("Z02") + "'" + CRLF
+			cQry += "   AND Z02.D_E_L_E_T_ = ' ' " + CRLF
+			
+			mpSysOpenQuery(cQry, cAlias)
+
+			cSequen :=  Soma1((cAlias)->SEQ)
+			
+			(cALias)->(dbCloseArea())
+
+			cAlias 	:= GetNextAlias()
+
+			cQry := "select * from "+RetSqlName("ZVJ")+" " + CRLF
+			cQry += " WHERE ZVJ_CODIGO = '"+ZVG->ZVG_CODIGO+"' " + CRLF
+			cQry += " AND D_E_L_E_T_ = '' "
+
+			mpSysOpenQuery(cQry, cAlias)
+
+			while !(cALias)->(EOF())
+
+				RecLock("Z04", .T.)
+					Z04->Z04_FILIAL := fwxFilial("Z04")
+					Z04->Z04_SEQUEN := cSequen
+					Z04->Z04_CURRAL := (cALias)->ZVJ_CURRAL
+					Z04->Z04_DIETA  := (cALias)->ZVJ_PROD
+					Z04->Z04_LOTE   := (cALias)->ZVJ_LOTE
+					Z04->Z04_DTIMP  := __DATA
+					Z04->Z04_HRIMP  := Substr(Time(), 1, 5)
+					Z04->Z04_NROCAB := (cALias)->ZVJ_SALDO
+					Z04->Z04_TOTREA := (cALias)->ZVJ_QTDE
+					Z04->Z04_TOTAPR := (cALias)->ZVJ_QTDE
+				Z04->(MSUnlock())
+
+				aAdd(aDados,{;
+							__DATA,;
+							Substr(Time(), 1, 5),;
+							(cALias)->ZVJ_CURRAL,;
+							(cALias)->ZVJ_LOTE,;
+							(cALias)->ZVJ_SALDO,;
+							(cALias)->ZVJ_PROD,;
+							STR((cALias)->ZVJ_QTDE),;
+							STR((cALias)->ZVJ_QTDE),;
+							(cALias)->ZVJ_B8LOC,;
+							(cALias)->ZVJ_B1LOC;
+							})
+
+				(cALias)->(DbSkip())
+			enddo
+			(cALias)->(dbCloseArea())
+
+			TryException
+
+				//U_GravaArq( iIf(IsInCallStack("U_JOBPrcLote"), cFile, ""),;
+				//			"[" + AllTrim(ZVG->ZVG_CODIGO) + "]" +CRLF+;
+				//			"Funcao: PrcBatTrt" + CRLF +;
+				//			"Processando os dados [" + cSequen + "-" + AllTrim(ZVG->ZVG_CODIGO) + "]",;
+				//			.T./* lConOut */,;
+				//			/* lAlert */ )
+					
+				FWMsgRun(, {|| &('StaticCall(VAEST020, PROCZ02, aDados, cSequen)') },;
+								"Processando [VAEST020]" + "[" + AllTrim(ZVG->ZVG_CODIGO) + "]" ,;
+								"Processando os dados [" + cSequen + "-" + AllTrim(ZVG->ZVG_CODIGO) + "]" )
+			
+			CatchException Using oException
+				//U_GravaArq( iIf(IsInCallStack("U_JOBPrcLote"), cFile, ""),;
+				//			  "[" + AllTrim(ZVG->ZVG_CODIGO) + "]" +CRLF+;
+				//			  "ERRO3: " +oException:ErrorStack,;
+				//			  .T./* lConOut */,;
+				//			  /* lAlert */ )
+				u_ShowException(oException)
+				DisarmTransaction()
+			EndException
+		
+			//If lBrk
+			//	Break
+			//EndIf
+
+			RecLock("ZVG",.F.)
+				ZVG->ZVG_STATUS := "M"	
+			ZVG->(MsUnLock())
+
+			////Atualiza Processamento Trato
+			//cQryUpd := " UPDATE " + RetSqlName("Z0W") + CRLF
+			//cQryUpd += " SET Z0W_DATPRC = '" + DTOS(Date()) + "'" + CRLF
+			//cQryUpd += "   , Z0W_HORPRC = '" + SUBSTR(TIME(), 1, 5) + "'" + CRLF
+			//cQryUpd += " WHERE Z0W_FILIAL = '" + fwxFilial("Z0W") + "'" + CRLF
+			//cQryUpd += "   AND D_E_L_E_T_ = ' ' " + CRLF
+			//cQryUpd += "   AND Z0W_CODEI = '" + aParRet[2] + "'" + CRLF
+			//cQryUpd += "   AND Z0W_CONFER = 'T' "
+			//cQryUpd += "   AND Z0W_DATPRC = '' "
+			//
+			//If (TCSqlExec(cQryUpd) < 0)
+			//	DisarmTransaction()
+			//	Break
+			//	//MsgInfo(TCSqlError())
+			//EndIf
+			//
+			//cQryCfr := " SELECT * " + CRLF
+			//cQryCfr += " FROM " + RetSqlName("Z0W") + " Z0W " + CRLF
+			//cQryCfr += " WHERE Z0W.Z0W_FILIAL = '" + fwxFilial("Z0W") + "'" + CRLF
+			//cQryCfr += "   AND Z0W.D_E_L_E_T_ = ' ' " + CRLF
+			//cQryCfr += "   AND Z0W.Z0W_CODEI = '" + ZVG->ZVG_CODIGO + "'" + CRLF
+			//cQryCfr += "   AND Z0W.Z0W_DATPRC = ' ' " + CRLF
+			//
+			//TCQUERY cQryCfr NEW ALIAS "QRYCFR"
+			//
+			//If (QRYCFR->(EOF()))
+			//	RecLock("Z0X", .F.)
+			//		ZVG->ZVG_STATUS := "P"
+			//	Z0X->(MSUnlock())
+			//Else
+			//	RecLock("Z0X", .F.)
+			//		ZVG->ZVG_STATUS := "B"
+			//	Z0X->(MSUnlock())
+			//EndIf
+			//QRYCFR->(DBCloseArea())
+		End Transaction
+	endif 
+
+	FwRestArea(aArea)
+Return 
