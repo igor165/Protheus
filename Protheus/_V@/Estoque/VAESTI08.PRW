@@ -2,22 +2,26 @@
 #INCLUDE 'FWMVCDEF.CH'
 #include "TryException.ch"
 
-Static cTitulo := "Apontamento de Feno" 
+Static cTitulo := "Apontamento - Consumo ração" 
 
 // Igor Oliveira 08-2024
 User Function VAESTI08()
     Local aArea   		:= GetArea()
-    Local oModel  		:= NIL
+    Local oBrowse  		:= NIL
 	Local cFunBkp 		:= FunName()  
 	Private cTpMov      := ""
     Private aLotes      := {}
 
     SetFunName("VAESTI08")
 
-    oModel := FWMBrowse():New()
-	oModel:SetAlias( "ZVG" )   
-	oModel:SetDescription( cTitulo )
-	oModel:Activate()
+    oBrowse := FWMBrowse():New()
+	oBrowse:SetAlias( "ZVG" )   
+	oBrowse:SetDescription( cTitulo )
+	
+	oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'A'", "GREEN" , "Aberto" )
+    oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'M'", "RED"   , "Movimentado" )
+	
+	oBrowse:Activate()
 	
     SetFunName(cFunBkp)
 	RestArea(aArea)
@@ -177,7 +181,7 @@ User Function ESTI08M()
 			If nOper == 3 //.or. nOper == 4
 				oStZVG := oModel:GetModel( 'ZVGMASTER' ):GetStruct()
 
-				oStZVG:SetProperty( 'ZVG_TIPO', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+IIF(valtype(cTpMov)=='C',SubStr(cTpMov,1,1),"R")+"'" ) )
+				oStZVG:SetProperty( 'ZVG_TIPO', MODEL_FIELD_INIT, FwBuildFeature( STRUCT_FEATURE_INIPAD, "'"+IIF(valtype(cTpMov)=='C',cTpMov,"R")+"'" ) )
 			endif
 		elseif cIdPonto == "MODELCANCEL"
 			if ValType(aLotes) == 'A'
@@ -458,6 +462,8 @@ Static function MrkLotes(lAdd)
 	Private cArm        := GetMV("JR_ARMPADM",,"01")
 	Private cTpAgr      := ""
 
+	Private aFiltro
+	Private cFilAp
 
 	If lAdd
 		oModel := FWModelActive()
@@ -511,11 +517,19 @@ Static function MrkLotes(lAdd)
 
 	TSay():New(nLinAtu,242,{||'Curral ate: '},oDlgMrk,,,,,,.T.,,,100,10)
 	@ nLinAtu-1,270 MSGET oCurralAte VAR cCurralAte PICTURE "@!" /*VALID vldProduto() .or. vazio()*/ F3 "Z08" SIZE 050, nTamLin/2 OF oDlgMrk PIXEL
+	
+	nPad := 35
 
-	oSeek	:= TButton():New( nLinAtu-2, 322, "Pesquisar" ,oDlgMrk, {|| SeekAll(lAdd) },55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
+	aFiltro := {"A=Apartado", "N=Não apartado", "X=Ambos"}
+	cFilAp  := aFiltro[2]
+	TSay():New(nLinAtu, 322/* 82+162 */,{||'Apartado? '},oDlgMrk,,,,,,.T.,,,60,10)
+	aTpMov := TComboBox():New(nLinAtu-1, 322+nPad/* 110+162 */,{|u|If(PCount()>0,cFilAp:=u,cFilAp)}, aFiltro,;
+		65,10,oDlgMrk,,{|| SeekAll(lAdd) },,,,.T.,,,,,,,,,'cFilAp')
+
+	oSeek	:= TButton():New( nLinAtu-2, 432, "Pesquisar" ,oDlgMrk, {|| SeekAll(lAdd) },55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
 	//oSeek:SetCss("QPushButton{ color: #000; }")
 
-	oSeek	:= TButton():New( nLinAtu-2, 402, "Confirmar" ,oDlgMrk, {|| aLote := aClone(ConfirmAdd(lAdd)) },55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
+	oSeek	:= TButton():New( nLinAtu-2, 512, "Confirmar" ,oDlgMrk, {|| aLote := aClone(ConfirmAdd(lAdd)) },55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
 	//oSeek:SetCss("QPushButton{ color: #000; background: #2C2; font-weight: bold}")
 
 	nLinAtu += nTamLin + 5
@@ -529,11 +543,12 @@ Static function MrkLotes(lAdd)
 		nA   := 80
 
 		nB := (nA+nPad) + nPad + 30
-		aTpMov := {"R-Rateio","I-Individual"}
+		aTpMov := {"R=Rateio","I=Individual"}
 		cTpMov := aTpMov[1]
 		TSay():New(nLinAtu, nB/* 82+162 */,{||'Tipo Movto: '},oDlgMrk,,,,,,.T.,,,60,10)
 		aTpMov := TComboBox():New(nLinAtu-1, nB+nPad/* 110+162 */,{|u|If(PCount()>0,cTpMov:=u,cTpMov)}, aTpMov,;
 			65,10,oDlgMrk,,{|| SeekAll(lAdd) },,,,.T.,,,,,,,,,'cTpMov')
+
 	else
 		nLinAtu += nTamLin
 	EndIf
@@ -582,9 +597,14 @@ static function seekAll(lAdd)
 	_cQry += "    AND B8_SALDO > 0" + CRLF
 	_cQry += "	AND SB8.D_E_L_E_T_ = ' ' " + CRLF
 	_cQry += "	AND B8_X_CURRA <> ' ' " + CRLF
-	_cQry += "	AND Z08_TIPO = '4'" + CRLF
+	//_cQry += "	AND Z08_TIPO = '4'" + CRLF
 	if cFiltro <> ""
 		_cQry += cFiltro + CRLF
+	endif
+	IF cFilAp == 'N'
+		_cQry += " 	AND B8_LOTECTL NOT IN (select distinct Z0F_LOTE FROM Z0F010 Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+	elseif cFilAp == 'A'
+		_cQry += " 	AND B8_LOTECTL IN (select distinct Z0F_LOTE FROM Z0F010 Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
 	endif
 	_cQry += "	GROUP BY B8_X_CURRA, B8_LOTECTL,B8_LOCAL" + CRLF
 	_cQry += "	ORDER BY B8_X_CURRA" + CRLF
@@ -697,7 +717,6 @@ User Function ESTI08C() // INICIADOR PADRAO DO CÓGIGO
     Local cRet      := "000001"
     Local cAlias    := "" 
     Local cCampo    := SubStr(ReadVar(),At(">",ReadVar())+1,Len(ReadVar()))
-    //Local oModel    := nil
 
     IF "ZVG_CODIGO" $ cCampo
         cQry := "SELECT MAX(ZVG_CODIGO)+1 AS COD FROM "+RetSqlName("ZVG")
@@ -734,7 +753,6 @@ User Function I08VLDP() // validação do produto e Produto - grid ZVH]
 		For nI := 1 to oMdlZVJ:GetQtdLine()
 			oMdlZVJ:GoLine(nI)
 			oMdlZVJ:SetValue("ZVJ_PROD",oMdlZVH:GetValue("ZVH_PROD"))
-			//oMdlZVJ:LoadValue("ZVJ_DESC",Posicione('SB1',1,FwXfilial('SB1')+oMdlZVH:GetValue("ZVH_PROD"),'B1_DESC'))
 		Next nI
 	endif 
 
@@ -907,7 +925,7 @@ User Function I08PROC()
 	Local cAlias 	:= ""
 	Local aDados	:= {}
 	Local cSequen   := ""
-	Local lBrk 		:= .F. 
+	Local nRecZ02 
 
 	Private __DATA  
 	Private cFile 	
@@ -922,6 +940,9 @@ User Function I08PROC()
 
 			DbSelectArea('Z04')
 			Z04->(DbSetOrder(1))// Z04_FILIAL+Z04_SEQUEN+Z04_LOTE
+
+			DbSelectArea('Z02')
+			Z02->(DbSetOrder(1))// Z04_FILIAL+Z04_SEQUEN+Z04_LOTE
 
 			__DATA  := ZVG->ZVG_DATA
 			cFile 	:= "C:\TOTVS_RELATORIOS\I08PROC_" + DtoS(__DATA) + ".TXT"
@@ -938,7 +959,7 @@ User Function I08PROC()
 			cSequen :=  Soma1((cAlias)->SEQ)
 			
 			(cALias)->(dbCloseArea())
-
+			/* ------------------------------------------------------------------------------------------ */
 			cAlias 	:= GetNextAlias()
 
 			cQry := "select * from "+RetSqlName("ZVJ")+" " + CRLF
@@ -946,6 +967,20 @@ User Function I08PROC()
 			cQry += " AND D_E_L_E_T_ = '' "
 
 			mpSysOpenQuery(cQry, cAlias)
+
+			if !(cALias)->(EOF())
+				RecLock("Z02", .T.)
+					Z02->Z02_FILIAL := FWxFilial("Z02")
+					Z02->Z02_SEQUEN := cSequen
+					Z02->Z02_ARQUIV := "VAESTI08 - CODIDO DA TABELA: " + ZVG->ZVG_CODIGO
+					Z02->Z02_DTIMP  := __DATA
+					Z02->Z02_DATA   := __DATA
+					Z02->Z02_VERSAO := "000001"
+					Z02->Z02_EQUIP  := ""
+				Z02->(MSUnlock())
+			endif 
+
+			nRecZ02 := Z02->(Recno())
 
 			while !(cALias)->(EOF())
 
@@ -977,35 +1012,25 @@ User Function I08PROC()
 
 				(cALias)->(DbSkip())
 			enddo
+
 			(cALias)->(dbCloseArea())
+			
+			//Z02->(DBGoTo(nRecZ02))
+				RecLock('Z02',.f.)
+					Z02->Z02_CONTEU := U_AToS(aDados)
+					Z02->Z02_TPARQ  := '4'
+				Z02->(MsUnLock())
 
 			TryException
-
-				//U_GravaArq( iIf(IsInCallStack("U_JOBPrcLote"), cFile, ""),;
-				//			"[" + AllTrim(ZVG->ZVG_CODIGO) + "]" +CRLF+;
-				//			"Funcao: PrcBatTrt" + CRLF +;
-				//			"Processando os dados [" + cSequen + "-" + AllTrim(ZVG->ZVG_CODIGO) + "]",;
-				//			.T./* lConOut */,;
-				//			/* lAlert */ )
-					
 				FWMsgRun(, {|| &('StaticCall(VAEST020, PROCZ02, aDados, cSequen)') },;
 								"Processando [VAEST020]" + "[" + AllTrim(ZVG->ZVG_CODIGO) + "]" ,;
 								"Processando os dados [" + cSequen + "-" + AllTrim(ZVG->ZVG_CODIGO) + "]" )
 			
 			CatchException Using oException
-				//U_GravaArq( iIf(IsInCallStack("U_JOBPrcLote"), cFile, ""),;
-				//			  "[" + AllTrim(ZVG->ZVG_CODIGO) + "]" +CRLF+;
-				//			  "ERRO3: " +oException:ErrorStack,;
-				//			  .T./* lConOut */,;
-				//			  /* lAlert */ )
 				u_ShowException(oException)
 				DisarmTransaction()
 			EndException
 		
-			//If lBrk
-			//	Break
-			//EndIf
-
 			RecLock("ZVG",.F.)
 				ZVG->ZVG_STATUS := "M"	
 			ZVG->(MsUnLock())

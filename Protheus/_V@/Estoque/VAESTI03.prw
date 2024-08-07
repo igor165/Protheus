@@ -620,7 +620,7 @@ User Function BovEstI4()
 					_cQry += " 			and SB8.D_E_L_E_T_ = '' " + CRLF
 					_cQry += " 			and SB1.D_E_L_E_T_ = '' " + CRLF
 
-					QryOpc		:= 2 
+					QryOpc		:= 2
 
 					cCodCon 	:= 'PRODUTO'
 					cConsulta 	:= 'B8_PRODUTO'
