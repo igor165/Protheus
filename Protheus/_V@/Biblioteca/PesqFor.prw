@@ -169,7 +169,7 @@ Static Function Filtro(nOPFil)
 	TcQuery cQuery1 + cFiltro + cOrdem NEW Alias "_QRY1"
 
 	Count to nCont
-	_QRY1->(DbGoTop())
+		_QRY1->(DbGoTop())
 	ProcRegua(nCont)
 		
 	aColsPri := {{nil,nil,nil,nil,nil,nil,nil}}

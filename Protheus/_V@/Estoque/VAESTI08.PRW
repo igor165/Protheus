@@ -925,7 +925,7 @@ User Function I08PROC()
 	Local cAlias 	:= ""
 	Local aDados	:= {}
 	Local cSequen   := ""
-	Local nRecZ02 
+	//Local nRecZ02 
 
 	Private __DATA  
 	Private cFile 	
@@ -980,7 +980,7 @@ User Function I08PROC()
 				Z02->(MSUnlock())
 			endif 
 
-			nRecZ02 := Z02->(Recno())
+			//nRecZ02 := Z02->(Recno())
 
 			while !(cALias)->(EOF())
 
