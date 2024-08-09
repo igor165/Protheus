@@ -596,15 +596,15 @@ static function seekAll(lAdd)
 	_cQry += "  WHERE B8_FILIAL = '"+FwxFilial("SB8")+"'" + CRLF
 	_cQry += "    AND B8_SALDO > 0" + CRLF
 	_cQry += "	AND SB8.D_E_L_E_T_ = ' ' " + CRLF
-	_cQry += "	AND B8_X_CURRA <> ' ' " + CRLF
+	//_cQry += "	AND B8_X_CURRA <> ' ' " + CRLF
 	//_cQry += "	AND Z08_TIPO = '4'" + CRLF
 	if cFiltro <> ""
 		_cQry += cFiltro + CRLF
 	endif
 	IF cFilAp == 'N'
-		_cQry += " 	AND B8_LOTECTL NOT IN (select distinct Z0F_LOTE FROM Z0F010 Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+		_cQry += " 	AND B8_LOTECTL NOT IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
 	elseif cFilAp == 'A'
-		_cQry += " 	AND B8_LOTECTL IN (select distinct Z0F_LOTE FROM Z0F010 Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+		_cQry += " 	AND B8_LOTECTL IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
 	endif
 	_cQry += "	GROUP BY B8_X_CURRA, B8_LOTECTL,B8_LOCAL" + CRLF
 	_cQry += "	ORDER BY B8_X_CURRA" + CRLF
@@ -754,7 +754,7 @@ User Function I08VLDP() // validação do produto e Produto - grid ZVH]
 			oMdlZVJ:GoLine(nI)
 			oMdlZVJ:SetValue("ZVJ_PROD",oMdlZVH:GetValue("ZVH_PROD"))
 		Next nI
-	endif 
+	endif
 
     FwRestArea(aArea)
 Return lRet 
