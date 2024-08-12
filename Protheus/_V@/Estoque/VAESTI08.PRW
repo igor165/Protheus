@@ -574,11 +574,11 @@ Fun磯 responsᶥl por pesquisar os produtos a partir dos filtros informados em 
 @type function
 /*/
 static function seekAll(lAdd)
-	Local nI    := 0
-	Local nX      := 0
-	Local _cQry   := ""
-	Local cFiltro := ""
-    Local cAlias  := GetNextAlias()
+	Local nI    	:= 0
+	Local nX      	:= 0
+	Local _cQry   	:= ""
+	Local cFiltro 	:= ""
+    Local cAlias  	:= GetNextAlias()
 
 	If Len(aLotes) > 0
 		cFiltro += " and B8_LOTECTL+B8_X_CURRA+B8_LOCAL not in ("
@@ -592,19 +592,19 @@ static function seekAll(lAdd)
 
 	_cQry := " SELECT DISTINCT 'LBTIK' CSTAT,B8_X_CURRA,B8_LOTECTL,B8_LOCAL,SUM(B8_SALDO) B8_SALDO" + CRLF
 	_cQry += "   FROM "+RetSqlName("SB8")+" SB8" + CRLF
-	_cQry += "   JOIN "+RetSqlName("Z08")+" Z08 ON Z08_CODIGO = B8_X_CURRA AND Z08.D_E_L_E_T_ = ' ' " + CRLF
+	_cQry += "   LEFT JOIN "+RetSqlName("Z08")+" Z08 ON Z08_CODIGO = B8_X_CURRA AND Z08.D_E_L_E_T_ = ' ' " + CRLF
 	_cQry += "  WHERE B8_FILIAL = '"+FwxFilial("SB8")+"'" + CRLF
-	_cQry += "    AND B8_SALDO > 0" + CRLF
-	_cQry += "	AND SB8.D_E_L_E_T_ = ' ' " + CRLF
-	//_cQry += "	AND B8_X_CURRA <> ' ' " + CRLF
-	//_cQry += "	AND Z08_TIPO = '4'" + CRLF
+	_cQry += "   	AND B8_SALDO > 0" + CRLF
+	_cQry += "		AND SB8.D_E_L_E_T_ = ' ' " + CRLF
 	if cFiltro <> ""
 		_cQry += cFiltro + CRLF
 	endif
-	IF cFilAp == 'N'
-		_cQry += " 	AND B8_LOTECTL NOT IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
-	elseif cFilAp == 'A'
-		_cQry += " 	AND B8_LOTECTL IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+	if FwxFilial("SB8") == '0101001'
+		IF cFilAp == 'N'
+			_cQry += " 	AND B8_LOTECTL NOT IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+		elseif cFilAp == 'A'
+			_cQry += " 	AND B8_LOTECTL IN (select distinct Z0F_LOTE FROM "+RetSqlName("Z0F")+" Z0F WHERE Z0F_LOTE = B8_LOTECTL AND Z0F.D_E_L_E_T_ =' ' )" + CRLF
+		endif
 	endif
 	_cQry += "	GROUP BY B8_X_CURRA, B8_LOTECTL,B8_LOCAL" + CRLF
 	_cQry += "	ORDER BY B8_X_CURRA" + CRLF
