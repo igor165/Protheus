@@ -1081,15 +1081,15 @@ Static Function fQuadro( nQuadro ,aPeso,lMilho)
 			oPrinter:Say ( nRow+=nTamLin, nColLabel, "Umidade........:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			oPrinter:Say ( nRow         , nColInfo , cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			
-			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_IMPUR"})][2], X3Picture("ZPB_IMPUR") ) )
+			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_TEMP"})][2], X3Picture("ZPB_TEMP") ) )
 			oPrinter:Say ( nRow+=nTamLin, nColLabel, "Temperatura....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			oPrinter:Say ( nRow         , nColInfo , cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			
-			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_AVARIA"})][2], X3Picture("ZPB_AVARIA") ) )
+			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_IMPUR"})][2], X3Picture("ZPB_IMPUR") ) )
 			oPrinter:Say ( nRow+=nTamLin, nColLabel, "Impureza.......:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			oPrinter:Say ( nRow         , nColInfo , cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			
-			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_TEMP"})][2], X3Picture("ZPB_TEMP") ) )
+			cAux := AllTrim(Transform( aPeso[1][aScan(aPeso[1], {|x| Upper(x[1]) == "ZPB_AVARIA"})][2], X3Picture("ZPB_AVARIA") ) )
 			oPrinter:Say ( nRow+=nTamLin, nColLabel, "Avariado.......:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			oPrinter:Say ( nRow         , nColInfo , cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 			
