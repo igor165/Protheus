@@ -484,7 +484,6 @@ User Function B001IniCampo() // (_cAlias,_cCampo)
 
 	ElseIf ReadVar() == "M->ZEB_CONTRA"
 		cRetorno := oModelDad:GetValue("ZA5_CODIGO")
-
 	EndIf
 
 Return cRetorno

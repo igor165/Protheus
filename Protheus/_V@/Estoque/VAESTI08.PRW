@@ -651,6 +651,8 @@ static function seekAll(lAdd)
 	_cQry += "   LEFT JOIN "+RetSqlName("Z08")+" Z08 ON Z08_CODIGO = B8_X_CURRA AND Z08.D_E_L_E_T_ = ' ' " + CRLF
 	_cQry += "  WHERE B8_FILIAL = '"+FwxFilial("SB8")+"'" + CRLF
 	_cQry += "   	AND B8_SALDO > 0" + CRLF
+	_cQry += "   	AND B8_LOTECTL BETWEEN "+ValToSQL(cLoteDe)+" AND "+ValToSQL(cLoteAte)+"" + CRLF
+	_cQry += "   	AND B8_X_CURRA BETWEEN "+ValToSQL(cCurralDe)+" AND "+ValToSQL(cCurralAte)+"" + CRLF
 	_cQry += "		AND SB8.D_E_L_E_T_ = ' ' " + CRLF
 	if cFiltro <> ""
 		_cQry += cFiltro + CRLF
