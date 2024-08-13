@@ -7,22 +7,78 @@ Static cTitulo := "Apontamento - Consumo ração"
 // Igor Oliveira 08-2024
 User Function VAESTI08()
     Local aArea   		:= GetArea()
-    Local oBrowse  		:= NIL
+    Local oBrwZVG  		:= NIL
+    Local oBrwZVH  		:= NIL
+    Local oBrwZVJ  		:= NIL
+    Local oRelZVH  		:= NIL
+    Local oRelZVJ  		:= NIL
+	Local oFWLayer		:= NIL
+	Local oPnlZVG		:= nil	
+	Local oPnlZVH		:= nil	
+	Local oPnlZVJ		:= nil	
+
+    Local aCoors 		:= FWGetDialogSize( oMainWnd )
 	Local cFunBkp 		:= FunName()  
+
+    Private oDlgPrinc
 	Private cTpMov      := ""
     Private aLotes      := {}
 
     SetFunName("VAESTI08")
 
-    oBrowse := FWMBrowse():New()
-	oBrowse:SetAlias( "ZVG" )   
-	oBrowse:SetDescription( cTitulo )
-	
-	oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'A'", "GREEN" , "Aberto" )
-    oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'M'", "RED"   , "Movimentado" )
-	
-	oBrowse:Activate()
-	
+    Define MsDialog oDlgPrinc Title cTitulo From aCoors[1], aCoors[2] To aCoors[3],    aCoors[4] Pixel
+
+		oFWLayer     := FWLayer():New()
+		oFWLayer:Init( oDlgPrinc, .F., .T. )
+		
+		oFWLayer:AddLine( 'LINEZVG' , 30, .F. )
+		oFWLayer:AddLine( 'LINEZVH' , 30, .F. )
+		oFWLayer:AddLine( 'LINEZVJ' , 40, .F. )
+
+		oFWLayer:addCollumn("ZVGALL",   100, .T., "LINEZVG")
+		oFWLayer:addCollumn("ZVHALL",   100, .T., "LINEZVH")
+		oFWLayer:addCollumn("ZVJALL",   100, .T., "LINEZVJ")
+
+		oPnlZVG := oFWLayer:GetColPanel( 'ZVGALL' , 'LINEZVG' )
+		oPnlZVH := oFWLayer:GetColPanel( 'ZVHALL' , 'LINEZVH' )
+		oPnlZVJ := oFWLayer:GetColPanel( 'ZVJALL' , 'LINEZVJ' )
+
+		oBrwZVG := FWMBrowse():New()
+		oBrwZVG:SetAlias( "ZVG" )   
+		oBrwZVG:SetOwner(oPnlZVG)
+		oBrwZVG:SetDescription( cTitulo )
+		oBrwZVG:DisableDetails()
+		oBrwZVG:AddLegend( "ZVG->ZVG_STATUS == 'A'", "GREEN" , "Aberto" )
+		oBrwZVG:AddLegend( "ZVG->ZVG_STATUS == 'M'", "RED"   , "Movimentado" )
+		oBrwZVG:Activate()
+		
+		oBrwZVH := FWMBrowse():New()
+		oBrwZVH:SetAlias( "ZVH" )   
+		oBrwZVH:SetOwner(oPnlZVH)
+		oBrwZVH:SetMenuDef('')
+		oBrwZVH:SetDescription( "Produtos - Consumo ração" )
+		oBrwZVH:DisableDetails()
+		
+		oRelZVH:= FWBrwRelation():New()
+		oRelZVH:AddRelation( oBrwZVG  , oBrwZVH ,  { {'ZVH_FILIAL', 'ZVG_FILIAL'} , {'ZVH_CODIGO', 'ZVG_CODIGO'} } )
+		oRelZVH:Activate()
+		oBrwZVH:Activate()
+
+		oBrwZVJ := FWMBrowse():New()
+		oBrwZVJ:SetAlias( "ZVJ" )   
+		oBrwZVJ:SetOwner(oPnlZVJ)
+		oBrwZVJ:SetMenuDef('')
+		oBrwZVJ:SetDescription( "Lotes - Consumo ração" )
+		oBrwZVJ:DisableDetails()
+
+		oRelZVJ:= FWBrwRelation():New()
+		oRelZVJ:AddRelation( oBrwZVH  , oBrwZVJ , {{'ZVJ_FILIAL', 'ZVH_FILIAL'},;
+												   {'ZVJ_CODIGO', 'ZVH_CODIGO'},;
+												   {'ZVJ_ITEMVH', 'ZVH_ITEM'}} )
+		oRelZVJ:Activate()
+		oBrwZVJ:Activate()
+		
+	Activate MsDialog oDlgPrinc Center
     SetFunName(cFunBkp)
 	RestArea(aArea)
 Return NIL  
@@ -48,7 +104,7 @@ Static Function ModelDef()
     Local nI
 
     aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_DESC"   ,"SB1->B1_DESC"  					,.T.,"SB1"  ,1,"FwxFilial('SB1')+M->ZVH_PROD" 				,NIL,"01"))
-    aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_LOCAL"  ,"SB1->B1_LOCPAD"					,.F.,""     ,,""                              				,NIL,"02"))
+   //aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_LOCAL"  ,"SB1->B1_LOCPAD"					,.F.,""     ,,""                              				,NIL,"02"))
     aAdd(aGatilhos, FWStruTriggger( "ZVH_PROD"  , "ZVH_QUANT"  ,"0"									,.F.,""     ,,""                              				,NIL,"03"))
     aAdd(aGatilhos, FWStruTriggger( "ZVH_LOCAL" , "ZVH_B2QATU" ,"SB2->B2_QATU"						,.T.,"SB2"  ,1,"FwxFilial('SB2')+M->ZVH_PROD+M->ZVH_LOCAL"  ,NIL,"01"))
     //aAdd(aGatilhos, FWStruTriggger( "ZVH_QUANT ", "ZVH_QTAPOS" ,"M->ZVH_B2QATU - M->ZVH_QUANT"		,.F.,""     ,,""                              				,NIL,"01"))
@@ -750,6 +806,8 @@ User Function I08VLDP() // validação do produto e Produto - grid ZVH]
         oModel:SetErrorMessage("","","","","HELP", 'Produto não encontrado', "Preencha corretamente o campo Produto")
         return .F.
     else
+		oMdlZVH:LoadValue("ZVH_LOCAL",SB1->B1_LOCPAD)
+
 		For nI := 1 to oMdlZVJ:GetQtdLine()
 			oMdlZVJ:GoLine(nI)
 			oMdlZVJ:SetValue("ZVJ_PROD",oMdlZVH:GetValue("ZVH_PROD"))
@@ -757,17 +815,17 @@ User Function I08VLDP() // validação do produto e Produto - grid ZVH]
 	endif
 
     FwRestArea(aArea)
-Return lRet 
+Return lRet
 User Function I08VLDL() // validação do produto e Local - grid ZVH
     Local aArea     := FwGetArea()
     Local oModel    := FWModelActive()
     Local oMdlZVH   := oModel:GetModel("ZVHDETAIL")
-    Local lRet      := .T. 
+    Local lRet      := .T.
 
 	IF Empty(oMdlZVH:GetValue("ZVH_PROD"))
 		oModel:SetErrorMessage("","","","","HELP", 'Informe o produto', "Informe o Produto antes de informar o armazem!")
 		return .F.
-	else 
+	else
 		DbSelectArea("SB2")
 		SB2->(DBSetOrder(1))//B2_FILIAL+B2_COD+B2_LOCAL
 
@@ -778,7 +836,7 @@ User Function I08VLDL() // validação do produto e Local - grid ZVH
 			If SB2->B2_QATU == 0
 				oModel:SetErrorMessage("","","","","HELP", 'Produto sem saldo', "Verifique se o armazem e o produto estão corretos!")
 				return .F. 
-			EndIf 
+			EndIf
 		endif   
 	endif   
 

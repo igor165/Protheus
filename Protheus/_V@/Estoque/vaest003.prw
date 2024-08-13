@@ -142,23 +142,23 @@ user function CriaOP(cCodPro, nQuant, cArmz,cExplode)
 		ConfirmSX8()
 
 		aOP := { {"C2_FILIAL",  cCodFil,    Nil},;
-			{"C2_NUM",     cOP,     	Nil},;
-			{"C2_ITEM",    "01",       Nil},;
-			{"C2_SEQUEN",  "001",      Nil},;
-			{"C2_PRODUTO", cCodPro,    Nil},;
-			{"C2_LOCAL",   cArmz,      Nil},;
-			{"C2_QUANT",   nQuant,     Nil},;
-			{"C2_UM",      SB1->B1_UM, Nil},;
-			{"C2_DATPRI",  dDataBase,  Nil},;
-			{"C2_DATPRF",  dDataBase,  Nil},;
-			{"C2_EMISSAO", dDataBase,  Nil},;
-			{"C2_PRIOR",   "500",      Nil},;
-			{"C2_DESTINA", "P",        Nil},;
-			{"C2_SEQPAI",  "000",      Nil},;
-			{"C2_IDENT",   "P",        Nil},;
-			{"C2_TPOP",    "F",        Nil},;
-			{"C2_GRADE",   "N",        Nil},;
-			{"AUTEXPLODE", cExplode,   Nil} }
+				{"C2_NUM",     cOP,     	Nil},;
+				{"C2_ITEM",    "01",       Nil},;
+				{"C2_SEQUEN",  "001",      Nil},;
+				{"C2_PRODUTO", cCodPro,    Nil},;
+				{"C2_LOCAL",   cArmz,      Nil},;
+				{"C2_QUANT",   nQuant,     Nil},;
+				{"C2_UM",      SB1->B1_UM, Nil},;
+				{"C2_DATPRI",  dDataBase,  Nil},;
+				{"C2_DATPRF",  dDataBase,  Nil},;
+				{"C2_EMISSAO", dDataBase,  Nil},;
+				{"C2_PRIOR",   "500",      Nil},;
+				{"C2_DESTINA", "P",        Nil},;
+				{"C2_SEQPAI",  "000",      Nil},;
+				{"C2_IDENT",   "P",        Nil},;
+				{"C2_TPOP",    "F",        Nil},;
+				{"C2_GRADE",   "N",        Nil},;
+				{"AUTEXPLODE", cExplode,   Nil} }
 
 		lMsErroAuto :=.F.
 		MSExecAuto({|x,y| MATA650(x,y)}, aOP, 3)  //Inclusao

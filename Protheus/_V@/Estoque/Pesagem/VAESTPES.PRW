@@ -24,7 +24,7 @@ Static aParBal      := nil      // -- Será inicializada na funcao no Activate do
 User Function VAESTPES()
     Local aArea   		:= FwGetArea()
     Local oBrowse  		:= NIL
-	Local cFunBkp 		:= FunName()  
+	Local cFunBkp 		:= FunName() 
     
 	Private oMBSaveLog	:= MBSaveLog():New() as object
     Private cF3CodCFPes  := ""
