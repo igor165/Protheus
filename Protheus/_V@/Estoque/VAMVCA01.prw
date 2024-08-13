@@ -909,7 +909,7 @@ Return cRetorno
 User Function TgLotZ0D() // trigger
 	local oModel   := FWModelActive()
 	Local oGridZ0D := oModel:GetModel( 'Z0DDETAIL' )
-	Local cLote    := AllTrim(FwFldGet('Z0D_LOTE'))
+
 	Local nAux     := u_getSldBv( FwFldGet('Z0D_PROD'), FwFldGet('Z0D_LOTE') )
 	// Local cCurral  := u_SB8Curral( FwFldGet('Z0D_PROD'), FwFldGet('Z0D_LOTE') )
 

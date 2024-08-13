@@ -12,6 +12,10 @@ User Function VAFINI01()
 	oBrowse:SetAlias( "SE2" )
 	oBrowse:SetDescription( cTitulo )
 	oBrowse:SetFilterDefault( "E2_XRCNZE2 > 0" )
+    
+    oBrowse:AddLegend( "E2_XSTAPI == 'ER'"          , "RED"     , "ERRO INTEGRACAO COM O BANCO " )// 
+    oBrowse:AddLegend( "E2_XSTAPI == 'OK'"          , "GREEN"   , "FINALIZADO COM SUCESSO" )// 
+    oBrowse:AddLegend( "!(E2_XSTAPI $ ('OK,ER')) "  , "WHITE"   , "TITULO NAO ENVIADO" )// 
 	
 	oBrowse:Activate()
 	
@@ -20,12 +24,8 @@ Return
 
 Static Function MenuDef()
 	Local aRotina := {}
-	//ADD OPTION aRotina TITLE 'Visualizar' 	   ACTION 'VIEWDEF.VAFINI01' OPERATION 2 ACCESS 0 
-	ADD OPTION aRotina TITLE 'Visualizar' 	   ACTION 'U_FIN01VI()' OPERATION 2 ACCESS 0 
-	//ADD OPTION aRotina TITLE 'Incluir' 	   	   ACTION 'VIEWDEF.VAFINI01' OPERATION 3 ACCESS 0
-	//ADD OPTION aRotina TITLE 'Excluir' 	   	   ACTION 'VIEWDEF.VAFINI01' OPERATION 5 ACCESS 0 
-	//ADD OPTION aRotina TITLE 'Imprimir' 	   ACTION 'VIEWDEF.VAFINI01' OPERATION 8 ACCESS 0 
-	//ADD OPTION aRotina TITLE 'Importar Batida' ACTION 'u_Est05Bat()'     OPERATION 3 ACCESS 0 
+	ADD OPTION aRotina TITLE 'Chamar API' 	   ACTION 'U_FI01CAP()'      OPERATION 6 ACCESS 0
+	ADD OPTION aRotina TITLE 'Visualizar' 	   ACTION 'VIEWDEF.VAFINI01' OPERATION 2 ACCESS 0 
 Return aRotina
 Static Function ModelDef()
 	Local oModel 		:= Nil
@@ -80,8 +80,6 @@ Static Function ModelDef()
 	oModel:GetModel('ZE2DETAIL'):SetDescription('Log Integração')
 	oModel:GetModel('SE5DETAIL'):SetDescription('Baixa de Titulos')
 
-    oModel:setActivate({ |oModel| ativo(oModel)})
-	
 Return oModel
 Static Function ViewDef()
 	Local oView		    := Nil
@@ -121,7 +119,7 @@ Static Function ViewDef()
 	oView:EnableTitleView('VIEW_SE2','Titulos a Pagar')
 	oView:EnableTitleView('VIEW_ZE2','Log Integração')
 	oView:EnableTitleView('VIEW_SE5','Baixa de Titulos')
-	
+
 Return oView
 Static Function LoadFake()
 Return {"Fake"}
@@ -136,10 +134,14 @@ Static Function LoadSE2(oModel)
 
     cQry := " select *" + CRLF 
     cQry += " from "+RetSqlName("SE2")+" " + CRLF 
-    cQry += " WHERE E2_FILIAL = '"+fWxFilial("SE2")+"' " + CRLF 
-    cQry += " AND E2_XRCNZE2 > 0" + CRLF 
-    cQry += " AND E2_EMISSAO BETWEEN "+ValToSQL(mv_par01)+" AND "+ValToSQL(mv_par02)+" " + CRLF 
-    cQry += " AND D_E_L_E_T_ = '' " + CRLF 
+    cQry += " WHERE E2_FILIAL = '"+SE2->E2_FILIAL+"' " + CRLF 
+    cQry += " AND E2_PREFIXO = '"+SE2->E2_PREFIXO+"'" + CRLF
+    cQry += " AND E2_NUM = '"+SE2->E2_NUM+"'" + CRLF
+    cQry += " AND E2_PARCELA = '"+SE2->E2_PARCELA+"'" + CRLF
+    cQry += " AND E2_TIPO = '"+SE2->E2_TIPO+"'" + CRLF
+    cQry += " AND E2_FORNECE = '"+SE2->E2_FORNECE+"'" + CRLF
+    cQry += " AND E2_LOJA = '"+SE2->E2_LOJA+"'" + CRLF
+    cQry += " AND D_E_L_E_T_ = '' " + CRLF
 
     MemoWrite("C:\totvs_relatorios\VAFINI01.sql" , cQry)
 
@@ -152,9 +154,9 @@ Static Function LoadSE2(oModel)
         aAdd(aData,{{(cAlias)->R_E_C_N_O_},{}})
 
         For nI := 1 to Len(aAux)
-            if !(aAux[nI][14]) 
+            if !(aAux[nI][14])
                 aAdd(aData[Len(aData)][2],(cAlias)->&(aAux[nI][3]))
-            else//CAMPO VIRTUAL
+            else //CAMPO VIRTUAL
                 if aAux[nI][4] == 'C'
                     aAdd(aData[Len(aData)][2],"")
                 elseif aAux[nI][4] == 'D'
@@ -162,7 +164,7 @@ Static Function LoadSE2(oModel)
                 elseif aAux[nI][4] == 'N'
                     aAdd(aData[Len(aData)][2],0)
                 endif 
-            endif 
+            endif
         Next nI
 
         (cAlias)->(dbSkip())
@@ -170,80 +172,8 @@ Static Function LoadSE2(oModel)
     (cAlias)->(dbCloseArea())
     FwRestArea(aArea)
 Return aData
-User Function FIN01VI()
-    Local aArea := FwGetArea()
-    Local cPerg := "VAFINI01"
 
-    GeraX1(cPerg)
+User FUnction FI01CAP()
+//    Local cChave := SE2->(E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
 
-    Pergunte(cPerg, .T.)
-
-    if !EMPTY(MV_PAR01) .AND. !EMPTY(MV_PAR02) 
-        FWExecView('Visualização', 'VAFINI01', MODEL_OPERATION_VIEW,,{||.T.})
-    endif
-
-    FwRestArea(aArea)
-Return 
-static function ativo(oModel)
-
-//Só efetua a alteração do campo para inserção
-if oModel:GetOperation() == MODEL_OPERATION_INSERT
-    FwFldPut("C_STRING1", "FAKE" , /*nLinha*/, oModel)
-endif
-
-return
-Static Function GeraX1(cPerg)
-
-Local _aArea	:= GetArea()
-Local aRegs     := {}
-Local nX		:= 0
-Local nPergs	:= 0
-Local i := 0, j := 0
-
-//Conta quantas perguntas existem ualmente.
-DbSelectArea('SX1')
-DbSetOrder(1)
-SX1->(DbGoTop())
-If SX1->(DbSeek(cPerg))
-	While !SX1->(Eof()) .And. X1_GRUPO = cPerg
-		nPergs++
-		SX1->(DbSkip())
-	EndDo
-EndIf
-
-aAdd(aRegs, { cPerg, '01', 'Data de?  ', '', '', 'MV_CH1', 'D', TamSX3('E2_EMISSAO')[1],TamSX3('E2_EMISSAO')[2], 0, 'G', ''            , 'MV_PAR01', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '   ', '' })
-aAdd(aRegs, { cPerg, '02', 'Data ate? ', '', '', 'MV_CH2', 'D', TamSX3('E2_EMISSAO')[1],TamSX3('E2_EMISSAO')[2], 0, 'G', ''            , 'MV_PAR02', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '   ', '' })
-
-//Se quantidade de perguntas for diferente, apago todas
-SX1->(DbGoTop())
-If nPergs <> Len(aRegs)
-	For nX:=1 To nPergs
-		If SX1->(DbSeek(cPerg))		
-			If RecLock('SX1',.F.)
-				SX1->(DbDelete())
-				SX1->(MsUnlock())
-			EndIf
-		EndIf
-	Next nX
-EndIf
-
-// gravação das perguntas na tabela SX1
-If nPergs <> Len(aRegs)
-	dbSelectArea("SX1")
-	dbSetOrder(1)
-	For i := 1 to Len(aRegs)
-		If !dbSeek(cPerg+aRegs[i,2])
-			RecLock("SX1",.T.)
-				For j := 1 to FCount()
-					If j <= Len(aRegs[i])
-						FieldPut(j,aRegs[i,j])
-					Endif
-				Next j
-			MsUnlock()
-		EndIf
-	Next i
-EndIf
-
-RestArea(_aArea)
-
-Return nil
+Return

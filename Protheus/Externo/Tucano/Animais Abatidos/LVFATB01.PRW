@@ -69,15 +69,17 @@ User Function ZA5LEG()
 Return Nil
 
 User Function fCommitDef( oMdl )
-	Local aArea := GetArea()
-	Local oModel := FWModelActive()
+	Local aArea 	:= GetArea()
+	Local oModel 	:= FWModelActive()
 	Local nOpc      := oModel:GetOperation()
 	Local oMGZA5    := oModel:GetModel( 'ZA5MASTER' )
 	Local oMGZA6    := oModel:GetModel( 'ZA6DETAIL' )
+	Local oMGZEB    := oModel:GetModel( 'ZEBDETAIL' )
 	Local nI        := 0, nJ := 0
 	Local lRecLock  := .T.
 	Local aHeadZA5  := APBuildHeader("ZA5")
 	Local aHeadZA6  := oMGZA6:aHeader
+	Local aHeadZEB  := oMGZEB:aHeader
 
 	Begin Transaction
 		If nOpc == MODEL_OPERATION_INSERT // .OR. 
@@ -85,18 +87,16 @@ User Function fCommitDef( oMdl )
 				oMGZA6:GoLine(nI)
 				If !oMGZA6:isDeleted() 
 					If oMGZA6:IsUpdated()
-						RecLock('ZA6', lRecLock := !DbSeek( xFilial("ZA6") +;
+						RecLock('ZA6', lRecLock := !ZA6->(DbSeek( xFilial("ZA6") +;
 														oMGZA6:GetValue('ZA6_CODIGO') +;
-														StrZero(nI, TamSX3('ZA6_ITEM')[1]) ) )
+														StrZero(nI, TamSX3('ZA6_ITEM')[1]) )) )
 							for nJ := 1 to len( aHeadZA6 )
 								If aHeadZA6[nJ, 10] = 'V'// .OR. aHeadZA6[nJ,  8] = 'M'
 									loop
 								EndIf
-								// If aHeadZA6[nJ,  8] = 'D'
-								// 	&(aHeadZA6[nJ,02]) := STOD( oMGZA6:GetValue( aHeadZA6[nJ,02] ) )
-								// Else
-									&(aHeadZA6[nJ,02]) := oMGZA6:GetValue( aHeadZA6[nJ,02] )
-								// EndIf
+								
+								&(aHeadZA6[nJ,02]) := oMGZA6:GetValue( aHeadZA6[nJ,02] )
+								
 								ZA6->ZA6_FILIAL := xFilial("ZA6")
 								ZA6->ZA6_CODIGO := M->ZA5_CODIGO
 							Next nJ
@@ -105,8 +105,31 @@ User Function fCommitDef( oMdl )
 				EndIf
 			Next nI
 			
+			ZEB->(DbSetOrder(2))
+			For nI := 1 To oMGZEB:GetQtdLine()
+				oMGZEB:GoLine(nI)
+				If !oMGZEB:isDeleted() 
+					If oMGZEB:IsUpdated()
+						RecLock('ZEB', lRecLock := !ZEB->(DbSeek( xFilial("ZEB") +;
+														oMGZEB:GetValue('ZEB_CONTRA') +;
+														oMGZEB:GetValue('ZEB_ITEM') )) )
+							for nJ := 1 to len( aHeadZEB )
+								If aHeadZEB[nJ, 10] = 'V'// .OR. aHeadZA6[nJ,  8] = 'M'
+									loop
+								EndIf
+
+								&(aHeadZEB[nJ,02]) := oMGZEB:GetValue( aHeadZEB[nJ,02] )
+
+								ZEB->ZEB_FILIAL := xFilial("ZEB")
+
+							Next nJ
+						ZEB->(MsUnlock())
+					EndIf
+				EndIf
+			Next nI
+
 			RecLock('ZA5', Iif(nOpc == 3, .T.,;
-					lRecLock := !DbSeek( xFilial("ZA5") + oMGZA5:GetValue('ZA5_CODIGO') ) ) )
+					lRecLock := !ZA5->(DbSeek( xFilial("ZA5") + oMGZA5:GetValue('ZA5_CODIGO') ) ) ))
 				for nJ := 1 to len( aHeadZA5 )
 					If aHeadZA5[nJ, 10] = 'V' // .OR. aHeadZA5[nJ,  8] = 'M'
 						loop
@@ -116,11 +139,42 @@ User Function fCommitDef( oMdl )
 				ZA5->ZA5_FILIAL := xFilial("ZA5")
 			ZA5->(MsUnlock())
 		
-		Else// If nOpc == MODEL_OPERATION_UPDATE
+		ElseIf nOpc == MODEL_OPERATION_UPDATE
  			FWFormCommit( oModel )
+		ElseIf nOpc == MODEL_OPERATION_DELETE
+			
+			ZA5->(DbSeek( xFilial("ZA5") + oMGZA5:GetValue('ZA5_CODIGO') ))
+				RecLock('ZA5', .f.)
+					ZA5->(DbDelete())
+				ZA5->(MsUnlock())
+
+			For nI := 1 To oMGZA6:GetQtdLine()
+				oMGZA6:GoLine(nI)
+				
+				ZA6->(DbSeek( xFilial("ZA6") +oMGZA6:GetValue('ZA6_CODIGO') + oMGZA6:GetValue('ZA6_ITEM') ))
+					RecLock('ZA6', .f. )
+						ZA6->(DbDelete())
+					ZA6->(MsUnlock())
+			Next nI
+			
+			ZEB->(DbSetOrder(2))
+			For nI := 1 To oMGZEB:GetQtdLine()
+				oMGZEB:GoLine(nI)
+				
+				ZEB->(DbSeek( xFilial("ZEB") +oMGZEB:GetValue('ZEB_CONTRA') + oMGZEB:GetValue('ZEB_ITEM') ))
+						
+				RecLock('ZEB', .f.)
+					ZEB->(DbDelete())
+				ZEB->(MsUnlock())
+			Next nI
 		
 		EndIf
 	End Transaction
+
+	If nOpc != MODEL_OPERATION_INSERT
+		INCLUI := .T.
+	EndIf
+
 	RestArea(aArea)
 Return .T.
 
@@ -133,9 +187,9 @@ Static Function ModelDef()
 
 	// local bZA6LinePr := {|oGridZA6, nLin, cOperacao, cCampo, xValAtr, xValAnt| ZA6LinPreG(oGridZA6, nLin, cOperacao, cCampo, xValAtr, xValAnt)}
 	// Local bVldPos  := {|| .T. }
-	Local bVldCom  := {|oMdl| U_fCommitDef( oMdl ) }
-	Local oModel   := MPFormModel():New("FATB01LV", /*Pre-Validacao*/, /* bVldPos */ /*Pos-Validacao*/, bVldCom /*Commit*/, /*Cancel*/)
-	Local aTrigger := {}
+	Local bVldCom  	:= {|oMdl| U_fCommitDef( oMdl ) }
+	Local oModel   	:= MPFormModel():New("FATB01LV", /*Pre-Validacao*/, /* bVldPos */ /*Pos-Validacao*/, bVldCom /*Commit*/, /*Cancel*/)
+	Local aTrigger 	:= {}
 	Local __aRelZ6  := {}
 	Local __aRelZB  := {}
 
@@ -156,6 +210,9 @@ Static Function ModelDef()
 
  	oStruZA6:SetProperty('ZA6_DTES', MODEL_FIELD_INIT,;
 					FWBuildFeature( STRUCT_FEATURE_INIPAD, "U_B001IniCampo()" ))
+
+ 	oStruZA6:SetProperty('ZA6_QUANT', MODEL_FIELD_VALID,;
+					FWBuildFeature( STRUCT_FEATURE_VALID, "U_ZA6QTD()" ))
 
  	oStruZEB:SetProperty('ZEB_CONTRA', MODEL_FIELD_INIT,;
 					FWBuildFeature( STRUCT_FEATURE_INIPAD, "U_B001IniCampo()" ))
@@ -210,11 +267,11 @@ Static Function ModelDef()
 	// aAdd( __aRelZ6, { 'ZA6_FILIAL', 'Iif(!INCLUI, ZA5->ZA5_FILIAL, FWxFilial("ZA5"))' } )
 	// aAdd( __aRelZ6, { 'ZA6_CODIGO', 'Iif(!INCLUI, ZA5->ZA5_CODIGO,  "")'              } )
 
-	aAdd( __aRelZ6, { 'ZA6_FILIAL', 'FWxFilial("ZA5")' } )
-	aAdd( __aRelZ6, { 'ZA6_CODIGO', 'ZA5_CODIGO'       } )
+	aAdd( __aRelZ6, { 'ZA6_FILIAL', 'ZA5_FILIAL' } )
+	aAdd( __aRelZ6, { 'ZA6_CODIGO', 'ZA5_CODIGO' } )
 	
-	aAdd( __aRelZB, { 'ZEB_FILIAL', 'FWxFilial("ZA5")' } )
-	aAdd( __aRelZB, { 'ZEB_CONTRA', 'ZA5_CODIGO'       } )
+	aAdd( __aRelZB, { 'ZEB_FILIAL', 'ZA5_FILIAL' } )
+	aAdd( __aRelZB, { 'ZEB_CONTRA', 'ZA5_CODIGO' } )
 
 	// Faz relacionamento entre os componentes do model
 	oModel:SetRelation( 'ZA6DETAIL', __aRelZ6, ZA6->( IndexKey( 1 ) ) )
@@ -330,6 +387,8 @@ Static Function ViewDef()
 	oView:EnableTitleView( 'VIEW_ZEB' , 'Datas do Embarque'     )
 
 	oView:SetCloseOnOk( { |oView| .T. } )
+	
+	oView:AddIncrementField( 'VIEW_ZEB', 'ZEB_ITEM' )
 
 	// Relaciona o identIficador (ID) da View com o "box" para exibicao
 	oView:SetOwnerView( 'VIEW_ZA5' , 'EMCIMA' )
@@ -338,10 +397,27 @@ Static Function ViewDef()
 	
 Return oView
 
+User Function ZA6QTD()
+	Local oModel  	 	:= FWModelActive()
+	Local oModelZ5 		:= oModel:GetModel( "ZA5MASTER" )
+	Local oModelZ6 		:= oModel:GetModel( "ZA6DETAIL" )
+	Local nI 
+	Local aSaveLines	:= FWSaveRows()
+	Local nRet 			:= 0
+
+	For nI := 1 To oModelZ6:GetQtdLine()
+		oModelZ6:GoLIne(nI)
+		nRet += oModelZ6:GetValue("ZA6_QUANT")
+	Next nI 
+
+	oModelZ5:SetValue("ZA5_QUANT",nRet)
+
+	FWRestRows(aSaveLines)
+Return .t.
+
 User Function FatB01Zeb()
 	Local oModel  	 	:= FWModelActive()
 	Local oModelZ5 		:= oModel:GetModel( "ZA5MASTER" )
-	//Local oModelZ6 		:= oModel:GetModel( "ZA6DETAIL" )
 	Local oModelZB 		:= oModel:GetModel( "ZEBDETAIL" )
 	Local nI, nLines 
 	Local nSoma 		:= 0
@@ -349,7 +425,7 @@ User Function FatB01Zeb()
 	Local lRet 			:= .T. 
 	
 	nLines := oModelZB:GetQtdLine()
-	For nI := 1 to nLines 
+	For nI := 1 to nLines
 		oModelZB:GoLine(nI)
 		if !oModelZB:IsDeleted()
 			nSoma += oModelZB:GetValue("ZEB_QUANT")
@@ -1148,23 +1224,46 @@ Local nRet  := 0
 // ElseIf cTipo == "R"
 // 	ConOut( "Tipo R")
 // EndIf
-	If  cCampo == "ZA5_QUANT"
-		BeginSQL alias "QRYTMP"
-			%noParser%
-			SELECT  SUM(ZA6_QUANT) ZA6_QUANT
-			FROM    %table:ZA6% ZA6
-			WHERE	ZA6_FILIAL = %exp:ZA5->ZA5_FILIAL%
-				AND ZA6_CODIGO = %exp:ZA5->ZA5_CODIGO%
-				AND ZA6.%notDel%
-		EndSQL
-		If !QRYTMP->(Eof())
-			xQuant := nRet := QRYTMP->ZA6_QUANT
+	IF Type("INCLUI") == "U"
+		If  cCampo == "ZA5_QUANT"
+			BeginSQL alias "QRYTMP"
+				%noParser%
+				SELECT  SUM(ZA6_QUANT) ZA6_QUANT
+				FROM    %table:ZA6% ZA6
+				WHERE	ZA6_FILIAL = %exp:ZA5->ZA5_FILIAL%
+					AND ZA6_CODIGO = %exp:ZA5->ZA5_CODIGO%
+					AND ZA6.%notDel%
+			EndSQL
+			If !QRYTMP->(Eof())
+				xQuant := nRet := QRYTMP->ZA6_QUANT
+			EndIf
+			QRYTMP->(DbCloseArea())
+		ElseIf cCampo == "ZA5_QTDFAT"
+			xQtFat := nRet := fPegaQtdFat( ZA5->ZA5_FILIAL, ZA5->ZA5_CODIGO )
+		ElseIf cCampo == "ZA5_SLDFAT"
+			nRet := xQuant - xQtFat
 		EndIf
-		QRYTMP->(DbCloseArea())
-	ElseIf cCampo == "ZA5_QTDFAT"
-		xQtFat := nRet := fPegaQtdFat( ZA5->ZA5_FILIAL, ZA5->ZA5_CODIGO )
-	ElseIf cCampo == "ZA5_SLDFAT"
-		nRet := xQuant - xQtFat
+	else 
+		if !INCLUI
+			If  cCampo == "ZA5_QUANT"
+				BeginSQL alias "QRYTMP"
+					%noParser%
+					SELECT  SUM(ZA6_QUANT) ZA6_QUANT
+					FROM    %table:ZA6% ZA6
+					WHERE	ZA6_FILIAL = %exp:ZA5->ZA5_FILIAL%
+						AND ZA6_CODIGO = %exp:ZA5->ZA5_CODIGO%
+						AND ZA6.%notDel%
+				EndSQL
+				If !QRYTMP->(Eof())
+					xQuant := nRet := QRYTMP->ZA6_QUANT
+				EndIf
+				QRYTMP->(DbCloseArea())
+			ElseIf cCampo == "ZA5_QTDFAT"
+				xQtFat := nRet := fPegaQtdFat( ZA5->ZA5_FILIAL, ZA5->ZA5_CODIGO )
+			ElseIf cCampo == "ZA5_SLDFAT"
+				nRet := xQuant - xQtFat
+			EndIf
+		EndIf
 	EndIf
 RestArea(aArea)
 Return nRet
