@@ -33,14 +33,14 @@ User Function MTA105LIN()
                 ENDIF
 
                 IF lRet .and. CT1->CT1_ITOBRG == '1' .AND. EMPTY(aCols[n][nItemCta])
-                    lRet := .F. 
+                    lRet := .F.
                     Alert('OBRIGATÓRIO PREENCHIMENTO DO CAMPO ITEM CONTÁBIL.')
-                ENDIF 
+                ENDIF
 
                 IF lRet .and. CT1->CT1_CLOBRG == '1' .AND. EMPTY(aCols[n][nClVl])
                     lRet := .F. 
                     Alert('OBRIGATÓRIO PREENCHIMENTO DO CAMPO CLASSE DE VALOR')
-                ENDIF 
+                ENDIF
             ENDIF
             
             CT1->(DBCLOSEAREA(  ))

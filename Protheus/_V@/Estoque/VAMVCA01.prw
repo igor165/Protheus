@@ -5158,8 +5158,8 @@ User Function Registrar( oModel )
 
 	oGetDadDet:setArray(aColsDet)
 	oGetDadDet:oBrowse:Refresh()
-	oDlg:CtrlRefresh()
-	ObjectMethod(oDlg,"Refresh()")
+	//oDlg:CtrlRefresh()
+	//ObjectMethod(oDlg,"Refresh()")
 
 	U_calcular_destino()
 
@@ -5702,7 +5702,7 @@ User Function SalvarGeral( oModel, oView )
 	for nI := 1 to oGridZ0E:Length()
 		oGridZ0E:GoLine(nI)
 		oGridZ0E:DeleteLine()
-		endFor
+	endFor
 		oGridZ0E:DelAllLine()
 
 		// oModel:SetValue("CALC_TOT", "Z0E__TOT02", 0)
@@ -6183,7 +6183,7 @@ Static Function fReLoadZ0E( oModel, oView )
 			oGridZ0E:GoLine(nI)
 			oGridZ0E:DeleteLine()
 		endFor
-		oGridZ0E:DelAllLine()
+		oGridZ0E:DelAllLine()5161
 
 		oModel:LoadValue("CALC_TOT", "Z0E__TOT02", 0)
 
