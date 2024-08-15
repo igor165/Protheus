@@ -7,78 +7,22 @@ Static cTitulo := "Apontamento - Consumo ração"
 // Igor Oliveira 08-2024
 User Function VAESTI08()
     Local aArea   		:= GetArea()
-    Local oBrwZVG  		:= NIL
-    Local oBrwZVH  		:= NIL
-    Local oBrwZVJ  		:= NIL
-    Local oRelZVH  		:= NIL
-    Local oRelZVJ  		:= NIL
-	Local oFWLayer		:= NIL
-	Local oPnlZVG		:= nil	
-	Local oPnlZVH		:= nil	
-	Local oPnlZVJ		:= nil	
-
-    Local aCoors 		:= FWGetDialogSize( oMainWnd )
+    Local oBrowse  		:= NIL
 	Local cFunBkp 		:= FunName()  
 
-    Private oDlgPrinc
 	Private cTpMov      := ""
     Private aLotes      := {}
 
     SetFunName("VAESTI08")
 
-    Define MsDialog oDlgPrinc Title cTitulo From aCoors[1], aCoors[2] To aCoors[3],    aCoors[4] Pixel
-
-		oFWLayer     := FWLayer():New()
-		oFWLayer:Init( oDlgPrinc, .F., .T. )
-		
-		oFWLayer:AddLine( 'LINEZVG' , 30, .F. )
-		oFWLayer:AddLine( 'LINEZVH' , 30, .F. )
-		oFWLayer:AddLine( 'LINEZVJ' , 40, .F. )
-
-		oFWLayer:addCollumn("ZVGALL",   100, .T., "LINEZVG")
-		oFWLayer:addCollumn("ZVHALL",   100, .T., "LINEZVH")
-		oFWLayer:addCollumn("ZVJALL",   100, .T., "LINEZVJ")
-
-		oPnlZVG := oFWLayer:GetColPanel( 'ZVGALL' , 'LINEZVG' )
-		oPnlZVH := oFWLayer:GetColPanel( 'ZVHALL' , 'LINEZVH' )
-		oPnlZVJ := oFWLayer:GetColPanel( 'ZVJALL' , 'LINEZVJ' )
-
-		oBrwZVG := FWMBrowse():New()
-		oBrwZVG:SetAlias( "ZVG" )   
-		oBrwZVG:SetOwner(oPnlZVG)
-		oBrwZVG:SetDescription( cTitulo )
-		oBrwZVG:DisableDetails()
-		oBrwZVG:AddLegend( "ZVG->ZVG_STATUS == 'A'", "GREEN" , "Aberto" )
-		oBrwZVG:AddLegend( "ZVG->ZVG_STATUS == 'M'", "RED"   , "Movimentado" )
-		oBrwZVG:Activate()
-		
-		oBrwZVH := FWMBrowse():New()
-		oBrwZVH:SetAlias( "ZVH" )   
-		oBrwZVH:SetOwner(oPnlZVH)
-		oBrwZVH:SetMenuDef('')
-		oBrwZVH:SetDescription( "Produtos - Consumo ração" )
-		oBrwZVH:DisableDetails()
-		
-		oRelZVH:= FWBrwRelation():New()
-		oRelZVH:AddRelation( oBrwZVG  , oBrwZVH ,  { {'ZVH_FILIAL', 'ZVG_FILIAL'} , {'ZVH_CODIGO', 'ZVG_CODIGO'} } )
-		oRelZVH:Activate()
-		oBrwZVH:Activate()
-
-		oBrwZVJ := FWMBrowse():New()
-		oBrwZVJ:SetAlias( "ZVJ" )   
-		oBrwZVJ:SetOwner(oPnlZVJ)
-		oBrwZVJ:SetMenuDef('')
-		oBrwZVJ:SetDescription( "Lotes - Consumo ração" )
-		oBrwZVJ:DisableDetails()
-
-		oRelZVJ:= FWBrwRelation():New()
-		oRelZVJ:AddRelation( oBrwZVH  , oBrwZVJ , {{'ZVJ_FILIAL', 'ZVH_FILIAL'},;
-												   {'ZVJ_CODIGO', 'ZVH_CODIGO'},;
-												   {'ZVJ_ITEMVH', 'ZVH_ITEM'}} )
-		oRelZVJ:Activate()
-		oBrwZVJ:Activate()
-		
-	Activate MsDialog oDlgPrinc Center
+	oBrowse := FWMBrowse():New()
+	oBrowse:SetAlias( "ZVG" )   
+	oBrowse:SetDescription( cTitulo )
+	oBrowse:DisableDetails()
+	oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'A'", "GREEN" , "Aberto" )
+	oBrowse:AddLegend( "ZVG->ZVG_STATUS == 'M'", "RED"   , "Movimentado" )
+	oBrowse:Activate()
+	
     SetFunName(cFunBkp)
 	RestArea(aArea)
 Return NIL  
@@ -777,7 +721,7 @@ User Function ESTI08C() // INICIADOR PADRAO DO CÓGIGO
     Local cCampo    := SubStr(ReadVar(),At(">",ReadVar())+1,Len(ReadVar()))
 
     IF "ZVG_CODIGO" $ cCampo
-        cQry := "SELECT MAX(ZVG_CODIGO)+1 AS COD FROM "+RetSqlName("ZVG")
+        cQry := "SELECT MAX(ZVG_CODIGO)+1 AS COD FROM "+RetSqlName("ZVG") + " WHERE ZVG_FILIAL = '"+FwxFilial("ZVG")+"'" 
         
         cAlias := GetNextAlias()
         

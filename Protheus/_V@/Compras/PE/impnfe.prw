@@ -106,7 +106,8 @@ User Function MTCOLSE2()
     Local lPula     := .F.
     Local nTamSE2
 
-    if nOpc == 1
+    if nOpc == 1 .and. cEmpAnt == '01'
+
         _cQry := " SELECT ZBC_CODIGO,ZBC_VERSAO,ZBC_PEDIDO FROM "+RetSqlName("ZBC")+" " + CRLF
         _cQry += " WHERE ZBC_PEDIDO = '"+iif(ValType(aCols[nAt][16])=='N',cValToChar(aCols[nAt][16]),aCols[nAt][16])+"' " + CRLF
         _cQry += " AND ZBC_FILIAL = '"+fwxFilial("ZBC")+"'  " + CRLF
@@ -190,13 +191,13 @@ User Function MTCOLSE2()
                         Next nX
                     endif
                 Next ni
-            endif 
+            endif
 
             (cAliasT)->(DbCloseArea())
-        else 
+        else
             //Ponto de chamada ConexãoNF-e sempre como primeira instrução.
             aColsE2 := U_GTPE013()
-        endif
+        endif   
         (cAlias)->(DbCloseArea())
     endif
 

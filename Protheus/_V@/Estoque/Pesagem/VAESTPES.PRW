@@ -448,12 +448,14 @@ User Function PegaPeso( lGravPeso, nBalanca )
 					//M->ZPB_OPESOE := nPeso
 					if oMdl4:GetValue("ZPB_PESOE") > 0
 						MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+													" - Codigo: " + AllTrim( oMdl1:GetValue("ZPB_CODIGO") )+;
 													" - Peso Anterior: " + AllTrim( cValToChar(oMdl4:GetValue("ZPB_PESOE")) )+;
 													" - Tipo: " + iif(oMdl4:GetValue("ZPB_PEMAN1")== 'M' ,"Manual","Automatica")+;
 													" - Usuario: " + oMdl4:GetValue("ZPB_USRP1"))
 					endif
 
 					MBSaveLog():FULLWrite(, .F., "PegaPeso Entrada / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+												" - Codigo: " + AllTrim( oMdl1:GetValue("ZPB_CODIGO") )+;
 												" - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
 												" - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
 												" - Usuario: " + UsrFullName( ))
@@ -472,12 +474,14 @@ User Function PegaPeso( lGravPeso, nBalanca )
 				elseif nOpcA == 2
 					if oMdl5:GetValue("ZPB_PESOS") > 0
 						MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: - "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+													" - Codigo: " + AllTrim( oMdl1:GetValue("ZPB_CODIGO") )+;
 													" - Peso Anterior: " + AllTrim( cValToChar(oMdl5:GetValue("ZPB_PESOS")) )+;
 													" - Tipo: " + iif(oMdl5:GetValue("ZPB_PEMAN2")== 'M' ,"Manual","Automatica")+;
 													" - Usuario: " + oMdl5:GetValue("ZPB_USRP2"))
 					endif
 
 					MBSaveLog():FULLWrite(, .F., "PegaPeso Saida / Placa: "+ AllTrim(oMdl1:GetValue("ZPB_PLACA") ) +;
+												" - Codigo: " + AllTrim( oMdl1:GetValue("ZPB_CODIGO") )+;
 												" - Peso Capturado: " + AllTrim( cValToChar(nPeso) )+;
 												" - Tipo: " + iif(lPesagManu,"Manual","Automatica")+;
 												" - Usuario: " + UsrFullName( ))

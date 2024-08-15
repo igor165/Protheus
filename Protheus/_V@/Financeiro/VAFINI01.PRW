@@ -126,54 +126,33 @@ Return {"Fake"}
 Static Function LoadSE2(oModel)
     Local aArea     := FwGetArea()
     Local oStruct   := nil
-    Local cAlias    := GetNextAlias()
-    Local cQry      := ""
     Local aData     := {}
     Local nI 
     Local aAux
-
-    cQry := " select *" + CRLF 
-    cQry += " from "+RetSqlName("SE2")+" " + CRLF 
-    cQry += " WHERE E2_FILIAL = '"+SE2->E2_FILIAL+"' " + CRLF 
-    cQry += " AND E2_PREFIXO = '"+SE2->E2_PREFIXO+"'" + CRLF
-    cQry += " AND E2_NUM = '"+SE2->E2_NUM+"'" + CRLF
-    cQry += " AND E2_PARCELA = '"+SE2->E2_PARCELA+"'" + CRLF
-    cQry += " AND E2_TIPO = '"+SE2->E2_TIPO+"'" + CRLF
-    cQry += " AND E2_FORNECE = '"+SE2->E2_FORNECE+"'" + CRLF
-    cQry += " AND E2_LOJA = '"+SE2->E2_LOJA+"'" + CRLF
-    cQry += " AND D_E_L_E_T_ = '' " + CRLF
-
-    MemoWrite("C:\totvs_relatorios\VAFINI01.sql" , cQry)
-
-    mpSysOpenQuery(cQry,cAlias)
     
     oStruct := oModel:GetStruct()
     aAux    := oStruct:GetFields()
 
-    While !(cAlias)->(EOF())
-        aAdd(aData,{{(cAlias)->R_E_C_N_O_},{}})
+	aAdd(aData,{{SE2->(Recno())},{}})
 
-        For nI := 1 to Len(aAux)
-            if !(aAux[nI][14])
-                aAdd(aData[Len(aData)][2],(cAlias)->&(aAux[nI][3]))
-            else //CAMPO VIRTUAL
-                if aAux[nI][4] == 'C'
-                    aAdd(aData[Len(aData)][2],"")
-                elseif aAux[nI][4] == 'D'
-                    aAdd(aData[Len(aData)][2],cToD("//"))
-                elseif aAux[nI][4] == 'N'
-                    aAdd(aData[Len(aData)][2],0)
-                endif 
-            endif
-        Next nI
+	For nI := 1 to Len(aAux)
+		if !(aAux[nI][14])
+			aAdd(aData[Len(aData)][2],SE2->&(aAux[nI][3]))
+		else //CAMPO VIRTUAL
+			if aAux[nI][4] == 'C'
+				aAdd(aData[Len(aData)][2],"")
+			elseif aAux[nI][4] == 'D'
+				aAdd(aData[Len(aData)][2],cToD("//"))
+			elseif aAux[nI][4] == 'N'
+				aAdd(aData[Len(aData)][2],0)
+			endif
+		endif
+	Next nI
 
-        (cAlias)->(dbSkip())
-    EndDo
-    (cAlias)->(dbCloseArea())
     FwRestArea(aArea)
 Return aData
 
-User FUnction FI01CAP()
+//User FUnction FI01CAP()
 //    Local cChave := SE2->(E2_FILIAL+E2_PREFIXO+E2_NUM+E2_PARCELA+E2_TIPO+E2_FORNECE+E2_LOJA)
 
-Return
+//Return

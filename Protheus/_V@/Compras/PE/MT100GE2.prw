@@ -7,7 +7,7 @@
 
 // Gravar dados adicionais no titulo apos gravar documento de entrada
 // Observacao da Nota no Titulo Financeiro na Inclusao da NF de Entrada
-User Function MT100GE2 
+User Function MT100GE2()
 /*
 Local aTitAtual   := PARAMIXB[1]
 Local nOpc        := PARAMIXB[2]
@@ -24,15 +24,18 @@ Local nPos        := Ascan(aHeadSE2,{|x| Alltrim(x[2]) == 'E2_OBS'})
    Alert('MT100GE2: ' + cValToChar(nPos))
 */
 Local nParc	:= iIf(Empty(SE2->E2_PARCELA),1,Val(SE2->E2_PARCELA))
-
 	If Type("aTitSE2") <> "U" .and. !Empty( aTitSE2 ) .and. PARAMIXB[1,2] <> aTitSE2[ nParc, 3]
 		SE2->E2_VENCTO  := DataValida( aTitSE2[ nParc, 3], .T.)
 		SE2->E2_VENCREA := DataValida( aTitSE2[ nParc, 3], .T.)
 	EndIf
 
 	If INCLUI .and. Type("cObsMT103") <> "U" .and. !Empty(cObsMT103)
+		cObsMT103 := Replace(cObsMT103,"|","")
+		cObsMT103 := AllTrim(cObsMT103)
+		
 		SE2->E2_HIST :=  cObsMT103 //SF1->F1_MENNOTA //cObsMT103 //
-	EndIf                
+	EndIf
+
 	If SE2->(FieldPos("E2_XXDTDIG"))>0
 		SE2->E2_XXDTDIG := DATE()      
 		// Update criado para tratar titulos TX;IR;ISS e demais que nao estavam tendo o conteudo alterado pelo ponto de entrada
