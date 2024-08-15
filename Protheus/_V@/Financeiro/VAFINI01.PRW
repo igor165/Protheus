@@ -125,14 +125,11 @@ Static Function LoadFake()
 Return {"Fake"}
 Static Function LoadSE2(oModel)
     Local aArea     := FwGetArea()
-    Local oStruct   := nil
+    Local oStruct   := oModel:GetStruct()
     Local aData     := {}
     Local nI 
-    Local aAux
+    Local aAux		:= oStruct:GetFields()
     
-    oStruct := oModel:GetStruct()
-    aAux    := oStruct:GetFields()
-
 	aAdd(aData,{{SE2->(Recno())},{}})
 
 	For nI := 1 to Len(aAux)
