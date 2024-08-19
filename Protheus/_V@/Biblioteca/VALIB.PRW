@@ -76,8 +76,6 @@ Local aArea			:= GetArea()
 	Restarea(aArea)
 Return .T.
              
-ALLTRIM(SUBSTR(SE2->E2_CODBAR,34,4)) + PADL(ALLTRIM(SUBSTR(SE2->E2_CODBAR,35,10)),10,"0")
-
 //-----------------------------------------------------------------------------------------------
 // Codigo Estruturado no cadastro de Produtos
 //-----------------------------------------------------------------------------------------------

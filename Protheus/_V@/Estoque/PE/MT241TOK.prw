@@ -39,7 +39,7 @@ User Function MT241TOK()
 						ENDIF
 					ENDIF
 				ENDIF 
-			ENDIF 
+			ENDIF
 		Next nI
 	else
 		For nI := 1 to Len( aCols )
