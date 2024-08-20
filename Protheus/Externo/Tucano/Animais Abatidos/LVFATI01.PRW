@@ -196,7 +196,7 @@ User Function FATI01()
 			oGrid 		:= oModel:GetModel("ZEGDETAIL")
 			oTot 		:= oModel:GetModel("TOTAIS")
 			nOpc 		:= oGrid:GetOperation()
-			nLines 		:= oGrid:GetQtdLine()
+			nLines 		:= oGrid:Length()
 			nLinAtu		:= oGrid:GetLine()
 
 			For nI := 1 to nLines
@@ -209,16 +209,16 @@ User Function FATI01()
 						nVlrTot += oGrid:GetValue("ZEG_VLRTOT")
 					endif
 				endif
-			Next nI 
+			Next nI
 
 			IF nVlrDia > 0
 				oCab:LoadValue("ZEF_CUSCAB",Round(nVlrDia,2))
 	
 				oCab:LoadValue("ZEF_CUSOPA",Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB"))
 				
-				oCab:LoadValue("ZEF_CUSTOA",(Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+				oCab:LoadValue("ZEF_CUSTOA",Round((Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / Round(oCab:GetValue("ZEF_QTDARR"),2)),2))
 				
-				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2))
+				oCab:LoadValue("ZEF_VLRALI",Round(oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2),2))
 				
 				oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN") +;
 											(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -234,7 +234,7 @@ User Function FATI01()
 			oGrid 		:= oModel:GetModel("ZEGDETAIL")
 			oTot 		:= oModel:GetModel("TOTAIS")
 			nOpc 		:= oGrid:GetOperation()
-			nLines 		:= oGrid:GetQtdLine()
+			nLines 		:= oGrid:Length()
 			nLinAtu		:= oGrid:GetLine()
 
 			For nI := 1 to nLines
@@ -259,9 +259,9 @@ User Function FATI01()
 	
 				oCab:LoadValue("ZEF_CUSOPA",Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB"))
 
-				oCab:LoadValue("ZEF_CUSTOA",(Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+				oCab:LoadValue("ZEF_CUSTOA",Round((Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / Round(oCab:GetValue("ZEF_QTDARR"),2)),2))
 				
-				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2))
+				oCab:LoadValue("ZEF_VLRALI",Round(oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2),2))
 				
 				oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN")+;
 											(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -286,6 +286,7 @@ User Function I01KTOT()
 
 	if ReadVar() == 'M->ZEG_KGDIA'
 		nRet := oGrid:GetValue("ZEG_KGDIA") * oCab:GetValue("ZEF_PERIOD") * oCab:GetValue("ZEF_NUMANI")
+		oGrid:LoadValue("ZEG_VLRTOT",nRet * oGrid:GetValue("ZEG_VLRUNI"))
 	elseif ReadVar() == 'M->ZEG_VLRUNI'
 		nRet := oGrid:GetValue("ZEG_KGDIA") * oGrid:GetValue("ZEG_VLRUNI")
 	elseif ReadVar() ==  'M->ZEG_VLRTOT'
@@ -296,9 +297,9 @@ User Function I01KTOT()
 
 	oCab:LoadValue("ZEF_CUSOPA",Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB"))
 	
-	oCab:LoadValue("ZEF_CUSTOA",(Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+	oCab:LoadValue("ZEF_CUSTOA",(Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / Round(oCab:GetValue("ZEF_QTDARR"),2)))
 	
-	oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(oTot:GetValue("XX_VLRDIA"),2))
+	oCab:LoadValue("ZEF_VLRALI",Round(oCab:GetValue("ZEF_PERIOD") * Round(oTot:GetValue("XX_VLRDIA"),2),2))
 	
 	oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN")+;
 								(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -307,13 +308,13 @@ User Function I01KTOT()
 	
 	oCab:LoadValue("ZEF_RECTOT",oCab:GetValue("ZEF_RECLIQ") * oCab:GetValue("ZEF_NUMANI"))
 Return nRet
-User Function I01PER()
+/* User Function I01PER()
 	Local oModel 	:= FWModelActive()
 	Local oCab		:= oModel:GetModel("ZEFMASTER") 
 	Local oGrid 	:= oModel:GetModel("ZEGDETAIL")
 	Local nRet 		:= 0
 	Local nI 
-	Local nLines	:= oGrid:GetQtdLine()
+	Local nLines	:= oGrid:Length()
 	Local nLinAtu	:= oGrid:GetLine()
 	Local oView		:= FWViewActive()
 
@@ -332,9 +333,9 @@ User Function I01PER()
 
 	oGrid:GoLine(nLinAtu)
 	oView:Refresh()
-Return nRet
+Return nRet */
 //ZEF_PERIOD->ZEF_VLRALI
-User Function I01REC()
+/* User Function I01REC()
 	Local oModel 	:= FWModelActive()
 	Local oCab		:= oModel:GetModel("ZEFMASTER") 
 	
@@ -342,13 +343,13 @@ User Function I01REC()
 	Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * Round(oTot:GetValue("XX_VLRDIA"),2)
 	//Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * oTot:GetValue("XX_VLRDIA")
 	
-Return nRet
+Return nRet */
 
 User Function I01VldP()
 	Local oModel 	:= FWModelActive()
 	Local oGrid		:= oModel:GetModel("ZEGDETAIL") 
 	Local nLine 	:= oGrid:GetLine()
-	Local nLinTot	:= oGrid:GetQtdLine()
+	Local nLinTot	:= oGrid:Length()
 	Local nI
 	Local cProduto 	:= oGrid:GetValue("ZEG_PRODUT")
 	Local lRet 		:= .T.
@@ -369,29 +370,44 @@ Return lRet
 
 User Function I01Gati()
 	Local oModel 	:= FWModelActive()
+	Local oView 	:= FWViewActive()
 	Local oCab		:= oModel:GetModel("ZEFMASTER")
+	Local oGrid 	:= oModel:GetModel("ZEGDETAIL")
 	Local oTot		:= oModel:GetModel("TOTAIS") 
-	Local nRet 		:= oCab:GetValue(SubStr(ReadVar(),4,Len(ReadVar())))
+	Local cCampo 	:= SubStr(ReadVar(),4,Len(ReadVar()))
+	Local nRet 		:= oCab:GetValue(cCampo)
+	Local nI 
 
 	oCab:LoadValue("ZEF_NUMANI",oCab:GetValue("ZEF_NUMANI"))
 	
 	oCab:LoadValue("ZEF_PERIOD",oCab:GetValue("ZEF_PERIOD"))
+
+	if cCampo $ 'ZEF_NUMANI|ZEF_PERIOD'
+		For nI := 1 to oGrid:Length()
+			oGrid:GoLine(nI)
+
+			oGrid:LoadValue("ZEG_KGTOTA", oGrid:GetValue("ZEG_KGDIA") * oCab:GetValue("ZEF_NUMANI") * oCab:GetValue("ZEF_PERIOD"))
+			oGrid:LoadValue("ZEG_VLRDIA", oGrid:GetValue("ZEG_VLRUNI") * oGrid:GetValue("ZEG_KGDIA"))
+			oGrid:LoadValue("ZEG_VLRTOT", Round(oGrid:GetValue("ZEG_KGTOTA") * oGrid:GetValue("ZEG_VLRUNI"),2))
+		Next nI
+	endif
 	
 	oCab:LoadValue("ZEF_PESOKG",oCab:GetValue("ZEF_PESOKG"))
 	
 	oCab:LoadValue("ZEF_PESOAR",oCab:GetValue("ZEF_PESOKG") / 30)
 
 	oCab:LoadValue("ZEF_GMD",oCab:GetValue("ZEF_GMD"))
+
+	oCab:LoadValue("ZEF_RENDIM",oCab:GetValue("ZEF_RENDIM"))
 	
 	oCab:LoadValue("ZEF_PESOF",oCab:GetValue("ZEF_PESOKG") +;
 							  (oCab:GetValue("ZEF_PERIOD") * oCab:GetValue("ZEF_GMD") ))
 	
-	
 	oCab:LoadValue("ZEF_PESOFC",oCab:GetValue("ZEF_PESOF") * oCab:GetValue("ZEF_RENDIM") / 100 / 15)
 	
-	oCab:LoadValue("ZEF_QTDARR",oCab:GetValue("ZEF_PESOFC") - oCab:GetValue("ZEF_QTDARR"))
+	oCab:LoadValue("ZEF_QTDARR",oCab:GetValue("ZEF_PESOFC") - oCab:GetValue("ZEF_PESOAR"))
 	
-	oCab:LoadValue("ZEF_CUSTOA",oCab:GetValue("ZEF_CUSOPA") * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR") ))
+	oCab:LoadValue("ZEF_CUSTOA",Round((oCab:GetValue("ZEF_COPCAB") + oCab:GetValue("ZEF_CUSCAB")) * oCab:GetValue("ZEF_PERIOD") / Round(oCab:GetValue("ZEF_QTDARR"),2),2))
 	
 	oCab:LoadValue("ZEF_VLRVEN",oCab:GetValue("ZEF_VLRVEN"))
 
@@ -401,17 +417,19 @@ User Function I01Gati()
 
 	oCab:LoadValue("ZEF_COPCAB",oCab:GetValue("ZEF_COPCAB"))
 
-	oCab:LoadValue("ZEF_CUSOPA",oCab:GetValue("ZEF_COPCAB") - oCab:GetValue("ZEF_CUSCAB"))
+	oCab:LoadValue("ZEF_CUSOPA",oCab:GetValue("ZEF_COPCAB") + oCab:GetValue("ZEF_CUSCAB"))
 	
-	oCab:LoadValue("ZEF_VLRCEN",oCab:GetValue("ZEF_QTDARR") * oCab:GetValue("ZEF_PESOAR"))
+	oCab:LoadValue("ZEF_VLRCEN",oCab:GetValue("ZEF_VLRENT") * oCab:GetValue("ZEF_PESOAR"))
 
-	oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(oTot:GetValue("XX_VLRDIA"),2))
+	oCab:LoadValue("ZEF_VLRALI",Round(oCab:GetValue("ZEF_PERIOD") * oTot:GetValue("XX_VLRDIA"),2))
 	
-	oCab:LoadValue("ZEF_RECEIT",oCab:GetValue("ZEF_PESOFC") * oCab:GetValue("ZEF_PESOAR"))
+	oCab:LoadValue("ZEF_RECEIT",oCab:GetValue("ZEF_PESOFC") * oCab:GetValue("ZEF_VLRVEN"))
 
 	oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN") + (oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
 
 	oCab:LoadValue("ZEF_RECLIQ",oCab:GetValue("ZEF_RECEIT") - oCab:GetValue("ZEF_DESTOT"))
 
 	oCab:LoadValue("ZEF_RECTOT",oCab:GetValue("ZEF_RECLIQ") * oCab:GetValue("ZEF_NUMANI"))
+
+	oView:Refresh()
 Return nRet
