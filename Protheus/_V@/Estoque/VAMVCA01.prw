@@ -617,7 +617,7 @@ User Function ProxProd()
 	// zerando variavel privada
 	_cProdMB         := ""
 
-	//só °¥rmite a efetivaç£¯ se a quantidade de origem e destino estiverem iguais
+	//só permite a efetivação se a quantidade de origem e destino estiverem iguais
 	nQtdOri          := oModel:GetValue("CALC_TOT","Z0D__TOT01")
 	nQtdDes          := oModel:GetValue("CALC_TOT","Z0E__TOT02")
 	If nQtdOri<=0
@@ -1397,7 +1397,7 @@ User Function NewLotes( __cCampo )
 
 							If lRet := MsgYesNo( 'O lote: ' +;
 								AllTrim(oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_LOTE"})]) +;
-								' jáe encontra reservado.' +;
+								' já se encontra reservado.' +;
 								CRLF +;
 								'Deseja liberar esse lote e substituir pelo lote:? ' + cLote)
 
@@ -1554,7 +1554,7 @@ Local lRet   := .T.
 	If Z0C->Z0C_TPMOV == '4' .AND.; // Apartação
 		Empty( FwFldGet( 'Z0E_OBS' ) )
 
-		MsgAlert("Campo observaç£¯ não preenchido na linha: " + cValToChar(oModel:GetModel( 'Z0EDETAIL' ):nLine ))
+		MsgAlert("Campo observação não preenchido na linha: " + cValToChar(oModel:GetModel( 'Z0EDETAIL' ):nLine ))
 		lRet := .F.
 	EndIf
 
@@ -1595,7 +1595,7 @@ Return lRet
 
 // -------------------------------------------------------------------------------------------------------------
 Static Function FZ0ELPre()
-	//só °¥rmite a efetivaç£¯ se a quantidade de origem e destino estiverem iguais
+	//só permite a efetivação se a quantidade de origem e destino estiverem iguais
 	If FWFldGet('Z0E__TOT02')>=FWFldGet('Z0D__TOT01')
 		alert('já¦oram informadas destinos suficientes para atender as origens especIficadas, verIfique as quantidades informadas.')
 		Return .F.
@@ -1655,11 +1655,11 @@ Static Function ProcGrid( oModel, oView)
 	EndIf
 
 	If !Z0C->Z0C_STATUS /*FWFldGet\("Z0C_STATUS"\)*/ $ '14'
-		msgAlert('só é possï¿½l efetivar Movimentações em aberto.')
+		msgAlert('só é possível efetivar Movimentações em aberto.')
 		Return .F.
 	EndIf
 
-	//só °¥rmite a efetivaç£¯ se a quantidade de origem e destino estiverem iguais
+	//só permite a efetivação se a quantidade de origem e destino estiverem iguais
 	nQtdOri := oModel:GetValue("CALC_TOT","Z0D__TOT01")
 	nQtdDes := oModel:GetValue("CALC_TOT","Z0E__TOT02")
 	If nQtdOri<=0
@@ -1696,10 +1696,10 @@ Static Function ProcGrid( oModel, oView)
 	EndIf
 
 	//IdentIfica os produtos de destino e salva a quantidade necessá²©a
-	oGridZ0D   := oModel:GetModel( 'Z0DDETAIL' )
-	aSvLn2   := FWSaveRows()
-	oGridZ0E   := oModel:GetModel( 'Z0EDETAIL' )
-	aSvLn1   := FWSaveRows()
+	oGridZ0D   	:= oModel:GetModel( 'Z0DDETAIL' )
+	aSvLn2   	:= FWSaveRows()
+	oGridZ0E   	:= oModel:GetModel( 'Z0EDETAIL' )
+	aSvLn1   	:= FWSaveRows()
 
 	nPHZ0EPROD := aScan(oGridZ0E:aHeader,{|x|AllTrim(x[2])=="Z0E_PROD"})
 	nPHZ0EORIG := aScan(oGridZ0E:aHeader,{|x|AllTrim(x[2])=="Z0E_PRDORI"}) // PRODUTO ORIGEM: Z0D
@@ -2600,7 +2600,7 @@ Static Function doTransf(oModel, aTransf)
 			aadd(aItem,dDataVl)	   		//21 = Validade D D3_DTVALID  D         8       0
 			aadd(aItem,"")		   		//22 = Item Grade D3_ITEMGRD  C         3       0
 			//aadd(aItem,"")		   	//23 = Id DCF     D3_IDDCF    C         6       0
-			aadd(aItem,"MOV." + cDoc + "." + cSeqEfe)		//24 = Observaç£¯ D3_OBSERVA  C        30       0
+			aadd(aItem,"MOV." + cDoc + "." + cSeqEfe)		//24 = observação D3_OBSERVA  C        30       0
 		*/
 		aadd(aItem, {"D3_NUMSERI", ""                           , Nil}) //Numero serie
 		aadd(aItem, {"D3_LOTECTL", cLote                        , Nil}) //Lote Origem
@@ -2620,13 +2620,13 @@ Static Function doTransf(oModel, aTransf)
 		aadd(aItem, {"D3_CODLAN" , ""                           , Nil}) //cat83 prod origem
 		aadd(aItem, {"D3_CODLAN" , ""                           , Nil}) //cat83 prod destino
 
-		aadd(aItem, {"D3_OBSERVA", "MOV." + cDoc + "." + cSeqEfe, Nil}) //Observaç£¯
+		aadd(aItem, {"D3_OBSERVA", "MOV." + cDoc + "." + cSeqEfe, Nil}) //observação
 
-		aadd(aItem, {"D3_X_CURRA", aTransf[9]                   , Nil}) //24 = Observaç£¯ D3_OBSERVA  C        30       0
-		aadd(aItem, {"D3_X_CURRA", aTransf[10]                  , Nil}) //24 = Observaç£¯ D3_OBSERVA  C        30       0
+		aadd(aItem, {"D3_X_CURRA", aTransf[9]                   , Nil}) //24 = observação D3_OBSERVA  C        30       0
+		aadd(aItem, {"D3_X_CURRA", aTransf[10]                  , Nil}) //24 = observação D3_OBSERVA  C        30       0
 
 		If !Empty(aTransf[11])
-			aadd(aItem,{"D3_X_OBS", aTransf[11], Nil}) //Observaç£¯
+			aadd(aItem,{"D3_X_OBS", aTransf[11], Nil}) //observação
 		EndIf
 
 		aadd(aAuto, aItem)

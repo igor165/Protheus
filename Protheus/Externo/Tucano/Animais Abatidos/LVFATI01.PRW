@@ -41,10 +41,12 @@ Static Function ModelDef()
 	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_RECEIT","M->ZEF_VLRVEN * M->ZEF_PESOFC"									,.F. ,"",0,"" ,NIL, "01" ))
 	
 	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOAR","M->ZEF_PESOKG / 30 "												,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "02" ))
 	aAdd(aAux, FwStruTrigger("ZEF_GMD" 		,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_RENDIM" 	,"ZEF_PESOFC","( M->ZEF_RENDIM * M->ZEF_PESOF) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_RENDIM" 	,"ZEF_PESOFC","(M->ZEF_RENDIM * M->ZEF_PESOF) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_QTDARR","M->ZEF_PESOFC - M->ZEF_PESOAR"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_CUSCAB" 	,"ZEF_CUSOPA","M->ZEF_CUSCAB + M->ZEF_COPCAB"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_COPCAB" 	,"ZEF_CUSOPA","M->ZEF_COPCAB + M->ZEF_CUSCAB"									,.F. ,"",0,"" ,NIL, "01" ))
@@ -199,13 +201,13 @@ User Function FATI01()
 			Next nI 
 
 			IF nVlrDia > 0
-				oCab:LoadValue("ZEF_CUSCAB",nVlrDia)
+				oCab:LoadValue("ZEF_CUSCAB",Round(nVlrDia,2))
 	
-				oCab:LoadValue("ZEF_CUSOPA",nVlrDia + oCab:GetValue("ZEF_COPCAB"))
+				oCab:LoadValue("ZEF_CUSOPA",Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB"))
 				
-				oCab:LoadValue("ZEF_CUSTOA",(nVlrDia + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+				oCab:LoadValue("ZEF_CUSTOA",(Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
 				
-				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * nVlrDia)
+				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2))
 				
 				oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN") +;
 											(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -242,13 +244,13 @@ User Function FATI01()
 			Next nI
 
 			IF nVlrDia > 0
-				oCab:LoadValue("ZEF_CUSCAB",nVlrDia)
+				oCab:LoadValue("ZEF_CUSCAB",Round(nVlrDia,2))
 	
-				oCab:LoadValue("ZEF_CUSOPA",nVlrDia + oCab:GetValue("ZEF_COPCAB"))
+				oCab:LoadValue("ZEF_CUSOPA",Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB"))
 
-				oCab:LoadValue("ZEF_CUSTOA",(nVlrDia + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+				oCab:LoadValue("ZEF_CUSTOA",(Round(nVlrDia,2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
 				
-				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * nVlrDia)
+				oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(nVlrDia,2))
 				
 				oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN")+;
 											(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -279,13 +281,14 @@ User Function I01KTOT()
 		nRet := oGrid:GetValue("ZEG_KGDIA") * oGrid:GetValue("ZEG_VLRUNI")
 	endif
 
-	oCab:LoadValue("ZEF_CUSCAB",oTot:GetValue("XX_VLRDIA"))
+	oCab:LoadValue("ZEF_CUSCAB",Round(oTot:GetValue("XX_VLRDIA"),2))
+	//oCab:LoadValue("ZEF_CUSCAB",oTot:GetValue("XX_VLRDIA"))
 
-	oCab:LoadValue("ZEF_CUSOPA",oTot:GetValue("XX_VLRDIA") + oCab:GetValue("ZEF_COPCAB"))
+	oCab:LoadValue("ZEF_CUSOPA",Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB"))
 	
-	oCab:LoadValue("ZEF_CUSTOA",(oTot:GetValue("XX_VLRDIA") + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
+	oCab:LoadValue("ZEF_CUSTOA",(Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB")) * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR")))
 	
-	oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * oTot:GetValue("XX_VLRDIA"))
+	oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(oTot:GetValue("XX_VLRDIA"),2))
 	
 	oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN")+;
 								(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
@@ -326,7 +329,8 @@ User Function I01REC()
 	Local oCab		:= oModel:GetModel("ZEFMASTER") 
 	
 	Local oTot		:= oModel:GetModel("TOTAIS") 
-	Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * oTot:GetValue("XX_VLRDIA")
+	Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * Round(oTot:GetValue("XX_VLRDIA"),2)
+	//Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * oTot:GetValue("XX_VLRDIA")
 	
 Return nRet
 
