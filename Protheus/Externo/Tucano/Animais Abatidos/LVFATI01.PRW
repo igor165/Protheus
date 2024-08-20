@@ -36,19 +36,20 @@ Static Function ModelDef()
 	Local aZEGRel	:= {}
 	Local aAux		:= {}
 	Local nI
-
+/* 
 	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_RECEIT","M->ZEF_VLRVEN * M->ZEF_PESOFC"									,.F. ,"",0,"" ,NIL, "01" ))
-	
+
 	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOAR","M->ZEF_PESOKG / 30 "												,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "02" ))
 	aAdd(aAux, FwStruTrigger("ZEF_GMD" 		,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_RENDIM" 	,"ZEF_PESOFC","(M->ZEF_RENDIM * M->ZEF_PESOF) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_QTDARR","M->ZEF_PESOFC - M->ZEF_PESOAR"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_CUSCAB" 	,"ZEF_CUSOPA","M->ZEF_CUSCAB + M->ZEF_COPCAB"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_CUSCAB" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "02" ))
 	aAdd(aAux, FwStruTrigger("ZEF_COPCAB" 	,"ZEF_CUSOPA","M->ZEF_COPCAB + M->ZEF_CUSCAB"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_CUSOPA" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * (M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_VLRENT" 	,"ZEF_VLRCEN","M->ZEF_VLRENT * M->ZEF_PESOAR"									,.F. ,"",0,"" ,NIL, "01" ))
@@ -62,6 +63,16 @@ Static Function ModelDef()
 	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_DESTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "04" ))
 	aAdd(aAux, FwStruTrigger("ZEF_DESTOT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_RECEIT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
+*/
+
+	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_NUMANI","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_PERIOD","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOKG","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_GMD" 		,"ZEF_GMD"	 ,"U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_RENDIM" 	,"ZEF_RENDIM","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_VLRVEN" 	,"ZEF_VLRVEN","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_VLRENT" 	,"ZEF_VLRENT","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
+	aAdd(aAux, FwStruTrigger("ZEF_COPCAB" 	,"ZEF_COPCAB","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
 
 	For nI := 1 to Len(aAux)
 		oStrCab:AddTrigger(aAux[nI,1], aAux[nI,2], aAux[nI,3], aAux[nI,4])
@@ -282,7 +293,6 @@ User Function I01KTOT()
 	endif
 
 	oCab:LoadValue("ZEF_CUSCAB",Round(oTot:GetValue("XX_VLRDIA"),2))
-	//oCab:LoadValue("ZEF_CUSCAB",oTot:GetValue("XX_VLRDIA"))
 
 	oCab:LoadValue("ZEF_CUSOPA",Round(oTot:GetValue("XX_VLRDIA"),2) + oCab:GetValue("ZEF_COPCAB"))
 	
@@ -357,3 +367,51 @@ User Function I01VldP()
 	oGrid:GoLine(nLine)
 Return lRet 	
 
+User Function I01Gati()
+	Local oModel 	:= FWModelActive()
+	Local oCab		:= oModel:GetModel("ZEFMASTER")
+	Local oTot		:= oModel:GetModel("TOTAIS") 
+	Local nRet 		:= oCab:GetValue(SubStr(ReadVar(),4,Len(ReadVar())))
+
+	oCab:LoadValue("ZEF_NUMANI",oCab:GetValue("ZEF_NUMANI"))
+	
+	oCab:LoadValue("ZEF_PERIOD",oCab:GetValue("ZEF_PERIOD"))
+	
+	oCab:LoadValue("ZEF_PESOKG",oCab:GetValue("ZEF_PESOKG"))
+	
+	oCab:LoadValue("ZEF_PESOAR",oCab:GetValue("ZEF_PESOKG") / 30)
+
+	oCab:LoadValue("ZEF_GMD",oCab:GetValue("ZEF_GMD"))
+	
+	oCab:LoadValue("ZEF_PESOF",oCab:GetValue("ZEF_PESOKG") +;
+							  (oCab:GetValue("ZEF_PERIOD") * oCab:GetValue("ZEF_GMD") ))
+	
+	
+	oCab:LoadValue("ZEF_PESOFC",oCab:GetValue("ZEF_PESOF") * oCab:GetValue("ZEF_RENDIM") / 100 / 15)
+	
+	oCab:LoadValue("ZEF_QTDARR",oCab:GetValue("ZEF_PESOFC") - oCab:GetValue("ZEF_QTDARR"))
+	
+	oCab:LoadValue("ZEF_CUSTOA",oCab:GetValue("ZEF_CUSOPA") * (oCab:GetValue("ZEF_PERIOD") / oCab:GetValue("ZEF_QTDARR") ))
+	
+	oCab:LoadValue("ZEF_VLRVEN",oCab:GetValue("ZEF_VLRVEN"))
+
+	oCab:LoadValue("ZEF_VLRENT",oCab:GetValue("ZEF_VLRENT"))
+	
+	oCab:LoadValue("ZEF_CUSCAB",Round(oTot:GetValue("XX_VLRDIA"),2))
+
+	oCab:LoadValue("ZEF_COPCAB",oCab:GetValue("ZEF_COPCAB"))
+
+	oCab:LoadValue("ZEF_CUSOPA",oCab:GetValue("ZEF_COPCAB") - oCab:GetValue("ZEF_CUSCAB"))
+	
+	oCab:LoadValue("ZEF_VLRCEN",oCab:GetValue("ZEF_QTDARR") * oCab:GetValue("ZEF_PESOAR"))
+
+	oCab:LoadValue("ZEF_VLRALI",oCab:GetValue("ZEF_PERIOD") * Round(oTot:GetValue("XX_VLRDIA"),2))
+	
+	oCab:LoadValue("ZEF_RECEIT",oCab:GetValue("ZEF_PESOFC") * oCab:GetValue("ZEF_PESOAR"))
+
+	oCab:LoadValue("ZEF_DESTOT",oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN") + (oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD")))
+
+	oCab:LoadValue("ZEF_RECLIQ",oCab:GetValue("ZEF_RECEIT") - oCab:GetValue("ZEF_DESTOT"))
+
+	oCab:LoadValue("ZEF_RECTOT",oCab:GetValue("ZEF_RECLIQ") * oCab:GetValue("ZEF_NUMANI"))
+Return nRet
