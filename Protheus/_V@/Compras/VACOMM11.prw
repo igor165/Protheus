@@ -6344,9 +6344,11 @@ Local cPed			:= ''
 					EndIf
 				Next nI
 				// Enviar Email somente qdo executado do ambiente de PRODUÇÃO
-/* 				If GetServerIP() == GetMV("MB_IP_PROD",,"192.168.0.242")
+				/* 				
+				If GetServerIP() == GetMV("MB_IP_PROD",,"192.168.0.242")
 					U_ExecAutoOK( FWxFilial('SC7') + SC7->C7_NUM )
-				EndIf */
+				EndIf 
+				*/
 
 				//Adicionado por Renato de Bianchi
 				//Verifica se já atendeu ao contrato completamente
@@ -6388,7 +6390,8 @@ Local cPed			:= ''
 			EndIf
 		EndIf
 	End Transaction
-RestArea(aArea)
+	
+	RestArea(aArea)
 
 Return lErro
 

@@ -36,34 +36,6 @@ Static Function ModelDef()
 	Local aZEGRel	:= {}
 	Local aAux		:= {}
 	Local nI
-/* 
-	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_RECTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOAR" 	,"ZEF_VLRCEN","M->ZEF_PESOAR * M->ZEF_VLRENT"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_QTDARR" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR ) "				,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOF" 	,"ZEF_PESOFC","( M->ZEF_PESOF * M->ZEF_RENDIM) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_RECEIT","M->ZEF_VLRVEN * M->ZEF_PESOFC"									,.F. ,"",0,"" ,NIL, "01" ))
-
-	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOAR","M->ZEF_PESOKG / 30 "												,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOKG" 	,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "02" ))
-	aAdd(aAux, FwStruTrigger("ZEF_GMD" 		,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_PERIOD * M->ZEF_GMD )"					,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_RENDIM" 	,"ZEF_PESOFC","(M->ZEF_RENDIM * M->ZEF_PESOF) / 100 / 15"						,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PESOFC" 	,"ZEF_QTDARR","M->ZEF_PESOFC - M->ZEF_PESOAR"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_CUSCAB" 	,"ZEF_CUSOPA","M->ZEF_CUSCAB + M->ZEF_COPCAB"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_CUSCAB" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * ( M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "02" ))
-	aAdd(aAux, FwStruTrigger("ZEF_COPCAB" 	,"ZEF_CUSOPA","M->ZEF_COPCAB + M->ZEF_CUSCAB"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_CUSOPA" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * (M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_VLRENT" 	,"ZEF_VLRCEN","M->ZEF_VLRENT * M->ZEF_PESOAR"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_VLRVEN" 	,"ZEF_RECEIT","M->ZEF_VLRVEN * M->ZEF_PESOFC"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_VLRCEN" 	,"ZEF_DESTOT","M->ZEF_VLRALI + M->ZEF_VLRCEN + (M->ZEF_COPCAB * M->ZEF_PERIOD)"	,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_RECLIQ" 	,"ZEF_RECTOT","M->ZEF_RECLIQ * M->ZEF_NUMANI"									,.F. ,"",0,"" ,NIL, "01" ))
-	
-	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_PESOF" ,"M->ZEF_PESOKG + (M->ZEF_GMD * M->ZEF_PERIOD )"					,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_CUSTOA","M->ZEF_CUSOPA * (M->ZEF_PERIOD / M->ZEF_QTDARR )"				,.F. ,"",0,"" ,NIL, "02" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_VLRALI","U_I01REC()"														,.F. ,"",0,"" ,NIL, "03" ))
-	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_DESTOT","U_I01PER()"														,.F. ,"",0,"" ,NIL, "04" ))
-	aAdd(aAux, FwStruTrigger("ZEF_DESTOT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
-	aAdd(aAux, FwStruTrigger("ZEF_RECEIT" 	,"ZEF_RECLIQ","M->ZEF_RECEIT - M->ZEF_DESTOT"									,.F. ,"",0,"" ,NIL, "01" ))
-*/
 
 	aAdd(aAux, FwStruTrigger("ZEF_NUMANI" 	,"ZEF_NUMANI","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
 	aAdd(aAux, FwStruTrigger("ZEF_PERIOD" 	,"ZEF_PERIOD","U_I01GATI()"									,.F. ,"",0,"" ,NIL, "01" ))
@@ -90,7 +62,6 @@ Static Function ModelDef()
 	For nI := 1 to Len(aAux)
 		oStrGrid:AddTrigger(aAux[nI,1], aAux[nI,2], aAux[nI,3], aAux[nI,4])
 	next nI
-
 	
 	oStrCab:SetProperty('ZEF_CODIGO', MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, 'IIF(INCLUI,GETSX8NUM("ZEF","ZEF_CODIGO"),ZEF->ZEF_CODIGO)')) //Inicializador Padrão
 	oStrCab:SetProperty('ZEF_DATA'  , MODEL_FIELD_INIT, FwBuildFeature(STRUCT_FEATURE_INIPAD, 'IIF(INCLUI,Date(),ZEF->ZEF_DATA)')) //Inicializador Padrão
@@ -308,43 +279,6 @@ User Function I01KTOT()
 	
 	oCab:LoadValue("ZEF_RECTOT",oCab:GetValue("ZEF_RECLIQ") * oCab:GetValue("ZEF_NUMANI"))
 Return nRet
-/* User Function I01PER()
-	Local oModel 	:= FWModelActive()
-	Local oCab		:= oModel:GetModel("ZEFMASTER") 
-	Local oGrid 	:= oModel:GetModel("ZEGDETAIL")
-	Local nRet 		:= 0
-	Local nI 
-	Local nLines	:= oGrid:Length()
-	Local nLinAtu	:= oGrid:GetLine()
-	Local oView		:= FWViewActive()
-
-	if ReadVar() == 'M->ZEF_PERIOD'
-		nRet 	:= oCab:GetValue("ZEF_VLRALI") + oCab:GetValue("ZEF_VLRCEN")+;
-					(oCab:GetValue("ZEF_COPCAB") * oCab:GetValue("ZEF_PERIOD"))
-	elseif ReadVar() == 'M->ZEF_NUMANI'
-		nRet 	:= oCab:GetValue("ZEF_NUMANI") * oCab:GetValue("ZEF_RECLIQ")
-	endif
-
-	For nI := 1 to nLines
-		oGrid:GoLine(nI)	
-		oGrid:SetValue("ZEG_KGTOTA", oGrid:GetValue("ZEG_KGDIA") * oCab:GetValue("ZEF_NUMANI") * oCab:GetValue("ZEF_PERIOD") )
-		oGrid:SetValue("ZEG_VLRTOT", oGrid:GetValue("ZEG_KGTOTA") * oGrid:GetValue("ZEG_VLRUNI") )
-	Next nI
-
-	oGrid:GoLine(nLinAtu)
-	oView:Refresh()
-Return nRet */
-//ZEF_PERIOD->ZEF_VLRALI
-/* User Function I01REC()
-	Local oModel 	:= FWModelActive()
-	Local oCab		:= oModel:GetModel("ZEFMASTER") 
-	
-	Local oTot		:= oModel:GetModel("TOTAIS") 
-	Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * Round(oTot:GetValue("XX_VLRDIA"),2)
-	//Local nRet 		:= oCab:GetValue("ZEF_PERIOD")  * oTot:GetValue("XX_VLRDIA")
-	
-Return nRet */
-
 User Function I01VldP()
 	Local oModel 	:= FWModelActive()
 	Local oGrid		:= oModel:GetModel("ZEGDETAIL") 
