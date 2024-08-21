@@ -164,7 +164,7 @@ RegToMemory( cAlias, nOpc == 3 )
 aSize := MsAdvSize( .T. )
 AAdd( aObjects, { 100 , 50, .T. , .T. , .F. } )
 AAdd( aObjects, { 100 , 50, .T. , .T. , .F. } )
-// AAdd( aObjects, { 100 , 35, .T. , .T. , .F. } )
+
 aInfo  := { aSize[1], aSize[2], aSize[3], aSize[4], 0, 0}
 aPObjs := MsObjSize(aInfo, aObjects, .T., .F.) 
 
@@ -172,18 +172,9 @@ DEFINE MSDIALOG oDlg TITLE OemToAnsi(cCadastro) From 0,0 to aSize[6],aSize[5] PI
                   nOR( WS_VISIBLE, DS_MODALFRAME )  // tirar o X da tela | tirar o botao X da tela |
 oDlg:lMaximized := .T.
 
-// oGrpCabe := TGroup():New( aPObjs[1,1], aPObjs[1,2]+nDist, aPObjs[1,3], aPObjs[1,4],;
-// 					"Cabeçalho Saida de Gado", oDlg/* oTFoldeP:aDialogs[1] */,,, .T.,)
-// oMGet  := MsMGet():New( cAlias, nReg, nOpc,,,,, ;
-// 				/* { aPObjs[1,1]-nDist, aPObjs[1,2], aPObjs[1,3], aPObjs[1,4] } */ aPObjs[1] ;
-// 				, /* _aCpos */,,,,, oGrpCabe,/*lF3*/,/*lMemoria*/,/*lColumn*/,/*caTela*/,/*lNoFolder*/,;
-//                         /*lProperty*/,/* aField */, /* aFolder */,/*lCreate*/, .T./*lNoMDIStretch*/,;
-//                         /*cTela*/)
-// oMGet:oBox:Align := CONTROL_ALIGN_ALLCLIENT
-
 oGrpNFat := TGroup():New( aPObjs[1, 1]+nDist, aPObjs[1, 2]+nDist, aPObjs[1, 3], aPObjs[1, 4],;
 			            "Notas Fiscais Faturadas", oDlg/* oTFoldeP:aDialogs[1] */,,, .T.,)
-// U_BDados( "SZJ", @aSZJHead, @aSZJCols, @nGUSZJ, 1, , IIf( nOpc != 3, "'" + M->ZJ_CODIGO + M->ZJ_ITEM + "' == ZJ->ZJ_CODIGO+ZJ->ZJ_ITEM", nil  ) )
+
 U_BDados( "SZJ", @aSZJHead, @aSZJCols, @nGUSZJ, 1, , IIf( nOpc != 3, "'" + M->ZJ_CODIGO + "' == SZJ->ZJ_CODIGO", nil  ) )
 oSZJGtDad := MsNewGetDados():New( 0, 0, 0, 0, nGDOpc, "U_fSZJLinOk()", /* cTudoOk */, ;
 							  "+ZJ_ITEM" , , , , "U_fSZJFieldOK()" /* cFieldOK */, ,;
@@ -196,7 +187,6 @@ nPZJCODIGO  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_CODIGO" } )
 nPZJITEM    := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_ITEM"   } )
 nPZJCHVNF   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_CHVNF"  } )
 nPZJEMISNF  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_EMISNF" } )
-//nPZJDIGNF   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DIGNF"  } )
 
 nPZJDOC     := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DOC"    } )
 nPZJSERIE   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_SERIE"  } )
@@ -236,11 +226,7 @@ EndIf
 
 oGrpItens := TGroup():New( aPObjs[2, 1]+nDist, aPObjs[2, 2]+nDist, aPObjs[2, 3], aPObjs[2, 4],;
 			            "Lotes Faturados", oDlg/* oTFoldeP:aDialogs[1] */,,, .T.,)
-// CABECALHO: "SZJ"
-// aZSGHead  := APBuildHeader("ZSG") 
-// aZSGCols  := A610CriaCols( "ZSG", aZSGHead, , {|| .F.})[1]
 
-// AAdd(aZSGHead, { " ", Padr("ZSG_MARK", 10), "@BMP", 1, 0, .F., "", "C", "", "V", "", "", "", "V", "", "", "" } )	
 U_BDados( "ZSG", @aZSGHead, @aZSGCols, @nGUZSG, 1, , IIf( nOpc != 3, "'" + M->ZJ_CODIGO + "' == ZSG->ZSG_CODIGO", nil  ) )
 oZSGGtDad := MsNewGetDados():New( 0, 0, 0, 0, nGDOpc, "U_fZSGLinOk()", /* cTudoOk */, ;
 							  "+ZSG_ITEM" , , , , "U_fZSGFieldOK()" /* cFieldOK */, ,;
@@ -477,6 +463,12 @@ User Function fSZJFieldOK( )
 Local nPos    := oSZJGtDad:nAt, nAux := 0
 Local cCodigo := ""
 Local _cQry   := ""
+Local cAlias  := GetNextAlias()
+Local cAliasX := GetNextAlias()
+Local cAliasZ  := GetNextAlias()
+Local cAliasY  := GetNextAlias()
+
+
 
 	If nPos > 1 .and. Empty(oSZJGtDad:aCols[ nPos, nPZJCODIGO])
 		If !Empty( cCodigo := oSZJGtDad:aCols[ nPos-1, nPZJCODIGO] )
@@ -517,13 +509,13 @@ Local _cQry   := ""
 									                             " FROM SZJ010 ZJ " + CRLF +;
 									                            " WHERE ZJ.ZJ_CHVNF + ZJ.ZJ_PRODUTO = SF2.F2_CHVNFE + SD2.D2_COD " + CRLF +;
 									                              " AND ZJ.D_E_L_E_T_ = ' ' ) "  ;
-				), "QRYCHV" ,.F.,.F.)
-			If QRYCHV->(Eof())					
+				), cAlias ,.F.,.F.)
+			If (cAlias)->(Eof())					
 				MsgAlert("A chave informada: " + &(ReadVar()) + " não pode ser utilizada porque ja foi registrada na linha: "+;
 						cValToChar(nAux) + " (" + AllTrim(Extenso( nAux, 1)) + ")", "Atenção")
 				Return .F.
 			EndIf
-			QRYCHV->(DbCloseArea())
+			(cAlias)->(DbCloseArea())
 		Endif
 
 		dbUseArea(.T.,'TOPCONN',TCGENQRY(,, ;
@@ -543,11 +535,11 @@ Local _cQry   := ""
 																		     " AND SF2.D_E_L_E_T_ = ' ' " + CRLF +;
 																		   " WHERE SD2.D_E_L_E_T_ = ' ' ) " + CRLF +;
 								 " 	    AND D_E_L_E_T_ = ' '" ;
-				), "QRYTMP" ,.F.,.F.)
-		If !QRYTMP->(Eof())
+				), cAliasZ ,.F.,.F.)
+		If !(cAliasZ)->(Eof())
 			MsgAlert("A chave informada: " + AllTrim(&(ReadVar())) + " não pode ser utilizada porque ja foi registrada na pesagem: "+;
-					 QRYTMP->ZJ_CODIGO + "-" + QRYTMP->ZJ_ITEM, "Atenção")
-			QRYTMP->(DbCloseArea())
+					 (cAliasZ)->ZJ_CODIGO + "-" + (cAliasZ)->ZJ_ITEM, "Atenção")
+			(cAliasZ)->(DbCloseArea())
 
 			If Empty( oSZJGtDad:aCols[ nPos, nPZJCHVNF] )
 				oSZJGtDad:aCols[ nPos, nPZJDOC    ] := ""
@@ -558,7 +550,7 @@ Local _cQry   := ""
 			EndIf
 			Return .F.
 		endIf
-		QRYTMP->(DbCloseArea())
+		(cAliasZ)->(DbCloseArea())
 
 		dbUseArea(.T.,'TOPCONN',TCGENQRY(,, ;
 						_cQry := " SELECT	DISTINCT	D2_GRUPO " + CRLF +;
@@ -568,17 +560,17 @@ Local _cQry   := ""
 								 " WHERE	F2_FILIAL	=  '" + xFilial('SF2') + "'" + CRLF +;
 								 "      AND F2_CHVNFE	=  '" + &(ReadVar()) + "'"+ CRLF +;
 								 " 		AND F2.D_E_L_E_T_ = ' ' " ;
-				), "QRYTMP" ,.F.,.F.)
-		If !QRYTMP->(Eof())
-			If !( Left(QRYTMP->D2_GRUPO,2) $ GetMV( 'MB_LIVIO4C',, '05') ) // GRUPO DO PRODUTO
+				), cAliasY ,.F.,.F.)
+		If !(cAliasY)->(Eof())
+			If !( Left((cAliasY)->D2_GRUPO,2) $ GetMV( 'MB_LIVIO4C',, '05') ) // GRUPO DO PRODUTO
 				MsgAlert("O grupo encontrado na chave: " + &(ReadVar()) + " não possui produtos relacionados "+;
-						 " ao grupo de bovinos, grupo encontrado na NF: " + QRYTMP->D2_GRUPO, "Atenção")
-				QRYTMP->(DbCloseArea())
+						 " ao grupo de bovinos, grupo encontrado na NF: " + (cAliasY)->D2_GRUPO, "Atenção")
+				(cAliasY)->(DbCloseArea())
 				Return .F.
 			EndIf
 		endIf
-		QRYTMP->(DbCloseArea())
-
+		(cAliasY)->(DbCloseArea())
+		
 		dbUseArea(.T.,'TOPCONN',TCGENQRY(,, ;
 					   	_cQry := " SELECT		--	F2_CHVNFE, * " + CRLF +;
 								 " 			F2_DOC, F2_SERIE, F2_CLIENTE, F2_LOJA, A1_NOME, F2_EMISSAO, D2_COD, " + CRLF +;
@@ -593,34 +585,34 @@ Local _cQry   := ""
 								 " 		AND F2.D_E_L_E_T_ = ' ' " + CRLF +;
 								 " 		AND  F2.F2_CHVNFE + D2_COD NOT IN ( SELECT ZJ_CHVNF + ZJ_PRODUTO FROM SZJ010 ZJ WHERE ZJ_CHVNF + ZJ_PRODUTO <> F2_CHVNFE + D2_DOC AND ZJ.D_E_L_E_T_ = ' ' ) " + CRLF +;
 								 " GROUP BY	F2_DOC, F2_SERIE, F2_CLIENTE, F2_LOJA, A1_NOME, F2_EMISSAO, D2_COD " ;
-				), "QRYTMP" ,.F.,.F.)
-		If !QRYTMP->(Eof())
+				), cAliasX ,.F.,.F.)
+		If !(cAliasX)->(Eof())
 			if nPZJDOC>0
-				oSZJGtDad:aCols[ nPos, nPZJDOC    ] := QRYTMP->F2_DOC
+				oSZJGtDad:aCols[ nPos, nPZJDOC    ] := (cAliasX)->F2_DOC
 			EndIf
 			if nPZJSERIE>0
-				oSZJGtDad:aCols[ nPos, nPZJSERIE  ] := QRYTMP->F2_SERIE
+				oSZJGtDad:aCols[ nPos, nPZJSERIE  ] := (cAliasX)->F2_SERIE
 			EndIf
 			if nPZJFORNEC>0
-				oSZJGtDad:aCols[ nPos, nPZJFORNEC ] := QRYTMP->F2_CLIENTE
+				oSZJGtDad:aCols[ nPos, nPZJFORNEC ] := (cAliasX)->F2_CLIENTE
 			EndIf
 			if nPZJLOJAF>0
-				oSZJGtDad:aCols[ nPos, nPZJLOJAF  ] := QRYTMP->F2_LOJA
+				oSZJGtDad:aCols[ nPos, nPZJLOJAF  ] := (cAliasX)->F2_LOJA
 			EndIf
 			if nPZJNOME>0
-				oSZJGtDad:aCols[ nPos, nPZJNOME   ] := QRYTMP->A1_NOME
+				oSZJGtDad:aCols[ nPos, nPZJNOME   ] := (cAliasX)->A1_NOME
 			EndIf
 			if nPZJQTDNF>0
-				oSZJGtDad:aCols[ nPos, nPZJQTDNF  ] := QRYTMP->QUANT
+				oSZJGtDad:aCols[ nPos, nPZJQTDNF  ] := (cAliasX)->QUANT
 			EndIf
 			if nPZJEMISNF>0
-				oSZJGtDad:aCols[ nPos, nPZJEMISNF ] := sToD(QRYTMP->F2_EMISSAO)
+				oSZJGtDad:aCols[ nPos, nPZJEMISNF ] := sToD((cAliasX)->F2_EMISSAO)
 			EndIf
 			if nPZJPRODUTO>0
-				oSZJGtDad:aCols[ nPos, nPZJPRODUTO] := QRYTMP->D2_COD
+				oSZJGtDad:aCols[ nPos, nPZJPRODUTO] := (cAliasX)->D2_COD
 			EndIf
 		EndIf
-		QRYTMP->(DbCloseArea())
+		(cAliasX)->(DbCloseArea())
 	EndIf
 
 Return .T.
@@ -1036,12 +1028,12 @@ User Function fPegaPeso(nOpc)
 	Local aArea         := GetArea()
 	Local nPeso 		:= 0
 	Local nOpcA
-	Local nPeso1        := 0
-	Local nPeso2        := 0
+	Local nPeso1            := 0
+	Local nPeso2            := 0
 	Local nLinha 		:= oZSGGtDad:nAt
 	Local lPesagManu	:= .f.
 	
-	if EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
+/*	if EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
 		nOpcA := 1
 	Elseif Empty(oSZJGtDad:aCols[nLinha,nPZJTARA])
 		nOpcA := 2
@@ -1052,39 +1044,67 @@ User Function fPegaPeso(nOpc)
 			nOpcA := 2
 		Endif
 	Endif
+	*/
 
 	if nOpc == 3 .or. nOpc == 4
 
 		IF aParBal == nIl     // Para Ser Inicializado Somente Qdo ainda não foi
 			aParBal := AGRX003E( .f., 'OGA050001' )
 		EndIF
+		// SE PESAGEM SIMPLES
+		If oSZJGtDad:aCols[nLinha,nPZJTARA] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPESOC] == 0
+			AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+			//nPeso := 15042
+			if nPeso > 0
+				//if Empty(oSZJGtDad:aCols[nLinha,nPZJTARA]) // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
+				If oSZJGtDad:aCols[nLinha,nPZJTARA] == 0
+				//if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
+					oSZJGtDad:aCols[nLinha,nPZJTARA] := nPeso 
+					//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
+					oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
+					oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
+					
+					oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+					
+				//elseif EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
+				elseif oSZJGtDad:aCols[nLinha,nPZJTARA] > 0//nOpcA == 2
+					oSZJGtDad:aCols[nLinha,nPZJPESOC] := nPeso
 
-		AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu,@lPesagManu, nPeso1, nPeso2, nOpcA )
-		//nPeso := 15042
-		if nPeso > 0
-			//if Empty(oSZJGtDad:aCols[nLinha,nPZJTARA]) // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-			if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-				oSZJGtDad:aCols[nLinha,nPZJTARA] := nPeso 
-				//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
-				oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date() 
-				oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
-				
-				oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
-				
-			//elseif EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
-			elseif nOpcA == 2
-				oSZJGtDad:aCols[nLinha,nPZJPESOC] := nPeso
+					oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTARA]
+					//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
+					oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
+					oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
 
-				oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTARA]
-				//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
-				oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
-				oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
-
-				oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
-			else
-				MsgAlert("Linha posicionada já possui os dois pesos preenchidos.") 
+					oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
+				//else MsgAlert("Linha posicionada já possui os dois pesos preenchidos.") 
+				EndIf
 			endif
-		endif
+		Else 
+			If oSZJGtDad:aCols[nLinha,nPZJTARA] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPESOC] > 0 // se os 2 pesos tiverem preenchidos
+				If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO DE SAÍDA ???'))
+					AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+					if nPeso > 0
+						oSZJGtDad:aCols[nLinha,nPZJPESOC] := nPeso
+						oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTARA]
+						oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
+					EndIf
+				Else
+					If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO TARA ???'))
+						AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+						if nPeso > 0
+							oSZJGtDad:aCols[nLinha,nPZJTARA] := nPeso
+							oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
+							oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
+							oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+						EndIf
+					EndIf	
+				EndIf
+			endif
+		EndIf
+		// SE PESAGEM DUPLA
+			//CRIAR PERGUNTE COM COMBO - 1º Peso - 2º Peso - 3º Peso - 4º Peso
 	endif
 
 	RestArea(aArea)
@@ -1099,8 +1119,11 @@ Local aArea         := GetArea()
 Local cMsg          := ""
 Local nI            := 0
 Local lErro         := .F.
+Local cQry          := ""
+Local cCC           := ""
 Local RECNOSD3      := 0
 Local _aAreaSM0     := {}
+Local cAlias 		:= GetNextAlias()
 // Local _oAppBkp      := oApp //Guardo a variavel resposavel por componentes visuais
 // Local _oMainWndBkp  := oMainWnd //Guardo a variavel resposavel por componentes visuais
 // Local ___numero     := 3
@@ -1137,34 +1160,54 @@ TryException
 				If SF5->(DbSeek( xFilial("SF5") + GetMV("MB_TMBAIXA",, "905") ))
 					ConOut("SF5")
 				EndIf
+				cQry := " select * " + CRLF 
+				cQry += " from "+RetSqlName("SB8")+" SB8" + CRLF 
+				cQry += " WHERE SB8.B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF 
+				cQry += " AND SB8.B8_PRODUTO = '"+AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ])+"'" + CRLF 
+				cQry += " AND SB8.B8_LOTECTL = '"+oZSGGtDad:aCols[ nI, nPZSGLOTE ]+"' " + CRLF 
+				cQry += " AND SB8.B8_LOCAL = '"+oZSGGtDad:aCols[ nI, nPZSGLOCAL ]+"' " + CRLF 
+				cQry += " AND SB8.D_E_L_E_T_ = ' '" + CRLF 
 
-				/*01*/ lErro := LanClassif( xFilial("ZSG"),; //*02*/ "E",;
-				/*03*/ 			GetMV("MB_TMBAIXA",, "905"),;
-				/*04*/ 			AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ]),;	
-				/*05*/ 			oZSGGtDad:aCols[ nI, nPZSGLOCAL ],; // GetMV("MB_LIVIO4A",, "06"),;
-				/*06*/ 			oZSGGtDad:aCols[ nI, nPZSGQUANT ],;
-				/*07*/ 			/* 0.01 */,;
-				/*08*/ 			dDataBase,;
-				/*09*/ 			'REF. NF' + M->ZJ_DOC+ '-'+ M->ZJ_SERIE+'-EMISSAO ' +DTOC( dDataBase )+ '-FORNECEDOR ' + M->ZJ_FORNEC ,; //+ '-PESO NF: ' +AllTrim(STR(SD1->D1_QUANT))+ ' PESO BALANCA: '+AllTrim(STR(SD1->D1_X_PESOB))+ ' PESO LIQUIDO: '+AllTrim(STR(SD1->D1_X_PESOL))+'',;
-				/*10*/ 			GetMV( 'MB_LIVIO4B',, '02.30.01'),;
-				/*11*/ 			'',;
-				/*12*/ 			'',;
-				/*13*/ 			M->ZJ_FORNEC,;
-				/*14*/ 			SubStr(oZSGGtDad:aCols[ nI, nPZSGCHVNF ],26,9) /* M->ZJ_DOC */ ,;
-				/*15*/ 			oZSGGtDad:aCols[ nI, nPZSGLOTE ],;
-				/*16*/			@RECNOSD3 )
-
-				if lErro
-					MsgInfo('Erro, linha: ' + cValToChar(nI))
+				MpSysOpenQuery(cQry, cAlias)
+				
+				If oZSGGtDad:aCols[ nI, nPZSGLOCAL ]== "06" //GetMV( 'MB_LIVIO4B',, '02.30.01')
+					cCC :=  GetMV( 'MB_LIVIO4B',, '02.30.01')
 				Else
+					cCC :=  '02.40.01'
+				EndIf 
+				if !(cAlias)->(EOF()) .and. (cAlias)->B8_SALDO >= oZSGGtDad:aCols[ nI, nPZSGQUANT ] .and. oZSGGtDad:aCols[ nI, nPZSGQUANT ] > 0
 
-					oZSGGtDad:aCols[ nI, nPZSGDATASE ] := dDataBase
-					oZSGGtDad:aCols[ nI, nPZSGUSUARI ] := cUserName
-					oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] := RECNOSD3
 
-					MsgInfo('Realizada Baixa de estoque, linha: ' + cValToChar(nI))
+					/*01*/ lErro := LanClassif( xFilial("ZSG"),; //*02*/ "E",;
+					/*03*/ 			GetMV("MB_TMBAIXA",, "905"),;
+					/*04*/ 			AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ]),;	
+					/*05*/ 			oZSGGtDad:aCols[ nI, nPZSGLOCAL ],; // GetMV("MB_LIVIO4A",, "06"),;
+					/*06*/ 			oZSGGtDad:aCols[ nI, nPZSGQUANT ],;
+					/*07*/ 			/* 0.01 */,;
+					/*08*/ 			dDataBase,;
+					/*09*/ 			'REF. NF' + M->ZJ_DOC+ '-'+ M->ZJ_SERIE+'-EMISSAO ' +DTOC( dDataBase )+ '-FORNECEDOR ' + M->ZJ_FORNEC ,; //+ '-PESO NF: ' +AllTrim(STR(SD1->D1_QUANT))+ ' PESO BALANCA: '+AllTrim(STR(SD1->D1_X_PESOB))+ ' PESO LIQUIDO: '+AllTrim(STR(SD1->D1_X_PESOL))+'',;
+					/*10*/ 			cCC,; //GetMV( 'MB_LIVIO4B',, '02.30.01'),;
+					/*11*/ 			'',;
+					/*12*/ 			'',;
+					/*13*/ 			M->ZJ_FORNEC,;
+					/*14*/ 			SubStr(oZSGGtDad:aCols[ nI, nPZSGCHVNF ],26,9) /* M->ZJ_DOC */ ,;
+					/*15*/ 			oZSGGtDad:aCols[ nI, nPZSGLOTE ],;
+					/*16*/			@RECNOSD3 )
+
+					if lErro
+						MsgInfo('Erro, linha: ' + cValToChar(nI))
+					Else
+
+						oZSGGtDad:aCols[ nI, nPZSGDATASE ] := dDataBase
+						oZSGGtDad:aCols[ nI, nPZSGUSUARI ] := cUserName
+						oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] := RECNOSD3
+
+						MsgInfo('Realizada Baixa de estoque, linha: ' + cValToChar(nI))
+					EndIf
+				Else
+					FWAlertError("O Produto: '" +AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ])+ "', Lote  '"+oZSGGtDad:aCols[ nI, nPZSGLOTE ]+"'  não possui saldo suficiente parar realizar a baixa do estoque", "Saldo Insuficiente")
 				EndIf
-
+				(cAlias)->(DBCLOSEAREA(  ))
 			EndIf
 		EndIf
 	Next nI
@@ -1206,7 +1249,7 @@ Static Function LanClassif(cTFil,; // cTipo,
 		                   cFornece, cDocumento, cLoteCTL, RECNOSD3 )
 	Local aMovimento    := {}
 	Local cQry 
-
+	Local cAlias 		:= GetNextAlias()
 	Private lMsErroAuto := .F.
 	
 	cQry := " select * " + CRLF 
@@ -1216,10 +1259,10 @@ Static Function LanClassif(cTFil,; // cTipo,
 	cQry += " AND SD3.D3_ESTORNO = ' ' " + CRLF 
 	cQry += " AND SD3.D_E_L_E_T_ = ' '" + CRLF 
 
-	MpSysOpenQuery(cQry,"TMP")
+	MpSysOpenQuery(cQry,cAlias)
 
-	if !TMP->(EOF()) 
-	Alert("O Documento "+cDocumento+" já existe na tabela SD3 e por isso a baixa do estoque não utilizara o mesmo numero da NF para o campo DOC.")
+	if !(cAlias)->(EOF()) 
+	FWAlertError("O Documento "+cDocumento+" já existe na tabela SD3 e por isso a baixa do estoque não utilizara o mesmo numero da NF para o campo DOC.", "Numero de Documento")
 	EndIf
 
 //Analisa os tipos e monta os dois arrays (Entrada e Saída)
@@ -1240,7 +1283,7 @@ Static Function LanClassif(cTFil,; // cTipo,
 	If !Empty(cTCLVL)
 		aAdd( aMovimento, {"D3_CLVL"    , cTCLVL                                                      , nil } ) // ,;
 	EndIf
-	if TMP->(EOF())
+	if (cAlias)->(EOF())
 		aAdd( aMovimento, {"D3_DOC"     , cDocumento                                                  , nil } ) // ,;
 	endif
 	aAdd( aMovimento, {"D3_FORNECE" , cFornece                                                    , nil } ) // ,;
@@ -1248,7 +1291,7 @@ Static Function LanClassif(cTFil,; // cTipo,
 	// Inclui D3_OBSERVA - SE FOR MOR MOVIMENTAÇÃO PREENCHER COM NUMERO DA NF, SERIE E DATA DE EMISSAO
 //	EndIf
 
-	TMP->(DBCLOSEAREA(  ))
+	(cAlias)->(DBCLOSEAREA(  ))
 	// Gerar Movimento Interno
 	// If (cTipo == "E") // Entrada
 		MSExecAuto({|x,y| mata240(x,y)}, aMovimento,3)
@@ -1976,7 +2019,7 @@ User Function SB8ZSG()
 
 	_cCampos := "+';'+ B8_FILIAL " + CRLF +;
 		"+';'+ rTrim(B8_LOTECTL) " + CRLF +;
-		"+';'+ rTrim(B8_X_CURRA) " + CRLF +;
+		"+';'+ (B8_X_CURRA) " + CRLF +;
 		"+';'+ rTrim(B8_LOCAL) " + CRLF +;
 		"+';'+ rTrim(B8_PRODUTO) " + CRLF +;
 		"+';'+ CAST(B8_XDATACO AS VARCHAR) " + CRLF +;

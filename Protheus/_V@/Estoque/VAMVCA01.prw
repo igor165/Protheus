@@ -1148,7 +1148,7 @@ User Function LoadCpoVirtual(_cFilial, cProduto, cOrigem)
 	Local cRet	   := "" // "MIGUEL " + Time()
 	Local _cQry    := ""
 	Local cAlias   := GetNextAlias()
-	
+
 	Default cOrigem := ""
 
 	_cQry := " SELECT ZCC_NOMFOR FORNECEDOR, ZCC_NOMCOR CORRETOR " + CRLF
@@ -1512,6 +1512,12 @@ Static Function ProcGrid( oModel, oView)
 	Local nPHZ0EORIG  := 0
 	Local nPHZ0ERACA  := 0
 	Local nPHZ0ESEXO  := 0
+	Local cALias 	  := ""
+	Local cAliasM	  := ""
+	Local cQry 		  := ""
+	Local oQryCache   := nil
+	Local oQryMP   	  := nil
+	Local nCntScalar  := 0
 
 	Private oGridZ0D  := nil
 	Private oGridZ0E  := nil
@@ -1580,7 +1586,7 @@ Static Function ProcGrid( oModel, oView)
 			alert('Há linhas deletadas na grid Lotes de Destino. Feche a tela pelo botão CONFIRMAR e reabra a movimentação para efetivar.')
 			Return .F.
 		endif
-	Next nI 
+	Next nI
 
 	nPHZ0EPROD := aScan(oGridZ0E:aHeader,{|x|AllTrim(x[2])=="Z0E_PROD"})
 	nPHZ0EORIG := aScan(oGridZ0E:aHeader,{|x|AllTrim(x[2])=="Z0E_PRDORI"}) // PRODUTO ORIGEM: Z0D
@@ -1612,42 +1618,53 @@ For nI := 1 To oGridZ0E:Length()
 			EndIf
 		EndIf
 	Next
-
 	// FVldTok
 	// MB: 22.05.2019 - validacao para nao permitir DIfERENTES lotes para IGUAIS currais;
 	cMsg := ""
 	cMsg2 := ""
+
+	cQry := "SELECT  B8_LOTECTL, COUNT(B8_LOTECTL) QTDREG " + CRLF 
+	cQry += " FROM	"+RetSqlName("SB8")+" SB8 " + CRLF 
+	cQry += " WHERE	B8_FILIAL  =  "+FwxFilial("SB8")+" " + CRLF
+	cQry += " 	AND B8_LOTECTL <> ? " + CRLF 
+	cQry += " 	AND B8_X_CURRA =  ? " + CRLF 
+	cQry += " 	AND B8_SALDO   >  0 " + CRLF 
+	cQry += " 	AND SB8.D_E_L_E_T_ = ' ' " + CRLF
+	cQry += " GROUP BY B8_LOTECTL " + CRLF
+	cQry += " ORDER BY B8_LOTECTL " + CRLF
+
+	oQryCache := FwExecStatement():New(cQry)
+
 	for nI := 1 To oGridZ0E:Length()
 		oGridZ0E:GoLine( nI )
 
 		If !oGridZ0E:IsDeleted() .and. oGridZ0E:GetValue('Z0E_SEQEFE', nI) == ""
 
-			BeginSQL alias "cAliasVld"
-			%noParser%
-			SELECT  B8_LOTECTL, COUNT(B8_LOTECTL) QTDREG
-			FROM	%table:SB8% SB8
-			WHERE	B8_FILIAL  =  %xFilial:SB8%
-				AND B8_LOTECTL <> %exp:oGridZ0E:GetValue('Z0E_LOTE', nI)%
-				AND B8_X_CURRA =  %exp:oGridZ0E:GetValue('Z0E_CURRAL', nI)%
-				AND B8_SALDO   >  0
-				AND SB8.%notDel%
-			GROUP BY B8_LOTECTL
-			ORDER BY B8_LOTECTL
-			EndSQL
-			If !cAliasVld->(Eof())
+			oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_LOTE', nI))
+			oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_CURRAL', nI))
+
+			cAlias := oQryCache:OpenAlias()
+
+			If !(cAlias)->(Eof())
 				cMsg  += CRLF + "Curral: " + AllTrim(oGridZ0E:GetValue('Z0E_CURRAL', nI)) + ", lotes: "
 				cMsg2 := ""
-				While !cAliasVld->(Eof())
-					cMsg2 += iIf(Empty(cMsg2),"",", ") + IIf( AT(AllTrim(cAliasVld->B8_LOTECTL), cMsg2)==0, AllTrim(cAliasVld->B8_LOTECTL), "")
-					cAliasVld->(DbSkip())
+				While !(cAlias)->(Eof())
+					cMsg2 += iIf(Empty(cMsg2),"",", ") + IIf( AT(AllTrim((cAlias)->B8_LOTECTL), cMsg2)==0, AllTrim((cAlias)->B8_LOTECTL), "")
+					(cAlias)->(DbSkip())
 				EndDo
 				cMsg  += cMsg2
 			EndIf
-			cAliasVld->(dbCloseArea())
-
+			(cAlias)->(dbCloseArea())
 		EndIf
 	Next nI
+	
+	cQry 	:= ""
+	cAlias 	:= ""
+	oQryCache:Destroy()
+	oQryCache := Nil
+	
 	If !Empty(cMsg2)
+
 		msgAlert("Lotes já cupados: " + cMsg + CRLF +;
 			'Esta operação será cancelada.')
 		Return .F.
@@ -1657,43 +1674,55 @@ For nI := 1 To oGridZ0E:Length()
 	// MB: 22.05.2019 - validacao para nao permitir DIfERENTES lotes para IGUAIS currais;
 	cMsg := ""
 	cMsg3 := ""
+
+	cQry := "SELECT  B8_LOTECTL, B8_X_CURRA, COUNT(B8_LOTECTL) QTDREG" + CRLF 
+	cQry += "		FROM	"+RetSqlName("SB8")+" SB8" + CRLF 
+	cQry += "		WHERE	B8_FILIAL  =  "+FwxFilial("SB8")+" " + CRLF 
+	cQry += "			AND B8_LOTECTL = ? " + CRLF 
+	cQry += "			AND B8_X_CURRA <> ? " + CRLF 
+	cQry += "			AND B8_SALDO   >  0" + CRLF 
+	cQry += "			AND SB8.D_E_L_E_T_ = ' ' " + CRLF 
+	cQry += "			AND B8_LOTECTL NOT IN ( SELECT DISTINCT Z0D_LOTE" + CRLF 
+	cQry += "									  FROM "+RetSqlName("Z0D")+" Z0D" + CRLF 
+	cQry += "									 WHERE Z0D_FILIAL =  "+FwxFilial("Z0D")+" " + CRLF 
+	cQry += "									   AND Z0D_CODIGO = ? " + CRLF 
+	cQry += "									   AND Z0D.D_E_L_E_T_ = ' ' " + CRLF 
+	cQry += "								  ) " + CRLF
+	cQry += "		GROUP BY B8_LOTECTL, B8_X_CURRA" + CRLF 
+	cQry += "		ORDER BY B8_LOTECTL" + CRLF 
+
+	oQryCache := FwExecStatement():New(cQry)
+
 	for nI := 1 To oGridZ0E:Length()
 		oGridZ0E:GoLine( nI )
-//TODO TOSHIO - VALIDAR CURRAL SE ESTA CORRETO
 
 		If !oGridZ0E:IsDeleted()
 
-			BeginSQL alias "cAliasVld"
-			%noParser%
-			SELECT  B8_LOTECTL, B8_X_CURRA, COUNT(B8_LOTECTL) QTDREG
-			FROM	%table:SB8% SB8
-			WHERE	B8_FILIAL  =  %xFilial:SB8%
-				AND B8_LOTECTL = %exp:oGridZ0E:GetValue('Z0E_LOTE', nI)%
-				AND B8_X_CURRA <>  %exp:oGridZ0E:GetValue('Z0E_CURRAL', nI)%
-				AND B8_SALDO   >  0
-				AND SB8.%notDel%
-				AND B8_LOTECTL NOT IN ( SELECT DISTINCT Z0D_LOTE
-										  FROM %table:Z0D% Z0D
-										 WHERE Z0D_FILIAL =  %xFilial:Z0D%
-										   AND Z0D_CODIGO = %exp:oGridZ0E:GetValue('Z0E_CODIGO', nI)%
-										   AND Z0D.%notDel%
-									  ) 
-			GROUP BY B8_LOTECTL, B8_X_CURRA
-			ORDER BY B8_LOTECTL
-			EndSQL
-			If !cAliasVld->(Eof())
+			oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_LOTE', nI))
+			oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_CURRAL', nI))
+			oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_CODIGO', nI))
+
+			cAlias := oQryCache:OpenAlias()
+
+			If !(cAlias)->(Eof())
 				cMsg  += CRLF + "Lote: " + AllTrim(oGridZ0E:GetValue('Z0E_LOTE', nI)) + ",  "
 				cMsg3 := ""
-				While !cAliasVld->(Eof())
-					cMsg3 += iIf(Empty(cMsg3),"",", ") + IIf( AT(AllTrim(cAliasVld->B8_LOTECTL), cMsg3)==0, AllTrim(cAliasVld->B8_LOTECTL), "")
-					cAliasVld->(DbSkip())
+				While !(cAlias)->(Eof())
+					cMsg3 += iIf(Empty(cMsg3),"",", ") + IIf( AT(AllTrim((cAlias)->B8_LOTECTL), cMsg3)==0, AllTrim((cAlias)->B8_LOTECTL), "")
+					(cAlias)->(DbSkip())
 				EndDo
 				cMsg  += cMsg3
 			EndIf
-			cAliasVld->(dbCloseArea())
+			(cAlias)->(dbCloseArea())
 
 		EndIf
 	Next nI
+
+	cQry 	:= ""
+	cAlias 	:= ""
+	oQryCache:Destroy()
+	oQryCache := Nil
+
 	If !Empty(cMsg3)
 		msgAlert("Lote alocado em outro curral, corrija a Movimentação: " + cMsg + CRLF +;
 			'Esta operação será cancelada.')
@@ -1709,23 +1738,22 @@ For nI := 1 To oGridZ0E:Length()
 
 		EndIf
 	EndIf
+	
+	cQry := " select isnull(max(Z0E_SEQEFE),'    ') Z0E_SEQEFE " + CRLF 
+	cQry += "	from "+retSQLName("Z0E")+" z " + CRLF 
+	cQry += "	where Z0E_FILIAL="+xFilial("Z0E")+"" + CRLF 
+	cQry += "	and Z0E_CODIGO="+Z0C->Z0C_CODIGO+" " + CRLF 
+	cQry += "	and z.D_E_L_E_T_ = '' " + CRLF 
 
-	BeginSQL alias "QSEQ"
-		%noParser%
-		select isnull(max(Z0E_SEQEFE),'    ') Z0E_SEQEFE
-		from %table:Z0E% z
-		where Z0E_FILIAL=%xFilial:Z0E%
-		and Z0E_CODIGO=%exp:Z0C->Z0C_CODIGO%
-		and z.%notDel%
-	EndSQL
-	If !QSEQ->(Eof())
-		If QSEQ->Z0E_SEQEFE == '    '
+	nCntScalar := MPSysExecScalar(cQry,"Z0E_SEQEFE")
+
+	If !Empty(nCntScalar)
+		If nCntScalar == '    '
 			cSeqEfe := '0001'
 		else
-			cSeqEfe := Soma1(QSEQ->Z0E_SEQEFE)
+			cSeqEfe := Soma1(nCntScalar)
 		EndIf
 	EndIf
-	QSEQ->(DbCloseArea())
 
 if Z0C->Z0C_TPMOV != '6'
 	Begin Transaction
@@ -1747,6 +1775,18 @@ if Z0C->Z0C_TPMOV != '6'
 		//Percorre cada produto de destino
 		__cAntProd  := ""
 		_cAntChvZ0E := ""
+
+		cQry := " SELECT  R_E_C_N_O_  " + CRLF 
+		cQry += " FROM	"+RetSqlName("Z0F")+" " + CRLF 
+		cQry += " WHERE	Z0F_FILIAL = "+FwxFilial("Z0F")+" " + CRLF 
+		cQry += " AND Z0F_MOVTO  = ?  " + CRLF 
+		cQry += " AND Z0F_PROD   = ?  " + CRLF 
+		cQry += " AND Z0F_LOTE   = ?  " + CRLF 
+		cQry += " AND Z0F_RACA   = ?  " + CRLF 
+		cQry += " AND Z0F_SEXO   = ?  " + CRLF 
+
+		oQryCache := FwExecStatement():New(cQry)
+
 		For nI := 1 To oGridZ0E:Length()	// Z0E <-> Destino
 			oGridZ0E:GoLine( nI )
 
@@ -1759,7 +1799,7 @@ if Z0C->Z0C_TPMOV != '6'
 			lTransf := .T.
 			If !oGridZ0E:IsDeleted()
 				nQtdTr := 0
-				for nJ := 1 to len(aOrigens) // Z0D
+				for nJ := 1 to len(aOrigens)//Z0D
 
 					// a linha de comparacao dos BOVs, na Z0D e Z0E nao pode ser retirada;
 					__cProd := Iif(Empty(oGridZ0E:GetValue('Z0E_PRDORI' , nI)), oGridZ0E:GetValue('Z0E_PROD' , nI), oGridZ0E:GetValue('Z0E_PRDORI' , nI))
@@ -1823,35 +1863,27 @@ if Z0C->Z0C_TPMOV != '6'
 									EndIf
 								EndIf
 
-								// atualizando Z0F
-								BeginSQL alias "TEMP"
-									%noParser%
-									SELECT  R_E_C_N_O_ // Z0F_RACA RACA, Z0F_SEXO SEXO, Z0F_DENTIC DENTIC, *
-									FROM	Z0F010
-									WHERE	Z0F_FILIAL = %xFilial:Z0F%
-										AND Z0F_MOVTO  = %exp:oGridZ0E:GetValue('Z0E_CODIGO', nI)%
-										AND Z0F_PROD   = %exp:oGridZ0E:GetValue('Z0E_PROD'  , nI)%
-										AND Z0F_LOTE   = %exp:oGridZ0E:GetValue('Z0E_LOTE'  , nI)%
-										AND Z0F_RACA   = %exp:oGridZ0E:GetValue('Z0E_RACA'  , nI)%
-										AND Z0F_SEXO   = %exp:oGridZ0E:GetValue('Z0E_SEXO'  , nI)%
-										//AND Z0F_DENTIC = %exp:oGridZ0E:GetValue('Z0E_DENTIC', nI)%
-								EndSQL
-								while !TEMP->(Eof())
-									Z0F->(DbGoTo(TEMP->R_E_C_N_O_))
+								oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_CODIGO', nI))
+								oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_PROD', nI))
+								oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_LOTE', nI))
+								oQryCache:SetString(4,oGridZ0E:GetValue('Z0E_RACA', nI))
+								oQryCache:SetString(5,oGridZ0E:GetValue('Z0E_SEXO', nI))
+
+								cAlias := oQryCache:OpenAlias()
+								
+								while !(cAlias)->(Eof())
+									Z0F->(DbGoTo((cAlias)->R_E_C_N_O_))
 									RecLock('Z0F', .F.)
 									Z0F->Z0F_PRDORI := Iif(Empty(oGridZ0E:GetValue('Z0E_PRDORI' , nI)), oGridZ0E:GetValue('Z0E_PROD' , nI), oGridZ0E:GetValue('Z0E_PRDORI' , nI)) // oGridZ0E:GetValue('Z0E_PROD', nI)
 									Z0F->Z0F_PROD   := SB1->B1_COD // oGridZ0E:GetValue('Z0E_PROD', nI)
 									Z0F->Z0F_SEQEFE := cSeqEfe
 									Z0F->(MsUnLock())
 
-									TEMP->(dbSkip())
+									(cAlias)->(dbSkip())
 								EndDo
-								TEMP->(dbCloseArea())
+								(cAlias)->(dbCloseArea())
 
-								// atualizando Z0E
 								oGridZ0E:LoadValue('Z0E_PROD', Left(SB1->B1_COD, TamSX3('Z0E_PROD')[1]) )
-								// EndIf
-								// oModel:CommitData()
 
 								If lTransf
 									If aOrigens[nJ,3]+nQtdTr <= oGridZ0E:GetValue('Z0E_QUANT' , nI)
@@ -1897,6 +1929,12 @@ if Z0C->Z0C_TPMOV != '6'
 				// EndDo
 			EndIf
 		Next nI
+
+		cQry 	:= ""
+		cAlias 	:= ""
+		oQryCache:Destroy()
+		oQryCache := Nil
+
 		oView:Refresh()
 	/*
 		aTransf[][1] = indice da linha de destino
@@ -1925,6 +1963,7 @@ if Z0C->Z0C_TPMOV != '6'
 				EndIf
 			EndIf
 		Next
+
 		If !lTransf .or. len(aTransf)==0
 			Alert("Movimentação não realizada devido a erros nos dados.")
 			DisarmTransaction()
@@ -1960,74 +1999,72 @@ if Z0C->Z0C_TPMOV != '6'
 			/* MB : 31.03.2021
 				NÃ realizar MEDIA PONDERADA para TPMOV $ ('25') */
 			if !(Z0C->Z0C_TPMOV $ ('25'))
-				DbUseArea(.t., "TOPCONN", TCGenQry(,,;
-							_cSql := " SELECT DISTINCT Z0E_LOTE,Z0E_CURRAL, Z0E_DATACO, Z0E_PESO" + CRLF +;
-									 " FROM   Z0E010  		" + CRLF +;
-									 " WHERE  Z0E_FILIAL = '" + FWxFilial("Z0E") + "'" + CRLF +;
-									 "    AND Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "'" + CRLF +;
-									 "    AND Z0E_SEQEFE = '" + cSeqEfe + "'" + CRLF +;
-									 "    AND D_E_L_E_T_ = ' '";
-								), "TMPLOTE", .F., .F.)
-				While !TMPLOTE->(Eof())
+				
+				
+				cQry := "SELECT DISTINCT Z0E_LOTE,Z0E_CURRAL, Z0E_DATACO, Z0E_PESO" + CRLF 
+				cQry += " FROM   "+RetSqlName("Z0E")+"  " + CRLF 
+				cQry += " WHERE  Z0E_FILIAL = '" + FWxFilial("Z0E") + "'" + CRLF 
+				cQry += "    AND Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "'" + CRLF
+				cQry += "    AND Z0E_SEQEFE = '" + cSeqEfe + "'" + CRLF 
+				cQry += "    AND D_E_L_E_T_ = ' '" + CRLF 
+
+				cAlias := GetNextAlias()
+
+				MpSysOpenQuery(cQry, cAlias)
+				
+				//aMedPond[01, 02 ]
+				cQry := " SELECT SUM(PESOTOT)/SUM(SALDO) MEDIA_PONDERADA " + CRLF 
+				cQry += " FROM ( " + CRLF 
+				cQry += " 			SELECT SUM(Z0E_PESO*Z0E_QUANT) PESOTOT" + CRLF 
+				cQry += " 				 , SUM(Z0E_QUANT) SALDO" + CRLF 
+				cQry += " 			FROM "+RetSqlName("Z0E")+" WITH (NOLOCK) " + CRLF 
+				cQry += " 			WHERE Z0E_FILIAL = '" + FWxFilial("Z0E")+ "' " + CRLF 
+				cQry += " 				AND Z0E_LOTE   = ? " + CRLF 
+				cQry += " 				AND D_E_L_E_T_ = ' ' " + CRLF 
+				cQry += " ) DADOS " + CRLF 
+
+				oQryCache:FwExecStatement():New(cQry)
+
+				cQry := " SELECT " + CRLF 
+				cQry += " 		CASE " + CRLF 
+				cQry += " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF 
+				cQry += " 			THEN -1 " + CRLF 
+				cQry += " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF 
+				cQry += " 		END MEDIA_PONDERADA " + CRLF 
+				cQry += " FROM ( " + CRLF 
+				cQry += " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF 
+				cQry += " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF 
+				cQry += " 		FROM " + RetSqlName("SB8") + CRLF 
+				cQry += " 		where B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF 
+				cQry += "         and B8_LOTECTL = ? " + CRLF 
+				cQry += " 		  and B8_SALDO   >  0 " + CRLF 
+				cQry += " 		  and D_E_L_E_T_=' ' " + CRLF 
+				cQry += " ) DADOS " + CRLF
+				
+				oQryMP := FwExecStatement():New(cQry)
+
+				While !(cAlias)->(Eof())
 					If aMedPond[01, 02 ]
-						/* MB : 26.05.2021
-							novo SQL
-							Fazer exclusao do saldo da Z0E na SB8, para depois fazer a media ponderada
-						*/
-						DbUseArea(.t., "TOPCONN", TCGenQry(,,;
-									_cSql := " SELECT SUM(PESOTOT)/SUM(SALDO) MEDIA_PONDERADA " + CRLF +;
-											 " FROM ( " + CRLF +;
-											 " --  			SELECT AVG(B8_XPESOCO) * (AVG(B8_SALDO) - SUM(Z0E_QUANT)) PESOTOT" + CRLF +;
-											 " --  			, AVG(B8_SALDO) - SUM(Z0E_QUANT) SALDO" + CRLF +;
-											 " --  			-- , AVG(B8_XPESOCO) B8_XPESOCO" + CRLF +;
-											 " --  			FROM "+RetSqlName("Z0E")+" Z0E WITH (NOLOCK) " + CRLF +;
-											 " --  			JOIN "+RetSqlName("SB8")+" SB8 WITH (NOLOCK) ON B8_FILIAL+RTRIM(B8_PRODUTO)+RTRIM(B8_LOTECTL) = Z0E_FILIAL+RTRIM(Z0E_PROD)+RTRIM(Z0E_LOTE)" + CRLF +;
-											 " --  			                             AND Z0E.D_E_L_E_T_ = ' ' " + CRLF +;
-											 " --  			                             AND SB8.D_E_L_E_T_ = ' ' " + CRLF +;
-											 " --  			WHERE Z0E_FILIAL = '" + FWxFilial("Z0E")+ "' " + CRLF +;
-											 " --  			-- AND Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "' " + CRLF +;
-											 " --  			AND Z0E_LOTE   = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF +;
-											 " --  UNION" + CRLF +;
-											 " 			SELECT SUM(Z0E_PESO*Z0E_QUANT) PESOTOT" + CRLF +;
-											 " 					, SUM(Z0E_QUANT) SALDO" + CRLF +;
-											 " 			FROM "+RetSqlName("Z0E")+" WITH (NOLOCK) " + CRLF +;
-											 " 			WHERE Z0E_FILIAL = '" + FWxFilial("Z0E")+ "' " + CRLF +;
-											 " 				-- AND Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "'" + CRLF +;
-											 " 				AND Z0E_LOTE   = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF +;
-											 " 				AND D_E_L_E_T_ = ' ' " + CRLF +;
-											 " ) DADOS";
-											), "TMPMEDIA", .f., .f.) 
+						oQryCache:SetString(1,(cAlias)->Z0E_LOTE)
+						cAliasM := oQryCache:OpenAlias()
 					Else
-						DbUseArea(.t., "TOPCONN", TCGenQry(,,;
-									_cSql := " SELECT " + CRLF +;
-											 " 		CASE " + CRLF +;
-											 " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF +;
-											 " 			THEN -1 " + CRLF +;
-											 " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF +;
-											 " 		END MEDIA_PONDERADA " + CRLF +;
-											 " FROM ( " + CRLF +;
-											 " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF +;
-											 " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF +;
-											 " 		FROM " + RetSqlName("SB8") + CRLF +;
-											 " 		where B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF +;
-											 "         and B8_LOTECTL = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF +;
-											 " 		  and B8_SALDO   >  0 " + CRLF +;
-											 " 		  and D_E_L_E_T_=' ' " + CRLF +;
-											 " ) DADOS";
-											 ), "TMPMEDIA", .f., .f.) 
+						oQryMP:SetString(1,(cAlias)->Z0E_LOTE)
+						cAliasM := oQryMP:OpenAlias()
 					EndIf
+
 					MemoWrite("C:\totvs_relatorios\SQL_VAMVCA01_MediaPonderada.sql" , _cSql)
+
 					__nPeso := 0
-					if TMPMEDIA->(!Eof())
-						__nPeso := TMPMEDIA->MEDIA_PONDERADA
+					if (cAliasM)->(!Eof())
+						__nPeso := (cAliasM)->MEDIA_PONDERADA
 					EndIf
-					TMPMEDIA->(DbCloseArea())
+					(cAliasM)->(DbCloseArea())
 
 					If !Empty(__nPeso) .AND. (__nPeso > 0)
 						cUpd := "update " + retSQLName("SB8") + CRLF
 						cUpd += "   set B8_XPESOCO = " + cValToChar( ROUND(__nPeso, 3) )  + CRLF
 						cUpd += " where B8_FILIAL  = '" + FWxFilial("SB8")+ "'" + CRLF
-						cUpd += "   and B8_LOTECTL = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF
+						cUpd += "   and B8_LOTECTL = '" + (cAlias)->Z0E_LOTE + "'" + CRLF
 						cUpd += "   and B8_SALDO   > 0" + CRLF
 						cUpd += "   and D_E_L_E_T_=' '"
 						If (TCSqlExec(cUpd) < 0)
@@ -2036,9 +2073,20 @@ if Z0C->Z0C_TPMOV != '6'
 							ConOut("Peso medio do lote atualizado com sucesso! " + Z0C->Z0C_CODIGO)
 						EndIf
 					EndIf
-					TMPLOTE->(DbSkip())
+					(cAlias)->(DbSkip())
 				EndDo
-				TMPLOTE->(DbCloseArea())
+
+				cQry 	:= ""
+				cAlias 	:= ""
+				cAliasM := ""
+
+				oQryMP:Destroy()
+				oQryMP := Nil
+
+				oQryCache:Destroy()
+				oQryCache := Nil
+
+				(cAlias)->(DbCloseArea())
 			EndIf
 		EndIf
 	End Transaction // esta transanção deve acontecer antes do cursor abaixo.
@@ -2072,7 +2120,6 @@ else
 			oGridZ0E:GetValue('Z0E_RACA'  , nI) + ' ' +;
 			oGridZ0E:GetValue('Z0E_SEXO'  , nI) + ' ' +;
 			'Deletado: ' + CVALTOCHAR( oGridZ0E:IsDeleted() ) )
-			//oGridZ0E:GetValue('Z0E_DENTIC'  , nI) + ' ' +;
 			
 			If !oGridZ0E:IsDeleted()
 				for nJ := 1 to len(aOrigens) // Z0D
@@ -2096,41 +2143,40 @@ else
 								EndIf
 								
 								If aOrigens[nJ,3]+nQtdTr <= oGridZ0E:GetValue('Z0E_QUANT' , nI)
-										nQtdTr += aOrigens[nJ,3]
-										aAdd(aTransf, {nI,;
-											aOrigens[nJ,1],;
-											aOrigens[nJ,2],;
-											aOrigens[nJ,3],;
-											oGridZ0E:GetValue('Z0E_PROD' , nI),;
-											oGridZ0E:GetValue('Z0E_LOTE' , nI),;
-											aOrigens[nJ,3],;
-											oGridZ0E:GetValue('Z0E_SEQEFE' , nI),;
-											aOrigens[nJ,4],;
-											oGridZ0E:GetValue('Z0E_CURRAL'	, nI),;
-											oGridZ0E:GetValue('Z0E_OBS'    , nI),;
-											oGridZ0E:GetValue('Z0E_PESO'   , nI),;
-											oGridZ0E:GetValue('Z0E_DATACO' , nI)})
-										aOrigens[nJ,3] := 0
-										// exit
-									else
-										nDIf := oGridZ0E:GetValue('Z0E_QUANT', nI) - nQtdTr
-										nQtdTr += nDIf
-										aAdd(aTransf, {nI,;
-											aOrigens[nJ,1],;
-											aOrigens[nJ,2],;
-											nDIf          ,;
-											oGridZ0E:GetValue('Z0E_PROD' , nI),;
-											oGridZ0E:GetValue('Z0E_LOTE' , nI),;
-											nDIf          ,;
-											oGridZ0E:GetValue('Z0E_SEQEFE' , nI),;
-											aOrigens[nJ,4],;
-											oGridZ0E:GetValue('Z0E_CURRAL' , nI),;
-											oGridZ0E:GetValue('Z0E_OBS'    , nI),;
-											oGridZ0E:GetValue('Z0E_PESO'   , nI),;
-											oGridZ0E:GetValue('Z0E_DATACO' , nI)})
-										aOrigens[nJ,3] -= nDIf
-									EndIf
-
+									nQtdTr += aOrigens[nJ,3]
+									aAdd(aTransf, {nI,;
+										aOrigens[nJ,1],;
+										aOrigens[nJ,2],;
+										aOrigens[nJ,3],;
+										oGridZ0E:GetValue('Z0E_PROD' , nI),;
+										oGridZ0E:GetValue('Z0E_LOTE' , nI),;
+										aOrigens[nJ,3],;
+										oGridZ0E:GetValue('Z0E_SEQEFE' , nI),;
+										aOrigens[nJ,4],;
+										oGridZ0E:GetValue('Z0E_CURRAL'	, nI),;
+										oGridZ0E:GetValue('Z0E_OBS'    , nI),;
+										oGridZ0E:GetValue('Z0E_PESO'   , nI),;
+										oGridZ0E:GetValue('Z0E_DATACO' , nI)})
+									aOrigens[nJ,3] := 0
+									// exit
+								else
+									nDIf := oGridZ0E:GetValue('Z0E_QUANT', nI) - nQtdTr
+									nQtdTr += nDIf
+									aAdd(aTransf, {nI,;
+										aOrigens[nJ,1],;
+										aOrigens[nJ,2],;
+										nDIf          ,;
+										oGridZ0E:GetValue('Z0E_PROD' , nI),;
+										oGridZ0E:GetValue('Z0E_LOTE' , nI),;
+										nDIf          ,;
+										oGridZ0E:GetValue('Z0E_SEQEFE' , nI),;
+										aOrigens[nJ,4],;
+										oGridZ0E:GetValue('Z0E_CURRAL' , nI),;
+										oGridZ0E:GetValue('Z0E_OBS'    , nI),;
+										oGridZ0E:GetValue('Z0E_PESO'   , nI),;
+										oGridZ0E:GetValue('Z0E_DATACO' , nI)})
+									aOrigens[nJ,3] -= nDIf
+								EndIf
 							EndIf 
 						EndIf 
 					endif 
@@ -2224,8 +2270,6 @@ Endif
 	EndIf
 	ConOut('Fim: ProcGrid ' + Time() )
 	
-	// FWRestRows( aSaveLines )
-
 	RestArea(aAreaSB1)
 	RestArea(aArea)
 Return .T.
@@ -2538,34 +2582,21 @@ User Function MA261IN()
 
 	RestArea(aAreaSB8)
 Return .T.
-
-// Verifica se existe ponto de entrada para validacao
-// User Function A261TOK()
-// ConOut('A261TOK')
-// Return .T.
-
-//ExecBlock apos gravacao do SD3           
-// User Function MA261D3()
-// ConOut('MA261D3')
-// Return .T.
-
-// User Function MI261RCV()
-// ConOut('MI261RCV')
-// Return .T.
-
-// User Function MA261TRD3()
-// ConOut('MA261TRD3')
-// Return .T.
-
-// User Function MTA261DOC()
-// ConOut('MTA261DOC')
-// Return .T.
-
 User Function CancMvBv()
-	Local aArea   := GetArea()
-	Local lRet    := .T.
-	Local nL      := 0
-	Local __nPeso := 0
+	Local aArea   	:= GetArea()
+	Local lRet    	:= .T.
+	Local nL      	:= 0
+	Local cQry    	:= ""
+	Local cAlias1  	:= ""
+	Local cAlias2  	:= ""
+	Local cAlias3  	:= ""
+	Local cAlias4  	:= ""
+	Local __nPeso 	:= 0
+
+	Private oQryC1 	:= nil
+	Private oQryC2 	:= nil
+	Private oQryC3 	:= nil
+	Private oQryC4 	:= nil
 
 	Begin Transaction
 		If Z0C->Z0C_STATUS = '3' .or. Z0C->Z0C_STATUS = '4'
@@ -2577,57 +2608,33 @@ User Function CancMvBv()
 			EndIf
 
 			If msgYesNo("Confirma o estorno?")
+				LObjQry() // Carregar Querys 
 				for nL := 1 to len(aSequen)
 
 					if !(Z0C->Z0C_TPMOV $ ('25'))
 						__nPeso := 0
-						DbUseArea(.t., "TOPCONN", TCGenQry(,,;
-									_cSql := " SELECT DISTINCT Z0E_LOTE " + CRLF +;
-												" FROM   "+RetSqlName("Z0E")+"  " + CRLF +;
-												" WHERE  Z0E_FILIAL =  '" + FWxFilial("Z0E") + "'" + CRLF +;
-												"    AND Z0E_CODIGO =  '" + Z0C->Z0C_CODIGO + "'" + CRLF +;
-												"    AND Z0E_SEQEFE =  '" + aSequen[nL] + "'  " + CRLF +;
-												"    AND D_E_L_E_T_= ' '";
-										), "TMPLOTE", .f., .f.) 
-						While !TMPLOTE->(Eof())
-							//_cSql := " SELECT SUM(PESOTOT)/SUM(B8_SALDO) MED_ANT " + CRLF +;
-							_cSql := " SELECT " + CRLF +;
-									 " 		CASE " + CRLF +;
-									 " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF +;
-									 " 			THEN -1 " + CRLF +;
-									 " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF +;
-									 " 		END MED_ANT " + CRLF +;
-									 " FROM ( " + CRLF +;
-									 " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF +;
-									 " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF +;
-									 " 		FROM "+RetSqlName("SB8")+" " + CRLF +;
-									 " 		WHERE B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF +;
-									 " 		  AND B8_LOTECTL = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF +;
-									 " 		  AND B8_SALDO   >  0 " + CRLF +;
-									 " 		  AND D_E_L_E_T_=' ' " + CRLF +;
-									 " " + CRLF +;
-									 " 		UNION " + CRLF +;
-									 " " + CRLF +;
-									 " 		SELECT SUM(Z0E_PESO*Z0E_QUANT*-1)" + CRLF +;
-									 " 			 , SUM(Z0E_QUANT*-1)" + CRLF +;
-									 " 		FROM "+RetSqlName("Z0E")+" " + CRLF +;
-									 " 		where Z0E_FILIAL = '" + FWxFilial("Z0E") + "' " + CRLF +;
-									 " 		  and Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "' " + CRLF +;
-									 " 		  AND Z0E_LOTE   = '" + TMPLOTE->Z0E_LOTE + "'" + CRLF +;
-									 " 		  and Z0E_SEQEFE = '" + aSequen[nL] + "' " + CRLF +;
-									 " 		  and D_E_L_E_T_ = ' ' " + CRLF +;
-									 " ) DADOS"
-							DbUseArea(.t., "TOPCONN", TCGenQry(,, _cSql ), "TMPMEDIA", .f., .f.) 
-							if TMPMEDIA->(!Eof())
-								__nPeso := TMPMEDIA->MED_ANT
+
+						oQryC1:SetString(1,aSequen[nL])
+						cAlias := oQryC1:OpenAlias()
+
+						While !(cAlias1)->(Eof())
+							
+							oQryC1:SetString(1,(cAlias1)->Z0E_LOTE)
+							oQryC1:SetString(2,(cAlias1)->Z0E_LOTE)
+							oQryC1:SetString(3,aSequen[nL])
+
+							cAlias2 := oQryC1:OpenAlias()
+
+							if (cAlias2)->(!Eof())
+								__nPeso := (cAlias2)->MED_ANT
 							EndIf
-							TMPMEDIA->(DbCloseArea())
+							(cAlias2)->(DbCloseArea())
 
 							If !Empty(__nPeso) .AND. (__nPeso > 0)
 								cUpd := "update " + retSQLName("SB8") + CRLF +;
 										"   set B8_XPESOCO = " + cValToChar( ROUND(__nPeso, 3) ) + CRLF +;
 										" where B8_FILIAL  = '" + FWxFilial("SB8")+ "'" + CRLF +;
-										"   and B8_LOTECTL = '" + AllTrim(TMPLOTE->Z0E_LOTE)+ "'" + CRLF +;
+										"   and B8_LOTECTL = '" + AllTrim((cAlias1)->Z0E_LOTE)+ "'" + CRLF +;
 										"   and B8_SALDO   > 0" + CRLF +;
 										"   and D_E_L_E_T_=' '"
 								If (TCSqlExec(cUpd) < 0)
@@ -2636,25 +2643,21 @@ User Function CancMvBv()
 									ConOut("Peso medio do lote atualizado com sucesso! " + Z0E->Z0E_CODIGO)
 								EndIf
 							EndIf
-							TMPLOTE->(DbSkip())
+							(cAlias1)->(DbSkip())
 						EndDo
-						TMPLOTE->(DbCloseArea())
+						(cAlias1)->(DbCloseArea())
 					EndIf	
 
 					// If undoTransf(aSequen[nL])
 					Processa({|| lRet := undoTransf(aSequen[nL]) }, "Por favor aguarde ...")
+
 					If lRet
-						BeginSQL alias "TEMP"
-							%noParser%
-							SELECT  R_E_C_N_O_
-							FROM	Z0E010
-							where   Z0E_FILIAL = %exp:FWxFilial("Z0E")%
-							    and Z0E_CODIGO = %exp:Z0C->Z0C_CODIGO%
-							    and Z0E_SEQEFE = %exp:aSequen[nL]%
-							    and %notDel%
-						EndSQL
-						while !TEMP->(Eof())
-							Z0E->(DbGoTo(TEMP->R_E_C_N_O_))
+						
+						oQryC3:SetString(1,aSequen[nL])
+						cAlias3 := oQryC3:OpenAlias()
+
+						while !(cAlias3)->(Eof())
+							Z0E->(DbGoTo((cAlias3)->R_E_C_N_O_))
 
 							RecLock('Z0E', .F.)
 								Z0E->Z0E_SEQEFE := Space(4)
@@ -2663,21 +2666,15 @@ User Function CancMvBv()
 								Z0E->Z0E_ESTHOR := Time()
 							Z0E->(MsUnLock())
 
-							TEMP->(dbSkip())
+							(cAlias3)->(dbSkip())
 						EndDo
-						TEMP->(dbCloseArea())
+						(cAlias3)->(dbCloseArea())
 
-						BeginSQL alias "TEMP"
-							%noParser%
-							SELECT  R_E_C_N_O_
-							FROM	Z0F010
-							where   Z0F_FILIAL = %exp:FWxFilial("Z0F")%
-							and   Z0F_MOVTO  = %exp:Z0C->Z0C_CODIGO%
-							and   Z0F_SEQEFE = %exp:aSequen[nL]%
-							and   %notDel%
-						EndSQL
-						while !TEMP->(Eof())
-							Z0F->(DbGoTo(TEMP->R_E_C_N_O_))
+						oQryC4:SetString(1,aSequen[nL])
+						cAlias4 := oQryC4:OpenAlias()
+
+						while !(cAlias4)->(Eof())
+							Z0F->(DbGoTo((cAlias4)->R_E_C_N_O_))
 
 							RecLock('Z0F', .F.)
 								Z0F->Z0F_SEQEFE := Space(4)
@@ -2686,32 +2683,51 @@ User Function CancMvBv()
 								Z0F->Z0F_ESTHOR := Time()
 							Z0F->(MsUnLock())
 
-							TEMP->(dbSkip())
+							(cAlias4)->(dbSkip())
 						EndDo
-						TEMP->(dbCloseArea())
+						(cAlias4)->(dbCloseArea())
 
 						MsgInfo("Movimentos excluído com sucesso!", "OPERAÇƒO CONCLUÍ„A")
 					EndIf
 				Next
 
-				BeginSQL alias "Q1"
-					%noParser%
-					select sum(case when Z0E_SEQEFE = '    ' then 1 else 0 end) QTD_EFE, count(R_E_C_N_O_) QTD_REG
-					from %table:Z0E% z
-					where Z0E_FILIAL=%xFilial:Z0E%
-					and Z0E_CODIGO=%exp:Z0C->Z0C_CODIGO%
-					and z.%notDel%
-				EndSQL
-				If !Q1->(Eof())
+				IF oQryC1 <> NIL
+					oQryC1:Destroy()
+					oQryC1 := Nil
+				ENDIF 
+				IF oQryC2 <> NIL
+					oQryC2:Destroy()
+					oQryC2 := Nil
+				ENDIF 
+				IF oQryC3 <> NIL
+					oQryC3:Destroy()
+					oQryC3 := Nil
+				ENDIF 
+				IF oQryC4 <> NIL
+					oQryC4:Destroy()
+					oQryC4 := Nil
+				ENDIF 
+
+				cAlias := GetNextAlias()
+
+				cQry := " select sum(case when Z0E_SEQEFE = '    ' then 1 else 0 end) QTD_EFE, count(R_E_C_N_O_) QTD_REG " + CRLF
+				cQry += " from "+RetSqlName("Z0E")+" z " + CRLF
+				cQry += " where Z0E_FILIAL="+FWxFilial("Z0E")+" " + CRLF
+				cQry += " and Z0E_CODIGO="+Z0C->Z0C_CODIGO+" " + CRLF
+				cQry += " and z.D_E_L_E_T_ = ' ' " + CRLF
+
+				MpSysOpenQuery(cQry,cAlias)
+
+				If !(cAlias)->(Eof())
 					RecLock("Z0C", .F.)
-					If Q1->QTD_EFE = Q1->QTD_REG
+					If (cAlias)->QTD_EFE = (cAlias)->QTD_REG
 						Z0C->Z0C_STATUS='1'
 					else
 						Z0C->Z0C_STATUS='4'
 					EndIf
 					msUnlock()
 				EndIf
-				Q1->(dbCloseArea())
+				(cAlias)->(dbCloseArea())
 			EndIf
 		Else
 			Alert("não há movimentos efetivados para estornar.")
@@ -2720,13 +2736,71 @@ User Function CancMvBv()
 	RestArea(aArea)
 Return
 
+Static Function LObjQry()
+	Local cQry    	:= ""
+	
+	cQry := " SELECT DISTINCT Z0E_LOTE " + CRLF 
+	cQry += " FROM   "+RetSqlName("Z0E")+"  " + CRLF 
+	cQry += " WHERE  Z0E_FILIAL =  '" + FWxFilial("Z0E") + "'" + CRLF 
+	cQry += "    AND Z0E_CODIGO =  '" + Z0C->Z0C_CODIGO + "'" + CRLF 
+	cQry += "    AND Z0E_SEQEFE =  ?  " + CRLF 
+	cQry += "    AND D_E_L_E_T_= ' ' "+ CRLF 
+
+	oQryC1 := FwExecStatement():New(cQry)
+	
+	cQry := " SELECT " + CRLF 
+	cQry += " 		CASE " + CRLF 
+	cQry += " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF 
+	cQry += " 			THEN -1 " + CRLF 
+	cQry += " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF 
+	cQry += " 		END MED_ANT " + CRLF 
+	cQry += " FROM ( " + CRLF 
+	cQry += " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF 
+	cQry += " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF 
+	cQry += " 		FROM "+RetSqlName("SB8")+" " + CRLF 
+	cQry += " 		WHERE B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF 
+	cQry += " 		  AND B8_LOTECTL = ? " + CRLF 
+	cQry += " 		  AND B8_SALDO   >  0 " + CRLF 
+	cQry += " 		  AND D_E_L_E_T_=' ' " + CRLF 
+	cQry += " " + CRLF 
+	cQry += " 		UNION " + CRLF 
+	cQry += " " + CRLF 
+	cQry += " 		SELECT SUM(Z0E_PESO*Z0E_QUANT*-1)" + CRLF 
+	cQry += " 			 , SUM(Z0E_QUANT*-1)" + CRLF 
+	cQry += " 		FROM "+RetSqlName("Z0E")+" " + CRLF 
+	cQry += " 		where Z0E_FILIAL = '" + FWxFilial("Z0E") + "' " + CRLF 
+	cQry += " 		  and Z0E_CODIGO = '" + Z0C->Z0C_CODIGO + "' " + CRLF 
+	cQry += " 		  AND Z0E_LOTE   = ? " + CRLF 
+	cQry += " 		  and Z0E_SEQEFE = ? " + CRLF 
+	cQry += " 		  and D_E_L_E_T_ = ' ' " + CRLF 
+	cQry += " ) DADOS " + CRLF 
+
+	oQryC2 := FwExecStatement():New(cQry)
+
+	cQry := "SELECT  R_E_C_N_O_ " + CRLF 
+	cQry += " FROM	"+RetSqlName("Z0E")+" " + CRLF 
+	cQry += " where   Z0E_FILIAL = "+FWxFilial("Z0E")+"" + CRLF 
+	cQry += " and Z0E_CODIGO = "+Z0C->Z0C_CODIGO+" " + CRLF 
+	cQry += " and Z0E_SEQEFE = ? " + CRLF 
+	cQry += " and D_E_L_E_T_ = ' ' " + CRLF 
+
+	oQryC3 := FwExecStatement():New(cQry)
+
+	cQry := "SELECT  R_E_C_N_O_ " + CRLF 
+	cQry += "FROM	"+RetSqlName("Z0F")+" " + CRLF 
+	cQry += "where Z0F_FILIAL = "+FWxFilial("Z0F")+" " + CRLF 
+	cQry += "and   Z0F_MOVTO  = "+Z0C->Z0C_CODIGO+" " + CRLF 
+	cQry += "and   Z0F_SEQEFE = ? " + CRLF 
+	cQry += "and   D_E_L_E_T_ = ' ' " + CRLF 
+
+	oQryC4 := FwExecStatement():New(cQry)
+Return 
+
 //Estorna Transferencia 
 Static Function undoTransf(cSequen)
 	Local nItem			:= 0
 	Local aAUTO         := {}
 	Local cDoc          := Z0C->Z0C_CODIGO
-	// Local cProd      := Z0C->Z0C_PROD
-	// Local nOpcAuto      := 6 // Indica qual tipo de aç£¯ será ´omada (Inclusã¯¯Exclusã¯©
 
 	default cSequen     := ""
 
@@ -2796,8 +2870,6 @@ Static Function undoTransf(cSequen)
 	EndIf
 	MYD3->(dbCloseArea())
 Return !lMsErroAuto
-
-
 
 Static function MrkSeqs()
 	local nOpc		:= GD_UPDATE
@@ -4716,6 +4788,7 @@ Return nil
 Static Function getPesoZ0F(cLote, cProduto, cDesc)
 	local nRet       := 0
 	Local _cQry      := ""
+	Local cAlias 	 := GetNextAlias()
 	default cProduto := ""
 	default cDesc	 := ""
 
@@ -4735,12 +4808,12 @@ Static Function getPesoZ0F(cLote, cProduto, cDesc)
 	_cQry += "   AND Z0F_LOTE =  '"+cLote+"'" + CRLF
 	_cQry += "   AND Z0F.D_E_L_E_T_=' '" + CRLF
 
-	dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),"QPES",.F.,.F.)
+	MpSysOpenQuery(_cQry,cAlias)
 
-	If !QPES->(Eof())
-		nRet := QPES->MEDIA
+	If !(cAlias)->(Eof())
+		nRet := (cAlias)->MEDIA
 	EndIf
-	QPES->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 Return nRet
 
@@ -4750,6 +4823,8 @@ Return nRet
 Static Function getSaldoZ0F(cLote, cProduto, lAtu, cDesc)
 	local nRet       := 0
 	Local _cQry      := ""
+	Local cAlias 	 := GetNextAlias()
+
 	default cProduto := ""
 	default lAtu     := .F.
 	default cDesc	 := ""
@@ -4773,12 +4848,12 @@ Static Function getSaldoZ0F(cLote, cProduto, lAtu, cDesc)
 	_cQry += "   AND Z0F_LOTE =  '"+cLote+"'" + CRLF
 	_cQry += "   AND Z0F.D_E_L_E_T_=' '" + CRLF
 
-	dbUseArea(.T.,'TOPCONN',TCGENQRY(,, _cQry ),"QPES",.F.,.F.)
+	MpSysOpenQuery(_cQry,cAlias)
 
-	If !QPES->(Eof())
-		nRet := QPES->SALDO
+	If !(cAlias)->(Eof())
+		nRet := (cAlias)->SALDO
 	EndIf
-	QPES->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 Return nRet
 
@@ -4826,7 +4901,7 @@ User Function SalvarGeral( oModel, oView )
 
 	oModel:CommitData()
 	oView:Refresh()
-	oDlg:End()
+	oDlgPsg:End()
 	ConOut('Fim: SalvarGeral')
 
 Return .T.
@@ -5149,6 +5224,8 @@ Static Function fReLoadZ0E( oModel, oView )
 	Local cSeqDes     := "0000"
 	Local nI          := 0, nJ := 0
 	Local nPesPrd1    := 0, nQtdPrd := 0, nPesLot1 := 0, nQtdLot := 0
+	Local cAlias 	  := GetNextAlias()
+	Local cQry		  := ""
 
 	nPosSeq           := aScan( aStruZ0E, { |x| AllTrim(x[1]) == "Z0E_SEQ"   })
 	nPosProd          := aScan( aStruZ0E, { |x| AllTrim(x[1]) == "Z0E_PROD"  })
@@ -5164,36 +5241,35 @@ Static Function fReLoadZ0E( oModel, oView )
 	nPosSexo          := aScan( aStruZ0E, { |x| AllTrim(x[1]) == "Z0E_SEXO"  })
 	nPPrdOri          := aScan( aStruZ0E, { |x| AllTrim(x[1]) == "Z0E_PRDORI"})
 	nPLotOri          := aScan( aStruZ0E, { |x| AllTrim(x[1]) == "Z0E_LOTORI"})
+	
+	cQry := " select * " + CRLF 
+	cQry += "  from "+RetSQLName("Z0F")+" Z0F" + CRLF 
+	cQry += " where Z0F_FILIAL= "+xFilial('Z0F')+" " + CRLF 
+	cQry += "   and Z0F_MOVTO= '"+Z0C->Z0C_CODIGO+"' " + CRLF 
+	cQry += "   and Z0F.D_E_L_E_T_='' " + CRLF 
+	cQry += "order by Z0F_MOVTO, Z0F_PROD, Z0F_RACA, Z0F_SEXO, Z0F_DENTIC, Z0F_LOTE, Z0F_LOTORI, Z0F_CURRAL, Z0F_SEQEFE DESC, Z0F_SEQ " + CRLF 
 
-	BeginSQL alias "TMPZ0F"
-		%noParser%
-		select *
-		  from %table:Z0F% Z0F
-		 where Z0F_FILIAL=%xFilial:Z0F%
-		   and Z0F_MOVTO=%exp:Z0C->Z0C_CODIGO%
-		   and Z0F.%notDel%
-		order by Z0F_MOVTO, Z0F_PROD, Z0F_RACA, Z0F_SEXO, Z0F_DENTIC, Z0F_LOTE, Z0F_LOTORI, Z0F_CURRAL, Z0F_SEQEFE DESC, Z0F_SEQ
-	EndSQL
+	MpSysOpenQuery(cQry,cAlias)
+	
 	// fReLoadZ0E
-	If !TMPZ0F->(Eof())
-		aStruZ0F  := TMPZ0F->(dbStruct())
-		TMPZ0F->(DbGoTop())
-		while !TMPZ0F->(Eof())
+	If !(cAlias)->(Eof())
+		aStruZ0F  := (cAlias)->(dbStruct())
+		(cAlias)->(DbGoTop())
+		while !(cAlias)->(Eof())
 			dbSelectArea("SB1")
 			dbSetOrder(1)
-			If SB1->( dbSeek(FWxFilial("SB1")+TMPZ0F->Z0F_PROD) )
+			If SB1->( dbSeek(FWxFilial("SB1")+(cAlias)->Z0F_PROD) )
 				nQtdDes++
-				ConOut(StrZero(nQtdDes, 4) + ': fReLoadZ0E: ' + TMPZ0F->Z0F_PROD)
+				ConOut(StrZero(nQtdDes, 4) + ': fReLoadZ0E: ' + (cAlias)->Z0F_PROD)
 				// fReLoadZ0E
 				If nQtdDes > 1
-					nPosLinha := aScan(aColsZ0E, { |x| AllTrim(x[nPosLote])   == AllTrim(TMPZ0F->Z0F_LOTE  );
-						.and. AllTrim(x[nPosRaca])   == AllTrim(TMPZ0F->Z0F_RACA  );
-						.and. AllTrim(x[nPosSexo])   == AllTrim(TMPZ0F->Z0F_SEXO  );
-						.and. AllTrim(x[nPosCurral]) == AllTrim(TMPZ0F->Z0F_CURRAL);
-						.and. AllTrim(x[nPosProd])   == AllTrim(TMPZ0F->Z0F_PROD  );
-						.and. AllTrim(x[nPLotOri])   == AllTrim(TMPZ0F->Z0F_LOTORI);
-						.and. AllTrim(x[nPosSeqE])   == AllTrim(TMPZ0F->Z0F_SEQEFE) })
-						//.and. AllTrim(x[nPosDent])   == AllTrim(TMPZ0F->Z0F_DENTIC);
+					nPosLinha := aScan(aColsZ0E, { |x| AllTrim(x[nPosLote])   == AllTrim((cAlias)->Z0F_LOTE  );
+						.and. AllTrim(x[nPosRaca])   == AllTrim((cAlias)->Z0F_RACA  );
+						.and. AllTrim(x[nPosSexo])   == AllTrim((cAlias)->Z0F_SEXO  );
+						.and. AllTrim(x[nPosCurral]) == AllTrim((cAlias)->Z0F_CURRAL);
+						.and. AllTrim(x[nPosProd])   == AllTrim((cAlias)->Z0F_PROD  );
+						.and. AllTrim(x[nPLotOri])   == AllTrim((cAlias)->Z0F_LOTORI);
+						.and. AllTrim(x[nPosSeqE])   == AllTrim((cAlias)->Z0F_SEQEFE) })
 					If nPosLinha > 0
 						lCria := .F.
 					else
@@ -5219,20 +5295,20 @@ Static Function fReLoadZ0E( oModel, oView )
 
 					For nI := 1 to Len( aStruZ0F )
 						If (nPosZ0E:=aScan( aStruZ0E,{ |x| AllTrim(x[1]) == StrTran( aStruZ0F[ nI, 1], "Z0F_", "Z0E_" ) } )) > 0
-							aColsZ0E[len(aColsZ0E), nPosZ0E]    := TMPZ0F->&(aStruZ0F[ nI, 1])
+							aColsZ0E[len(aColsZ0E), nPosZ0E]    := (cAlias)->&(aStruZ0F[ nI, 1])
 						EndIf
 					Next nI
 
 					aColsZ0E[len(aColsZ0E), nPosSeq]    := cSeqDes
 					aColsZ0E[len(aColsZ0E), nPosDesc]   := SB1->B1_DESC
 					aColsZ0E[len(aColsZ0E), nPosQuant]  := 1
-					aColsZ0E[len(aColsZ0E), nPosDtCo]   := SToD(TMPZ0F->Z0F_DTPES)+1
-					aColsZ0E[len(aColsZ0E), nPosSeqE]   := TMPZ0F->Z0F_SEQEFE
+					aColsZ0E[len(aColsZ0E), nPosDtCo]   := SToD((cAlias)->Z0F_DTPES)+1
+					aColsZ0E[len(aColsZ0E), nPosSeqE]   := (cAlias)->Z0F_SEQEFE
 				else
 					aColsZ0E[nPosLinha, nPosQuant]      += 1
 				EndIf
 			EndIf
-			TMPZ0F->(dbSkip())
+			(cAlias)->(dbSkip())
 		EndDo
 
 		for nI := 1 to oGridZ0E:Length()
@@ -5286,7 +5362,7 @@ Static Function fReLoadZ0E( oModel, oView )
 
 		oView:Refresh()
 	EndIf
-	TMPZ0F->(DbCloseArea())
+	(cAlias)->(DbCloseArea())
 
 	RestArea(aArea)
 Return nil // oGridZ0E

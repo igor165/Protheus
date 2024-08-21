@@ -62,8 +62,8 @@ Static Function ModelDef()
 	oModel:AddGrid('ZE2DETAIL','SE2DETAIL',oStZE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner é para quem pertence
 	oModel:AddGrid('SE5DETAIL','SE2DETAIL',oStSE5,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner é para quem pertence
 	
-	oModel:GetModel('SE2DETAIL'):SetOnlyView(.T.)
-	oModel:GetModel('ZE2DETAIL'):SetOnlyView(.T.)
+	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
+	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
 
 	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
