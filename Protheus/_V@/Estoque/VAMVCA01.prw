@@ -318,45 +318,49 @@ Return
 
 static Function comboRaca()
 	Local cCombo := ''
+	Local cAlias := GetNextAlias()
+	Local cQry   := ""
 
-	BeginSQL alias "QCMB"
-	%noParser%
-	select distinct Z09_RACA
-	  from %table:Z09% Z09
-	 where Z09_FILIAL=%xFilial:Z09%
-	   and Z09_RACA <> ' '
-	   and Z09.%notDel%
-	 order by 1 desc
-	EndSQL
-	while !QCMB->(Eof())
-		If !empty(QCMB->Z09_RACA)
-			cCombo += If(empty(cCombo),"",";") + AllTrim(QCMB->Z09_RACA) + "=" + AllTrim(QCMB->Z09_RACA)
+	cQry := " select distinct Z09_RACA " + CRLF 
+	cQry += "   from "+RetSQLName("Z09")+" Z09 " + CRLF 
+	cQry += "  where Z09_FILIAL='"+FwxFilial("Z09")+"' " + CRLF 
+	cQry += "    and Z09_RACA <> ' ' " + CRLF 
+	cQry += "    and Z09.D_E_L_E_T_ = '' " + CRLF 
+	cQry += "  order by 1 desc " + CRLF
+
+	MpSysOpenQuery(cQry, cAlias)
+
+	while !(cAlias)->(Eof())
+		If !empty((cAlias)->Z09_RACA)
+			cCombo += If(empty(cCombo),"",";") + AllTrim((cAlias)->Z09_RACA) + "=" + AllTrim((cAlias)->Z09_RACA)
 		EndIf
-		QCMB->(dbSkip())
+		(cAlias)->(dbSkip())
 	EndDo
-	QCMB->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 Return cCombo
 
 Static Function comboSexo()
 	Local cCombo := ''
+	Local cAlias := GetNextAlias()
+	Local cQry   := ""
 
-	BeginSQL alias "QCMB"
-	%noParser%
-	select distinct Z09_SEXO
-	  from %table:Z09% Z09
-	 where Z09_FILIAL=%xFilial:Z09%
-	   and Z09_SEXO <> ' '
-	   and Z09.%notDel%
-	 order by 1 DESC
-	EndSQL
-	while !QCMB->(Eof())
-		If !empty(QCMB->Z09_SEXO)
-			cCombo += If(empty(cCombo),"",";") + AllTrim(QCMB->Z09_SEXO) + "=" + AllTrim(QCMB->Z09_SEXO)
+	cQry := " select distinct Z09_SEXO " + CRLF 
+	cQry += "   from "+RetSQLName("Z09")+" Z09 " + CRLF 
+	cQry += "  where Z09_FILIAL='"+FwxFilial("Z09")+"' " + CRLF 
+	cQry += "    and Z09_SEXO <> ' ' " + CRLF 
+	cQry += "    and Z09.D_E_L_E_T_ = '' " + CRLF
+	cQry += "  order by 1 desc " + CRLF
+
+	MpSysOpenQuery(cQry, cAlias)'
+
+	while !(cAlias)->(Eof())
+		If !empty((cAlias)->Z09_SEXO)
+			cCombo += If(empty(cCombo),"",";") + AllTrim((cAlias)->Z09_SEXO) + "=" + AllTrim((cAlias)->Z09_SEXO)
 		EndIf
-		QCMB->(dbSkip())
+		(cAlias)->(dbSkip())
 	EndDo
-	QCMB->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 Return cCombo
 
@@ -662,22 +666,22 @@ Return cProxProd
 // ======================================================================================= //
 User Function SB8Curral(cProd, cLote)
 	local cCurral := "     "
+	Local cQry 	  := ""
+	Local cAlias  := GetNextAlias()
 
-	BeginSQL alias "CUR"
-	%noParser%
-	select B8_X_CURRA
-	  from %table:SB8% SB8
-	 where B8_FILIAL =%xFilial:SB8%
-	   and B8_LOTECTL=%exp:cLote%
-	   and B8_SALDO > 0
-	   and SB8.%notDel%
-	EndSQL
-	//    and B8_PRODUTO=%exp:cProd%
+	cQry := "select B8_X_CURRA " + CRLF 
+	cQry += "  from "+RetSQLName("SB8")+" SB8 " + CRLF 
+	cQry += " where B8_FILIAL = '"+FWxFilial("SB8")+"' " + CRLF 
+	cQry += "   and B8_LOTECTL= '"+cLote+"' " + CRLF 
+	cQry += "   and B8_SALDO > 0 " + CRLF 
+	cQry += "   and SB8.D_E_L_E_T_=' ' " + CRLF 
+	
+	MpSysOpenQuery(cQry, cAlias)
 
-	If !CUR->(Eof())
-		cCurral := CUR->B8_X_CURRA
+	If !(cAlias)->(Eof())
+		cCurral := (cAlias)->B8_X_CURRA
 	EndIf
-	CUR->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 Return cCurral
 
@@ -737,72 +741,79 @@ Return u_SB8Curral( FwFldGet('Z0D_PROD'), FwFldGet('Z0D_LOTE') ) // cCurral
  | Obs.     :                                                                      |
  '--------------------------------------------------------------------------------*/
 User Function TgLotZ0E() // trigger
-	local oModel     := FWModelActive()
-	Local oGridZ0E   := oModel:GetModel( 'Z0EDETAIL' )
-	Local cLote      := AllTrim(FwFldGet( 'Z0E_LOTE' ))
-	Local nRegistros := 0
-	Local cAux       := ""
+	local oModel     	:= FWModelActive()
+	Local oGridZ0E   	:= oModel:GetModel( 'Z0EDETAIL' )
+	Local cLote      	:= AllTrim(FwFldGet( 'Z0E_LOTE' ))
+	Local nRegistros 	:= 0
+	Local cAux       	:= ""
+	Local cAlias		:= GetNextAlias()
+	Local cAlias1		:= ""
+	Local cQry 			:= ""
 
 	oGridZ0E:LoadValue('Z0E_PROD'  , U_ProxProd() )
 	cAux := Left(POSICIONE('SB1', 1, FWxFilial('SB1')+FwFldGet('Z0E_PROD'), 'B1_DESC'), TamSX3('Z0E_DESC')[1])
 	oGridZ0E:LoadValue('Z0E_DESC'  , cAux )
 
-	BeginSQL alias "TMP"
-		SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-			 , AVG(B8_XPESTOT) B8_XPESTOT
-             , COUNT(*) QTD
-	         , SUM(B8_SALDO) SALDO
-		FROM   SB8010 SB8
-		WHERE B8_FILIAL = %xFilial:SB8%
-		  AND B8_LOTECTL  = %exp:cLote%
-		  AND B8_SALDO > 0
-		  AND B8_XDATACO<>' '
-		  AND SB8.D_E_L_E_T_= ' '
-		GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-	EndSQL
-	TMP->(DbEval({|| nRegistros++ }))
-	TMP->(DbGoTop())
+	cQry := " SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF
+	cQry += "		 , AVG(B8_XPESTOT) B8_XPESTOT " + CRLF
+    cQry += "         , COUNT(*) QTD " + CRLF
+	cQry += "         , SUM(B8_SALDO) SALDO " + CRLF
+	cQry += "	FROM   "+RetSQLName("SB8")+" SB8 " + CRLF
+	cQry += "	WHERE B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF
+	cQry += "	  AND B8_LOTECTL  = '"+cLote+"' " + CRLF
+	cQry += "	  AND B8_SALDO > 0 " + CRLF
+	cQry += "	  AND B8_XDATACO<>' ' " + CRLF
+	cQry += "	  AND SB8.D_E_L_E_T_= ' ' " + CRLF
+	cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF
+	
+	MpSysOpenQuery(cQry, cAlias)
 
-	If !TMP->(Eof())
-		oGridZ0E:LoadValue('Z0E_CURRAL', TMP->B8_X_CURRA )
+	(cAlias)->(DbEval({|| nRegistros++ }))
+	(cAlias)->(DbGoTop())
+
+	If !(cAlias)->(Eof())
+		oGridZ0E:LoadValue('Z0E_CURRAL', (cAlias)->B8_X_CURRA )
 	EndIf
 
 	If nRegistros == 1
-		oGridZ0E:LoadValue('Z0E_PESTOT', TMP->B8_XPESTOT       )
-		oGridZ0E:LoadValue('Z0E_DATACO', sToD(TMP->B8_XDATACO) )
-		oGridZ0E:LoadValue('Z0E_GMD'   , TMP->B8_GMD           )
-		oGridZ0E:LoadValue('Z0E_DIASCO', TMP->B8_DIASCO 	   )
-		oGridZ0E:LoadValue('Z0E_RENESP', TMP->B8_XRENESP 	   )
-		oGridZ0E:LoadValue('Z0E_PESO'  , TMP->B8_XPESOCO       )
+		oGridZ0E:LoadValue('Z0E_PESTOT', (cAlias)->B8_XPESTOT       )
+		oGridZ0E:LoadValue('Z0E_DATACO', sToD((cAlias)->B8_XDATACO) )
+		oGridZ0E:LoadValue('Z0E_GMD'   , (cAlias)->B8_GMD           )
+		oGridZ0E:LoadValue('Z0E_DIASCO', (cAlias)->B8_DIASCO 	   )
+		oGridZ0E:LoadValue('Z0E_RENESP', (cAlias)->B8_XRENESP 	   )
+		oGridZ0E:LoadValue('Z0E_PESO'  , (cAlias)->B8_XPESOCO       )
 		
 		// MB : 30.03.2021 => pega lote de origem para gatilhar os campos no destino
 		If Z0C->Z0C_TPMOV == '4' // Apartação
 			cLote        := FwFldGet('Z0D_LOTE')
+			
+			cQry := " SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF 
+			cQry += "		, AVG(B8_XPESTOT) B8_XPESTOT " + CRLF 
+			cQry += "		, COUNT(*) QTD " + CRLF 
+			cQry += "		, SUM(B8_SALDO) SALDO " + CRLF 
+			cQry += "	FROM   "+RetSQLName("SB8")+" SB8 " + CRLF
+			cQry += "	WHERE B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF
+			cQry += "	AND B8_LOTECTL  = '"+cLote+"' " + CRLF
+			cQry += "	AND B8_SALDO > 0  " + CRLF 
+			cQry += "	AND B8_XDATACO<>' ' " + CRLF 
+			cQry += "	AND SB8.D_E_L_E_T_= ' ' " + CRLF 
+			cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF 
+			
+			cAlias1 := GetNextAlias()
 
-			BeginSQL alias "TMP_O"
-				SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-					, AVG(B8_XPESTOT) B8_XPESTOT
-					, COUNT(*) QTD
-					, SUM(B8_SALDO) SALDO
-				FROM   SB8010 SB8 
-				WHERE B8_FILIAL = %xFilial:SB8%
-				AND B8_LOTECTL  = %exp:cLote%
-				AND B8_SALDO > 0 
-				AND B8_XDATACO<>' '
-				AND SB8.D_E_L_E_T_= ' '
-				GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-			EndSQL
-			TMP_O->(DbGoTop())
-			If !TMP_O->(Eof())
-				oGridZ0E:LoadValue('Z0E_PESO', TMP_O->B8_XPESOCO )
+			MpSysOpenQuery(cQry, cAlias1)
+
+			(cAlias1)->(DbGoTop())
+			If !(cAlias1)->(Eof())
+				oGridZ0E:LoadValue('Z0E_PESO', (cAlias1)->B8_XPESOCO )
 			EndIf
-			TMP_O->(dbCloseArea())
+			(cAlias1)->(dbCloseArea())
 		EndIf
 		
 	ElseIf nRegistros>1
 		msgAlert('O lote: '+AllTrim(clote)+' possui animais com data de entrada diferentes, informe os campos manualmente: PESO APARTAÇÃO, DATA DE INICIO.')
 	EndIf
-	TMP->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 	// POSIONAR NA Z0D de acordo com o produto
 	oGridZ0E:LoadValue('Z0E_RACA'  , FwFldGet('Z0D_RACA') )
@@ -828,7 +839,10 @@ User Function TgRacZ0E()
 	Local oGridZ0E := oModel:GetModel( 'Z0EDETAIL' )
 	Local cRaca    := ""
 	Local cAux     := ""
-
+	Local cAlias   := ""
+	Local cAlias1  := ""
+	Local cQry 	   := ""
+	
 	_cProdMB := U_ProxProd() // StaticCall(VAMVCA01, ProxProd)
 	If Empty(_cProdMB)
 		oGridZ0D:GoLine( nBkpZ0D )
@@ -846,35 +860,37 @@ User Function TgRacZ0E()
 	oGridZ0E:LoadValue('Z0E_DESC'  , cAux )
 
 	oGridZ0E:LoadValue('Z0E_LOTE'  , FwFldGet('Z0D_LOTE') )
-	BeginSQL alias "TMP"
-		SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-			 , AVG(B8_XPESTOT) B8_XPESTOT
-             , COUNT(*) QTD
-	         , SUM(B8_SALDO) SALDO
-		FROM   SB8010 SB8 
-		WHERE B8_FILIAL   = %xFilial:SB8%
-		  AND B8_PRODUTO  = %exp:_cProdMB%
-		  AND B8_LOTECTL  = %exp:FwFldGet('Z0D_LOTE')%
-		  AND B8_SALDO > 0 
-		  AND B8_XDATACO<>' '
-		  AND SB8.D_E_L_E_T_= ' '
-		GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP
-	EndSQL
+	
+	cQry := "SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF 
+	cQry += "		 , AVG(B8_XPESTOT) B8_XPESTOT " + CRLF 
+    cQry += "         , COUNT(*) QTD " + CRLF 
+	cQry += "         , SUM(B8_SALDO) SALDO " + CRLF 
+	cQry += "	FROM   "+RetSQLName("SB8")+" SB8  " + CRLF 
+	cQry += "	WHERE B8_FILIAL   = '"+FwxFilial("SB8")+"' " + CRLF 
+	cQry += "	  AND B8_PRODUTO  = '"+_cProdMB+"'" + CRLF 
+	cQry += "	  AND B8_LOTECTL  = '"+FwFldGet('Z0D_LOTE')+"'" + CRLF 
+	cQry += "	  AND B8_SALDO > 0  " + CRLF 
+	cQry += "	  AND B8_XDATACO<>' ' " + CRLF 
+	cQry += "	  AND SB8.D_E_L_E_T_= ' ' " + CRLF 
+	cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO, B8_GMD, B8_DIASCO, B8_XRENESP " + CRLF 
+	
+	cAlias		:= GetNextAlias()
+	MpSysOpenQuery(cQry, cAlias)
 
-	If !TMP->(Eof())
+	If !(cAlias)->(Eof())
 		If Z0C->Z0C_TPMOV <> "2" // Apartação
-			oGridZ0E:LoadValue('Z0E_PESTOT', TMP->B8_XPESTOT   )
-			oGridZ0E:LoadValue('Z0E_PESO'  , TMP->B8_XPESOCO   )
+			oGridZ0E:LoadValue('Z0E_PESTOT', (cAlias)->B8_XPESTOT   )
+			oGridZ0E:LoadValue('Z0E_PESO'  , (cAlias)->B8_XPESOCO   )
 		EndIf
-		oGridZ0E:LoadValue('Z0E_DATACO', sToD(TMP->B8_XDATACO) )
-		oGridZ0E:LoadValue('Z0E_GMD'   , TMP->B8_GMD           )
-		oGridZ0E:LoadValue('Z0E_DIASCO', TMP->B8_DIASCO 	   )
-		oGridZ0E:LoadValue('Z0E_RENESP', TMP->B8_XRENESP 	   )
-		oGridZ0E:LoadValue('Z0E_CURRAL', TMP->B8_X_CURRA )
+		oGridZ0E:LoadValue('Z0E_DATACO', sToD((cAlias)->B8_XDATACO) )
+		oGridZ0E:LoadValue('Z0E_GMD'   , (cAlias)->B8_GMD           )
+		oGridZ0E:LoadValue('Z0E_DIASCO', (cAlias)->B8_DIASCO 	   )
+		oGridZ0E:LoadValue('Z0E_RENESP', (cAlias)->B8_XRENESP 	   )
+		oGridZ0E:LoadValue('Z0E_CURRAL', (cAlias)->B8_X_CURRA )
 	Else
 		oGridZ0E:LoadValue('Z0E_CURRAL', u_SB8Curral( FwFldGet('Z0E_PROD'), FwFldGet('Z0E_LOTE')) ) // FwFldGet('Z0D_CURRAL') )
 	EndIf
-	TMP->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 	oGridZ0E:LoadValue('Z0E_SEXO'  , FwFldGet('Z0D_SEXO') )
 Return cRaca
@@ -1278,6 +1294,12 @@ User Function NewLotes( __cCampo )
 
 	If oModel:nOperation == 4 .and. FWFldGet("Z0C_TPMOV") <> '4'
 
+		IF oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESINI"})] == 0 .or.;
+		   oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESFIM"})] == 0
+			MsgInfo("Informe o Peso Inicial e o Peso Final antes de informar o Lote")
+			Return nil
+		ENDIF
+
 		If IsInCallStack( "Selecao" )
 			cAux := &(ReadVar())
 		Else
@@ -1517,7 +1539,7 @@ Static Function ProcGrid( oModel, oView)
 	Local cQry 		  := ""
 	Local oQryCache   := nil
 	Local oQryMP   	  := nil
-	Local nCntScalar  := 0
+	Local cCntScalar  := 0
 
 	Private oGridZ0D  := nil
 	Private oGridZ0E  := nil
@@ -1625,7 +1647,7 @@ For nI := 1 To oGridZ0E:Length()
 
 	cQry := "SELECT  B8_LOTECTL, COUNT(B8_LOTECTL) QTDREG " + CRLF 
 	cQry += " FROM	"+RetSqlName("SB8")+" SB8 " + CRLF 
-	cQry += " WHERE	B8_FILIAL  =  "+FwxFilial("SB8")+" " + CRLF
+	cQry += " WHERE	B8_FILIAL  =  '"+FwxFilial("SB8")+"' " + CRLF
 	cQry += " 	AND B8_LOTECTL <> ? " + CRLF 
 	cQry += " 	AND B8_X_CURRA =  ? " + CRLF 
 	cQry += " 	AND B8_SALDO   >  0 " + CRLF 
@@ -1638,7 +1660,7 @@ For nI := 1 To oGridZ0E:Length()
 	for nI := 1 To oGridZ0E:Length()
 		oGridZ0E:GoLine( nI )
 
-		If !oGridZ0E:IsDeleted() .and. oGridZ0E:GetValue('Z0E_SEQEFE', nI) == ""
+		If !oGridZ0E:IsDeleted() .and. ALLTRIM(oGridZ0E:GetValue('Z0E_SEQEFE', nI)) == ""
 
 			oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_LOTE', nI))
 			oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_CURRAL', nI))
@@ -1658,8 +1680,8 @@ For nI := 1 To oGridZ0E:Length()
 		EndIf
 	Next nI
 	
-	cQry 	:= ""
-	cAlias 	:= ""
+	cQry 	  := ""
+	cAlias 	  := ""
 	oQryCache:Destroy()
 	oQryCache := Nil
 	
@@ -1740,19 +1762,17 @@ For nI := 1 To oGridZ0E:Length()
 	EndIf
 	
 	cQry := " select isnull(max(Z0E_SEQEFE),'    ') Z0E_SEQEFE " + CRLF 
-	cQry += "	from "+retSQLName("Z0E")+" z " + CRLF 
-	cQry += "	where Z0E_FILIAL="+xFilial("Z0E")+"" + CRLF 
-	cQry += "	and Z0E_CODIGO="+Z0C->Z0C_CODIGO+" " + CRLF 
+	cQry += "	from "+RetSQLName("Z0E")+" z " + CRLF 
+	cQry += "	where Z0E_FILIAL='"+xFilial("Z0E")+"'" + CRLF 
+	cQry += "	and Z0E_CODIGO='"+Z0C->Z0C_CODIGO+"' " + CRLF 
 	cQry += "	and z.D_E_L_E_T_ = '' " + CRLF 
 
-	nCntScalar := MPSysExecScalar(cQry,"Z0E_SEQEFE")
+	cCntScalar := MPSysExecScalar(cQry,"Z0E_SEQEFE")
 
-	If !Empty(nCntScalar)
-		If nCntScalar == '    '
-			cSeqEfe := '0001'
-		else
-			cSeqEfe := Soma1(nCntScalar)
-		EndIf
+	If ALLTRIM(cCntScalar) == ""
+		cSeqEfe := '0001'
+	else
+		cSeqEfe := Soma1(cCntScalar)
 	EndIf
 
 if Z0C->Z0C_TPMOV != '6'
@@ -1974,8 +1994,10 @@ if Z0C->Z0C_TPMOV != '6'
 				else
 					Z0C->Z0C_STATUS := '3'
 				EndIf
-				Z0C->Z0C_DTFIM := Date()
-				Z0C->Z0C_HRFIM := Time()
+				Z0C->Z0C_DTFIM  := Date()
+				Z0C->Z0C_HRFIM  := Time()
+				Z0C->Z0C_USUARI := cUserName
+				Z0C->Z0C_DTHREF := Time()
 			Z0C->(MsUnLock())
 
 			aStruZ0E    := Z0E->(dbStruct())
@@ -2000,7 +2022,6 @@ if Z0C->Z0C_TPMOV != '6'
 				NÃ realizar MEDIA PONDERADA para TPMOV $ ('25') */
 			if !(Z0C->Z0C_TPMOV $ ('25'))
 				
-				
 				cQry := "SELECT DISTINCT Z0E_LOTE,Z0E_CURRAL, Z0E_DATACO, Z0E_PESO" + CRLF 
 				cQry += " FROM   "+RetSqlName("Z0E")+"  " + CRLF 
 				cQry += " WHERE  Z0E_FILIAL = '" + FWxFilial("Z0E") + "'" + CRLF 
@@ -2023,7 +2044,7 @@ if Z0C->Z0C_TPMOV != '6'
 				cQry += " 				AND D_E_L_E_T_ = ' ' " + CRLF 
 				cQry += " ) DADOS " + CRLF 
 
-				oQryCache:FwExecStatement():New(cQry)
+				oQryCache := FwExecStatement():New(cQry)
 
 				cQry := " SELECT " + CRLF 
 				cQry += " 		CASE " + CRLF 
@@ -2046,19 +2067,13 @@ if Z0C->Z0C_TPMOV != '6'
 				While !(cAlias)->(Eof())
 					If aMedPond[01, 02 ]
 						oQryCache:SetString(1,(cAlias)->Z0E_LOTE)
-						cAliasM := oQryCache:OpenAlias()
+						__nPeso := oQryCache:ExecScalar("MEDIA_PONDERADA")
 					Else
 						oQryMP:SetString(1,(cAlias)->Z0E_LOTE)
-						cAliasM := oQryMP:OpenAlias()
+						__nPeso := oQryMP:ExecScalar("MEDIA_PONDERADA")
 					EndIf
 
 					MemoWrite("C:\totvs_relatorios\SQL_VAMVCA01_MediaPonderada.sql" , _cSql)
-
-					__nPeso := 0
-					if (cAliasM)->(!Eof())
-						__nPeso := (cAliasM)->MEDIA_PONDERADA
-					EndIf
-					(cAliasM)->(DbCloseArea())
 
 					If !Empty(__nPeso) .AND. (__nPeso > 0)
 						cUpd := "update " + retSQLName("SB8") + CRLF
@@ -2075,10 +2090,6 @@ if Z0C->Z0C_TPMOV != '6'
 					EndIf
 					(cAlias)->(DbSkip())
 				EndDo
-
-				cQry 	:= ""
-				cAlias 	:= ""
-				cAliasM := ""
 
 				oQryMP:Destroy()
 				oQryMP := Nil
@@ -2219,8 +2230,10 @@ else
 			else
 				Z0C->Z0C_STATUS := '3'
 			EndIf
-			Z0C->Z0C_DTFIM := Date()
-			Z0C->Z0C_HRFIM := Time()
+			Z0C->Z0C_DTFIM  := Date()
+			Z0C->Z0C_HRFIM  := Time()
+			Z0C->Z0C_USUARI := cUserName
+			Z0C->Z0C_DTHREF := Time()
 		Z0C->(MsUnLock())
 
 		aStruZ0E    := Z0E->(dbStruct())
@@ -2260,7 +2273,12 @@ else
 	endif
 	End Transaction
 Endif
-	If lTransf 
+	If lTransf
+		oView:Refresh()
+
+		oGridZ0D:SetOnlyView(.T.)
+		oGridZ0E:SetOnlyView(.T.)
+
 		ConOut(Repl("-",80))
 		__cMsg := "Movimentações realizadas com sucesso."+CRLF+CRLF+;
 				  "Tempo de processamento: " + ElapTime( cTimeINI, Time() )
@@ -2619,19 +2637,14 @@ User Function CancMvBv()
 
 						While !(cAlias1)->(Eof())
 							
-							oQryC1:SetString(1,(cAlias1)->Z0E_LOTE)
-							oQryC1:SetString(2,(cAlias1)->Z0E_LOTE)
-							oQryC1:SetString(3,aSequen[nL])
+							oQryC2:SetString(1,(cAlias1)->Z0E_LOTE)
+							oQryC2:SetString(2,(cAlias1)->Z0E_LOTE)
+							oQryC2:SetString(3,aSequen[nL])
 
-							cAlias2 := oQryC1:OpenAlias()
-
-							if (cAlias2)->(!Eof())
-								__nPeso := (cAlias2)->MED_ANT
-							EndIf
-							(cAlias2)->(DbCloseArea())
+							__nPeso := oQryC2:ExecScalar("MED_ANT")
 
 							If !Empty(__nPeso) .AND. (__nPeso > 0)
-								cUpd := "update " + retSQLName("SB8") + CRLF +;
+								cUpd := "update " + RetSQLName("SB8") + CRLF +;
 										"   set B8_XPESOCO = " + cValToChar( ROUND(__nPeso, 3) ) + CRLF +;
 										" where B8_FILIAL  = '" + FWxFilial("SB8")+ "'" + CRLF +;
 										"   and B8_LOTECTL = '" + AllTrim((cAlias1)->Z0E_LOTE)+ "'" + CRLF +;
@@ -2801,6 +2814,8 @@ Static Function undoTransf(cSequen)
 	Local nItem			:= 0
 	Local aAUTO         := {}
 	Local cDoc          := Z0C->Z0C_CODIGO
+	Local cAlias 		:= GetNextAlias()
+	Local cQry			:= ""
 
 	default cSequen     := ""
 
@@ -2828,47 +2843,41 @@ Static Function undoTransf(cSequen)
 		PRIVATE cArquivo     // Nome do arquivo contra prova
 	EndIf
 
-	BeginSQL alias "MYD3"
-		%noParser%
-		select SD3.R_E_C_N_O_ REC
-		from %table:SD3% SD3
-		where D3_FILIAL=%xFilial:SD3%
-		and D3_OBSERVA=%exp:("MOV." + cDoc + "." + cSequen)%
-		and D3_TM=%exp:'499'%
-		and D3_ESTORNO<>'S'
-		and SD3.%notDel%
-	EndSQL
+	cQry := " select SD3.R_E_C_N_O_ REC" + CRLF 
+	cQry += "	from "+retSQLName("SD3")+" SD3" + CRLF 
+	cQry += "	where D3_FILIAL= '"+FWxFilial("SD3")+"" + CRLF 
+	cQry += "	and D3_OBSERVA= '"+("MOV." + cDoc + "." + cSequen)+"'" + CRLF 
+	cQry += "	and D3_TM= '499' " + CRLF 
+	cQry += "	and D3_ESTORNO<>'S' " + CRLF
+	cQry += "	and SD3.D_E_L_E_T_=' '" + CRLF 
+	
+	mpSysOpenQuery(cQry,cAlias)
 
-	If !MYD3->(Eof())
+	If !(cAlias)->(Eof())
 
-		while !MYD3->(Eof()) .and. !lMsErroAuto
+		while !(cAlias)->(Eof()) .and. !lMsErroAuto
 			DbSelectArea("SD3")
-			DbGoTo(MYD3->REC)
-			//DbSetOrder(2)
-			//DbSeek(xFilial("SD3")+cDoc+cProd)
+			DbGoTo((cAlias)->REC)
+
 			aAuto := {}
 
 			ConOut(StrZero(++nItem, 5) + ': ' + AllTrim(SD3->D3_OBSERVA) + ' ' + AllTrim(SD3->D3_COD) + ' ' + StrZero(SD3->D3_QUANT, 3) + ' ' + SD3->D3_USUARIO )
 			MSExecAuto({|x,y| mata261(x,y)}, aAuto,6)
 
-			MYD3->(dbSkip())
+			(cAlias)->(dbSkip())
 		EndDo
 
-		//If !lMsErroAuto
-		// msgInfo("Movimentos excluído com sucesso!", "OPERAÇƒO CONCLUÍ„A")
-		//ALERT(CVALTOCHAR(LMSERROAUTO))
-		//Else
 		If lMsErroAuto
-			msgInfo("Erro ao excluir Movimentações exclusã¯¡", "ATENÇƒO")
+			msgInfo("Erro ao excluir Movimentações exclusão", "ATENÇÃO")
 			MostraErro()
 			DisarmTransaction()
 		EndIf
 
 	else
 		lMsErroAuto := .T.
-		msgInfo("Registros não encontrados nas Movimentações de estoque (Tabela SD3).", "ATENÇƒO")
+		msgInfo("Registros não encontrados nas Movimentações de estoque (Tabela SD3).", "ATENÇÃO")
 	EndIf
-	MYD3->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 Return !lMsErroAuto
 
 Static function MrkSeqs()
@@ -2885,6 +2894,8 @@ Static function MrkSeqs()
 	local nLinIni  := 03
 	local nLinAtu  := nLinIni
 	Local nL		:= 0
+	Local cAlias 	:= GetNextAlias()
+	Local cQry 		:= ""
 
 	Private oDlg
 	Private aHeadMrk := {}
@@ -2906,49 +2917,45 @@ Static function MrkSeqs()
 
 	aAdd(aHeadMrk,{ " "				, "cStat"      		,"@BMP"         			, 1,0,"","","C","","V","","","","V","","",""})
 	aAdd(aHeadMrk,{ "Sequencial"	, "Z0E_SEQEFE"		, X3Picture("Z0E_SEQEFE")	,TamSX3("Z0E_SEQEFE")[1]	, 0,"AllwaysTrue()", X3Uso("Z0E_SEQEFE")	, "C", "", "V" } )
-	//aAdd(aHeadMrk,{ "Data"			, "D3_EMISSAO"		, X3Picture("D3_EMISSAO")	,TamSX3("D3_EMISSAO")[1]	, 0,"AllwaysTrue()", X3Uso("D3_EMISSAO")	, "D", "", "V" } )
 	aAdd(aHeadMrk,{ "Documento"		, "D3_OBSERVA"		, X3Picture("D3_OBSERVA")   ,TamSX3("D3_OBSERVA")[1]	, 0,"AllwaysTrue()", X3Uso("D3_OBSERVA")	, "C", "", "V" } )
 	nUsadMrk := len(aHeadMrk)
 
 	aColsMrk	:= {}
 
-	BeginSQL alias "QSEQ"
-		%noParser%
-		select distinct Z0E_SEQEFE
-		  from %table:Z0E% z
-		 where Z0E_FILIAL=%xFilial:Z0E%
-		   and Z0E_CODIGO=%exp:Z0C->Z0C_CODIGO%
-		   and Z0E_SEQEFE <> '    '
-		   and z.%notDel%
-	EndSQL
-	If !QSEQ->(Eof())
-		while !QSEQ->(Eof())
+	cQry := " select distinct Z0E_SEQEFE " + CRLF 
+	cQry += "  from "+RetSQLName("Z0E")+" z " + CRLF 
+	cQry += " where Z0E_FILIAL= '"+FwxFilial("Z0E")+"' " + CRLF 
+	cQry += "   and Z0E_CODIGO= '"+Z0C->Z0C_CODIGO+"' " + CRLF 
+	cQry += "   and Z0E_SEQEFE <> '    ' " + CRLF 
+	cQry += "   and z.D_E_L_E_T_=' ' " + CRLF 
+
+	MpSysOpenQuery(cQry, cAlias)
+
+	If !(cAlias)->(Eof())
+		while !(cAlias)->(Eof())
 			aAdd(aColsMrk, array(nUsadMrk+1))
 			aColsMrk[len(aColsMrk), 1] := "LBNO"
-			aColsMrk[len(aColsMrk), 2] := QSEQ->Z0E_SEQEFE
-			aColsMrk[len(aColsMrk), 3] := "MOV." + Z0C->Z0C_CODIGO + "." + QSEQ->Z0E_SEQEFE
+			aColsMrk[len(aColsMrk), 2] := (cAlias)->Z0E_SEQEFE
+			aColsMrk[len(aColsMrk), 3] := "MOV." + Z0C->Z0C_CODIGO + "." + (cAlias)->Z0E_SEQEFE
 			aColsMrk[len(aColsMrk),nUsadMrk+1] := .F.
 
-			QSEQ->(dbSkip())
+			(cAlias)->(dbSkip())
 		EndDo
 	else
 		aAdd(aColsMrk, array(nUsadMrk+1))
 		aColsMrk[len(aColsMrk),nUsadMrk+1] := .F.
 	EndIf
-	QSEQ->(dbCloseArea())
+	(cAlias)->(dbCloseArea())
 
 	lOk := .F.
 	define msDialog oDlgMrk title "seleção de Sequenciais a serem estornados" /*STYLE DS_MODALFRAME*/ From aSize[1], aSize[2] To aSize[3]/2, aSize[5]/2 OF oMainWnd PIXEL
-	//oDlgMrk:lMaximized := .T. //Maximiza a janela
 
 	nLinAtu += nTamLin
 	oSeek	:= TButton():New( nLinAtu-2, aSize[5]/4 - 55, "Confirmar" ,oDlgMrk, {|| lOk := .T., oDlgMrk:End() },55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
-	//oSeek:SetCss("QPushButton{ color: #FFF; background: #2C2; font-weight: bold}")
 
 	nLinAtu += nTamLin + 5
 
 	oBtMrk	:= TButton():New( nLinAtu-5, 02, "Inverter seleção" ,oDlgMrk, {|| MarcaDes(oGetDadMrk,"T") },60, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F.)
-	//oBtMrk:SetCss("QPushButton{ color: #000; }")
 
 	nLinAtu += nTamLin+4
 
@@ -2968,36 +2975,35 @@ Return aRet
 
 //---------------------------------------------
 user function getSldBv(cProd, cLote)
-	local nSaldo := 0
-	local cAliasQry := GetNextAlias()
+	local nSaldo 	:= 0
+	//local cAliasQry := GetNextAlias()
+	Local cQry 		:= ""
 
 	default cLote := ""
 
 	If empty(cLote)
-		BeginSQL alias cAliasQry
-		%noParser%
-		select sum(B2_QATU) B2_QATU
-		  from %table:SB2% SB2
-		 where B2_FILIAL=%xFilial:SB2%
-		   and B2_COD=%exp:cProd%
-		   and SB2.%notDel%
-		EndSQL
+		cQry := "select sum(B2_QATU) B2_QATU " + CRLF
+		cQry += "  from "+RetSQLName("SB2")+" SB2 " + CRLF
+		cQry += " where B2_FILIAL= '" + FWxFilial("SB8")+ "' " + CRLF
+		cQry += "   and B2_COD= '"+cProd+"' " + CRLF
+		cQry += "   and SB2.D_E_L_E_T_=' ' " + CRLF
+
+		nSaldo := MPSysExecScalar(cQry,"B2_QATU")
 	else
-		BeginSQL alias cAliasQry
-		%noParser%
-		select sum(B8_SALDO) B2_QATU
-		  from %table:SB8% SB8
-		 where B8_FILIAL=%xFilial:SB8%
-		   and B8_PRODUTO=%exp:cProd%
-		   and B8_LOTECTL=%exp:cLote%
-		   and SB8.%notDel%
-		EndSQL
+		cQry := " select sum(B8_SALDO) B2_QATU " + CRLF
+		cQry += "  from "+RetSQLName("SB8")+" SB8 " + CRLF
+		cQry += " where B8_FILIAL= '" + FWxFilial("SB8")+ "' " + CRLF
+		cQry += "   and B8_PRODUTO='"+cProd+"' " + CRLF
+		cQry += "   and B8_LOTECTL='"+cLote+"' " + CRLF
+		cQry += "   and SB8.D_E_L_E_T_=' ' " + CRLF
+
+		nSaldo := MPSysExecScalar(cQry,"B2_QATU")
 	EndIf
 
-	If !(cAliasQry)->(Eof())
+	/* If !(cAliasQry)->(Eof())
 		nSaldo := (cAliasQry)->B2_QATU
 	EndIf
-	(cAliasQry)->(dbCloseArea())
+	(cAliasQry)->(dbCloseArea()) */
 
 Return nSaldo
 
@@ -3114,66 +3120,78 @@ Return lRet
 
 // ------------------------------------------------
 User Function vldPrdBv(cProduto, cLote, lSelf)
-	Local lRet := .T.
-	local cAliasQry := GetNextAlias()
+	Local lRet 		:= .T.
+	//local cAliasQry := ""//GetNextAlias()
+	Local cQry 		:= ""
+	Local cExiste	:= ""
+	Local cFiltro 	:= ""
+	
+	Default cLote 	:= ""
+	Default lSelf 	:= .F.
 
-	Default cLote := ""
-	Default lSelf := .F.
+	cQry := " select 1 EXISTE " + CRLF
+	cQry += "	from "+RetSQLName("SB1")+" SB1 " + CRLF
+	cQry += "	where B1_FILIAL='"+xFilial("SB1")+"' " + CRLF
+	cQry += "	and B1_COD='"+cProduto+"' " + CRLF
+	cQry += "	and SB1.D_E_L_E_T_ = '' " + CRLF
+	
+	cExiste := MPSysExecScalar(cQry,"EXISTE")
 
-	BeginSQL alias cAliasQry
-		%noParser%
-		select 1 EXISTE
-		from %table:SB1% SB1
-		where B1_FILIAL=%xFilial:SB1%
-		and B1_COD=%exp:cProduto%
-		and SB1.%notDel%
-	EndSQL
-	If (cAliasQry)->(Eof())
+	If cExiste != 1
 		alert("O produto informado não existe.")
 		lRet := .F.
 	EndIf
-	(cAliasQry)->(dbCloseArea())
+	//(cAliasQry)->(dbCloseArea())
 
-	cFiltro := "% "
+	//If (cAliasQry)->(Eof())
+	//	alert("O produto informado não existe.")
+	//	lRet := .F.
+	//EndIf
+	//(cAliasQry)->(dbCloseArea())
+
 
 	If lSelf
 		cFiltro := " and Z0C_CODIGO<>'" + FWFldGet('Z0C_CODIGO')+ "'"
 	EndIf
-
-	cFiltro += " %"
-
+	
+	cExiste := ''
+	
 	If lRet
 		If !empty(cLote)
-			BeginSQL alias cAliasQry
-				%noParser%
-				select Z0C_CODIGO CODIGO
-				from %table:Z0D% Z0D
-				join %table:Z0C% Z0C on (Z0C_FILIAL=%xFilial:Z0C% and Z0C.%notDel% and Z0C_CODIGO=Z0D_CODIGO)
-				where Z0D_FILIAL=%xFilial:Z0D%
-				and Z0D_PROD=%exp:cProduto%
-				and Z0D_LOTE=%exp:cLote%
-				and Z0C_STATUS in ('1', '4')
-				%exp:cFiltro%
-				and Z0D.%notDel%
-				//and Z0C_CODIGO<>%exp:FWFldGet('Z0C_CODIGO')%
-			EndSQL
+			cQry := "select Z0C_CODIGO" + CRLF 
+			cQry += " from "+RetSQLName("Z0D")+" Z0D " + CRLF 
+			cQry += " join "+RetSQLName("Z0C")+" Z0C on (Z0C_FILIAL='"+xFilial("Z0C")+"' and Z0C.D_E_L_E_T_ = '' and Z0C_CODIGO=Z0D_CODIGO) " + CRLF 
+			cQry += " where Z0D_FILIAL='"+xFilial("Z0D")+"' " + CRLF 
+			cQry += " and Z0D_PROD='"+cProduto+"' " + CRLF 
+			cQry += " and Z0D_LOTE='"+cLote+"'" + CRLF 
+			cQry += " and Z0C_STATUS in ('1', '4') " + CRLF 
+			if cFiltro != ''
+				cQry += cFiltro + CRLF 
+			endif 
+			cQry += " and Z0D.D_E_L_E_T_ = '' " + CRLF 
+
+			cExiste := MPSysExecScalar(cQry,"Z0C_CODIGO")
+
 		else
-			BeginSQL alias cAliasQry
-				%noParser%
-				select Z0C_CODIGO CODIGO
-				from %table:Z0C% Z0C
-				where Z0C_FILIAL=%xFilial:Z0C%
-				and Z0C_PROD=%exp:cProduto%
-				and Z0C_STATUS in ('1', '4')
-				and Z0C.%notDel%
-				//and Z0C_CODIGO<>%exp:FWFldGet('Z0C_CODIGO')%
-			EndSQL
+			cQry := " select Z0C_CODIGO " + CRLF 
+			cQry += "	from "+RetSQLName("Z0C")+" Z0C" + CRLF 
+			cQry += "	where Z0C_FILIAL = '"+xFilial("Z0C")+"' " + CRLF 
+			cQry += "	and Z0C_PROD = '"+cProduto+"' " + CRLF 
+			cQry += "	and Z0C_STATUS in ('1', '4')" + CRLF 
+			cQry += "	and Z0C.D_E_L_E_T_ = ''" + CRLF
+
+			cExiste := MPSysExecScalar(cQry,"Z0C_CODIGO")
+
 		EndIf
-		If !(cAliasQry)->(Eof())
-			alert("Este produto" + iIf(!empty(cLote),"/lote "," ") + " já está endo transferido pela Movimentação [" + (cAliasQry)->CODIGO + " ] que está em aberto.")
+		If AllTrim(cExiste) != ''
+			alert("Este produto" + iIf(!empty(cLote),"/lote "," ") + " já está endo transferido pela Movimentação [" + cExiste + " ] que está em aberto.")
 			lRet := .F.
 		EndIf
-		(cAliasQry)->(dbCloseArea())
+		//If !(cAliasQry)->(Eof())
+		//	alert("Este produto" + iIf(!empty(cLote),"/lote "," ") + " já está endo transferido pela Movimentação [" + (cAliasQry)->CODIGO + " ] que está em aberto.")
+		//	lRet := .F.
+		//EndIf
+		//(cAliasQry)->(dbCloseArea())
 	EndIf
 
 	If lRet
@@ -3188,7 +3206,9 @@ Return lRet
 
 User Function vldLotZE(cLote)
 	Local lRet 			:= .F.
-	local cAliasQry 	:= GetNextAlias()
+	//local cAlias 		:= "" //GetNextAlias()
+	Local cQry 			:= ""
+	Local cExiste		:= ""
 	local oModel    	:= FWModelActive()
 	local oGridModel	:= oModel:GetModel('Z0DDETAIL')
 	local nI 
@@ -3204,74 +3224,92 @@ User Function vldLotZE(cLote)
 			next nI 
 		endif 
 	else 
-		BeginSQL alias cAliasQry
-		%noParser%
-		select 1 EXISTE
-		from %table:SB8% SB8
-		where B8_FILIAL=%xFilial:SB8%
-		and B8_LOTECTL=%exp:cLote%
-		and SB8.%notDel%
-		EndSQL
-		If (cAliasQry)->(Eof())
+		cQry := " select 1 EXISTE " + CRLF 
+		cQry += " from "+RetSQLName("SB8")+" SB8 " + CRLF 
+		cQry += " where B8_FILIAL='"+FwxFilial("SB8")+"' " + CRLF 
+		cQry += " and B8_LOTECTL='"+cLote+"' " + CRLF 
+		cQry += " and SB8.D_E_L_E_T_ = '' " + CRLF 
+		
+		cExiste := MPSysExecScalar(cQry,"EXISTE")
+
+		If AllTrim(cExiste) != ''
 			alert("O lote informado não existe.")
 			lRet := .F.
 		else 
 			lRet := .t. 
 		EndIf
-		(cAliasQry)->(dbCloseArea())
+		//(cAliasQry)->(dbCloseArea())
+		//If (cAliasQry)->(Eof())
+		//	alert("O lote informado não existe.")
+		//	lRet := .F.
+		//else 
+		//	lRet := .t. 
+		//EndIf
+		//(cAliasQry)->(dbCloseArea())
 	endif 
 
 Return lRet
 
 User Function vldLotBv(cLote, lSelf)
-	Local lRet := .T.
-	local cAliasQry := GetNextAlias()
+	Local lRet 		:= .T.
+	//local cAliasQry := GetNextAlias()
+	Local cQry 		:= ""
+	Local cExiste	:= ""
+	Local cFiltro   := ""
+	
+	Default lSelf 	:= .F.
 
-	Default lSelf := .F.
+	cQry := "select 1 EXISTE" + CRLF 
+	cQry += "  from "+RetSQLName("SB8")+" SB8" + CRLF 
+	cQry += " where B8_FILIAL='"+FwxFilial("SB8")+"'" + CRLF 
+	cQry += "   and B8_LOTECTL='"+cLote+"'" + CRLF 
+	cQry += "   and SB8.D_E_L_E_T_ = ''" + CRLF 
+	
+	cExiste := MPSysExecScalar(cQry,"EXISTE")
 
-	BeginSQL alias cAliasQry
-	%noParser%
-	select 1 EXISTE
-	  from %table:SB8% SB8
-	 where B8_FILIAL=%xFilial:SB8%
-	   and B8_LOTECTL=%exp:cLote%
-	   and SB8.%notDel%
-	EndSQL
-	If (cAliasQry)->(Eof())
+	If AllTrim(cExiste) != ''
 		alert("O lote informado não existe.")
 		lRet := .F.
 	EndIf
-	(cAliasQry)->(dbCloseArea())
-
-	cFiltro := "% "
+//	If (cAliasQry)->(Eof())
+//		alert("O lote informado não existe.")
+//		lRet := .F.
+//	EndIf
+//	(cAliasQry)->(dbCloseArea())
 
 	If lSelf
 		cFiltro += " and Z0C_CODIGO<>'" + FWFldGet('Z0C_CODIGO')+ "'"
 	EndIf
 
-	cFiltro += " %"
-
 	If lRet
-		BeginSQL alias cAliasQry
-		%noParser%
-		select Z0C_CODIGO CODIGO
-		  from %table:Z0D% Z0D
-		  join %table:Z0C% Z0C on (Z0C_FILIAL=%xFilial:Z0C% and Z0C.%notDel% and Z0C_CODIGO=Z0D_CODIGO)
-		 where Z0D_FILIAL=%xFilial:Z0D%
-		   and Z0D_LOTE=%exp:cLote%
-		   and Z0C_STATUS in ('1', '4')
-		   %exp:cFiltro%
-		   and Z0D.%notDel%
-		EndSQL
-		If !(cAliasQry)->(Eof())
+		cExiste := ""
+
+		cQry := "select Z0C_CODIGO " + CRLF 
+		cQry += "  from "+RetSQLName("Z0D")+" Z0D " + CRLF 
+		cQry += "  join "+RetSQLName("Z0C")+" Z0C on (Z0C_FILIAL='"+FwxFilial("Z0C")+"' and Z0C.D_E_L_E_T_ = '' and Z0C_CODIGO=Z0D_CODIGO) " + CRLF 
+		cQry += " where Z0D_FILIAL='"+FwxFilial("Z0D")+"' " + CRLF 
+		cQry += "   and Z0D_LOTE='"+cLote+"' " + CRLF 
+		cQry += "   and Z0C_STATUS in ('1', '4') " + CRLF 
+		If cFiltro != ''
+		cQry += cFiltro + CRLF 
+		endif 
+		cQry += "   and Z0D.D_E_L_E_T_ = '' " + CRLF 
+
+		cExiste := MPSysExecScalar(cQry,"Z0C_CODIGO")
+
+		If AllTrim(cExiste) != ""
 			alert("Este lote [" + AllTrim(cLote) + " ] já está endo transferido pela Movimentação [" + (cAliasQry)->CODIGO + " ] que está em aberto.")
 			lRet := .F.
 		EndIf
-		(cAliasQry)->(dbCloseArea())
+
+		//If !(cAliasQry)->(Eof())
+		//	alert("Este lote [" + AllTrim(cLote) + " ] já está endo transferido pela Movimentação [" + (cAliasQry)->CODIGO + " ] que está em aberto.")
+		//	lRet := .F.
+		//EndIf
+		//(cAliasQry)->(dbCloseArea())
 	EndIf
 
 Return lRet
-
 
 User Function VAMDLA01()
 	Local aParam    := PARAMIXB
@@ -3279,7 +3317,8 @@ User Function VAMDLA01()
 	Local oObj      := ''
 	Local cIdPonto  := ''
 	Local cIdModel  := ''
-	local cAliasQry := GetNextAlias()
+	local cAlias 	:= ""//GetNextAlias()
+	local cQry  	:= ""//GetNextAlias()
 	Local oGrid		 := nil
 
 	If aParam <> NIL
@@ -3326,53 +3365,54 @@ User Function VAMDLA01()
 			EndIf
 		EndIf
 
-		//Corrige inconsistê®£ia da função FWFormCommit
-		BeginSQL alias cAliasQry
-			%noParser%
-			select Z0D_PROD, Z0D_SEQ, Z0D_LOTE, count(R_E_C_N_O_) QTD, max(R_E_C_N_O_) ULT
-			  from %table:Z0D% Z0D
-			 where Z0D_FILIAL=%xFilial:Z0D% 
-			   and Z0D_CODIGO=%exp:Z0C->Z0C_CODIGO%
-			   and Z0D.%notDel%
-			 group by Z0D_PROD, Z0D_SEQ, Z0D_LOTE
-			having count(R_E_C_N_O_) > 1
-		EndSQL
-		if !(cAliasQry)->(Eof())
+		//Corrige inconsistencia da função FWFormCommit
+		cAlias := GetNextAlias()
+		cQry := "select Z0D_PROD, Z0D_SEQ, Z0D_LOTE, count(R_E_C_N_O_) QTD, max(R_E_C_N_O_) ULT " + CRLF
+		cQry += "	  from "+RetSQLName("Z0D")+" Z0D " + CRLF
+		cQry += "	 where Z0D_FILIAL='"+FwxFilial("Z0D")+"'  " + CRLF
+		cQry += "	   and Z0D_CODIGO='"+Z0C->Z0C_CODIGO+"'" + CRLF
+		cQry += "	   and Z0D.D_E_L_E_T_= '' " + CRLF
+		cQry += "	 group by Z0D_PROD, Z0D_SEQ, Z0D_LOTE " + CRLF
+		cQry += "	having count(R_E_C_N_O_) > 1 " + CRLF
+
+		MpSysOpenQuery(cQry, cALias)
+		
+		if !(cAlias)->(Eof())
 			dbSelectArea("Z0D")
-			while !(cAliasQry)->(Eof())
-				dbGoTo((cAliasQry)->ULT)
+			while !(cAlias)->(Eof())
+				dbGoTo((cAlias)->ULT)
 				RecLock("Z0D", .F.)
-				Z0D->(dbDelete())
+					Z0D->(dbDelete())
 				msUnlock()
-				(cAliasQry)->(dbSkip())
+				(cAlias)->(dbSkip())
 			EndDo
 		endIf
-		(cAliasQry)->(DbCloseArea())
+		(cAlias)->(DbCloseArea())
 
-		cAliasQry := GetNextAlias()
+		//Corrige inconsistencia da função FWFormCommit
+		cAlias := GetNextAlias()
 
-		//Corrige inconsistê®£ia da função FWFormCommit
-		BeginSQL alias cAliasQry
-			%noParser%
-			select Z0E_PROD, Z0E_SEQ, Z0E_LOTE, count(R_E_C_N_O_) QTD, max(R_E_C_N_O_) ULT
-			  from %table:Z0E% Z0E
-			 where Z0E_FILIAL=%xFilial:Z0E% 
-			   and Z0E_CODIGO=%exp:Z0C->Z0C_CODIGO%
-			   and Z0E.%notDel%
-			 group by Z0E_PROD, Z0E_SEQ, Z0E_LOTE
-			having count(R_E_C_N_O_) > 1
-		EndSQL
-		if !(cAliasQry)->(Eof())
+		cQry := "select Z0E_PROD, Z0E_SEQ, Z0E_LOTE, count(R_E_C_N_O_) QTD, max(R_E_C_N_O_) ULT "+ CRLF
+		cQry += "	  from "+RetSQLName("Z0E")+" Z0E "+ CRLF
+		cQry += "	 where Z0E_FILIAL='"+FwxFilial("SB8")+"'  "+ CRLF
+		cQry += "	   and Z0E_CODIGO='"+Z0C->Z0C_CODIGO+"'"+ CRLF
+		cQry += "	   and Z0E.D_E_L_E_T_= ''  "+ CRLF
+		cQry += "	 group by Z0E_PROD, Z0E_SEQ, Z0E_LOTE "+ CRLF
+		cQry += "	having count(R_E_C_N_O_) > 1 "+ CRLF
+
+		mpSysOpenQuery(cQry, cALias)
+
+		if !(cAlias)->(Eof())
 			dbSelectArea("Z0E")
-			while !(cAliasQry)->(Eof())
-				dbGoTo((cAliasQry)->ULT)
+			while !(cAlias)->(Eof())
+				dbGoTo((cAlias)->ULT)
 				RecLock("Z0E", .F.)
-				Z0E->(dbDelete())
+					Z0E->(dbDelete())
 				msUnlock()
-				(cAliasQry)->(dbSkip())
+				(cAlias)->(dbSkip())
 			EndDo
 		endIf
-		(cAliasQry)->(DbCloseArea())
+		(cAlias)->(DbCloseArea())
 
 		oGrid := oObj:GetModel( 'Z0EDETAIL' )
 		U_DelLoteSB8( oGrid:GetValue('Z0E_CODIGO') )
@@ -3405,6 +3445,9 @@ static function Selecao(oModel, oView)
 	local nLinAtu      := nLinIni
 	Local nI           := 0, nJ := 0
 	Local aItems       := {}
+	Local cALias 		:= ""
+	Local cALias1 		:= ""
+	Local cQry 			:= ""
 
 	Private oDlg
 
@@ -3458,7 +3501,7 @@ static function Selecao(oModel, oView)
 	Private nPosVW_QTDPES := 0
 
 	If Z0C->Z0C_TPMOV/* FwFldGet('Z0C_TPMOV') */ != "2"
-		msgInfo('A Pesagem é °ermitida apenas quando o tipo de Movimentação é ¢Apartação"')
+		msgInfo('A Pesagem é permitida apenas quando o tipo de Movimentação é Apartação"')
 		Return
 	EndIf
 
@@ -3558,54 +3601,59 @@ static function Selecao(oModel, oView)
 	aHeadRan[aScan( aHeadRan,{ |x| AllTrim(x[2]) == "ZV2_PESFIM"}), 6] := "Positivo() .and. U_VLDRANGES(.T.)"
 	nUsadRan := len(aHeadRan)
 	aColsRan := {}
-	BeginSQL alias "QRYR"
-		%noParser%
-		select * from %table:ZV2% ZV2
-		 where ZV2_FILIAL=%xFilial:ZV2%
-		   and ZV2_MOVTO=%exp:Z0C->Z0C_CODIGO% // and ZV2_MOVTO=%exp:FWFldGet('Z0C_CODIGO')%
-		   and ZV2.%notDel%
-		 order by ZV2_PESINI
-	EndSQL
-	If !QRYR->(Eof())
-		while !QRYR->(Eof())
+
+	cQry := "		select * from "+RetSQLName("ZV2")+" ZV2 " + CRLF
+	cQry += "	 where ZV2_FILIAL='"+FwxFilial("SB8")+"' " + CRLF
+	cQry += "	   and ZV2_MOVTO='"+Z0C->Z0C_CODIGO+"'"+ CRLF
+	cQry += "	   and ZV2.D_E_L_E_T_ = '' " + CRLF
+	cQry += "	 order by ZV2_PESINI " + CRLF
+	
+	cAlias := GetNextAlias()
+	
+	MpSysOpenQuery(cQry, cAlias)
+
+	If !(cAlias)->(Eof())
+		while !(cAlias)->(Eof())
 			aAdd(aColsRan, Array(nUsadRan+1))
 			aColsRan[len(aColsRan), nUsadRan+1] := .F.
 			for nJ := 1 to len(aHeadRan)
-				aColsRan[len(aColsRan), nJ] := &("QRYR->" + aHeadRan[nJ, 2])
+				aColsRan[len(aColsRan), nJ] := &("(cAlias)->" + aHeadRan[nJ, 2])
 			Next
-			QRYR->(dbSkip())
+			(cAlias)->(dbSkip())
 		EndDo
 	else
-		BeginSQL alias "QRYP"
-			%noParser%
-			select * from %table:ZV1% ZV1
-			 where ZV1_FILIAL=%xFilial:ZV1%
-			   and ZV1.%notDel%
-			 order by ZV1_PESINI
-		EndSQL
-		while !QRYP->(Eof())
+		cQry := " select * from "+RetSQLName("ZV1")+" ZV1 " + CRLF
+		cQry += " where ZV1_FILIAL='"+FwxFilial("ZV1")+"' " + CRLF
+		cQry += "   and ZV1.D_E_L_E_T_ = '' " + CRLF
+		cQry += " order by ZV1_PESINI " + CRLF
+
+		cALias1 := GetNextAlias()
+	
+		MpSysOpenQuery(cQry, cALias1)
+
+		while !(cALias1)->(Eof())
 			RecLock("ZV2", .T.)
 				ZV2->ZV2_FILIAL := FWxFilial("ZV2")
 				ZV2->ZV2_MOVTO  := Z0C->Z0C_CODIGO // FWFldGet('Z0C_CODIGO')
-				ZV2->ZV2_PESINI := QRYP->ZV1_PESINI
-				ZV2->ZV2_PESFIM := QRYP->ZV1_PESFIM
-				ZV2->ZV2_LOTE   := QRYP->ZV1_LOTE
-				ZV2->ZV2_CURRAL := QRYP->ZV1_CURRAL
+				ZV2->ZV2_PESINI := (cALias1)->ZV1_PESINI
+				ZV2->ZV2_PESFIM := (cALias1)->ZV1_PESFIM
+				ZV2->ZV2_LOTE   := (cALias1)->ZV1_LOTE
+				ZV2->ZV2_CURRAL := (cALias1)->ZV1_CURRAL
 			MsUnlock()
 
 			aAdd(aColsRan, Array(nUsadRan+1))
 			aColsRan[len(aColsRan), nUsadRan+1] := .F.
 			aColsRan[len(aColsRan), 1] := Z0C->Z0C_CODIGO // FWFldGet('Z0C_CODIGO')
-			aColsRan[len(aColsRan), 2] := QRYP->ZV1_PESINI
-			aColsRan[len(aColsRan), 3] := QRYP->ZV1_PESFIM
-			aColsRan[len(aColsRan), 4] := QRYP->ZV1_LOTE
-			aColsRan[len(aColsRan), 5] := QRYP->ZV1_CURRAL
+			aColsRan[len(aColsRan), 2] := (cALias1)->ZV1_PESINI
+			aColsRan[len(aColsRan), 3] := (cALias1)->ZV1_PESFIM
+			aColsRan[len(aColsRan), 4] := (cALias1)->ZV1_LOTE
+			aColsRan[len(aColsRan), 5] := (cALias1)->ZV1_CURRAL
 
-			QRYP->(DbSkip())
+			(cALias1)->(DbSkip())
 		EndDo
-		QRYP->(DbCloseArea())
+		(cALias1)->(DbCloseArea())
 	EndIf
-	QRYR->(DbCloseArea())
+	(cAlias)->(DbCloseArea())
 
 	nTop    := aSize[1]
 	nLeft   := aSize[2]-10
@@ -3638,8 +3686,8 @@ static function Selecao(oModel, oView)
 
 	oSayRan := TSay():New(nLinAtu - nTamLin, (nRight)/2 - (nRight)/6 ,{||'Parametros'},oDlgPsg,,,,,,.T.,,,100,30)
 	oSayRan:SetCss("QLabel{ color: #000; font-weight: bold; font-size: 16pt; text-decoration: underline}")
-	oGetDadRan:= MsNewGetDados():New(nLinAtu, (nRight)/2 - (nRight)/6, (nBottom)/4 - 60, (nRight)/2 -3 , GD_INSERT+GD_UPDATE+GD_DELETE , cLinOk, cTudoOk,,,,999999,;
-		"U_SalvarRange()",,,oDlgPsg, aHeadRan, aColsRan)
+	oGetDadRan:= MsNewGetDados():New(nLinAtu, (nRight)/2 - (nRight)/6, (nBottom)/4 - 60, (nRight)/2 -3 , GD_INSERT+GD_UPDATE+GD_DELETE , "U_aVldLin()"/* cLinOk */, cTudoOk,,,,999999,;
+		"U_SalvarRange()","U_aVldLin()","U_aVldLot()",oDlgPsg, aHeadRan, aColsRan)
 	oGetDadRan:oBrowse:blDblClick :=  {|| U_ForceLote()}
 	oGetDadRan:oBrowse:SetCSS(;
             "QHeaderView::Section {font-weight: bold;}} " +; //Cabeçallho
@@ -3665,25 +3713,26 @@ static function Selecao(oModel, oView)
 
 	aItems := {'nenhum'}
 	// comboRaca 
-	BeginSQL alias "QCMB"
-	%noParser%
-	SELECT distinct Z09_RACA
-	  FROM %table:Z09% Z09
-	 WHERE Z09_FILIAL=%xFilial:Z09%
-	   AND Z09_RACA <> ' '
-	   AND Z09_RACA NOT LIKE 'BUFAL%'
-	   AND Z09.%notDel%
-	 ORDER by 1 desc
-	EndSQL
-	while !QCMB->(Eof())
-		If !empty(QCMB->Z09_RACA)
-			// cCombo += If(empty(cCombo),"",",") + AllTrim(QCMB->Z09_RACA)// + " =" + AllTrim(QCMB->Z09_RACA)
 
-			aAdd(aItems, AllTrim(QCMB->Z09_RACA))
+	cQry := "SELECT distinct Z09_RACA " + CRLF
+	cQry += "  FROM "+RetSQLName("Z09")+" Z09 " + CRLF
+	cQry += " WHERE Z09_FILIAL='"+FwxFilial("Z09")+"' " + CRLF
+	cQry += "   AND Z09_RACA <> ' ' " + CRLF
+	cQry += "   AND Z09_RACA NOT LIKE 'BUFAL%' " + CRLF
+	cQry += "   AND Z09.D_E_L_E_T_ = '' " + CRLF
+	cQry += " ORDER by 1 desc " + CRLF
+	
+	cALias := GetNextAlias()
+	MpSysOpenQuery(cQry, cALias)
+
+	while !(cALias)->(Eof())
+		If !empty((cALias)->Z09_RACA)
+
+			aAdd(aItems, AllTrim((cALias)->Z09_RACA))
 		EndIf
-		QCMB->(dbSkip())
+		(cALias)->(dbSkip())
 	EndDo
-	QCMB->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
 	nRadRaca := 1
 	oRadRaca := TRadMenu():New ( nLinAtu + nTamLin*5, (nRight)/4 - 80, aItems,, oDlgPsg,,,,,,,,80, 00,,,,.T.)
@@ -3742,39 +3791,40 @@ static function Selecao(oModel, oView)
 Return
 
 User Function AtualizaZ0F(lGrid)
-	local aColsDet := {}
-	Local nJ := 0
+	local aColsDet 	:= {}
+	Local nJ 		:= 0
+	Local cAlias 	:= GetNextAlias()
+	Local cQry 		:= ""
 
 	default lGrid := .T.
 
-	BeginSQL alias "QRYP"
-	%noParser%
-	select Z0F.*, Z0F.R_E_C_N_O_ NRECNO, ZBC_CODIGO Z0F_CONTR, ZBC_PEDIDO Z0F_PEDID, A2_NOME Z0F_FORNE
-	  from %table:Z0F% Z0F
-	  left join %table:ZBC% ZBC on (ZBC.ZBC_FILIAL=%xFilial:ZBC% and ZBC.%notDel% and ZBC_PRODUT=Z0F_PROD and ZBC_VERSAO=(select max(ZBC_VERSAO) from %table:ZBC% Z2 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO and Z2.%notDel%))
-	  left join %table:SA2% SA2 on (SA2.A2_FILIAL=%xFilial:SA2% and SA2.%notDel% and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR)
-	 where Z0F_FILIAL=%xFilial:Z0F%
-	   and Z0F_MOVTO=%exp:Z0C->Z0C_CODIGO%
-	   and Z0F.%notDel%
-	 order by Z0F_MOVTO, Z0F_SEQ
-	EndSQL
-	// order by Z0F_MOVTO, Z0F_LOTE, Z0F_RACA, Z0F_SEXO, Z0F_DENTIC, Z0F_SEQ
-	while !QRYP->(Eof())
+	cQry := "select Z0F.*, Z0F.R_E_C_N_O_ NRECNO, ZBC_CODIGO Z0F_CONTR, ZBC_PEDIDO Z0F_PEDID, A2_NOME Z0F_FORNE " + CRLF
+	cQry += "  from "+RetSQLName("Z0F")+" Z0F " + CRLF
+	cQry += "  left join "+RetSQLName("ZBC")+" ZBC on (ZBC.ZBC_FILIAL='"+FwxFilial("ZBC")+"' and ZBC.D_E_L_E_T_ = '' and ZBC_PRODUT=Z0F_PROD and ZBC_VERSAO=(select max(ZBC_VERSAO) from "+RetSQLName("ZBC")+" Z2 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO and Z2.D_E_L_E_T_ = '' )) " + CRLF
+	cQry += "  left join "+RetSQLName("SA2")+" SA2 on (SA2.A2_FILIAL ='"+FwxFilial("SA2")+"' and SA2.D_E_L_E_T_ = '' and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR) " + CRLF
+	cQry += " where Z0F_FILIAL='"+FwxFilial("Z0F")+"' " + CRLF
+	cQry += "   and Z0F_MOVTO='"+Z0C->Z0C_CODIGO+"'" + CRLF
+	cQry += "   and Z0F.D_E_L_E_T_ = '' " + CRLF
+	cQry += " order by Z0F_MOVTO, Z0F_SEQ " + CRLF
+
+	MpSysOpenQuery(cQry, cALias)
+
+	while !(cALias)->(Eof())
 		aAdd(aColsDet, Array(nUsadDet+1))
 		aColsDet[len(aColsDet), nUsadDet+1] := .F.
 		for nJ := 1 to len(aHeadDet)
 			If aHeadDet[nJ, 8] = 'D'
-				aColsDet[len(aColsDet), nJ] := STOD( &("QRYP->" + aHeadDet[nJ, 2]) )
+				aColsDet[len(aColsDet), nJ] := STOD( &("(cALias)->" + aHeadDet[nJ, 2]) )
 			elseIf !empty(aHeadDet[nJ, 11]) .and. aHeadDet[nJ, 8] = 'C'
-				aColsDet[len(aColsDet), nJ] := AllTrim( &("QRYP->" + aHeadDet[nJ, 2]) )
+				aColsDet[len(aColsDet), nJ] := AllTrim( &("(cALias)->" + aHeadDet[nJ, 2]) )
 			else
-				aColsDet[len(aColsDet), nJ] := &("QRYP->" + aHeadDet[nJ, 2])
+				aColsDet[len(aColsDet), nJ] := &("(cALias)->" + aHeadDet[nJ, 2])
 			EndIf
 		endFor
 
-		QRYP->(DbSkip())
+		(cALias)->(DbSkip())
 	EndDo
-	QRYP->(DbCloseArea())
+	(cALias)->(DbCloseArea())
 
 	If lGrid
 		nPRecno := aScan( aHeadDet, {|a1| a1[2]="NRECNO"})
@@ -3970,6 +4020,8 @@ Static Function AtualCurral(cLote, cCurral)
 	Local nI         := 0
 	Local nPosLote   := aScan( aHeadDet, {|x| x[2] == "Z0F_LOTE  "})
 	Local nPosCurral := aScan( aHeadDet, {|x| x[2] == "Z0F_CURRAL"})
+	Local cAlias	 := GetNextAlias()
+	Local cQry		 := ""
 
 	For nI := 1 to len(oGetDadDet:aCols)
 		If oGetDadDet:aCols[nI, nPosLote] == cLote //.and. Empty(oGetDadDet:aCols[nI, nPosSeqE])
@@ -3978,43 +4030,125 @@ Static Function AtualCurral(cLote, cCurral)
 	Next nI
 	oGetDadDet:oBrowse:Refresh()
 
-	// atualizando Z0F
-	BeginSQL alias "TEMP" 
-		%noParser%
-		SELECT  R_E_C_N_O_ // Z0F_RACA RACA, Z0F_SEXO SEXO, Z0F_DENTIC DENTIC, *
-		FROM	Z0F010
-		WHERE	Z0F_FILIAL = %xFilial:Z0F%
-			AND Z0F_MOVTO  = %exp:Z0C->Z0C_CODIGO%
-			AND Z0F_LOTE   = %exp:cLote%
-	EndSQL
-	while !TEMP->(Eof())
-		Z0F->(DbGoTo(TEMP->R_E_C_N_O_))
+	cQry := "SELECT  R_E_C_N_O_  " + CRLF
+	cQry += "	FROM	"+RetSqlName("Z0F")+" " + CRLF
+	cQry += "	WHERE	Z0F_FILIAL = '"+FwxFilial("Z0F")+"' " + CRLF
+	cQry += "		AND Z0F_MOVTO  = '"+Z0C->Z0C_CODIGO+"'" + CRLF
+	cQry += "		AND Z0F_LOTE   = '"+cLote+"'" + CRLF
+	
+	MpSysOpenQuery(cQry, cALias)
+
+	while !(cALias)->(Eof())
+		Z0F->(DbGoTo((cALias)->R_E_C_N_O_))
 
 		RecLock('Z0F', .F.)
 			Z0F->Z0F_CURRAL := cCurral
 		Z0F->(MsUnLock())
 
-		TEMP->(dbSkip())
+		(cALias)->(dbSkip())
 	EndDo
-	TEMP->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
 	U_calcular_destino()
 Return nil
 
 /* ==================================================================================== */
+User Function aVldLin()
+	Local nI		:= 0
+	Local nJ		:= 0
+	Local lRet 		:= .T. 
+	Local cLote 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 4/*Lote*/]
+	Local lDelete 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 6]
+
+	lRet 		:= .T. 
+
+Return lRet
+User Function aVldLot()
+	Local nI		:= 0
+	Local nJ		:= 0
+	Local lRet 		:= .T. 
+	Local cLote 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 4/*Lote*/]
+	Local lDelete 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 6]
+
+	if AllTrim(cLote) == ""
+		Return .t. 
+	endif
+	
+	For nI := 1 To Len(aColsDes)
+		if cLote == aColsDes[nI,3]
+			MsgInfo("Linha não pode ser deletada, pois esse lote já está cadastrado na grid [Pesagens Realizadas] na Linha: "+AllTrim(Str(nI))+".",;
+					"Operação Cancelada")
+			Return .F.
+		endif 
+	Next nI 
+
+	if !lDelete 
+		cSql := "update " + retSqlName("ZV2") + " set D_E_L_E_T_='*', R_E_C_D_E_L_=R_E_C_N_O_ " + CRLF 
+		cSql += " where ZV2_FILIAL='"+ FWxFilial("ZV2") +"'"+ CRLF
+		cSql += " and ZV2_MOVTO = '" + Z0C->Z0C_CODIGO + "'" + CRLF
+		cSql += " and ZV2_LOTE = '" + cLote + "'"
+
+		nStatus := TCSqlExec(cSql)
+		If (nStatus < 0)
+			conout("TCSQLError() " + TCSQLError())
+			Return .F.
+		EndIf
+
+		If (TCSqlExec("DELETE FROM SX5010 WHERE X5_TABELA='Z8' AND RTRIM(X5_DESCRI) = '" +;
+			AllTrim(cLote) + "'" ) < 0)
+			ConOut("Erro ao liberar lote: " + AllTrim(cLote) + CRLF + TCSQLError())
+			Return .F.
+		EndIf
+	else 
+
+		RecLock("ZV2", .T.)
+			ZV2->ZV2_FILIAL := FWxFilial("ZV2")
+			for nJ := 1 to len(aHeadRan)
+				&("ZV2->" + aHeadRan[nJ, 2] + "  := oGetDadRan:aCols[ oGetDadRan:nAt, nJ]")
+			endFor
+		MsUnlock()
+
+		if !Empty( cLote )
+			RecLock('SX5', .T.)
+				SX5->X5_FILIAL 	:= ' '
+				SX5->X5_TABELA 	:= 'Z8'
+				SX5->X5_CHAVE  	:= SubS(cLote, 1, At("-", cLote)-1)
+				SX5->X5_DESCRI 	:= cLote
+				SX5->X5_DESCSPA	:= Z0C->Z0C_CODIGO
+				SX5->X5_DESCENG	:= dToS(dDataBase)
+			SX5->(MsUnLock())
+		EndIf
+	endif 
+
+	oGetDadRan:Refresh()
+Return lRet
+
 User Function SalvarRange()
-	local aArea := GetArea()
-	local cSql	:= ""
-	Local nI	:= 0, nJ := 0
+	local aArea 	:= GetArea()
+	local cSql		:= ""
+	Local nI		:= 0, nJ := 0
+	Local cQry  	:= ""
+	Local cAlias 	:= ""
+	Local lVldLot 	:= .F.
+	//Local cLotAnt 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 4]
+
+	For nI := 1 To Len(aColsDes)
+		if oGetDadRan:aCols[ oGetDadRan:nAt, 4] == aColsDes[nI,3]  // /*Lote*/
+			MsgInfo("lote não pode ser, pois esse lote já está cadastrado na grid [Pesagens Realizadas] na Linha: "+AllTrim(Str(nI))+".",;
+					"Operação Cancelada")
+			Return .F.
+		endif 
+	Next nI 
 
 	If !U_vldRanges(.F.)
 	    RestArea(aArea)
 		Return .F.
 	EndIf
 
-		// MB : 05.08.2019
-	If ReadVar() == "M->ZV2_LOTE" // .and. ;
-		If !U_libVldLote( AllTrim(&(ReadVar())), .T., "M->ZV2_LOTE"/* , @__xRetorno */ )
+	// MB : 05.08.2019
+	If (lVldLot := IsInCallStack("U_aVldLot")) .or. ReadVar() == "M->ZV2_LOTE" // .and. ;
+		If !U_libVldLote(iif(lVldLot, oGetDadRan:aCols[ oGetDadRan:nAt, 4/*Lote*/],;
+									  AllTrim(&(ReadVar()))), .T., "M->ZV2_LOTE"/* , @__xRetorno */ )
 			RestArea(aArea)
 			Return .F.
 		EndIf
@@ -4032,20 +4166,20 @@ User Function SalvarRange()
 			&(ReadVar()) <> oGetDadRan:aCols[ oGetDadRan:nAt, 5/*Curral*/]
 
 			// verificar se o novo CURRAL informado pertence ao Lote informado;
-			BeginSQL alias "qTMP"
-				%noParser%
-				SELECT DISTINCT B8_LOTECTL, B8_X_CURRA, SUM(B8_SALDO) SALDO
-				FROM  %table:SB8%
-				WHERE B8_LOTECTL=%exp:oGetDadRan:aCols[ oGetDadRan:nAt, 4/*Lote*/]%
-				  AND %notDel%
-				GROUP BY B8_LOTECTL, B8_X_CURRA
-			EndSQL
+			cQry := "SELECT DISTINCT B8_LOTECTL, B8_X_CURRA, SUM(B8_SALDO) SALDO " + CRLF 
+			cQry += "	FROM  "+RetSQLName("SB8")+" " + CRLF 
+			cQry += "	WHERE B8_LOTECTL='"+oGetDadRan:aCols[ oGetDadRan:nAt, 4/*Lote*/]+"'" + CRLF 
+			cQry += "	  AND D_E_L_E_T_ = '' " + CRLF
+			cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA " + CRLF 
 			
-			If !qTMP->(Eof())  .and. &(ReadVar()) <> qTMP->B8_X_CURRA
-				Alert("O curral informado: [" + &(ReadVar()) + "] nao pode ser utilizado. Ja existe saldo para o mesmo no curral: " + qTMP->B8_X_CURRA +".")
+			cAlias := GetNextAlias()
+			MpSysOpenQuery(cQry, cALias)
+			
+			If !(cALias)->(Eof())  .and. &(ReadVar()) <> (cALias)->B8_X_CURRA
+				Alert("O curral informado: [" + &(ReadVar()) + "] nao pode ser utilizado. Ja existe saldo para o mesmo no curral: " + (cALias)->B8_X_CURRA +".")
 				RestArea(aArea)
 			EndIf
-			qTMP->(dbCloseArea())
+			(cALias)->(dbCloseArea())
 
 			If MsgYesNo("O Curral ["+AllTrim(oGetDadRan:aCols[ oGetDadRan:nAt, 5/*Curral*/])+"] foi alterado para ["+;
 					AllTrim(&(ReadVar()))+"]. Confirma a alteração do curral ?")
@@ -4053,6 +4187,14 @@ User Function SalvarRange()
 			EndIf
 		EndIf
 	EndIf
+/* 
+	if ReadVar() == "M->ZV2_LOTE" .and. cLotAnt != &(ReadVar())
+		If (TCSqlExec("DELETE FROM SX5010 WHERE X5_TABELA='Z8' AND RTRIM(X5_DESCRI) = '" +;
+			AllTrim(cLotAnt) + "'" ) < 0)
+			MsgInfo("Erro ao liberar lote anterior: " + AllTrim(cLotAnt) + CRLF + TCSQLError() )
+			ConOut("Erro ao liberar lote: " + AllTrim(cLotAnt) + CRLF + TCSQLError())
+		EndIf
+	endif  */
 
 	cSql := "update " + retSqlName("ZV2") + " set D_E_L_E_T_='*', R_E_C_D_E_L_=R_E_C_N_O_ where ZV2_FILIAL='" + FWxFilial("ZV2") + " ' and ZV2_MOVTO = '" +  Z0C->Z0C_CODIGO + "'"
 	nStatus := TCSqlExec(cSql)
@@ -4114,33 +4256,30 @@ Return aHead
 Static Function GetSldOrigem()
 	Local aSaldos 	:= {}
 	Local nI		:= 0, nJ := 0
+	Local cQry		:= ""
+	Local oQryC5    := ""
+	
+	cQry := " select count(Z0F_PROD) Z0F_QUANT " + CRLF
+	cQry += " from "+RetSQLName("Z0F")+" Z0F " + CRLF
+	cQry += " where Z0F_FILIAL = '"+FwxFilial("Z0F")+"' " + CRLF
+	cQry += " and Z0F_MOVTO  = '"+Z0C->Z0C_CODIGO+"' " + CRLF
+	cQry += " and (Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
+	cQry += " or Z0F_PRDORI  =  ? ) " + CRLF//%exp:cVarPrd%)
+	cQry += " and Z0F_LOTORI =  ? " + CRLF  //exp:cVarLot%
+	cQry += " and Z0F.D_E_L_E_T_ = '' " + CRLF
+
+	oQryC5 := FwExecStatement():New(cQry)
 
 	for nI := 1 to len(oGetDadOri:aCols)
 		If !oGetDadOri:aCols[ nI, nUsadOri+1]
 			nQtdPrd := 0
-			cVarPrd := oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]
-			cVarLot := oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})]
+			
+			oQryC5:SetString(1, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
+			oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
+			oQryC5:SetString(3, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
 
-			cVarRaca := oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_RACA"})]
-			cVarSexo := oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_SEXO"})]
+			nQtdPrd := oQryC5:ExecScalar("Z0F_QUANT")
 
-			BeginSQL alias "QTD1"
-				%noParser%
-				select count(Z0F_PROD) Z0F_QUANT
-				  from %table:Z0F% Z0F
-				 where Z0F_FILIAL = %xFilial:Z0F%
-				   and Z0F_MOVTO  = %exp:Z0C->Z0C_CODIGO%
-				   and (Z0F_PROD   =  %exp:cVarPrd%
-					or Z0F_PRDORI =  %exp:cVarPrd%)
-				   and Z0F_LOTORI = %exp:cVarLot%
-				   and Z0F.%notDel%
-			EndSQL
-
-			If !QTD1->(Eof())
-				nQtdPrd := QTD1->Z0F_QUANT
-			EndIf
-
-			QTD1->(dbCloseArea())
 			aAdd(aSaldos, {oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})],;
 				oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})],;
 				oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_QUANT"})],;
@@ -4149,6 +4288,9 @@ Static Function GetSldOrigem()
 				oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_SEXO"})]})
 		EndIf
 	Next
+
+	oQryC5:Destroy()
+	oQryC5 := Nil
 
 	nAjuste := 0
 	for nI := 1 to len(aSaldos)
@@ -4267,8 +4409,9 @@ User Function Registrar( oModel )
 	Local nPTag    := aScan( aHeadDet, { |x| AllTrim(x[2]) == "Z0F_TAG"})
 
 	Local nPLOri   := aScan( aHeadDet, { |x| AllTrim(x[2]) == "Z0F_LOTORI"})
-
 	Local nI       := 0, nJ := 0
+	Local cAlias   := ""
+	Local cQry 	   := ""
 
 	If oModel:nOperation <> 4
 		Alert("Esta operação não pode ser realizada neste modo de edição.")
@@ -4346,28 +4489,29 @@ User Function Registrar( oModel )
 	aColsDet[len(aColsDet), nPSeq]   := cSeq
 	aColsDet[len(aColsDet), nPProd]  := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]
 
-	BeginSQL alias "QRYZ"
-		%noParser%
-		select ZBC_CODIGO, ZBC_PEDIDO, A2_NOME
-		  from %table:ZBC% ZBC
-		  left join %table:SA2% SA2 on (SA2.A2_FILIAL=%xFilial:SA2% and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR and SA2.%notDel%)
-		 where ZBC.ZBC_FILIAL=%xFilial:ZBC%
-		   and ZBC_PRODUT=%exp:aColsDet[len(aColsDet), nPProd]%
-		   and ZBC_VERSAO=(
-		   		select max(ZBC_VERSAO)
-		   		  from %table:ZBC% Z2
-		   		 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL
-		   		   and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO
-				   and Z2.%notDel%
-		   )
-		   and ZBC.%notDel%
-	EndSQL
-	If !QRYZ->(Eof())
-		aColsDet[len(aColsDet), nPContr] := QRYZ->ZBC_CODIGO
-		aColsDet[len(aColsDet), nPPedid] := QRYZ->ZBC_PEDIDO
-		aColsDet[len(aColsDet), nPForne] := QRYZ->A2_NOME
+	cQry := "select ZBC_CODIGO, ZBC_PEDIDO, A2_NOME " + CRLF 
+	cQry += "	  from "+RetSQLName("ZBC")+" ZBC " + CRLF 
+	cQry += "	  left join "+RetSQLName("SA2")+" SA2 on (SA2.A2_FILIAL='"+FwxFilial("SA2")+"' and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR and SA2.D_E_L_E_T_ = '') " + CRLF 
+	cQry += "	 where ZBC.ZBC_FILIAL='"+FwxFilial("ZBC")+"' " + CRLF 
+	cQry += "	   and ZBC_PRODUT='"+aColsDet[len(aColsDet), nPProd]+"'" + CRLF 
+	cQry += "	   and ZBC_VERSAO=( " + CRLF 
+	cQry += "	   		select max(ZBC_VERSAO) " + CRLF 
+	cQry += "	   		  from "+RetSQLName("ZBC")+" Z2 " + CRLF 
+	cQry += "	   		 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL " + CRLF 
+	cQry += "	   		   and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO " + CRLF 
+	cQry += "			   and Z2.D_E_L_E_T_ = '' " + CRLF 
+	cQry += "	   ) " + CRLF 
+	cQry += "	   and ZBC.D_E_L_E_T_ = '' " + CRLF 
+	
+	cAlias := GetNextAlias()
+	MpSysOpenQuery(cQry,cAlias)
+
+	If !(cALias)->(Eof())
+		aColsDet[len(aColsDet), nPContr] := (cALias)->ZBC_CODIGO
+		aColsDet[len(aColsDet), nPPedid] := (cALias)->ZBC_PEDIDO
+		aColsDet[len(aColsDet), nPForne] := (cALias)->A2_NOME
 	EndIf
-	QRYZ->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
 	aColsDet[len(aColsDet), nPData] := Date()
 	aColsDet[len(aColsDet), nPHora] := Time()
@@ -4543,7 +4687,8 @@ User Function calcular_destino()
 
 	Local nJ          := 0
 	Local nPProd      := aScan( aHeadDet, { |x| AllTrim(x[2]) == "Z0F_PROD"  })
-
+	Local cAlias 	  := ""
+	Local cQry 		  := ""
 	nPosSeq           := aScan( aHeadDes, { |x| AllTrim(x[2]) == "Z0E_SEQ"   })
 	nPosProd          := aScan( aHeadDes, { |x| AllTrim(x[2]) == "Z0E_PROD"  })
 	nPosDesc          := aScan( aHeadDes, { |x| AllTrim(x[2]) == "Z0E_DESC"  })
@@ -4565,15 +4710,12 @@ User Function calcular_destino()
 		EndIf
 	EndIf
 
-	BeginSQL alias "QRYDET"
-		%noParser%
-		select *
-		  from %table:Z0F% Z0F
-		 where Z0F_FILIAL=%xFilial:Z0F%
-		   and Z0F_MOVTO=%exp:Z0C->Z0C_CODIGO%
-		   and Z0F.%notDel%
-		order by Z0F_MOVTO, Z0F_PROD, Z0F_RACA, Z0F_SEXO, Z0F_DENTIC, Z0F_LOTE, Z0F_LOTORI, Z0F_CURRAL, Z0F_SEQEFE DESC, Z0F_SEQ
-	EndSQL
+	cQry := "select * " + CRLF 
+	cQry += "  from "+RetSQLName("Z0F")+" Z0F " + CRLF 
+	cQry += " where Z0F_FILIAL='"+FwxFilial("Z0F")+"' " + CRLF 
+	cQry += "   and Z0F_MOVTO='"+Z0C->Z0C_CODIGO+"'" + CRLF 
+	cQry += "   and Z0F.D_E_L_E_T_ = '' " + CRLF 
+	cQry += "order by Z0F_MOVTO, Z0F_PROD, Z0F_RACA, Z0F_SEXO, Z0F_DENTIC, Z0F_LOTE, Z0F_LOTORI, Z0F_CURRAL, Z0F_SEQEFE DESC, Z0F_SEQ " + CRLF 
 
 	nQtdDes := 0
 	lCria := .T.
@@ -4582,20 +4724,23 @@ User Function calcular_destino()
 	aColsDes := {}
 	aColsVw := {}
 	cHrAtu := ""
+
+	cAlias 	  := GetNextAlias()
+	MpSysOpenQuery(cQry,cAlias)
 	// calcular_destino()
-	If !QRYDET->(Eof())
-		while !QRYDET->(Eof())
+	If !(cALias)->(Eof())
+		while !(cALias)->(Eof())
 
 			nQtdDes++
 			// calcular_destino
 			If nQtdDes > 1
-				nPosLinha := aScan(aColsDes, { |x| AllTrim(x[nPosLote])   == AllTrim(QRYDET->Z0F_LOTE  );
-					.and. AllTrim(x[nPosRaca])   == AllTrim(QRYDET->Z0F_RACA  );
-					.and. AllTrim(x[nPosSexo])   == AllTrim(QRYDET->Z0F_SEXO  );
-					.and. AllTrim(x[nPosCurral]) == AllTrim(QRYDET->Z0F_CURRAL);
-					.and. AllTrim(x[nPosProd])   == AllTrim(QRYDET->Z0F_PROD  );
-					.and. AllTrim(x[nPLotOri])   == AllTrim(QRYDET->Z0F_LOTORI);
-					.and. AllTrim(x[nPosSeqE])   == AllTrim(QRYDET->Z0F_SEQEFE) })
+				nPosLinha := aScan(aColsDes, { |x| AllTrim(x[nPosLote])   == AllTrim((cALias)->Z0F_LOTE  );
+					.and. AllTrim(x[nPosRaca])   == AllTrim((cALias)->Z0F_RACA  );
+					.and. AllTrim(x[nPosSexo])   == AllTrim((cALias)->Z0F_SEXO  );
+					.and. AllTrim(x[nPosCurral]) == AllTrim((cALias)->Z0F_CURRAL);
+					.and. AllTrim(x[nPosProd])   == AllTrim((cALias)->Z0F_PROD  );
+					.and. AllTrim(x[nPLotOri])   == AllTrim((cALias)->Z0F_LOTORI);
+					.and. AllTrim(x[nPosSeqE])   == AllTrim((cALias)->Z0F_SEQEFE) })
 				If nPosLinha > 0
 					lCria := .F.
 				else
@@ -4619,28 +4764,28 @@ User Function calcular_destino()
 				EndIf
 
 				aColsDes[len(aColsDes), nPosSeq] := cSeqDes
-				aColsDes[len(aColsDes), nPosProd] := QRYDET->Z0F_PROD
+				aColsDes[len(aColsDes), nPosProd] := (cALias)->Z0F_PROD
 
 				dbSelectArea("SB1")
 				dbSetOrder(1)
-				SB1->( dbSeek(FWxFilial("SB1")+QRYDET->Z0F_PROD) )
+				SB1->( dbSeek(FWxFilial("SB1")+(cALias)->Z0F_PROD) )
 
 				aColsDes[len(aColsDes), nPosDesc]   := SB1->B1_DESC
-				aColsDes[len(aColsDes), nPosLote]   := QRYDET->Z0F_LOTE
-				aColsDes[len(aColsDes), nPosCurral] := QRYDET->Z0F_CURRAL
+				aColsDes[len(aColsDes), nPosLote]   := (cALias)->Z0F_LOTE
+				aColsDes[len(aColsDes), nPosCurral] := (cALias)->Z0F_CURRAL
 				aColsDes[len(aColsDes), nPosQuant]  := 1
-				aColsDes[len(aColsDes), nPosDtCo]   := SToD(QRYDET->Z0F_DTPES)+1
-				aColsDes[len(aColsDes), nPosSeqE]   := QRYDET->Z0F_SEQEFE
-				aColsDes[len(aColsDes), nPosRaca]   := QRYDET->Z0F_RACA
-				aColsDes[len(aColsDes), nPosSexo]   := QRYDET->Z0F_SEXO
-				aColsDes[len(aColsDes), nPPrdOri]   := QRYDET->Z0F_PRDORI
-				aColsDes[len(aColsDes), nPLotOri]   := QRYDET->Z0F_LOTORI
+				aColsDes[len(aColsDes), nPosDtCo]   := SToD((cALias)->Z0F_DTPES)+1
+				aColsDes[len(aColsDes), nPosSeqE]   := (cALias)->Z0F_SEQEFE
+				aColsDes[len(aColsDes), nPosRaca]   := (cALias)->Z0F_RACA
+				aColsDes[len(aColsDes), nPosSexo]   := (cALias)->Z0F_SEXO
+				aColsDes[len(aColsDes), nPPrdOri]   := (cALias)->Z0F_PRDORI
+				aColsDes[len(aColsDes), nPLotOri]   := (cALias)->Z0F_LOTORI
 			else
 				aColsDes[nPosLinha, nPosQuant]      += 1
 			EndIf
 
 			cHrIni   := Z0C->Z0C_HRINI // FwFldGet("Z0C_HRINI")
-			cHrAtu   := iIf(empty(QRYDET->Z0F_HRPES), Time(), QRYDET->Z0F_HRPES)
+			cHrAtu   := iIf(empty((cALias)->Z0F_HRPES), Time(), (cALias)->Z0F_HRPES)
 			cTempo   := ElapTime ( cHrIni, cHrAtu )
 			nMinutos := val(substr(cTempo,1,2))*60 + val(substr(cTempo,4,2)) + val(substr(cTempo,7,2))/60
 
@@ -4650,10 +4795,10 @@ User Function calcular_destino()
 			nSegundo := int((nMedia - (nHora*60) - nMinuto)*60)
 			cMedia   := StrZero(nHora, 2) + ":" + StrZero( nMinuto, 2) + ":" + StrZero(nSegundo, 2)
 
-			QRYDET->(dbSkip())
+			(cALias)->(dbSkip())
 		EndDo
 	EndIf
-	QRYDET->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
 	If cHrAtu = time()
 		cTempo := cMedia := "00:00:00"
@@ -4731,28 +4876,25 @@ Return iIf(!empty(Z08->Z08_UAREF),Z08->Z08_UAREF, 1)
 Static Function getSaldoLote(cLote, cProduto)
 	local nRet    := 0
 	Local cFiltro := ""
+	Local cQry    := ""
+
 	default cProduto := ""
 
-	cFiltro := "% "
 	If !empty(cProduto)
 		cFiltro += " and B8_PRODUTO='" + AllTrim(cProduto)+ "'"
 	EndIf
-	cFiltro += " %"
 
-	BeginSQL alias "QPES"
-	%noParser%
-	select sum(B8_SALDO) SALDO
-	  from %table:SB8% B8
-	 where B8_FILIAL=%xFilial:SB8%
-	   and B8_LOTECTL = %exp:cLote%
-	   and B8.%notDel%
-	   %exp:cFiltro%
-	   and B8_SALDO > 0
-	EndSQL
-	If !QPES->(Eof())
-		nRet := QPES->SALDO
-	EndIf
-	QPES->(dbCloseArea())
+	cQry := "select sum(B8_SALDO) SALDO " + CRLF 
+	cQry += "  from "+RetSQLName("SB8")+" B8 " + CRLF 
+	cQry += " where B8_FILIAL='"+FwxFilial("SB8")+"' " + CRLF 
+	cQry += "   and B8_LOTECTL = '"+cLote+"' " + CRLF 
+	cQry += "   and B8.D_E_L_E_T_ = '' " + CRLF 
+	if cFiltro != ''
+		cQry += cFiltro + CRLF 
+	endif
+	cQry += "   and B8_SALDO > 0 " + CRLF 
+
+	nRet := MPSysExecScalar(cQry,"SALDO")
 
 Return nRet
 
@@ -4788,14 +4930,14 @@ Return nil
 Static Function getPesoZ0F(cLote, cProduto, cDesc)
 	local nRet       := 0
 	Local _cQry      := ""
-	Local cAlias 	 := GetNextAlias()
+
 	default cProduto := ""
 	default cDesc	 := ""
 
 	_cQry += " SELECT SUM(Z0F_PESO) MEDIA" + CRLF
-	_cQry += " FROM  Z0F010 Z0F " + CRLF
+	_cQry += " FROM  "+RetSQLName("Z0F")+" Z0F " + CRLF
 	If !empty(cDesc)
-		_cQry += "  JOIN SB1010 SB1 ON B1_FILIAL='"+FWxFilial('SB1')+"' AND B1_COD=Z0F_PROD " + CRLF
+		_cQry += "  JOIN "+RetSQLName("SB1")+" SB1 ON B1_FILIAL='"+FWxFilial('SB1')+"' AND B1_COD=Z0F_PROD " + CRLF
 		_cQry += "			       AND SB1.D_E_L_E_T_=' '" + CRLF
 	EndIf
 	_cQry += " WHERE Z0F_FILIAL= '"+FWxFilial('Z0F')+"'  " + CRLF
@@ -4808,12 +4950,7 @@ Static Function getPesoZ0F(cLote, cProduto, cDesc)
 	_cQry += "   AND Z0F_LOTE =  '"+cLote+"'" + CRLF
 	_cQry += "   AND Z0F.D_E_L_E_T_=' '" + CRLF
 
-	MpSysOpenQuery(_cQry,cAlias)
-
-	If !(cAlias)->(Eof())
-		nRet := (cAlias)->MEDIA
-	EndIf
-	(cAlias)->(dbCloseArea())
+	nRet := MPSysExecScalar(_cQry,"MEDIA")
 
 Return nRet
 
@@ -4823,16 +4960,15 @@ Return nRet
 Static Function getSaldoZ0F(cLote, cProduto, lAtu, cDesc)
 	local nRet       := 0
 	Local _cQry      := ""
-	Local cAlias 	 := GetNextAlias()
 
 	default cProduto := ""
 	default lAtu     := .F.
 	default cDesc	 := ""
 
 	_cQry += " SELECT COUNT(Z0F.R_E_C_N_O_) SALDO " + CRLF
-	_cQry += " FROM  Z0F010 Z0F " + CRLF
+	_cQry += " FROM  "+RetSQLName("Z0F")+" Z0F " + CRLF
 	If !empty(cDesc)
-		_cQry += "  JOIN SB1010 SB1 ON B1_FILIAL='"+FWxFilial('SB1')+"' AND B1_COD=Z0F_PROD " + CRLF
+		_cQry += "  JOIN "+RetSQLName("SB1")+" SB1 ON B1_FILIAL='"+FWxFilial('SB1')+"' AND B1_COD=Z0F_PROD " + CRLF
 		_cQry += "			       AND SB1.D_E_L_E_T_=' '" + CRLF
 	EndIf
 	_cQry += " WHERE Z0F_FILIAL= '"+FWxFilial('Z0F')+"'  " + CRLF
@@ -4848,12 +4984,7 @@ Static Function getSaldoZ0F(cLote, cProduto, lAtu, cDesc)
 	_cQry += "   AND Z0F_LOTE =  '"+cLote+"'" + CRLF
 	_cQry += "   AND Z0F.D_E_L_E_T_=' '" + CRLF
 
-	MpSysOpenQuery(_cQry,cAlias)
-
-	If !(cAlias)->(Eof())
-		nRet := (cAlias)->SALDO
-	EndIf
-	(cAlias)->(dbCloseArea())
+	nRet := MPSysExecScalar(_cQry,"SALDO")
 
 Return nRet
 
@@ -5011,6 +5142,8 @@ User Function SB1Create( __aProd, lCriaSaldoSB9 )
 	Local _cCodPrd        := ""
 	Local aProd           := {}
 	Local lErro           := .F.
+	Local cQry 			  := ""
+	Local cRetQry  		  := ""
 
 	Private lMsHelpAuto   := .F.
 	Private lMsErroAuto   := .F.
@@ -5057,23 +5190,22 @@ User Function SB1Create( __aProd, lCriaSaldoSB9 )
 	//Encontra o B1_XANIMAL
 	xAnimal := SB1->B1_XANIMAL
 	//A=Angus;C=Cruzamento;M=Mestico;N=Nelore
-	BeginSQL alias "QRYA"
-		%noParser%
-		select Z09_CODIGO
-		  from %table:Z09% Z09
-		 where Z09_FILIAL=%xFilial:Z09%
-		   and Z09_RACA=%exp:__aProd[5]%
-		   and Z09_SEXO=%exp:__aProd[6]%
-		   and %exp:SB1->B1_XIDADE% between Z09_IDAINI and Z09_IDAFIM
-		   and Z09.%notDel%
-	EndSQL
-	if !QRYA->(Eof())
-		xAnimal := QRYA->Z09_CODIGO
+
+	cQry := "select Z09_CODIGO " + CRLF 
+	cQry += "	  from "+RetSQLName("Z09")+" Z09 " + CRLF 
+	cQry += "	 where Z09_FILIAL='"+FwxFilial("Z09")+"' " + CRLF 
+	cQry += "	   and Z09_RACA='"+__aProd[5]+"'" + CRLF 
+	cQry += "	   and Z09_SEXO='"+__aProd[6]+"'" + CRLF 
+	cQry += "	   and '"+SB1->B1_XIDADE+"' between Z09_IDAINI and Z09_IDAFIM " + CRLF 
+	cQry += "	   and Z09.D_E_L_E_T_ = '' " + CRLF
+
+	cRetQry := MPSysExecScalar(cQry,"Z09_CODIGO")
+
+	if AllTrim(cRetQry) != ""
+		xAnimal := cRetQry
 	EndIf
-	QRYA->(dbCloseArea())
 
 	aAdd( aProd, {"B1_XANIMAL", xAnimal		   , nil })
-	// -------------------------------------------------------------------------------------
 	aAdd( aProd, {"B1_X_PESOC", SB1->B1_X_PESOC, nil })
 	aAdd( aProd, {"B1_XLOTCOM", SB1->B1_XLOTCOM, nil })
 	aAdd( aProd, {"B1_X_ARRON", SB1->B1_X_ARRON, nil })
@@ -5089,10 +5221,8 @@ User Function SB1Create( __aProd, lCriaSaldoSB9 )
 	aAdd( aProd, {"B1_XALIICM", SB1->B1_XALIICM, nil })
 	aAdd( aProd, {"B1_XVICMPA", SB1->B1_XVICMPA, nil })
 	aAdd( aProd, {"B1_XCONTRA", SB1->B1_XCONTRA, nil })
-	// -------------------------------------------------------------------------------------
 	aAdd( aProd, {"B1_XRACA"  , __aProd[5]     , nil })
 	aAdd( aProd, {"B1_X_SEXO" , __aProd[6]     , nil })
-	// -------------------------------------------------------------------------------------
 
 	If GetMV('MV_RASTRO') == 'S'
 		aAdd( aProd, {"B1_RASTRO", 'L'		   , nil })
@@ -5175,7 +5305,7 @@ Default nOpc        := 1
 		If ((LEFT(FwFldGet('Z0D_SEXO'), 1) $ "CM" ) .AND. LEFT(FwFldGet('Z0E_SEXO'), 1) == "F") .OR.;
 	   ((LEFT(FwFldGet('Z0D_SEXO'), 1) == "F")  .AND. LEFT(FwFldGet('Z0E_SEXO'), 1) $ "CM")
 
-		Alert("ATENÇƒO" + CRLF + "Sexos invertidos não sao permitidos" )
+		Alert("ATENÇÃO" + CRLF + "Sexos invertidos não sao permitidos" )
 		lRet := .F.
 			EndIf
 	Else
@@ -5191,7 +5321,7 @@ Default nOpc        := 1
 	   ((Left(FwFldGet('Z0D_SEXO'), 1) $ "CM" ) .AND. Left(&(ReadVar()), 1) == "F") .OR.;
 	   ((Left(FwFldGet('Z0D_SEXO'), 1) == "F")  .AND. Left(&(ReadVar()), 1) $ "CM")
 		
-		Alert("ATENÇƒO" + CRLF + "Sexos invertidos não sao permitidos" )
+		Alert("ATENÇÃO" + CRLF + "Sexos invertidos não sao permitidos" )
 		lRet := .F.
 			EndIf
 
@@ -5367,24 +5497,17 @@ Static Function fReLoadZ0E( oModel, oView )
 	RestArea(aArea)
 Return nil // oGridZ0E
 // Fim fReLoadZ0E
-
-// IIF(EMPTY(M->B1_XLOTCOM),.T.,EXISTCPO('SC7', SUBS(M->B1_XLOTCOM,3) ))
 User Function mbEXISTCPO( __Alias, __cChave )
-	Local aArea    := GetArea()
+	Local aArea     := GetArea()
+	Local cQry 		:= ""
+	Local lRet      := .T.
+	
+	cQry := " SELECT  R_E_C_N_O_ RECNO " + CRLF 
+	cQry += "	FROM     "+RetSQLName("SC7")+" " + CRLF 
+	cQry += "	WHERE	C7_FILIAL+C7_NUM='"+__cChave+"'" + CRLF 
+	cQry += "		AND D_E_L_E_T_ = '' " + CRLF 
 
-	Local lRet     := .T.
-
-	BeginSQL alias "qTMP"
-		%noParser%
-		
-		SELECT  R_E_C_N_O_
-		FROM    %table:SC7%
-		WHERE	C7_FILIAL+C7_NUM=%exp:__cChave%
-			AND %notDel%
-	EndSQL
-
-	lRet := !qTMP->(Eof())
-	qTMP->(dbCloseArea())
+	lRet := MPSysExecScalar(cQry,"RECNO") > 0 
 
 	RestArea(aArea)
 Return lRet

@@ -59,6 +59,8 @@ _cQry += " 	WHERE	--B8_FILIAL='"+FwxFilial("SB8")+"'"+CRLF
 _cQry += " 		    B8_LOTECTL NOT LIKE 'AUTO%'"+CRLF
 _cQry += " 		AND B8_LOTECTL NOT LIKE 'SOBRA%'"+CRLF
 _cQry += " 		AND B8_LOTECTL NOT LIKE '5000%'"+CRLF
+_cQry += " 		AND B8_LOTECTL NOT LIKE '%.%'"+CRLF
+_cQry += " 		AND B8_LOTECTL NOT LIKE '%,%'"+CRLF
 _cQry += " 		AND REPLACE(SUBSTRING(B8_LOTECTL, 1, CHARINDEX('-',B8_LOTECTL)),'-','') <> ''"+CRLF
 _cQry += " 		AND D_E_L_E_T_=' '"+CRLF
 _cQry += " 	GROUP BY B8_LOTECTL"+CRLF
@@ -337,7 +339,7 @@ Return nil
 User Function libVldLote( cLote, lExiste/* , cTpMov  */)
 Local lOk       := .T.
 Local nI        := 0
-Local oModel	:=NIL
+Local oModel:=NIL
 Default lExiste := .F.
 
 	If Empty(cLote)
@@ -350,22 +352,20 @@ Default lExiste := .F.
 			oGetDadRan:aCols[ oGetDadRan:nAt, 4/*LOTE*/] := Space(TamSX3('B8_LOTECTL')[1])
 		EndIf
 	Else
-		if FWFldGet("Z0C_TPMOV") != '6'
-			For nI := 1 to Len( cLote )
-				cByte := Upper(Subs( cLote, nI, 1))
-				If !(Asc(cByte) >= 48 .And. Asc(cByte) <= 57) // .Or. ;	// 0 a 9
-					// (Asc(cByte) >= 65 .And. Asc(cByte) <= 90) .Or. ;	// A a Z
-					If cByte <> "-"
-						Alert('Caracter nao permitido: ' + cByte + ' na posição: ' + cValToChar(nI) )
-						//If !(ReadVar() == "M->Z0E_LOTE")
-							lOk :=  .F.
-						//EndIf	
-						// cLote := ""
-						exit
-					EndIf
+		For nI := 1 to Len( cLote )
+			cByte := Upper(Subs( cLote, nI, 1))
+			If !(Asc(cByte) >= 48 .And. Asc(cByte) <= 57) // .Or. ;	// 0 a 9
+				// (Asc(cByte) >= 65 .And. Asc(cByte) <= 90) .Or. ;	// A a Z
+				If cByte <> "-"
+					Alert('Caracter nao permitido: ' + cByte + ' na posição: ' + cValToChar(nI) )
+					//If !(ReadVar() == "M->Z0E_LOTE")
+						lOk :=  .F.
+					//EndIf	
+					// cLote := ""
+					exit
 				EndIf
-			Next nI
-		EndIf
+			EndIf
+		Next nI
 		
 		// Retirar 0 a Esquerda; Validação solicitado pelo Ricardo Santana;
 		If lOk
@@ -391,28 +391,12 @@ Default lExiste := .F.
 			EndIf
 
 			If lOk .and. !Empty(ReadVar())
-				if ReadVar() != "M->Z0E_LOTE" .and. FWFldGet("Z0C_TPMOV") != '6'
-					While SubS(cLote, 1, 1) == "0"
-						cLote := SubS(cLote, 2)
-					EndDo
-				endif
-
+				While SubS(cLote, 1, 1) == "0"
+					cLote := SubS(cLote, 2)	
+				EndDo
+				
 				If ReadVar() == "M->Z0E_LOTE"
-					if FWFldGet("Z0C_TPMOV") != '6'
-						FWFldPut("Z0E_LOTE", cLote )
-					else 
-						oModel    := FWModelActive()
-						For nI := 1 to oModel:GetModel('Z0DDETAIL'):GetQtdLine()
-					 		oModel:GetModel('Z0DDETAIL'):GoLine(nI)
-							if cLote == AllTrim(oModel:GetModel('Z0DDETAIL'):GetValue("Z0D_LOTE"))
-								FWFldPut("Z0E_LOTE", cLote )
-								lOk := .t.
-								exit
-							else
-								lOk := .F.
-							endif 
-						next nI 
-					endif 
+					FWFldPut("Z0E_LOTE", cLote )
 				ElseIf ReadVar() == "M->ZV2_LOTE"
 					// FWFldPut("ZV2_LOTE", cLote )
 					&(ReadVar()) := cLote
@@ -426,8 +410,8 @@ Default lExiste := .F.
 				EndIf
 			EndIf
 		EndIf
-	/*
-	/*
+	/* 
+	/* 
 		If lOk := IsAlpha( cLote )
 			Alert('Caracter')
 			Return nil
