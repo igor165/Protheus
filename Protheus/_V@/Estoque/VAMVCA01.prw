@@ -1372,9 +1372,8 @@ Local oView  := FWViewActive()
 Return NIL
 
 Static Function FZ0DLok(oModel)
-	// Local oModel := FWModelActive()
-	local nQuant := FWFldGet('Z0D_QUANT')
-	local nQtdOri := FWFldGet('Z0D_QTDORI')
+	local nQuant 	:= FWFldGet('Z0D_QUANT')
+	local nQtdOri 	:= FWFldGet('Z0D_QTDORI')
 
 	If nQtdOri < nQuant
 		Alert("Quantidade de origem não pode ser maior que o saldo atual dos produtos.")
@@ -1535,8 +1534,9 @@ Static Function ProcGrid( oModel, oView)
 	Local nPHZ0ERACA  := 0
 	Local nPHZ0ESEXO  := 0
 	Local cALias 	  := ""
-	Local cAliasM	  := ""
 	Local cQry 		  := ""
+	Local cQryM1	  := ""
+	Local cQryM2	  := ""
 	Local oQryCache   := nil
 	Local oQryMP   	  := nil
 	Local cCntScalar  := 0
@@ -1547,6 +1547,8 @@ Static Function ProcGrid( oModel, oView)
 	Private aTransf   := {}
 
 	Private aMedPond  := {}
+
+	Private nLinProc   := 0
 
 	ConOut('Inicio: ProcGrid ' + Time() )
 
@@ -1711,7 +1713,7 @@ For nI := 1 To oGridZ0E:Length()
 	cQry += "									   AND Z0D.D_E_L_E_T_ = ' ' " + CRLF 
 	cQry += "								  ) " + CRLF
 	cQry += "		GROUP BY B8_LOTECTL, B8_X_CURRA" + CRLF 
-	cQry += "		ORDER BY B8_LOTECTL" + CRLF 
+	cQry += "		ORDER BY B8_LOTECTL" + CRLF
 
 	oQryCache := FwExecStatement():New(cQry)
 
@@ -1777,6 +1779,11 @@ For nI := 1 To oGridZ0E:Length()
 
 if Z0C->Z0C_TPMOV != '6'
 	Begin Transaction
+
+		If nLinProc == 0
+			nLinProc := 1
+		endif
+
 		For nJ := 1 To oGridZ0D:Length()
 			oGridZ0D:GoLine( nJ )
 			If !oGridZ0D:IsDeleted()
@@ -1807,7 +1814,7 @@ if Z0C->Z0C_TPMOV != '6'
 
 		oQryCache := FwExecStatement():New(cQry)
 
-		For nI := 1 To oGridZ0E:Length()	// Z0E <-> Destino
+		For nI := nLinProc To oGridZ0E:Length()	// Z0E <-> Destino
 			oGridZ0E:GoLine( nI )
 
 			ConOut("ProcGrid: " + PadL( nI, 3, '0') + "/" + PadL( oGridZ0E:Length(), 3, '0') +' '+;
@@ -2004,7 +2011,7 @@ if Z0C->Z0C_TPMOV != '6'
 			DbSelectArea("Z0E")
 			Z0E->(DbSetOrder(1))
 			// Gravar Z0E
-			For nI := 1 To oGridZ0E:Length()
+			For nI := nLinProc To oGridZ0E:Length()
 				oGridZ0E:GoLine( nI )
 				If !oGridZ0E:IsDeleted()
 					lControl := !Z0E->(DbSeek( FWxFilial("Z0E") + Z0C->Z0C_CODIGO + oGridZ0E:GetValue('Z0E_SEQ', nI) ))
@@ -2034,46 +2041,47 @@ if Z0C->Z0C_TPMOV != '6'
 				MpSysOpenQuery(cQry, cAlias)
 				
 				//aMedPond[01, 02 ]
-				cQry := " SELECT SUM(PESOTOT)/SUM(SALDO) MEDIA_PONDERADA " + CRLF 
-				cQry += " FROM ( " + CRLF 
-				cQry += " 			SELECT SUM(Z0E_PESO*Z0E_QUANT) PESOTOT" + CRLF 
-				cQry += " 				 , SUM(Z0E_QUANT) SALDO" + CRLF 
-				cQry += " 			FROM "+RetSqlName("Z0E")+" WITH (NOLOCK) " + CRLF 
-				cQry += " 			WHERE Z0E_FILIAL = '" + FWxFilial("Z0E")+ "' " + CRLF 
-				cQry += " 				AND Z0E_LOTE   = ? " + CRLF 
-				cQry += " 				AND D_E_L_E_T_ = ' ' " + CRLF 
-				cQry += " ) DADOS " + CRLF 
+				cQryM1 := " SELECT SUM(PESOTOT)/SUM(SALDO) MEDIA_PONDERADA " + CRLF 
+				cQryM1 += " FROM ( " + CRLF 
+				cQryM1 += " 			SELECT SUM(Z0E_PESO*Z0E_QUANT) PESOTOT" + CRLF 
+				cQryM1 += " 				 , SUM(Z0E_QUANT) SALDO" + CRLF 
+				cQryM1 += " 			FROM "+RetSqlName("Z0E")+" WITH (NOLOCK) " + CRLF 
+				cQryM1 += " 			WHERE Z0E_FILIAL = '" + FWxFilial("Z0E")+ "' " + CRLF 
+				cQryM1 += " 				AND Z0E_LOTE   = ? " + CRLF 
+				cQryM1 += " 				AND D_E_L_E_T_ = ' ' " + CRLF 
+				cQryM1 += " ) DADOS " + CRLF 
 
-				oQryCache := FwExecStatement():New(cQry)
+				oQryCache := FwExecStatement():New(cQryM1)
 
-				cQry := " SELECT " + CRLF 
-				cQry += " 		CASE " + CRLF 
-				cQry += " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF 
-				cQry += " 			THEN -1 " + CRLF 
-				cQry += " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF 
-				cQry += " 		END MEDIA_PONDERADA " + CRLF 
-				cQry += " FROM ( " + CRLF 
-				cQry += " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF 
-				cQry += " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF 
-				cQry += " 		FROM " + RetSqlName("SB8") + CRLF 
-				cQry += " 		where B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF 
-				cQry += "         and B8_LOTECTL = ? " + CRLF 
-				cQry += " 		  and B8_SALDO   >  0 " + CRLF 
-				cQry += " 		  and D_E_L_E_T_=' ' " + CRLF 
-				cQry += " ) DADOS " + CRLF
+				cQryM2 := " SELECT " + CRLF 
+				cQryM2 += " 		CASE " + CRLF 
+				cQryM2 += " 			WHEN SUM(PESOTOT) = 0 OR SUM(B8_SALDO) = 0 " + CRLF 
+				cQryM2 += " 			THEN -1 " + CRLF 
+				cQryM2 += " 			ELSE SUM(PESOTOT)/SUM(B8_SALDO) " + CRLF 
+				cQryM2 += " 		END MEDIA_PONDERADA " + CRLF 
+				cQryM2 += " FROM ( " + CRLF 
+				cQryM2 += " 		SELECT	SUM(B8_XPESOCO*B8_SALDO) PESOTOT " + CRLF 
+				cQryM2 += " 			  , SUM(B8_SALDO) B8_SALDO" + CRLF 
+				cQryM2 += " 		FROM " + RetSqlName("SB8") + CRLF 
+				cQryM2 += " 		where B8_FILIAL  = '" + FWxFilial("SB8") + "'" + CRLF 
+				cQryM2 += "         and B8_LOTECTL = ? " + CRLF 
+				cQryM2 += " 		  and B8_SALDO   >  0 " + CRLF 
+				cQryM2 += " 		  and D_E_L_E_T_=' ' " + CRLF 
+				cQryM2 += " ) DADOS " + CRLF
 				
-				oQryMP := FwExecStatement():New(cQry)
+				oQryMP := FwExecStatement():New(cQryM2)
 
 				While !(cAlias)->(Eof())
 					If aMedPond[01, 02 ]
 						oQryCache:SetString(1,(cAlias)->Z0E_LOTE)
 						__nPeso := oQryCache:ExecScalar("MEDIA_PONDERADA")
+						MemoWrite("C:\totvs_relatorios\SQL_VAMVCA01_MediaPonderada.sql" , cQryM1)
 					Else
 						oQryMP:SetString(1,(cAlias)->Z0E_LOTE)
 						__nPeso := oQryMP:ExecScalar("MEDIA_PONDERADA")
+						MemoWrite("C:\totvs_relatorios\SQL_VAMVCA01_MediaPonderada.sql" , cQryM2)
 					EndIf
 
-					MemoWrite("C:\totvs_relatorios\SQL_VAMVCA01_MediaPonderada.sql" , _cSql)
 
 					If !Empty(__nPeso) .AND. (__nPeso > 0)
 						cUpd := "update " + retSQLName("SB8") + CRLF
@@ -2104,6 +2112,11 @@ if Z0C->Z0C_TPMOV != '6'
 else
 //Igor Oliveira 23/11/2023
 	Begin Transaction
+	
+	If nLinProc == 0
+		nLinProc := 1
+	endif
+	
 	For nJ := 1 To oGridZ0D:Length()
 		oGridZ0D:GoLine( nJ )
 		If !oGridZ0D:IsDeleted()
@@ -2120,7 +2133,7 @@ else
 	//Percorre cada produto de destino
 	__cAntProd  := ""
 	_cAntChvZ0E := ""
-	For nI := 1 To oGridZ0E:Length()//Z0E <-> Destino
+	For nI := nLinProc To oGridZ0E:Length()//Z0E <-> Destino
 		oGridZ0E:GoLine( nI )
 
 		If !oGridZ0E:IsDeleted()
@@ -2240,16 +2253,16 @@ else
 		DbSelectArea("Z0E")
 		Z0E->(DbSetOrder(1))
 		// Gravar Z0E
-		For nI := 1 To oGridZ0E:Length()
+		For nI := nLinProc To oGridZ0E:Length()
 			oGridZ0E:GoLine( nI )
 			If !oGridZ0E:IsDeleted()
 				lControl := !Z0E->(DbSeek( FWxFilial("Z0E") + Z0C->Z0C_CODIGO + oGridZ0E:GetValue('Z0E_SEQ', nI) ))
 				RecLock("Z0E", lControl)
-				for nJ := 1 to len(aStruZ0E)
-					Z0E->&(aStruZ0E[nJ, 1]) := oGridZ0E:GetValue(aStruZ0E[nJ, 1], nI)
-				Next nJ
-				Z0E->Z0E_FILIAL := FWxFilial('Z0E')
-				Z0E->Z0E_SEQEFE := cSeqEfe
+					for nJ := 1 to len(aStruZ0E)
+						Z0E->&(aStruZ0E[nJ, 1]) := oGridZ0E:GetValue(aStruZ0E[nJ, 1], nI)
+					Next nJ
+					Z0E->Z0E_FILIAL := FWxFilial('Z0E')
+					Z0E->Z0E_SEQEFE := cSeqEfe
 				Z0E->(MsUnLock())
 			EndIf
 		Next nI
@@ -2273,11 +2286,15 @@ else
 	endif
 	End Transaction
 Endif
-	If lTransf
-		oView:Refresh()
+	If lTransf .and. Len(aTransf) > 0
+		
+		oGridZ0E:SetNoUpdateLine(.T.)
+		oGridZ0E:SetNoDeleteLine(.T.)
 
-		oGridZ0D:SetOnlyView(.T.)
-		oGridZ0E:SetOnlyView(.T.)
+		oGridZ0D:SetNoUpdateLine(.T.)
+		oGridZ0D:SetNoDeleteLine(.T.)
+		
+		oView:Refresh()
 
 		ConOut(Repl("-",80))
 		__cMsg := "Movimentações realizadas com sucesso."+CRLF+CRLF+;
@@ -2293,7 +2310,7 @@ Endif
 Return .T.
 
 Static Function doTransf(oModel, aTransf)
-	Local aArea		:= GetArea()
+	Local aArea			:= GetArea()
 	Local aAreaSB8		:= SB8->(GetArea())
 	Local aAreaSB1		:= SB1->(GetArea())
 	Local cUM           := ""
@@ -3339,6 +3356,16 @@ User Function VAMDLA01()
 					ApMsgInfo('não é possível realizar operações com Movimentações já efetivadas.')
 					Return .F.
 				EndIf
+				
+				oGridZ0E := oObj:GetModel( 'Z0EDETAIL' )
+				oGridZ0D := oObj:GetModel( 'Z0DDETAIL' )
+				
+				oGridZ0E:SetNoUpdateLine(.F.)
+				oGridZ0E:SetNoDeleteLine(.F.) 
+
+				oGridZ0D:SetNoUpdateLine(.F.)
+				oGridZ0D:SetNoDeleteLine(.F.)
+
 		EndIf
 
 		// ElseIf cIdPonto == 'MODELPOS'
@@ -5006,7 +5033,7 @@ User Function SalvarGeral( oModel, oView )
 	//IdentIfica os produtos de destino e salva a quantidade necessária
 	oGridZ0E := oModel:GetModel( 'Z0EDETAIL' )
 	//oModel:CommitData()
-
+	
 	for nI := 1 to oGridZ0E:Length()
 		oGridZ0E:GoLine(nI)
 		oGridZ0E:DeleteLine()
@@ -5466,6 +5493,8 @@ Static Function fReLoadZ0E( oModel, oView )
 				aColsZ0E[nJ, nPosPesA] := nPesLot1/nQtdLot
 			EndIf
 		Next nJ
+
+		nLinProc := oGridZ0E:Length() + 1 // VARIAVEL USADA NA EFETIVAÇÃO DA APARTAÇÃO
 
 		for nI := 1 to len(aColsZ0E)
 

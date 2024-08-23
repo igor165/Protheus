@@ -129,20 +129,29 @@ Private nPZJNOME    := 0
 Private nPZJPESOL   := 0
 Private nPZJQTDNF   := 0
 Private nPZJQTEMB   := 0
-Private nPZJTARA    := 0
-Private nPZJPESOC   := 0
+Private nPZJTR1    	:= 0
+Private nPZJPS1   	:= 0
+Private nPZJTR2    	:= 0
+Private nPZJPS2   	:= 0
 Private nPZJPRODUTO := 0
 Private nPZJPEMAN1  := 0
 Private nPZJPEMAN2  := 0
+Private nPZJPEMAN3  := 0
+Private nPZJPEMAN4  := 0
 Private nPZJDATA1   := 0
 Private nPZJHORA1   := 0
 Private nPZJDATA2   := 0
 Private nPZJHORA2   := 0
+Private nPZJDATA3   := 0
+Private nPZJHORA3   := 0
+Private nPZJDATA4   := 0
+Private nPZJHORA4   := 0
 Private nPZJMOTORI  := 0
 Private nPZJCTE     := 0
 Private nPZJMINUTA  := 0
 Private nPZJGTA     := 0
 Private NPZJEMPFIL  := 0
+Private NPZJTPPES  := 0
 // ZSG
 Private nPZSGCODIGO := 0
 Private nPZSGLOTE   := 0
@@ -197,18 +206,26 @@ nPZJNOME    := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_NOME"   } )
 
 nPZJQTDNF   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_QTDNF"  } )
 nPZJQTEMB   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_QTEMB"  } )
-nPZJTARA    := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_TARACAM"} )
-nPZJPESOC   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PESOCAM"} )
+nPZJTR1    	:= aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_TARACAM"} )
+nPZJPS1   	:= aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PESOCAM"} )
+nPZJTR2    	:= aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_TARACA1"} )
+nPZJPS2   	:= aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PESCAM2"} )
 nPZJPESOL   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PESOL"  } )
 nPZJPESMED  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_MEDNF"  } )
 nPZJPRODUTO := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PRODUTO"} )
 nPZJPEMAN1  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PEMAN1" } )
 nPZJPEMAN2  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PEMAN2" } )
+nPZJPEMAN3  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PEMAN3" } )
+nPZJPEMAN4  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PEMAN4" } )
 
 nPZJDATA1 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DATA1"} )
 nPZJHORA1 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA1"} )
 nPZJDATA2 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DATA2"} )
 nPZJHORA2 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA2"} )
+nPZJDATA3 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DATA3"} )
+nPZJHORA3 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA3"} )
+nPZJDATA4 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DATA4"} )
+nPZJHORA4 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA4"} )
 
 nPZJCODMOT  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_CODMOT"   } )
 nPZJPLACA   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PLACA"    } )
@@ -460,11 +477,11 @@ Return lRet
  '---------------------------------------------------------------------------------*/
 User Function fSZJFieldOK( )
 	// MsgInfo("fSZJFieldOK")
-Local nPos    := oSZJGtDad:nAt, nAux := 0
-Local cCodigo := ""
-Local _cQry   := ""
-Local cAlias  := GetNextAlias()
-Local cAliasX := GetNextAlias()
+Local nPos     := oSZJGtDad:nAt, nAux := 0
+Local cCodigo  := ""
+Local _cQry    := ""
+Local cAlias   := GetNextAlias()
+Local cAliasX  := GetNextAlias()
 Local cAliasZ  := GetNextAlias()
 Local cAliasY  := GetNextAlias()
 
@@ -875,14 +892,18 @@ Local dData1   := ""
 Local dData2   := ""
 Local cHora1   := ""
 Local cHora2   := ""
+Local cHora3   := ""
+Local cHora3   := ""
+Local cHora4   := ""
+Local cHora4   := ""
 Local cFornece := ""
 Local cMotori  := ""
 Local nPesoCb  := 0
 Local nPesLq   := 0
 Local nQtd     := 0
 Local nQtEmb   := 0
-	
-	if oSZJGtDad:aCols[1][ nPZJQTEMB ] == 0 .and. oSZJGtDad:aCols[1][ nPZJTARA ] > 0 .and. oSZJGtDad:aCols[1][ nPZJPESOC ]
+
+	if oSZJGtDad:aCols[1][ nPZJQTEMB ] == 0 .and. oSZJGtDad:aCols[1][ nPZJTR1 ] > 0 .and. oSZJGtDad:aCols[1][ nPZJPS1 ]
 		lRet := .F.
 		MSGALERT( "Preencha o Campo Qt Embarque na linha 1", "Atenção!" )
 	else
@@ -968,12 +989,15 @@ Local nQtEmb   := 0
 					cCodMot := oSZJGtDad:aCols[ nI, nPZJCODMOT ]
 					cMotori := oSZJGtDad:aCols[ nI, nPZJMOTORI ]
 					cMinuta := oSZJGtDad:aCols[ nI, nPZJMINUTA ]
-					//cGta    := oSZJGtDad:aCols[ nI, nPZJGTA ]
 					cCte    := oSZJGtDad:aCols[ nI, nPZJCTE ]
 					dData1  := oSZJGtDad:aCols[ nI, nPZJDATA1 ]
 					cHora1  := oSZJGtDad:aCols[ nI, nPZJHORA1 ]
 					dData2  := oSZJGtDad:aCols[ nI, nPZJDATA2 ]
 					cHora2  := oSZJGtDad:aCols[ nI, nPZJHORA2 ]
+					dData3  := oSZJGtDad:aCols[ nI, nPZJDATA3 ]
+					cHora3  := oSZJGtDad:aCols[ nI, nPZJHORA3 ]
+					dData4  := oSZJGtDad:aCols[ nI, nPZJDATA4 ]
+					cHora4  := oSZJGtDad:aCols[ nI, nPZJHORA4 ]
 					nPesLq  := oSZJGtDad:aCols[ nI, nPZJPESOL ]
 					nQtd    := oSZJGtDad:aCols[ nI, nPZJQTDNF ]
 					nQtEmb  := oSZJGtDad:aCols[ nI, nPZJQTEMB ]
@@ -982,13 +1006,16 @@ Local nQtEmb   := 0
 					oSZJGtDad:aCols[ nI, nPZJCODMOT ] := cCodMot
 					oSZJGtDad:aCols[ nI, nPZJMOTORI ] := cMotori
 					oSZJGtDad:aCols[ nI, nPZJMINUTA ] := cMinuta
-					//oSZJGtDad:aCols[ nI, nPZJGTA ]    := cGta
 					oSZJGtDad:aCols[ nI, nPZJCTE ]    := cCte
-					If !Empty(dData1) .and. !Empty(dData2)
+					If !Empty(dData1) .and. !Empty(dData2) .and. !Empty(dData3) .and. !Empty(dData4)
 						oSZJGtDad:aCols[ nI, nPZJDATA1 ]  := dData1
 						oSZJGtDad:aCols[ nI, nPZJHORA1 ]  := cHora1
 						oSZJGtDad:aCols[ nI, nPZJDATA2 ]  := dData2
 						oSZJGtDad:aCols[ nI, nPZJHORA2 ]  := cHora2
+						oSZJGtDad:aCols[ nI, nPZJDATA3 ]  := dData3
+						oSZJGtDad:aCols[ nI, nPZJHORA3 ]  := cHora3
+						oSZJGtDad:aCols[ nI, nPZJDATA4 ]  := dData4
+						oSZJGtDad:aCols[ nI, nPZJHORA4 ]  := cHora4
 					EndIf
 					oSZJGtDad:aCols[ nI, nPZJPESOL ]  := nPesLq
 
@@ -1033,9 +1060,9 @@ User Function fPegaPeso(nOpc)
 	Local nLinha 		:= oZSGGtDad:nAt
 	Local lPesagManu	:= .f.
 	
-/*	if EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
+/*	if EMPTY(oSZJGtDad:aCols[nLinha,nPZJPS1])
 		nOpcA := 1
-	Elseif Empty(oSZJGtDad:aCols[nLinha,nPZJTARA])
+	Elseif Empty(oSZJGtDad:aCols[nLinha,nPZJTR1])
 		nOpcA := 2
 	Else
 		if MsgYesNo('Peso e tara do caminhão preenchidos, deseja informar o peso do caminhão novamente?')
@@ -1052,59 +1079,143 @@ User Function fPegaPeso(nOpc)
 			aParBal := AGRX003E( .f., 'OGA050001' )
 		EndIF
 		// SE PESAGEM SIMPLES
-		If oSZJGtDad:aCols[nLinha,nPZJTARA] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPESOC] == 0
-			AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
-			//nPeso := 15042
-			if nPeso > 0
-				//if Empty(oSZJGtDad:aCols[nLinha,nPZJTARA]) // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-				If oSZJGtDad:aCols[nLinha,nPZJTARA] == 0
-				//if nOpcA == 1 // verificar linha que esta posicionado e ver se a primeira pesagem já está preenchida //oSZJGtDad:aCols[nPos,nPZJQTEMB]
-					oSZJGtDad:aCols[nLinha,nPZJTARA] := nPeso 
-					//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
-					oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
-					oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
-					
-					oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
-					
-				//elseif EMPTY(oSZJGtDad:aCols[nLinha,nPZJPESOC])
-				elseif oSZJGtDad:aCols[nLinha,nPZJTARA] > 0//nOpcA == 2
-					oSZJGtDad:aCols[nLinha,nPZJPESOC] := nPeso
+		IF oSZJGtDad:aCols[nLinha,NPZJTPPES] == 'S'
+				
+			If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS1] == 0
+				AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+				//nPeso := 15042
+				if nPeso > 0
+					If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0
+						oSZJGtDad:aCols[nLinha,nPZJTR1] := nPeso 
+						oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
+						
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+						
+					elseif oSZJGtDad:aCols[nLinha,nPZJTR1] > 0//nOpcA == 2
+						oSZJGtDad:aCols[nLinha,nPZJPS1] := nPeso
 
-					oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTARA]
-					//DATA E HORA, CRIAR VARIAVEL PARA PEGAR POSICAO
-					oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
-					oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
-
-					oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
-				//else MsgAlert("Linha posicionada já possui os dois pesos preenchidos.") 
-				EndIf
-			endif
-		Else 
-			If oSZJGtDad:aCols[nLinha,nPZJTARA] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPESOC] > 0 // se os 2 pesos tiverem preenchidos
-				If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO DE SAÍDA ???'))
-					AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
-					if nPeso > 0
-						oSZJGtDad:aCols[nLinha,nPZJPESOC] := nPeso
-						oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTARA]
+						oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTR1]
 						oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
 						oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
+
 						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
 					EndIf
-				Else
-					If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO TARA ???'))
+				endif
+			Else 
+				If oSZJGtDad:aCols[nLinha,nPZJTR1] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS1] > 0 // se os 2 pesos tiverem preenchidos
+					If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO DE SAÍDA ???'))
 						AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 						if nPeso > 0
-							oSZJGtDad:aCols[nLinha,nPZJTARA] := nPeso
-							oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
-							oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
-							oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+							oSZJGtDad:aCols[nLinha,nPZJPS1] := nPeso
+							oSZJGtDad:aCols[nLinha,nPZJPESOL] := nPeso - oSZJGtDad:aCols[nLinha,nPZJTR1]
+							oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
+							oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
+							oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
 						EndIf
-					EndIf	
-				EndIf
-			endif
-		EndIf
-		// SE PESAGEM DUPLA
-			//CRIAR PERGUNTE COM COMBO - 1º Peso - 2º Peso - 3º Peso - 4º Peso
+					Else
+						If(MsgYesNo('Peso Tara e Peso de saída Preenchidos, deseja ALTERAR o PESO TARA ???'))
+							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							if nPeso > 0
+								oSZJGtDad:aCols[nLinha,nPZJTR1] := nPeso
+								oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
+								oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
+								oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+							EndIf
+						EndIf	
+					EndIf
+				endif
+			EndIf
+		elseif oSZJGtDad:aCols[nLinha,NPZJTPPES] == 'D'
+			If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS1] == 0 .or.;
+				oSZJGtDad:aCols[nLinha,nPZJTR2] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS2] == 0 
+				
+				AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+				if nPeso > 0
+					If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 // PRIMEIRA TARA
+						oSZJGtDad:aCols[nLinha,nPZJTR1] := nPeso 
+						oSZJGtDad:aCols[nLinha,nPZJDATA1] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA1] := Time()
+						
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN1] := iif(lPesagManu,"M","A")
+						
+					elseif oSZJGtDad:aCols[nLinha,nPZJTR1] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJTR2] == 0 // SEGUNDA TARA
+						oSZJGtDad:aCols[nLinha,nPZJTR2] := nPeso
+
+						oSZJGtDad:aCols[nLinha,nPZJDATA3] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA3] := Time()
+
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN3] := iif(lPesagManu,"M","A")
+					elseif oSZJGtDad:aCols[nLinha,nPZJTR2] > 0 .AND. oSZJGtDad:aCols[nLinha,nPZJPS1] == 0// PRIMEIRO PESO FINAL
+						oSZJGtDad:aCols[nLinha,nPZJPS1] := nPeso
+
+						oSZJGtDad:aCols[nLinha,nPZJDATA2] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA2] := Time()
+
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
+					elseif oSZJGtDad:aCols[nLinha,nPZJPS1] > 0 // PRIMEIRO PESO FINAL
+						oSZJGtDad:aCols[nLinha,nPZJPS2] := nPeso
+
+						oSZJGtDad:aCols[nLinha,nPZJPESOL] := (oSZJGtDad:aCols[nLinha,nPZJTR1] + oSZJGtDad:aCols[nLinha,nPZJTR2]) -;
+															 (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1])
+
+						oSZJGtDad:aCols[nLinha,nPZJDATA4] := Date()
+						oSZJGtDad:aCols[nLinha,nPZJHORA4] := Time()
+
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
+					EndIf
+				endif
+			Else 
+				If oSZJGtDad:aCols[nLinha,nPZJTR1] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS1] > 0 .and. ;
+					oSZJGtDad:aCols[nLinha,nPZJTR2] == 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS2] == 0 
+
+					If ParamBox({2,"Qual Pesagem?",1,{"1=1º Pesagem","2=2º Pesagem","3=3º Pesagem","4=4º Pesagem"},122,".T.",.F.}, "Informe a Pesagem")
+						
+						if MV_PAR01 == 1
+							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							if nPeso > 0
+								oSZJGtDad:aCols[nLinha,nPZJTR1] 	:= nPeso
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (nPeso + oSZJGtDad:aCols[nLinha,nPZJTR2]) - ;
+																		(oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJDATA1] 	:= Date()
+								oSZJGtDad:aCols[nLinha,nPZJHORA1] 	:= Time()
+								oSZJGtDad:aCols[nLinha,nPZJPEMAN1] 	:= iif(lPesagManu,"M","A")
+							EndIf
+						elseif MV_PAR01 == 2
+							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							if nPeso > 0
+								oSZJGtDad:aCols[nLinha,nPZJTR2] 	:= nPeso
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (nPeso + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJDATA3] 	:= Date()
+								oSZJGtDad:aCols[nLinha,nPZJHORA3] 	:= Time()
+								oSZJGtDad:aCols[nLinha,nPZJPEMAN3] 	:= iif(lPesagManu,"M","A")
+							EndIf
+						elseif MV_PAR01 == 3
+							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							if nPeso > 0
+								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJDATA2] 	:= Date()
+								oSZJGtDad:aCols[nLinha,nPZJHORA2] 	:= Time()
+								oSZJGtDad:aCols[nLinha,nPZJPEMAN2] 	:= iif(lPesagManu,"M","A")
+							EndIf
+						elseif MV_PAR01 == 4
+							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							if nPeso > 0
+								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1])
+								oSZJGtDad:aCols[nLinha,nPZJDATA4] 	:= Date()
+								oSZJGtDad:aCols[nLinha,nPZJHORA4] 	:= Time()
+								oSZJGtDad:aCols[nLinha,nPZJPEMAN4] 	:= iif(lPesagManu,"M","A")
+							EndIf
+						endif 
+					EndIf
+				endif
+			EndIf
+		endif
 	endif
 
 	RestArea(aArea)

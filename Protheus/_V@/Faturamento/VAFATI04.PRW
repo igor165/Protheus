@@ -54,7 +54,7 @@ Static Function ModelDef()
 	Local aZFIRel		:= {}
 
 	aAdd(aGatilhos, FWStruTriggger( "ZFI_LOJA"	,"ZFI_NFOR","SA2->A2_NOME"		,.T.,"SA2"	,1	,'FWxFilial("SA2")+M->ZFI_FORNEC+M->ZFI_LOJA',NIL,"001"))
-	//aAdd(aGatilhos, FWStruTriggger( "ZFI_SERIE"	,"ZFI_VALOR","SF1->F1_VALBRUT"	,.T.,"SF1"	,2	,'M->ZFI_FILDOC+M->ZFI_FORNEC+M->ZFI_LOJA+M->ZFI_DOC',NIL,"01"))
+
     For nI := 1 To Len(aGatilhos)
         oCte:AddTrigger(  aGatilhos[nI][01],; 	//Campo Origem
                             aGatilhos[nI][02],; //Campo Destino
@@ -103,6 +103,7 @@ Static Function ModelDef()
 	oCte:SetProperty('ZFI_ZFFITE'	, MODEL_FIELD_INIT	,   FwBuildFeature(STRUCT_FEATURE_INIPAD, 'U_I04INI()'))//Iniciador de Campo
     oCte:SetProperty('ZFI_DOC'		, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID	, 'U_I04DOC()'))//Validação de Campo
     oCte:SetProperty('ZFI_VALOR'	, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID	, 'U_I04VAL()'))//Validação de Campo
+    oCte:SetProperty('ZFI_FILDOC'	, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID	, 'U_I04FIL()'))//Validação de Campo
 
 	oModel := MPFormModel():New("FATI04M",,,bPos)
 
@@ -170,18 +171,12 @@ Static Function ViewDef()
 	aFields   	:= OSTRU:AFIELDS
 	aCamZFF 	:= aClone(aFields)
 	
-	aFields   	:= OCTE:AFIELDS
-	aCamZFI		:= aClone(aFields)
 	For nI := 1 to Len(aCamZFF)
 		if !(aCamZFF[nI][1] $ cStru)
 			oStru:RemoveField(aCamZFF[nI][1])
 		endif
 	Next nI
-	For nI := 1 to Len(aCamZFF)
-		if aCamZFF[nI][1] $ cStru /* .and. (aCamZFF[nI][1] != "ZFF_CODIGO") */
-			oGrid:RemoveField(aCamZFF[nI][1])
-		endif
-	next nI
+
 	
 	oView:AddIncrementField( 'VIEW_GRID', 'ZFF_ITEM')
 	oView:AddIncrementField( 'GRID_CTE' , 'ZFI_ITEM')
@@ -1384,9 +1379,9 @@ User Function I04PREG()
 	Local oModel 	 	:= FwModelActivate()
 	Local oCab 			:= oModel:GetModel("ZFFMASTER")
 	Local oGrid 		:= oModel:GetModel("ZFFDETAIL")
-	Local aCGrid	:= StrTokArr("ZFF_PLCVL|ZFF_NUMMIN|ZFF_TIPVEI|ZFF_MOTOR|ZFF_ORIGEM|ZFF_RLOJA|ZFF_DATA|ZFF_DTDESE|ZFF_QTDE|ZFF_KM|ZFF_VFRETE|ZFF_VLKM","|")
+	Local aCGrid		:= StrTokArr("ZFF_PLCVL|ZFF_NUMMIN|ZFF_TIPVEI|ZFF_MOTOR|ZFF_ORIGEM|ZFF_RLOJA|ZFF_DATA|ZFF_DTDESE|ZFF_QTDE|ZFF_KM|ZFF_VFRETE|ZFF_VLKM","|")
 	Local nI
-	Local cTitulo	:= ''
+	Local cTitulo		:= ''
 	
 	SX3->(DbSetOrder(2)) //X3_CAMPO
 	for nI := 1 To Len(aCGrid)
@@ -1410,6 +1405,17 @@ User Function I04PREG()
 	endif 
 	RestArea(aArea)
 Return lRet
+
+// VALIDACAO DA CTE
+User Function I04FIL()
+	Local oModel 	:= FwModelActivate()
+	Local oCte 		:= oModel:GetModel("ZFIDETAIL")
+	
+	oCte:LoadValue("ZFI_DOC"	, "")
+	oCte:LoadValue("ZFI_SERIE"	, "")
+	oCte:LoadValue("ZFI_VALOR"	, 0 )
+
+Return .T. 
 // VALIDACAO DA CTE
 User Function I04DOC()
 	Local aArea 	:= GetArea()
@@ -1418,22 +1424,30 @@ User Function I04DOC()
 	Local oView 	:= FWViewActive()
 	Local oCte 		:= oModel:GetModel("ZFIDETAIL")
 	Local cCte  	:= StrZero( Val(&(ReadVar())),TamSx3("F1_DOC")[1])
+	Local cFil 		:= "" 
 
 	//F1_FILIAL+F1_FORNECE+F1_LOJA+F1_DOC
 	DBSELECTAREA( "SF1" )
 	SF1->(DBSETORDER( 2 ))
 
-	if SF1->(DbSeek(FwxFilial("SF1")+;
-		oCte:GetValue("ZFI_FORNEC")+;
-		oCte:GetValue("ZFI_LOJA")+;
-		cCte ))
+	if AllTrim(oCte:GetValue("ZFI_FILDOC")) == ''
+		cFil := FwXFilial("ZFI")
+	else
+		cFil := oCte:GetValue("ZFI_FILDOC")
+	endif
+
+	if SF1->(DbSeek(cFil+;
+					oCte:GetValue("ZFI_FORNEC")+;
+					oCte:GetValue("ZFI_LOJA")+;
+					cCte ))
 
 		oCte:loadValue("ZFI_DOC" , cCte)
 		oCte:SetValue("ZFI_SERIE" , SF1->F1_SERIE)
 		oCte:SetValue("ZFI_FILDOC", SF1->F1_FILIAL)
 		oCte:SetValue("ZFI_VALOR" , SF1->F1_VALBRUT)
 	else
-		oModel:SetErrorMessage("","","","","Valor Invalido", 'CTE não existe para esse fornecedor!', "") 
+		lRet := .F. 
+		oModel:SetErrorMessage("","","","","Valor Invalido", 'CTE não existe para esse fornecedor, Ou Filial está incorreta!', "") 
 	EndIf
 	SF1->(DBCLOSEAREA())
 
