@@ -176,7 +176,11 @@ Static Function ViewDef()
 			oStru:RemoveField(aCamZFF[nI][1])
 		endif
 	Next nI
-
+	For nI := 1 to Len(aCamZFF)
+		if aCamZFF[nI][1] $ cStru /* .and. (aCamZFF[nI][1] != "ZFF_CODIGO") */
+			oGrid:RemoveField(aCamZFF[nI][1])
+		endif
+	next nI
 	
 	oView:AddIncrementField( 'VIEW_GRID', 'ZFF_ITEM')
 	oView:AddIncrementField( 'GRID_CTE' , 'ZFI_ITEM')
@@ -1379,9 +1383,9 @@ User Function I04PREG()
 	Local oModel 	 	:= FwModelActivate()
 	Local oCab 			:= oModel:GetModel("ZFFMASTER")
 	Local oGrid 		:= oModel:GetModel("ZFFDETAIL")
-	Local aCGrid		:= StrTokArr("ZFF_PLCVL|ZFF_NUMMIN|ZFF_TIPVEI|ZFF_MOTOR|ZFF_ORIGEM|ZFF_RLOJA|ZFF_DATA|ZFF_DTDESE|ZFF_QTDE|ZFF_KM|ZFF_VFRETE|ZFF_VLKM","|")
+	Local aCGrid	:= StrTokArr("ZFF_PLCVL|ZFF_NUMMIN|ZFF_TIPVEI|ZFF_MOTOR|ZFF_ORIGEM|ZFF_RLOJA|ZFF_DATA|ZFF_DTDESE|ZFF_QTDE|ZFF_KM|ZFF_VFRETE|ZFF_VLKM","|")
 	Local nI
-	Local cTitulo		:= ''
+	Local cTitulo	:= ''
 	
 	SX3->(DbSetOrder(2)) //X3_CAMPO
 	for nI := 1 To Len(aCGrid)

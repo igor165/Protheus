@@ -29,6 +29,7 @@
 	// Alert("miguel")
 #ENDIF
 
+
 /*---------------------------------------------------------------------------------,
  | Analista : 								                                       |
  | Data		:                                                                      |
@@ -1597,7 +1598,8 @@ User Function ExpBatTrt( )
 	Local nIagua		:= 0
 	Local aOperador 	:= {}	
 	Local cOperador 
-	
+	Local cEqRT99	    := GetMv("MV_PCPRT99",,.F.)
+
 	If (Empty(aParRet[3]) .and. Empty(aParRet[6])) .and.;
 			TemExpGerada()
 
@@ -1987,7 +1989,7 @@ User Function ExpBatTrt( )
 				//			cCsvEBt := "CAMINHAO;DATA;ORDEM;VERSAO;CARREGAMENTO;DIETA;SEQUENCIA;INGREDIENTE;QTDE REQUISITADA" + _ENTER_
 				cCsvEBt := "operacao;caminhao;data;ordem_producao;versao;num _carreg;codigo_dieta;nome_dieta;"
 				cCsvEBt += "ordem_ingrediente;cod_ingrediente;nome_ingrediente;qtde_prev;perc_ingrediente;"
-				cCsvEBt += "tipo_carreg;roteiro;materia_seca" + _ENTER_
+				cCsvEBt += "reservado;tipo_carreg;roteiro;materia_seca" + _ENTER_
 
 				//			cCsvETr := "CAMINHAO;DATA;ORDEM;VERSAO;NUM_TRATO;CURRAL;LOTE;NUMERO_ANIM;DIETA;OFERTA" + _ENTER_
 				cCsvETr := "operacao;caminhao;data;ordem_producao;versao;num_trato;curral;lote;n_animais;"
@@ -2209,7 +2211,11 @@ User Function ExpBatTrt( )
 							If (!QRYTTR->(EOF()))
 								MEMOWRITE("C:\TOTVS_RELATORIOS\EXPTOTTRT" + aOrdCur[nCntOrd][1] + "_" + aOrdCur[nCntOrd][nCntTrt + 1][1] + ".sql", cQryTTr)
 
-								_cRoteiro := QRYTTR->Z0T_ROTA
+								if aParRet[3] $ cEqRT99
+									_cRoteiro := "ROTA99"
+								else 
+									_cRoteiro := QRYTTR->Z0T_ROTA
+								endif 
 								While (!QRYTTR->(EOF()))
 									nTTrMS += QRYTTR->TOTAL
 									QRYTTR->(DBSkip())
@@ -2298,7 +2304,11 @@ User Function ExpBatTrt( )
 							cCodRec := AllTrim(aOrdArq[nCntOrd][nCntTrt + 1][2])
 
 						ElseIf (aParRet[4] = 2)
-
+							
+							if aParRet[3] $ cEqRT99
+								_cRoteiro := "ROTA99"
+							endif 
+							
 							cCodRec := AllTrim(aOrdArq[nCntOrd][nCntTrt + 1][2])
 							nTTrMS  := aOrdArq[nCntOrd][nCntTrt + 1][3]
 
@@ -2391,9 +2401,6 @@ User Function ExpBatTrt( )
 							DisarmTransaction()
 							Break
 						EndIf
-
-
-
 
 						While (!QRYREC->(EOF()))
 
@@ -2542,8 +2549,8 @@ User Function ExpBatTrt( )
 								/* 09 */					AllTrim(QRYREC->SEQ) + ";" + ;
 								/* 10 */					rTrim(QRYREC->ITEM) + ";" + ;
 								/* 11 */					rTrim(POSICIONE("SB1", 1, FWxFilial("SB1")+ AllTrim(QRYREC->ITEM), "B1_XDESC")) + ";"}) //SUBSTR(, 1, 15) //B1_DSCBAL
-								/* 12 */	AAdd(aCsvAux[Len(aCsvAux)], nQtdPre)
-								/* 13 */	AAdd(aCsvAux[Len(aCsvAux)], cTipo_carreg) // "New Cpo"
+								/* 12 */					AAdd(aCsvAux[Len(aCsvAux)], nQtdPre)
+								/* 13 */					AAdd(aCsvAux[Len(aCsvAux)], cTipo_carreg) // "New Cpo"
 								EndIf
 
 								DBSelectArea("Z0Y")
@@ -2573,7 +2580,7 @@ User Function ExpBatTrt( )
 									Z0Y->Z0Y_QTDPRE := nQtdPre
 									Z0Y->Z0Y_QTDREA := 0
 									Z0Y->Z0Y_TOLERA := 0
-									Z0Y->Z0Y_ROTA   := IIf(aParRet[4] = 1, AllTrim(aOrdCur[nCntOrd][1]), "")
+									Z0Y->Z0Y_ROTA   := IIf(aParRet[4] = 1, AllTrim(aOrdCur[nCntOrd][1]), iif( aParRet[3] $ cEqRT99,"ROTA99","" ))
 									Z0Y->Z0Y_DATA   := Z0X->Z0X_DATA
 									Z0Y->Z0Y_VERSAO := Z0X->Z0X_VERSAO
 									Z0Y->Z0Y_ORIGEM := cTipo_carreg
@@ -3900,9 +3907,9 @@ EndIf
 	_cQry += " 	 WHERE ( Z0Y_QTDREA > 0 OR Z0Y_PESDIG > 0)  " + CRLF 
 	_cQry += " 	   AND Z0Y_DATPRC = ' '  " + CRLF 
 	_cQry += " 	   AND Z0Y_CONFER = 'T' " + CRLF 
-	_cQry += " 	   AND Z0Y_DATA = '" +DTOS(__DATA)+ "' " + CRLF
-	_cQry += " 	   AND Z0Y.D_E_L_E_T_ =' '  " + CRLF
-	_cQry += " 	UNION  " + CRLF
+	_cQry += " 	   AND Z0Y_DATA = '" +DTOS(__DATA)+ "' " + CRLF 
+	_cQry += " 	   AND Z0Y.D_E_L_E_T_ =' '  " + CRLF 
+	_cQry += " 	UNION  " + CRLF 
 	_cQry += " select TOP(1) Z0Y_CODEI, Z0X.R_E_C_N_O_ RECNO, Z0X_OPERAC OPERACAO " + CRLF 
    	_cQry += "   FROM "+RetSqlName("Z0Y")+" Z0Y " + CRLF 
 	_cQry += " 	 JOIN "+RetSqlName("Z0X")+" Z0X ON Z0X_FILIAL = Z0Y_FILIAL AND Z0X_CODIGO = Z0Y_CODEI AND Z0X_DATA = Z0Y_DATA AND Z0X.D_E_L_E_T_ =' ' --AND Z0X_OPERAC = '1' " + CRLF 

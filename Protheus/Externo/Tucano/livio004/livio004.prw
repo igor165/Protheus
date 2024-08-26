@@ -170,6 +170,21 @@ Private oDlg        := nil
 
 RegToMemory( cAlias, nOpc == 3 )
 
+IF nOpc == 3
+	If !ParamBox({{2,"Tipo de Pesagem",1,{"S=Simples","D=Dupla"},122,".T.",.F.}},"Informe o Tipo de Pesagem")
+		MsgInfo("Informe o tipo de pesagem!")
+		return nil
+	endif
+endif
+
+if Type( "MV_PAR01" ) == "N"
+	if MV_PAR01 == 1
+		MV_PAR01 := "S"
+	else 
+		MV_PAR01 := "D"
+	endif 
+endif 
+
 aSize := MsAdvSize( .T. )
 AAdd( aObjects, { 100 , 50, .T. , .T. , .F. } )
 AAdd( aObjects, { 100 , 50, .T. , .T. , .F. } )
@@ -227,6 +242,8 @@ nPZJHORA3 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA3"} )
 nPZJDATA4 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_DATA4"} )
 nPZJHORA4 := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_HORA4"} )
 
+NPZJTPPES := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_TPPES"} )
+
 nPZJCODMOT  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_CODMOT"   } )
 nPZJPLACA   := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_PLACA"    } )
 nPZJMOTORI  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_MOTORIS"  } )
@@ -236,9 +253,9 @@ nPZJGTA     := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_GTA"      } 
 nPZJEMPFIL  := aScan( oSZJGtDad:aHeader, { |x| AllTrim(x[2]) == "ZJ_EMPFIL"   } )
 
 If Len(aSZJCols)==1 .AND. Empty( aSZJCols[ 01, nPZJCODIGO ] ) // nOpc == 3
-	oSZJGtDad:aCols[ 01, nPZJCODIGO ]/* aSZJCols[ 01, nPZJCODIGO ] */ := GETSX8NUM('SZJ','ZJ_CODIGO')      // M->ZJ_CODIGO 
-	oSZJGtDad:aCols[ 01, nPZJITEM   ]/* aSZJCols[ 01, nPZJITEM   ] */ := StrZero( 1, TamSX3('ZJ_ITEM')[1]) // M->ZJ_ITEM   
-	// M->ZJ_ITEM := U_fChvITEM( "SZJ", "ZJ_CODIGO", "ZJ_ITEM", "ZJ_CODIGO", M->ZJ_CODIGO)
+	oSZJGtDad:aCols[ 01, nPZJCODIGO  ]/* aSZJCols[ 01, nPZJCODIGO ] */ := GETSX8NUM('SZJ','ZJ_CODIGO')      // M->ZJ_CODIGO 
+	oSZJGtDad:aCols[ 01, nPZJITEM    ]/* aSZJCols[ 01, nPZJITEM   ] */ := StrZero( 1, TamSX3('ZJ_ITEM')[1]) // M->ZJ_ITEM   
+	oSZJGtDad:aCols[ 01, NPZJTPPES   ]/* aSZJCols[ 01, nPZJITEM   ] */ := MV_PAR01 // M->ZJ_TPPES   
 EndIf
 
 oGrpItens := TGroup():New( aPObjs[2, 1]+nDist, aPObjs[2, 2]+nDist, aPObjs[2, 3], aPObjs[2, 4],;
@@ -272,9 +289,9 @@ nPZSGEMPFIL := aScan( oZSGGtDad:aHeader, { |x| AllTrim(x[2]) == "ZSG_EMPFIL"  } 
 
 // Inicialização de Campos
 If  Len(aZSGCols)==1 .AND. Empty( aZSGCols[ 01, nPZSGITEM ] )
-	// (nOpc == 3)
-	oZSGGtDad:aCols[ 01, nPZSGCODIGO ] := oSZJGtDad:aCols[ 01, nPZJCODIGO]
-	oZSGGtDad:aCols[ 01, nPZSGITEM ]/* aZSGCols[ 01, nPZSGITEM ] */ := StrZero( 1, TamSX3('ZSG_ITEM')[1])
+	oZSGGtDad:aCols[ 01, nPZSGCODIGO ] 	:= oSZJGtDad:aCols[ 01, nPZJCODIGO]
+	oZSGGtDad:aCols[ 01, nPZSGITEM ]	:= StrZero( 1, TamSX3('ZSG_ITEM')[1])
+	oZSGGtDad:aCols[ 01, NPZJTPPES ]	:= MV_PAR01
 EndIf
 
 AAdd( aButtons, { "AUTOM", { || U_EstornoBaixa() }, "Realizar Estorno da Baixa dos Animais (F7)" } )
@@ -296,9 +313,6 @@ If nOpc == 3 .or. nOpc == 4
 		RollbackSX8()
  	ElseIf nOpcA == 1
 		Begin Transaction
-
-			// _cErro := ""
-			// NOTAS FISCAIS - CHAVE DA NOTA
 			For nI := 1 to Len(oSZJGtDad:aCols)
 				If !oSZJGtDad:aCols[nI][ Len(oSZJGtDad:aCols[1]) ]
 					
@@ -311,10 +325,6 @@ If nOpc == 3 .or. nOpc == 4
 							U_GrvCpo( "SZJ", oSZJGtDad:aCols, oSZJGtDad:aHeader, nI )
 							If lRecLock
 							 	SZJ->ZJ_FILIAL := xFilial("SZJ")
-								// 	SZJ->ZJ_CODIGO := StrZero(nI ,TamSX3('ZJ_CODIGO')[1])
-								// 	SZJ->ZJ_CHVNF  := M->ZJ_CHVNF
-								// 	// SZJ->ZJ_EMISNFSE := MsDate()
-								// 	// SZJ->ZJ_USUARI := cUserName
 							EndIf
 						SZJ->( MsUnlock() )
 					// EndIf
@@ -348,11 +358,6 @@ If nOpc == 3 .or. nOpc == 4
 								U_GrvCpo( "ZSG", oZSGGtDad:aCols, oZSGGtDad:aHeader, nI )
 								If lRecLock
 									ZSG->ZSG_FILIAL := xFilial("ZSG")
-									// ZSG->ZSG_CODIGO := oSZJGtDad:aCols[nI, nPZJCODIGO] + oSZJGtDad:aCols[nI, nPZJITEM]
-									// ZSG->ZSG_SZJITE := oSZJGtDad:aCols[nI, nPZJCODIGO] + oSZJGtDad:aCols[nI, nPZJITEM]
-									// 	// ZSG->ZSG_CHVNF  := oSZJGtDad:aCols[nI, nPZJCHVNF] // M->ZJ_CHVNF
-									// 	// ZSG->ZSG_DATASE := MsDate()
-									// 	// ZSG->ZSG_USUARI := cUserName
 								EndIf
 								ZSG->( MsUnlock() )
 						// EndIf
@@ -367,23 +372,9 @@ If nOpc == 3 .or. nOpc == 4
 					EndIf
 				EndIf
 			Next i 
-
-			// If !Empty( _cErro )
-			// 	RollbackSX8()
-			// 	DisarmTransaction()
-			// 	MsgAlert( "Esta operacao sera cancelada: " + CRLF + _cErro, "Atenção")
-			// Else
 				While __lSX8
 					ConfirmSX8()
 				EndDo
-			// EndIf
-
-			// DbSelectArea(cAlias)
-			// DbSetOrder(1)
-			// RecLock( cAlias, nOpc == 3 )
-			// 	U_GrvCpo(cAlias)
-			// (cAlias)->(MsUnlock())
-
         End Transaction
 	EndIf
 
@@ -434,7 +425,6 @@ EndIf
 
 return nil
 
-
 /*---------------------------------------------------------------------------------,
  | Analista: Miguel Martins Bernardo Junior                                        |
  | Data:     10.12.2021                                                            |
@@ -476,7 +466,6 @@ Return lRet
  | Obs.:     -                                                                     |
  '---------------------------------------------------------------------------------*/
 User Function fSZJFieldOK( )
-	// MsgInfo("fSZJFieldOK")
 Local nPos     := oSZJGtDad:nAt, nAux := 0
 Local cCodigo  := ""
 Local _cQry    := ""
@@ -886,19 +875,17 @@ Local _cErro   := ""
 Local cPlaca   := ""
 Local cCodMot  := ""
 Local cMinuta  := ""
-Local cGta     := ""
 Local cCte     := ""
 Local dData1   := ""
 Local dData2   := ""
+Local dData3   := ""
+Local dData4   := ""
 Local cHora1   := ""
 Local cHora2   := ""
 Local cHora3   := ""
-Local cHora3   := ""
-Local cHora4   := ""
 Local cHora4   := ""
 Local cFornece := ""
 Local cMotori  := ""
-Local nPesoCb  := 0
 Local nPesLq   := 0
 Local nQtd     := 0
 Local nQtEmb   := 0
@@ -1060,19 +1047,6 @@ User Function fPegaPeso(nOpc)
 	Local nLinha 		:= oZSGGtDad:nAt
 	Local lPesagManu	:= .f.
 	
-/*	if EMPTY(oSZJGtDad:aCols[nLinha,nPZJPS1])
-		nOpcA := 1
-	Elseif Empty(oSZJGtDad:aCols[nLinha,nPZJTR1])
-		nOpcA := 2
-	Else
-		if MsgYesNo('Peso e tara do caminhão preenchidos, deseja informar o peso do caminhão novamente?')
-			nOpcA := 1
-		Else
-			nOpcA := 2
-		Endif
-	Endif
-	*/
-
 	if nOpc == 3 .or. nOpc == 4
 
 		IF aParBal == nIl     // Para Ser Inicializado Somente Qdo ainda não foi
@@ -1083,7 +1057,6 @@ User Function fPegaPeso(nOpc)
 				
 			If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS1] == 0
 				AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
-				//nPeso := 15042
 				if nPeso > 0
 					If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0
 						oSZJGtDad:aCols[nLinha,nPZJTR1] := nPeso 
@@ -1156,8 +1129,8 @@ User Function fPegaPeso(nOpc)
 					elseif oSZJGtDad:aCols[nLinha,nPZJPS1] > 0 // PRIMEIRO PESO FINAL
 						oSZJGtDad:aCols[nLinha,nPZJPS2] := nPeso
 
-						oSZJGtDad:aCols[nLinha,nPZJPESOL] := (oSZJGtDad:aCols[nLinha,nPZJTR1] + oSZJGtDad:aCols[nLinha,nPZJTR2]) -;
-															 (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1])
+						oSZJGtDad:aCols[nLinha,nPZJPESOL] := ABS((oSZJGtDad:aCols[nLinha,nPZJTR1] + oSZJGtDad:aCols[nLinha,nPZJTR2]) -;
+															 (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1]))
 
 						oSZJGtDad:aCols[nLinha,nPZJDATA4] := Date()
 						oSZJGtDad:aCols[nLinha,nPZJHORA4] := Time()
@@ -1165,48 +1138,52 @@ User Function fPegaPeso(nOpc)
 						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
 					EndIf
 				endif
-			Else 
+			Else
 				If oSZJGtDad:aCols[nLinha,nPZJTR1] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS1] > 0 .and. ;
-					oSZJGtDad:aCols[nLinha,nPZJTR2] == 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS2] == 0 
+					oSZJGtDad:aCols[nLinha,nPZJTR2] > 0 .and. oSZJGtDad:aCols[nLinha,nPZJPS2] > 0 
 
-					If ParamBox({2,"Qual Pesagem?",1,{"1=1º Pesagem","2=2º Pesagem","3=3º Pesagem","4=4º Pesagem"},122,".T.",.F.}, "Informe a Pesagem")
+					If ParamBox({{2,"Qual Pesagem?",1,{"1=1º Pesagem","2=2º Pesagem","3=3º Pesagem","4=4º Pesagem"},122,".T.",.F.}}, "Informe a Pesagem")
 						
-						if MV_PAR01 == 1
+						if Type( "MV_PAR01" ) == "N"
+							MV_PAR01 := LTrim(Str(MV_PAR01))
+						endif
+
+						if MV_PAR01 == "1"
 							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJTR1] 	:= nPeso
-								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (nPeso + oSZJGtDad:aCols[nLinha,nPZJTR2]) - ;
-																		(oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((nPeso + oSZJGtDad:aCols[nLinha,nPZJTR2]) - ;
+																		(oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2]))
 								oSZJGtDad:aCols[nLinha,nPZJDATA1] 	:= Date()
 								oSZJGtDad:aCols[nLinha,nPZJHORA1] 	:= Time()
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN1] 	:= iif(lPesagManu,"M","A")
 							EndIf
-						elseif MV_PAR01 == 2
+						elseif MV_PAR01 == "2"
 							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJTR2] 	:= nPeso
-								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (nPeso + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
-																	   (oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((nPeso + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (oSZJGtDad:aCols[nLinha,nPZJPS1] + oSZJGtDad:aCols[nLinha,nPZJPS2]))
 								oSZJGtDad:aCols[nLinha,nPZJDATA3] 	:= Date()
 								oSZJGtDad:aCols[nLinha,nPZJHORA3] 	:= Time()
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN3] 	:= iif(lPesagManu,"M","A")
 							EndIf
-						elseif MV_PAR01 == 3
+						elseif MV_PAR01 == "3"
 							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
-								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
-																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS2])
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS2]))
 								oSZJGtDad:aCols[nLinha,nPZJDATA2] 	:= Date()
 								oSZJGtDad:aCols[nLinha,nPZJHORA2] 	:= Time()
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN2] 	:= iif(lPesagManu,"M","A")
 							EndIf
-						elseif MV_PAR01 == 4
+						elseif MV_PAR01 == "4"
 							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
-								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= (oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
-																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1])
+								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
+																	   (nPeso + oSZJGtDad:aCols[nLinha,nPZJPS1]))
 								oSZJGtDad:aCols[nLinha,nPZJDATA4] 	:= Date()
 								oSZJGtDad:aCols[nLinha,nPZJHORA4] 	:= Time()
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN4] 	:= iif(lPesagManu,"M","A")
@@ -1639,8 +1616,14 @@ Static Function fImpTicket( lEnd )
 		_cLote         := AllTrim((_cTEMP)->ZSG_LOTE)
 		_nQuantNF      := (_cTEMP)->ZJ_QTDNF
 		_nQuantLote    := (_cTEMP)->ZSG_QUANT
-		_nTaraCam      := (_cTEMP)->ZJ_TARACAM
-		_nPesoCam      := (_cTEMP)->ZJ_PESOCAM
+		
+		if (_cTEMP)->ZJ_TPPES == 'S' 
+			_nTaraCam      := (_cTEMP)->ZJ_TARACAM
+			_nPesoCam      := (_cTEMP)->ZJ_PESOCAM
+		elseif (_cTEMP)->ZJ_TPPES == 'D'
+			_nTaraCam      := (_cTEMP)->ZJ_TARACAM + (_cTEMP)->ZJ_TARACA1
+			_nPesoCam      := (_cTEMP)->(ZJ_PESOCAM + ZJ_PESCAM2)
+		endif
 	EndIf
 	fQuadro(1)
 
@@ -1858,61 +1841,61 @@ Return cRetorno
 // Static Function LoadPesagens( cTipo, _cCodigo, nZJPESOCAM, nZJTARACAM )
 Static Function LoadPesagens( _cTEMP, _cFilial, _cCodigo )
 Local _cQry  := ""
-	
+
 	
 	nZJPESOCAM := 0
 	nZJTARACAM := 0
 
-		dbUseArea(.T.,'TOPCONN',TCGENQRY(,, ;
-							 _cQry := " WITH SZJ AS ( " + CRLF +;
-                                      " 	SELECT		* " + CRLF +;
-                                      " 	FROM		" + RetSqlName("SZJ") + "  ZJ " + CRLF +;
-                                      " 	WHERE		ZJ.R_E_C_N_O_ = (SELECT   MIN(R_E_C_N_O_) R_E_C_N_O_ " + CRLF +;
-                                      " 								 FROM     " + RetSqlName("SZJ") + " ZJ2 " + CRLF +;
-                                      " 								 WHERE    ZJ2.ZJ_CODIGO = ZJ.ZJ_CODIGO " + CRLF +;
-                                      " 									  AND ZJ_FILIAL+ZJ_CODIGO = '" + _cFilial + _cCodigo + "'  " + CRLF +;
-                                      " 									  AND ZJ2.D_E_L_E_T_=' ' " + CRLF +;
-                                      " 								 ) " + CRLF +;
-                                      "             AND ZJ.D_E_L_E_T_=' ' " + CRLF +;
-                                      " ) " + CRLF +;
-                                      "  " + CRLF +;
-                                      " , DADOS AS ( " + CRLF +;
-                                      " 	SELECT		ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF +;
-                                      " 				ZJ_PESOCAM, ZJ_TARACAM, ZJ_MEDNF " + CRLF +;
-                                      " 				, RTRIM(ZSG_LOTE) ZSG_LOTE " + CRLF +;
-                                      " 				, SUM(ZSG_QUANT) ZSG_QUANT " + CRLF +;
-                                      " 	FROM		SZJ " + CRLF +;
-                                      " 	  LEFT JOIN " + RetSqlName("ZSG") + " ZSG ON ZJ_FILIAL=ZSG_FILIAL " + CRLF +;
-                                      " 					   AND ZJ_CODIGO=ZSG_CODIGO " + CRLF +;
-                                      " 					   AND ZSG.D_E_L_E_T_ = ' ' " + CRLF +;
-                                      " 					   --AND ZJ_ITEM  =ZSG_SZJITE " + CRLF +;
-                                      " 	GROUP BY    ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF +;
-                                      " 				ZJ_PESOCAM, ZJ_TARACAM, ZJ_MEDNF, " + CRLF +;
-                                      " 				ZSG_LOTE " + CRLF +;
-                                      " ) " + CRLF +;
-                                      "  " + CRLF +;
-                                      " , GRUPO1 AS ( " + CRLF +;
-                                      " 	SELECT		ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF +;
-                                      " 				ZJ_PESOCAM, ZJ_TARACAM, ZJ_MEDNF, " + CRLF +;
-                                      " 				STRING_AGG(ZSG_LOTE, ', ') WITHIN GROUP (ORDER BY  ZSG_LOTE) AS ZSG_LOTE " + CRLF +;
-                                      " 				, SUM(ZSG_QUANT) ZSG_QUANT " + CRLF +;
-                                      " 	FROM		DADOS  " + CRLF +;
-                                      " 	GROUP BY	ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF +;
-                                      " 				ZJ_PESOCAM, ZJ_TARACAM, ZJ_MEDNF " + CRLF +;
-                                      " ) " + CRLF +;
-                                      "  " + CRLF +;
-                                      " SELECT		G.*, SUM(Z.ZJ_QTDNF) ZJ_QTDNF " + CRLF +;
-                                      " 		  , STRING_AGG(ZJ_DOC, ', ') WITHIN GROUP (ORDER BY  ZJ_DOC) AS ZJ_DOC " + CRLF +;
-                                      " FROM		GRUPO1 G " + CRLF +;
-                                      "        JOIN " + RetSqlName("SZJ") + " Z ON Z.ZJ_FILIAL=G.ZJ_FILIAL " + CRLF +;
-                                      " 					AND Z.ZJ_CODIGO=G.ZJ_CODIGO " + CRLF +;
-                                      " 					AND Z.D_E_L_E_T_=' ' " + CRLF +;
-                                      " -- WHERE	    G.ZJ_FILIAL+G.ZJ_CODIGO = '" + _cFilial + _cCodigo + "'  " + CRLF +;
-                                      " GROUP BY	G.ZJ_FILIAL , G.ZJ_CODIGO , G.ZJ_ITEM,  " + CRLF +;
-                                      " 		    ZSG_LOTE, " + CRLF +;
-                                      " 		    ZSG_QUANT, " + CRLF +;
-                                      " 			G.ZJ_PESOCAM, G.ZJ_TARACAM, G.ZJ_MEDNF ";
-			), (_cTEMP) ,.F.,.F.)
+		_cQry := " WITH SZJ AS ( " + CRLF 
+        _cQry += " 	SELECT		* " + CRLF 
+        _cQry += " 	FROM		" + RetSqlName("SZJ") + "  ZJ " + CRLF 
+        _cQry += " 	WHERE		ZJ.R_E_C_N_O_ = (SELECT   MIN(R_E_C_N_O_) R_E_C_N_O_ " + CRLF 
+        _cQry += " 								 FROM     " + RetSqlName("SZJ") + " ZJ2 " + CRLF 
+        _cQry += " 								 WHERE    ZJ2.ZJ_CODIGO = ZJ.ZJ_CODIGO " + CRLF 
+        _cQry += " 									  AND ZJ_FILIAL+ZJ_CODIGO = '" + _cFilial + _cCodigo + "'  " + CRLF 
+        _cQry += " 									  AND ZJ2.D_E_L_E_T_=' ' " + CRLF 
+        _cQry += " 								 ) " + CRLF 
+        _cQry += "             AND ZJ.D_E_L_E_T_=' ' " + CRLF 
+        _cQry += " ) " + CRLF 
+        _cQry += "  " + CRLF 
+        _cQry += " , DADOS AS ( " + CRLF 
+        _cQry += " 	SELECT		ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF 
+        _cQry += " 				ZJ_PESOCAM,ZJ_TARACA1,ZJ_TARACAM,ZJ_PESCAM2, ZJ_MEDNF,ZJ_TPPES " + CRLF 
+        _cQry += " 				, RTRIM(ZSG_LOTE) ZSG_LOTE " + CRLF 
+        _cQry += " 				, SUM(ZSG_QUANT) ZSG_QUANT " + CRLF 
+        _cQry += " 	FROM		SZJ " + CRLF
+        _cQry += " 	  LEFT JOIN " + RetSqlName("ZSG") + " ZSG ON ZJ_FILIAL=ZSG_FILIAL " + CRLF 
+        _cQry += " 					   AND ZJ_CODIGO=ZSG_CODIGO " + CRLF 
+        _cQry += " 					   AND ZSG.D_E_L_E_T_ = ' ' " + CRLF 
+        _cQry += " 					   --AND ZJ_ITEM  =ZSG_SZJITE " + CRLF 
+        _cQry += " 	GROUP BY    ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF 
+        _cQry += " 				ZJ_PESOCAM,ZJ_TARACA1,ZJ_TARACAM,ZJ_PESCAM2, ZJ_MEDNF,ZJ_TPPES, " + CRLF 
+        _cQry += " 				ZSG_LOTE " + CRLF 
+        _cQry += " ) " + CRLF 
+        _cQry += "  " + CRLF 
+        _cQry += " , GRUPO1 AS ( " + CRLF 
+        _cQry += " 	SELECT		ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF 
+        _cQry += " 				ZJ_PESOCAM,ZJ_TARACA1,ZJ_TARACAM,ZJ_PESCAM2, ZJ_MEDNF,ZJ_TPPES " + CRLF 
+        _cQry += " 				, STRING_AGG(ZSG_LOTE, ', ') WITHIN GROUP (ORDER BY  ZSG_LOTE) AS ZSG_LOTE " + CRLF 
+        _cQry += " 				, SUM(ZSG_QUANT) ZSG_QUANT " + CRLF 
+        _cQry += " 	FROM		DADOS  " + CRLF 
+        _cQry += " 	GROUP BY	ZJ_FILIAL, ZJ_CODIGO, ZJ_ITEM,  " + CRLF 
+        _cQry += " 				ZJ_PESOCAM,ZJ_TARACA1,ZJ_TARACAM,ZJ_PESCAM2, ZJ_MEDNF,ZJ_TPPES " + CRLF 
+        _cQry += " ) " + CRLF 
+        _cQry += "  " + CRLF 
+        _cQry += " SELECT		G.*, SUM(Z.ZJ_QTDNF) ZJ_QTDNF " + CRLF 
+        _cQry += " 		  , STRING_AGG(ZJ_DOC, ', ') WITHIN GROUP (ORDER BY  ZJ_DOC) AS ZJ_DOC " + CRLF 
+        _cQry += " FROM		GRUPO1 G " + CRLF 
+        _cQry += "        JOIN " + RetSqlName("SZJ") + " Z ON Z.ZJ_FILIAL=G.ZJ_FILIAL " + CRLF 
+        _cQry += " 					AND Z.ZJ_CODIGO=G.ZJ_CODIGO " + CRLF 
+        _cQry += " 					AND Z.D_E_L_E_T_=' ' " + CRLF 
+        _cQry += " -- WHERE	    G.ZJ_FILIAL+G.ZJ_CODIGO = '" + _cFilial + _cCodigo + "'  " + CRLF 
+        _cQry += " GROUP BY	G.ZJ_FILIAL , G.ZJ_CODIGO , G.ZJ_ITEM,  " + CRLF 
+        _cQry += " 		    ZSG_LOTE, " + CRLF 
+        _cQry += " 		    ZSG_QUANT, " + CRLF 
+        _cQry += " 			G.ZJ_PESOCAM,G.ZJ_TARACA1,G.ZJ_TARACAM,G.ZJ_PESCAM2,G.ZJ_MEDNF,G.ZJ_TPPES"
+
+		MpSysOpenQuery(_cQry,_cTEMP)
 
 	/* 
 	If cTipo == "NFs"
@@ -1930,8 +1913,6 @@ Local _cQry  := ""
     */
 // Return cRet
 Return !(_cTEMP)->(Eof())
-
-
 /* 
 	MB: 23.12.2021
 		Consulta Antiga: F2CHV 
