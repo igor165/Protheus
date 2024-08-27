@@ -4570,6 +4570,12 @@ User Function Registrar( oModel )
 		aColsDet[len(aColsDet), nPRaca] := AllTrim(aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_RACA"})])   // AllTrim(posicione("SB1", 1, xFilial("SB1")+aColsDet[len(aColsDet), nPProd], "B1_XRACA"))
 	EndIf
 
+	If nRadDent >= 2
+		aColsDet[len(aColsDet), nPDent] := Left(oRadDent:aItems[nRadDent],1)
+	Else
+		aColsDet[len(aColsDet), nPDent] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_DENTIC"})] // "0"
+	EndIf
+
 	cLote := ""
 	cCurral := ""
 

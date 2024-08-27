@@ -242,6 +242,7 @@ Static function MrkLotes(lAdd)
 	Private cArm       := Space(TamSX3("B8_LOCAL")[1])// GetMV("JR_ARMPADM",,"05")
 	Private cTpMov     := ""
 	Private cTpAgr     := ""
+	Private cTpCom     := ""
 
 	If IsInCallStack( 'MATA103' )
 		Alert("Esta operação não pode ser realizada neste modo de edição.")
@@ -369,6 +370,7 @@ Static function MrkLotes(lAdd)
 		TSay():New(nLinAtu, nE/* 82+(162*2) */,{||'Tipo: '},oDlgMrk,,,,,,.T.,,,60,10)
 		aTpCom := TComboBox():New(nLinAtu-1, nE+nPad+15/* 110+(162*2) */,{|u|If(PCount()>0,cTpCom:=u,cTpCom)}, aTpCom,;
 			65,10,oDlgMrk,,/*{||Alert('Mudou item da combo')}*/,,,,.T.,,,,,,,,,'cTpCom')
+			
 	else
 		nLinAtu += nTamLin
 	EndIf
