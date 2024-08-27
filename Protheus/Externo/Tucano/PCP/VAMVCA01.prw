@@ -364,11 +364,11 @@ Static function MrkLotes(lAdd)
 		@ nLinAtu-1, nD+nPad/* 270+162 */ MSGET oArm VAR cArm PICTURE "@!" VALID iIf(Empty(cArm), .T., /* !vazio() .and. */ ExistCPO("NNR")) F3 "NNR" ;
 			SIZE 030, nTamLin/2 OF oDlgMrk PIXEL
 
-		nE := (nD+nPad) + nPad + 90
+		nE := (nD+nPad) + nPad + 30
 		aTpCom := {"S=Sequestro","C=Confinamento"}
-		cTpCom := aTpCom[2]
+		cTpCom := aTpCom[1]
 		TSay():New(nLinAtu, nE/* 82+(162*2) */,{||'Tipo: '},oDlgMrk,,,,,,.T.,,,60,10)
-		aTpCom := TComboBox():New(nLinAtu-1, nE+nPad+15/* 110+(162*2) */,{|u|If(PCount()>0,cTpCom:=u,cTpCom)}, aTpCom,;
+		aTpCom := TComboBox():New(nLinAtu-1, nE+15/* 110+(162*2) */,{|u|If(PCount()>0,cTpCom:=u,cTpCom)}, aTpCom,;
 			65,10,oDlgMrk,,/*{||Alert('Mudou item da combo')}*/,,,,.T.,,,,,,,,,'cTpCom')
 			
 	else
@@ -1277,7 +1277,7 @@ oStruZ0D:AddTrigger(aAuxZ0D7[1], aAuxZ0D7[2], aAuxZ0D7[3], aAuxZ0D7[4])
 // MB : 04.01.2017
 
 //bVldAUX := FWBuildFeature( STRUCT_FEATURE_WHEN,;
-		"FwFldGet('Z0C_TPMOV')$'6'" ) // "FwFldGet('Z0C_TPMOV')$'123'" )
+//		"FwFldGet('Z0C_TPMOV')$'6'" ) // "FwFldGet('Z0C_TPMOV')$'123'" )
 	oStruZ0E:SetProperty('Z0E_PROD', MODEL_FIELD_WHEN, bVldAUX)
 
 

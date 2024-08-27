@@ -1551,7 +1551,7 @@ Static Function ProcGrid( oModel, oView)
 	Local oQryCache   := nil
 	Local oQryMP   	  := nil
 	Local cCntScalar  := 0
-
+	
 	Private oGridZ0D  := nil
 	Private oGridZ0E  := nil
 	Private aOrigens  := {}
@@ -4176,13 +4176,13 @@ User Function SalvarRange()
 	Local lVldLot 	:= .F.
 	//Local cLotAnt 	:= oGetDadRan:aCols[ oGetDadRan:nAt, 4]
 
-	For nI := 1 To Len(aColsDes)
-		if oGetDadRan:aCols[ oGetDadRan:nAt, 4] == aColsDes[nI,3]  // /*Lote*/
-			MsgInfo("lote não pode ser, pois esse lote já está cadastrado na grid [Pesagens Realizadas] na Linha: "+AllTrim(Str(nI))+".",;
-					"Operação Cancelada")
-			Return .F.
-		endif 
-	Next nI 
+	//For nI := 1 To Len(aColsDes)
+	//	if oGetDadRan:aCols[ oGetDadRan:nAt, 4] == aColsDes[nI,3]  // /*Lote*/
+	//		MsgInfo("lote não pode ser, pois esse lote já está cadastrado na grid [Pesagens Realizadas] na Linha: "+AllTrim(Str(nI))+".",;
+	//				"Operação Cancelada")
+	//		Return .F.
+	//	endif 
+	//Next nI 
 
 	If !U_vldRanges(.F.)
 	    RestArea(aArea)
