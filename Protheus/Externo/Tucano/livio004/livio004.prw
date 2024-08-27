@@ -748,7 +748,7 @@ Private nZSGTot := Len(oZSGGtDad:aCols)
 
 	// oZSGGtDad:oBrowse:nColPos : Pegar Posição das Colunas
 	If ( oZSGGtDad:oBrowse:nColPos == nPZSGLOTE ) .OR. ( oZSGGtDad:oBrowse:nColPos == nPZSGPRODUT )
-		
+
 		oZSGGtDad:aCols[ oZSGGtDad:nAt, nPZSGPRDDES ] := Posicione('SB1', 1, xFilial('SB1')+oZSGGtDad:aCols[ oZSGGtDad:nAt, nPZSGPRODUT ], 'B1_DESC')
 
 	ElseIf ( oZSGGtDad:oBrowse:nColPos == nPZSGQUANT )
@@ -1103,7 +1103,8 @@ User Function fPegaPeso(nOpc)
 			If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS1] == 0 .or.;
 				oSZJGtDad:aCols[nLinha,nPZJTR2] == 0 .or. oSZJGtDad:aCols[nLinha,nPZJPS2] == 0 
 				
-				AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+				//AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+				nPeso := 10
 				if nPeso > 0
 					If oSZJGtDad:aCols[nLinha,nPZJTR1] == 0 // PRIMEIRA TARA
 						oSZJGtDad:aCols[nLinha,nPZJTR1] := nPeso 
@@ -1135,7 +1136,7 @@ User Function fPegaPeso(nOpc)
 						oSZJGtDad:aCols[nLinha,nPZJDATA4] := Date()
 						oSZJGtDad:aCols[nLinha,nPZJHORA4] := Time()
 
-						oSZJGtDad:aCols[nLinha,nPZJPEMAN2] := iif(lPesagManu,"M","A")
+						oSZJGtDad:aCols[nLinha,nPZJPEMAN4] := iif(lPesagManu,"M","A")
 					EndIf
 				endif
 			Else
@@ -1149,7 +1150,8 @@ User Function fPegaPeso(nOpc)
 						endif
 
 						if MV_PAR01 == "1"
-							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							//AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							nPeso := 10
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJTR1] 	:= nPeso
 								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((nPeso + oSZJGtDad:aCols[nLinha,nPZJTR2]) - ;
@@ -1159,7 +1161,8 @@ User Function fPegaPeso(nOpc)
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN1] 	:= iif(lPesagManu,"M","A")
 							EndIf
 						elseif MV_PAR01 == "2"
-							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							//AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							nPeso := 20
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJTR2] 	:= nPeso
 								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((nPeso + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
@@ -1169,7 +1172,8 @@ User Function fPegaPeso(nOpc)
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN3] 	:= iif(lPesagManu,"M","A")
 							EndIf
 						elseif MV_PAR01 == "3"
-							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							//AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							nPeso := 30
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
 								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
@@ -1179,7 +1183,8 @@ User Function fPegaPeso(nOpc)
 								oSZJGtDad:aCols[nLinha,nPZJPEMAN2] 	:= iif(lPesagManu,"M","A")
 							EndIf
 						elseif MV_PAR01 == "4"
-							AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							//AGRX003A( @nPeso, .t., aParBal, /*cMask*/,@lPesagManu, nPeso1, nPeso2, nOpcA )
+							nPeso := 40
 							if nPeso > 0
 								oSZJGtDad:aCols[nLinha,nPZJPS1] 	:= nPeso
 								oSZJGtDad:aCols[nLinha,nPZJPESOL]	:= abs((oSZJGtDad:aCols[nLinha,nPZJTR2] + oSZJGtDad:aCols[nLinha,nPZJTR1]) - ;
