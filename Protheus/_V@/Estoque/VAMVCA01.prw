@@ -1305,12 +1305,14 @@ User Function NewLotes( __cCampo )
 	Local cAux		 := ""
 
 	If oModel:nOperation == 4 .and. FWFldGet("Z0C_TPMOV") <> '4'
-
-		IF oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESINI"})] == 0 .or.;
-		   oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESFIM"})] == 0
-			MsgInfo("Informe o Peso Inicial e o Peso Final antes de informar o Lote")
-			Return nil
-		ENDIF
+		
+		if Type("oGetDadRan") != "U"
+			IF oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESINI"})] == 0 .or.;
+			oGetDadRan:aCols[ oGetDadRan:oBrowse:nAt, aScan( aHeadRan, { |x| AllTrim(x[2]) == "ZV2_PESFIM"})] == 0
+				MsgInfo("Informe o Peso Inicial e o Peso Final antes de informar o Lote")
+				Return nil
+			ENDIF
+		endif
 
 		If IsInCallStack( "Selecao" )
 			cAux := &(ReadVar())
