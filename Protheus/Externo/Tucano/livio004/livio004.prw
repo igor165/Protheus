@@ -1627,7 +1627,7 @@ Static Function fImpTicket( lEnd )
 			_nPesoCam      := (_cTEMP)->ZJ_PESOCAM
 		elseif (_cTEMP)->ZJ_TPPES == 'D'
 			_nTaraCam      := (_cTEMP)->ZJ_TARACAM + (_cTEMP)->ZJ_TARACA1
-			_nPesoCam      := (_cTEMP)->(ZJ_PESOCAM + ZJ_PESCAM2)
+			_nPesoCam      := (_cTEMP)->ZJ_PESOCAM + (_cTEMP)->ZJ_PESCAM2
 		endif
 	EndIf
 	fQuadro(1)
@@ -1733,21 +1733,18 @@ Static Function fQuadro( nQuadro )
 
     // oPrinter:Say ( nRow         , nColLabel+nCol3, "Baia........:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
     // oPrinter:Say ( nRow         , nColInfo+nCol3 , iIf(INCLUI, M->ZJ_BAIA, SZJ->ZJ_BAIA)/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-
+	cAux := AllTrim(Transform( iIf(INCLUI, M->ZJ_PESOCAM + M->ZJ_PESCAM2, SZJ->ZJ_PESOCAM + SZJ->ZJ_PESCAM2), X3Picture("ZJ_PESOCAM") ) )
     oPrinter:Say ( nRow+=nTamLin, nColLabel, "Peso Entrada...:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-    // oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( nZJPESOCAM, X3Picture("ZJ_TARACAM") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	//oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( _nTaraCam, X3Picture("ZJ_TARACAM")))/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-    oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( iIf(INCLUI, M->ZJ_PESOCAM, SZJ->ZJ_PESOCAM), X3Picture("ZJ_TARACAM") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+    oPrinter:Say ( nRow         , nColInfo ,  cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
     If !Empty(StrTran(DtoC(iIf(INCLUI, M->ZJ_DATA2, SZJ->ZJ_DATA2)),"/","")+StrTran(iIf(INCLUI, M->ZJ_HORA2, SZJ->ZJ_HORA2),":",""))
         cAux := DtoC(iIf(INCLUI, M->ZJ_DATA1, SZJ->ZJ_DATA1))+" - "+SubS(iIf(INCLUI, M->ZJ_HORA1, SZJ->ZJ_HORA1),1,5)
         oPrinter:Say ( nRow         , nColInfo+nCol3, cAux /*cText>*/, oFInfo /*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
     EndIf
 
+	cAux := AllTrim(Transform( iIf(INCLUI, M->ZJ_TARACAM + M->ZJ_TARACA1, SZJ->ZJ_TARACAM + SZJ->ZJ_TARACA1), X3Picture("ZJ_TARACAM") ) )
     oPrinter:Say ( nRow+=nTamLin, nColLabel, "Peso Saida.....:"/*cText>*/, oFLabel/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-    // oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( nZJTARACAM, X3Picture("ZJ_TARACAM") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-    oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( iIf(INCLUI, M->ZJ_TARACAM, SZJ->ZJ_TARACAM), X3Picture("ZJ_TARACAM") ) )/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
-	//oPrinter:Say ( nRow         , nColInfo ,  AllTrim(Transform( _nPesoCam, X3Picture("ZJ_PESOCAM")))/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
+    oPrinter:Say ( nRow         , nColInfo ,  cAux/*cText>*/, oFInfo/*oFont*/, /*nWidth*/, /*nClrText*/, /*nAngle*/ )
 
     If !Empty(StrTran(DtoC(iIf(INCLUI, M->ZJ_DATA2, SZJ->ZJ_DATA2)),"/","")+StrTran(iIf(INCLUI, M->ZJ_HORA2, SZJ->ZJ_HORA2),":",""))
         cAux := DtoC(iIf(INCLUI, M->ZJ_DATA2, SZJ->ZJ_DATA2))+" - "+SubS(iIf(INCLUI, M->ZJ_HORA2, SZJ->ZJ_HORA2),1,5)

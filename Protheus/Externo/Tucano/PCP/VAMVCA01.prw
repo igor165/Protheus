@@ -1092,12 +1092,12 @@ Return cRetorno
 
 User Function TgLocZ0E() // trigger
 	local oModel     := FWModelActive()
-	Local oDadZ0C   := oModel:GetModel( 'Z0CMASTER' )
+	Local oDadZ0C    := oModel:GetModel( 'Z0CMASTER' )
 	// Local oGridZ0D   := oModel:GetModel( 'Z0DDETAIL' )
 	//Local oGridZ0E   := oModel:GetModel( 'Z0EDETAIL' )
 	//Local cCurral    := AllTrim(FwFldGet( 'Z0E_CURRAL' ))
 	//Local cProd      := AllTrim(FwFldGet( 'Z0E_PROD' ))
-	//Local cLocal     := ""
+	Local cLocal     := ""
 
 	//dbSelectArea("SB1")
 	//dbSetOrder(1)
@@ -1119,7 +1119,6 @@ User Function TgLocZ0E() // trigger
 		cLocal := "06"
 	EndIf
 	//oGridZ0E:LoadValue("Z0E_CURRAL", cLocal)
-
 
 Return cLocal
 
