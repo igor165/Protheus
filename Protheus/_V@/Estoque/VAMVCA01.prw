@@ -3744,8 +3744,8 @@ static function Selecao(oModel, oView)
 	oGet1 := TGet():New( nLinAtu, (nRight)/4 - 80, { | u | If( PCount() == 0, nPeso, nPeso := u ) },oDlgPsg, 160, 030, "@E 9,999.999",,,,,.F.,,.T.,,.F.,,.F.,.F.,,.F.,.F. ,,"nPeso")
 	oGet1:SetCss("QLineEdit{ color: #000; font-weight: bold; font-size: 24pt}")
 
-	oTButton2 := TButton():New( nLinAtu + nTamLin*2+5, (nRight)/4 - 80, "Pesar" ,oDlgPsg,{|| FWMsgRun(, {|| wsBalanca := TWsBalanca():New(), nPeso := wsBalanca:CallPesar(), nPesBal := nPeso }, "Processando", "Obtendo peso da balanca...") }, 55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F. )
-	oTButton2:SetCss("QPushButton{ background: #000; margin: 2px; font-weight: bold; }")
+	oTButton2 := TButton():New( nLinAtu + nTamLin*2+5, (nRight)/4 - 80, "Pesar" ,oDlgPsg,{|| FWMsgRun(, {|| nPeso := U_MA01BAL() }, "Processando", "Obtendo peso da balanca...") }, 55, nTamLin+4,,,.F.,.T.,.F.,,.F.,,,.F. )
+	//oTButton2:SetCss("QPushButton{ background: #000; margin: 2px; font-weight: bold; }")
 
 	oTButton3 := TButton():New( nLinAtu + nTamLin*2+5, (nRight)/4 - 25, "Registrar", oDlgPsg,;
 		{|| FWMsgRun(, {|| U_Registrar( oModel /* oGetDadDet:aCols */) },;
@@ -3820,7 +3820,7 @@ static function Selecao(oModel, oView)
 	If oModel:nOperation <> 4
 		SetKey(VK_F5, {|| FWMsgRun(, {|| U_AtualizaZ0F(.T.) }, "Atualizando", "Buscando pesagens...") })
 	EndIf
-	SetKey(VK_F10, {|| FWMsgRun(, {|| wsBalanca := TWsBalanca():New(), nPeso := wsBalanca:CallPesar(), nPesBal := nPeso }) })
+	SetKey(VK_F10, {|| FWMsgRun(, {|| nPeso := U_MA01BAL() }) })
 	SetKey(VK_F11, {|| FWMsgRun(, {|| U_Registrar( oModel /* oGetDadDet:aCols */) }, "Processando", "Gravando peso no movimento...") })
 
 	Activate dialog oDlgPsg centered
@@ -5088,51 +5088,60 @@ User Function SalvarGeral( oModel, oView )
 	ConOut('Fim: SalvarGeral')
 
 Return .T.
+User Function MA01BAL()
+ 	Local nPesoRet := 150
 
+    Local nH        := 0
+    Local nPos      := 0
+    Local cBuffer   := ""
+    Local nCont  	:= 0
 
-class TWsBalanca from TObject
-	data oRestClient
-	data cUrl
-	data aHeader
+    Local cBPorta  := GetMV("MB_CU_TPOR",, "COM3") //Porta
+    Local cBVeloc  := GetMV("MB_CU_TVEL",, "115200") //Velocidade
+    Local cBParid  := GetMV("MB_CU_TPAR",, "S") //Paridade
+    Local cBBits   := GetMV("MB_CU_TBIT",, "7") //Bits
+    Local cBStop   := GetMV("MB_CU_TSTO",, "1") //Stop Bit
 
-	method New() constructor
-	method CallPesar()
-endClass
+    Local cCfg     := cBPorta+":"+cBVeloc+","+cBParid+","+cBBits+","+cBStop
 
-method New(cUrl) class TWsBalanca
-	Default cUrl := SuperGetMV("MV_XWSBAL",,"http://192.168.0.230:8080")
+    //Guarda resultado se houve abertura da porta
+    Local lRet     := msOpenPort(@nH,cCfg)
 
-	::aHeader := {}
-	::cUrl := cUrl
-	::oRestClient := FWRest():New(::cUrl)
+    //Se não conseguir abrir a porta, mostra mensagem e finaliza
+    If(!lRet)
+        //Se for barra, tentar na confiança, depois na jundiai
+        MsgStop("<b>Falha</b> ao conectar com a porta serial. Detalhes:"+;
+            "<br><b>Porta:</b> "        +cBPorta+;
+            "<br><b>Velocidade:</b> "    +cBVeloc+;
+            "<br><b>Paridade:</b> "        +cBParid+;
+            "<br><b>Bits:</b> "            +cBBits+;
+            "<br><b>Stop Bits:</b> "    +cBStop,"Atenção")
+        cLido := 0
 
-Return
+    Else
+        msWrite(nH,Chr(5))
+        Sleep(1000)
 
-method CallPesar() class TWsBalanca
-	local nPesoWs := 0
+        //Lendo os dados
+        While (Empty(cBuffer) .AND. nCont < 50)
+            msRead(nH,@cBuffer)
+            nCont++
+        EndDo
+        msClosePort(nH,cCfg)
 
-	conOut("REALIZANDO INTEGRACAO COM WEBSERVICE DA BALANCA")
-	cPath := "/pesar"
+        memoWrite( "C:\temp\pesagem_" + StrTran( Time(), ":", "" ) + ".txt", cBuffer )
 
-	conOut("Requisicao: " + cPath)
+        if !Empty(cBuffer) .and. (nPos:=At( "kg", cBuffer )) > 0
 
-	::oRestClient:setPath(cPath)
-	If ::oRestClient:Get(::aHeader)
-		cJson :=  ::oRestClient:GetResult()
+            // Alert("Peso Lido: "+cValToChar(cBuffer))
+            cBuffer := SubStr( cBuffer, 1, nPos-1 )
+            // Alert("Peso Lido Cortado: "+cValToChar(cBuffer))
+            nPesoRet := Val( cBuffer )
+            //Alert("Peso Lido Convertido: "+cValToChar(nPesoRet))
+        EndIf
 
-		Private aObj := {}
-		If FWJsonDeserialize(cJson,@aObj)
-
-			If valtype(aObj) == "O"
-				nPesoWs := val(aObj:peso) / 1000
-			EndIf
-
-		EndIf
-	Else
-		ConOut("GET", ::oRestClient:GetLastError())
-	EndIf
-
-Return nPesoWs
+    EndIf
+Return nPesoRet
 
 /*	MB : 12.05.2020
 	# Funcç£¯ para validar a repetiç£¯ dos dados, definindo a permisã¯ da continuidade da função;

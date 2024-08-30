@@ -968,6 +968,7 @@ User Function I08PROC()
 
 			cQry := "select * from "+RetSqlName("ZVJ")+" " + CRLF
 			cQry += " WHERE ZVJ_CODIGO = '"+ZVG->ZVG_CODIGO+"' " + CRLF
+			cQry += " AND ZVJ_FILIAL = '"+ZVG->ZVG_FILIAL+"' "
 			cQry += " AND D_E_L_E_T_ = '' "
 
 			mpSysOpenQuery(cQry, cAlias)
@@ -982,7 +983,7 @@ User Function I08PROC()
 					Z02->Z02_VERSAO := "000001"
 					Z02->Z02_EQUIP  := ""
 				Z02->(MSUnlock())
-			endif 
+			endif
 
 			//nRecZ02 := Z02->(Recno())
 
@@ -1038,42 +1039,6 @@ User Function I08PROC()
 			RecLock("ZVG",.F.)
 				ZVG->ZVG_STATUS := "M"	
 			ZVG->(MsUnLock())
-
-			////Atualiza Processamento Trato
-			//cQryUpd := " UPDATE " + RetSqlName("Z0W") + CRLF
-			//cQryUpd += " SET Z0W_DATPRC = '" + DTOS(Date()) + "'" + CRLF
-			//cQryUpd += "   , Z0W_HORPRC = '" + SUBSTR(TIME(), 1, 5) + "'" + CRLF
-			//cQryUpd += " WHERE Z0W_FILIAL = '" + fwxFilial("Z0W") + "'" + CRLF
-			//cQryUpd += "   AND D_E_L_E_T_ = ' ' " + CRLF
-			//cQryUpd += "   AND Z0W_CODEI = '" + aParRet[2] + "'" + CRLF
-			//cQryUpd += "   AND Z0W_CONFER = 'T' "
-			//cQryUpd += "   AND Z0W_DATPRC = '' "
-			//
-			//If (TCSqlExec(cQryUpd) < 0)
-			//	DisarmTransaction()
-			//	Break
-			//	//MsgInfo(TCSqlError())
-			//EndIf
-			//
-			//cQryCfr := " SELECT * " + CRLF
-			//cQryCfr += " FROM " + RetSqlName("Z0W") + " Z0W " + CRLF
-			//cQryCfr += " WHERE Z0W.Z0W_FILIAL = '" + fwxFilial("Z0W") + "'" + CRLF
-			//cQryCfr += "   AND Z0W.D_E_L_E_T_ = ' ' " + CRLF
-			//cQryCfr += "   AND Z0W.Z0W_CODEI = '" + ZVG->ZVG_CODIGO + "'" + CRLF
-			//cQryCfr += "   AND Z0W.Z0W_DATPRC = ' ' " + CRLF
-			//
-			//TCQUERY cQryCfr NEW ALIAS "QRYCFR"
-			//
-			//If (QRYCFR->(EOF()))
-			//	RecLock("Z0X", .F.)
-			//		ZVG->ZVG_STATUS := "P"
-			//	Z0X->(MSUnlock())
-			//Else
-			//	RecLock("Z0X", .F.)
-			//		ZVG->ZVG_STATUS := "B"
-			//	Z0X->(MSUnlock())
-			//EndIf
-			//QRYCFR->(DBCloseArea())
 		End Transaction
 	endif 
 

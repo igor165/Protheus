@@ -58,18 +58,18 @@ User Function zLeBalanca()
     Local nAux      := 0
     Local nX        := 0
     Local cPesoLido := ""
+    Local cLido     := ""
     Default cMarca  := ""
      
     //Se houver marca
     //Pegando a porta padrão da balança
-    cPorta    := SuperGetMV("MV_X_PORTA",.F.,"COM1")
-    
-    cVelocid  := SuperGetMV("MV_X_VELOC", .F.,"115200")    //Velocidade
-    cParidade := SuperGetMV("MV_X_PARID", .F.,"N")       //Paridade
-    cBits     := SuperGetMV("MV_X_BITS",  .F.,"8")       //Bits
-    cStopBits := SuperGetMV("MV_X_SBITS", .F.,"1")       //Stop Bit
-    cFluxo    := SuperGetMV("MV_X_FLUXO", .F.,"")        //Controle de Fluxo
-    nTempo    := SuperGetMV("MV_X_TEMPO", .F.,5)         //Tempo
+    cPorta    := "COM3" //SuperGetMV("MV_X_PORTA",.F.,"COM3")
+    cVelocid  := "9600" //SuperGetMV("MV_X_VELOC", .F.,"9600")    //Velocidade
+    cParidade := "N"    //SuperGetMV("MV_X_PARID", .F.,"N")       //Paridade
+    cBits     := "8"    //SuperGetMV("MV_X_BITS",  .F.,"8")       //Bits
+    cStopBits := "1"    //SuperGetMV("MV_X_SBITS", .F.,"1")       //Stop Bit
+    cFluxo    := ""     //SuperGetMV("MV_X_FLUXO", .F.,"")        //Controle de Fluxo
+    nTempo    := 5      //SuperGetMV("MV_X_TEMPO", .F.,5)         //Tempo
     
     //Montando a configuração (Porta:Velocidade,Paridade,Bits,Stop)
     cConfig := cPorta+":"+cVelocid+","+cParidade+","+cBits+","+cStopBits

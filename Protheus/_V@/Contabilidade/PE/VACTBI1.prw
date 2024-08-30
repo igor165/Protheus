@@ -43,7 +43,7 @@ User Function VACTBI1()
 	aAdd(aHeadMrk,{ "Empresa", "cEmpresa"	, "@!"	, 2	, 0, "AllwaysTrue()",.T., "C", "", "V" } )
 	aAdd(aHeadMrk,{ "Filial" , "cFilial"	, "@!"	, 7	, 0, "AllwaysTrue()",.T., "C", "", "V" } )
 	aAdd(aHeadMrk,{ "Nome"	 , "cNome"	    , "@!"	, 50, 0, "AllwaysTrue()",.T., "C", "", "V" } )
-	aAdd(aHeadMrk,{ "CC"	 , "cCC"	    , "@!"	, 10, 0, "AllwaysTrue()",.T., "C", "", "V" } )
+	aAdd(aHeadMrk,{ "CC"	 , "cCC"	    , "@!"	, 10, 0, "AllwaysTrue()",.T., "C", "", "V" } ) 
 	
     nUsadMrk := len(aHeadMrk)
 
