@@ -19,7 +19,19 @@ namespace Projeto_03
 
         private void button1_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("Teste");
+            string cUserName = textBox1.Text.Trim().ToLower();
+            string cPassWord = textBox2.Text;
+
+            if (cUserName == ""){
+                MessageBox.Show("Usuário inválido");
+            }
+            else if (cPassWord == "") {
+                MessageBox.Show("Senha inválida");
+            }
+            else {
+                MessageBox.Show("Passou!");
+            }
+
         }
     }
 }

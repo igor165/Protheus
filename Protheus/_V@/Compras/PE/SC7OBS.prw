@@ -33,7 +33,7 @@ Local cC7Obs	:= ""
 			Endif
 		Endif
 		QSC7->(dbSkip())
-	EndDo          
+	EndDo
 	
 	QSC7->(DbCloseArea())
 

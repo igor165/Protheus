@@ -876,74 +876,78 @@ User Function TgLotZ0E() // trigger
 	Local cLote      := AllTrim(FwFldGet( 'Z0E_LOTE' ))
 	Local nRegistros := 0
 	Local cAux       := ""
+	Local cQry		 := ""
+	Local cAlias	 := GetNextAlias()
+	Local cAlias1	 := ""
 
 	oGridZ0E:LoadValue('Z0E_PROD'  , U_ProxProd() )
 	cAux := Left(POSICIONE('SB1', 1, xFilial('SB1')+FwFldGet('Z0E_PROD'), 'B1_DESC'), TamSX3('Z0E_DESC')[1])
 	oGridZ0E:LoadValue('Z0E_DESC'  , cAux )
 
  // SELECT B8_DIASCO, B8_XRENESP, B8_GMD
-	BeginSQL alias "TMP"
-		SELECT B8_LOTECTL, B8_X_CURRA, MIN(B8_XDATACO), B8_XPESOCO
-			, AVG(B8_XPESTOT) B8_XPESTOT
-			, COUNT(DISTINCT B8_XDATACO) QTD
-			, SUM(B8_SALDO) SALDO
-		FROM   %table:SB8% SB8 
-		WHERE B8_FILIAL = %xFilial:SB8%
-		AND B8_LOTECTL  = %exp:cLote%
-		AND B8_SALDO > 0 
-		AND B8_XDATACO<>' '
-		AND SB8.D_E_L_E_T_= ' '
-		GROUP BY B8_LOTECTL, B8_X_CURRA,  B8_XPESOCO
-	EndSQL
-	TMP->(DbEval({|| nRegistros++ }))
-	TMP->(DbGoTop())
+	cQry := " SELECT B8_LOTECTL, B8_X_CURRA, MIN(B8_XDATACO), B8_XPESOCO " + CRLF
+	cQry += "		, AVG(B8_XPESTOT) B8_XPESTOT " + CRLF
+	cQry += "		, COUNT(DISTINCT B8_XDATACO) QTD " + CRLF
+	cQry += "		, SUM(B8_SALDO) SALDO " + CRLF
+	cQry += "	FROM   "+RetSqlName("SB8")+" SB8  " + CRLF
+	cQry += "	WHERE B8_FILIAL = '"+xFilial("SB8")+"' " + CRLF
+	cQry += "	AND B8_LOTECTL  = '"+cLote+"' " + CRLF
+	cQry += "	AND B8_SALDO > 0  " + CRLF
+	cQry += "	AND B8_XDATACO<>' ' " + CRLF
+	cQry += "	AND SB8.D_E_L_E_T_= ' ' " + CRLF
+	cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA,  B8_XPESOCO " + CRLF
 
-	If !TMP->(Eof())
-		oGridZ0E:LoadValue('Z0E_CURRAL', TMP->B8_X_CURRA )
+	MpSysOpenQuery(cQry,cALias)
+	
+	(cALias)->(DbEval({|| nRegistros++ }))
+	(cALias)->(DbGoTop())
+
+	If !(cALias)->(Eof())
+		oGridZ0E:LoadValue('Z0E_CURRAL', (cALias)->B8_X_CURRA )
 	EndIf
 
-	If TMP->QTD == 1// If nRegistros == 1
-		oGridZ0E:LoadValue('Z0E_PESTOT', TMP->B8_XPESTOT       )
-		oGridZ0E:LoadValue('Z0E_DATACO', sToD(TMP->B8_XDATACO) )
-		// oGridZ0E:LoadValue('Z0E_GMD'   , TMP->B8_GMD           )
-		// oGridZ0E:LoadValue('Z0E_DIASCO', TMP->B8_DIASCO 	   )
-		// oGridZ0E:LoadValue('Z0E_RENESP', TMP->B8_XRENESP 	   )
-		oGridZ0E:LoadValue('Z0E_PESO'  , TMP->B8_XPESOCO       )
+	If (cALias)->QTD == 1// If nRegistros == 1
+		oGridZ0E:LoadValue('Z0E_PESTOT', (cALias)->B8_XPESTOT       )
+		oGridZ0E:LoadValue('Z0E_DATACO', sToD((cALias)->B8_XDATACO) )
+		oGridZ0E:LoadValue('Z0E_PESO'  , (cALias)->B8_XPESOCO       )
 		
 		// MB : 30.03.2021 => pega lote de origem para gatilhar os campos no destino
 		If Z0C->Z0C_TPMOV == '4' // Apartação
 			cLote        := FwFldGet('Z0D_LOTE')
 
-			// SELECT B8_DIASCO, B8_XRENESP, B8_GMD
-			BeginSQL alias "TMP_O"
-				SELECT B8_LOTECTL, B8_X_CURRA, MIN(B8_XDATACO), B8_XPESOCO
-					, AVG(B8_XPESTOT) B8_XPESTOT
-					, COUNT(DISTINCT B8_XDATACO) QTD
-					, SUM(B8_SALDO) SALDO
-				FROM   %table:SB8% SB8 
-				WHERE B8_FILIAL = %xFilial:SB8%
-				AND B8_LOTECTL  = %exp:cLote%
-				AND B8_SALDO > 0 
-				AND B8_XDATACO<>' '
-				AND SB8.D_E_L_E_T_= ' '
-				GROUP BY B8_LOTECTL, B8_X_CURRA,  B8_XPESOCO
-			EndSQL
-			TMP_O->(DbGoTop())
-			If !TMP_O->(Eof())
-				oGridZ0E:LoadValue('Z0E_PESO', TMP_O->B8_XPESOCO )
+			cAlias1 := GetNextAlias()
+
+			cQry := "SELECT B8_LOTECTL, B8_X_CURRA, MIN(B8_XDATACO), B8_XPESOCO " + CRLF
+			cQry += "		, AVG(B8_XPESTOT) B8_XPESTOT " + CRLF
+			cQry += "		, COUNT(DISTINCT B8_XDATACO) QTD " + CRLF
+			cQry += "		, SUM(B8_SALDO) SALDO " + CRLF
+			cQry += "	FROM   "+RetSqlName("SB8")+" SB8  " + CRLF
+			cQry += "	WHERE B8_FILIAL = '"+xFilial("SB8")+"' " + CRLF
+			cQry += "	AND B8_LOTECTL  = '"+cLote+"' " + CRLF
+			cQry += "	AND B8_SALDO > 0  " + CRLF
+			cQry += "	AND B8_XDATACO<>' ' " + CRLF
+			cQry += "	AND SB8.D_E_L_E_T_= ' ' " + CRLF
+			cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA,  B8_XPESOCO " + CRLF
+			
+			MpSysOpenQuery(cQry,cAlias1) 
+
+			(cALias1)->(DbGoTop())
+			If !(cALias1)->(Eof())
+				oGridZ0E:LoadValue('Z0E_PESO', (cALias1)->B8_XPESOCO )
 			EndIf
-			TMP_O->(dbCloseArea())
+
+			(cALias1)->(dbCloseArea())
 		EndIf
 		
-	ElseIf TMP->QTD > 1
+	ElseIf (cALias)->QTD > 1
 		// msgAlert('Foram encontradas ' + cValToChar(nRegistros) + ' registros diferentes na tabela de lotes (SB8).')
 		//msgAlert('O lote: '+AllTrim(clote)+' possui animais com data de entrada diferentes, informe os campos manualmente: PESO APARTAÇÃO, DATA DE INICIO.')
 		msgAlert('O lote: '+AllTrim(clote)+' foi PROCESSADO EM MAIS DE 1 DATA, ANTES DE EFETIVAR FAVOR VALIDAR : PESO APARTAÇÃO, DATA DE INICIO.')
 
-		oGridZ0E:LoadValue('Z0E_DATACO', sToD(TMP->B8_XDATACO) )
-		oGridZ0E:LoadValue('Z0E_PESO'  , TMP->B8_XPESOCO       )
+		oGridZ0E:LoadValue('Z0E_DATACO', sToD((cALias)->B8_XDATACO) )
+		oGridZ0E:LoadValue('Z0E_PESO'  , (cALias)->B8_XPESOCO       )
 	EndIf
-	TMP->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
 	// POSIONAR NA Z0D de acordo com o produto
 	oGridZ0E:LoadValue('Z0E_RACA'  , FwFldGet('Z0D_RACA') )
@@ -973,38 +977,9 @@ Static Function TgRacZ0E()
 	Local oGridZ0E := oModel:GetModel( 'Z0EDETAIL' )
 	Local cRaca    := ""
 	Local cAux     := ""
-/* 
-	// MB : 09.06.2020
-	// 	# analise para definição do BOV utilizar
-	Local nBkpZ0D  := oGridZ0D:nLine
-	Local nBkpZ0E  := oGridZ0E:nLine
-	Local nD       := 0, nE := 0
-	Local nQuant   := 0
-	If _cProdMB <> FwFldGet('Z0D_PROD')
+	Local cQry		 := ""
+	Local cAlias	 := GetNextAlias()
 
-		_cProdMB := ""
-		For nD := 1 To oGridZ0D:Length()
-			oGridZ0D:GoLine( nD )
-			If !oGridZ0D:IsDeleted()
-				nQuant := 0
-				For nE := 1 To oGridZ0E:Length()
-					oGridZ0E:GoLine( nE )
-					If !oGridZ0E:IsDeleted()
-						If !Empty(FwFldGet('Z0D_PROD')) .and. !Empty(FwFldGet('Z0E_PROD')) .and.;
-							 FwFldGet('Z0D_PROD') == FwFldGet('Z0E_PROD')
-							nQuant += FwFldGet('Z0E_QUANT')
-							EndIf
-					EndIf
-				Next nE
-				If nQuant < FwFldGet('Z0D_QUANT')
-					_cProdMB := FwFldGet('Z0D_PROD')
-					exit
-				EndIf
-			EndIf
-		Next nD
-	EndIf
-	oGridZ0E:GoLine( nBkpZ0E ) // voltar sempre na posicao ... Z0E 
-*/
 	_cProdMB := ProxProd() // StaticCall(VAMVCA01, ProxProd)
 	If Empty(_cProdMB)
 		oGridZ0D:GoLine( nBkpZ0D )
@@ -1024,41 +999,36 @@ Static Function TgRacZ0E()
 
 	oGridZ0E:LoadValue('Z0E_LOTE'  , FwFldGet('Z0D_LOTE') )
 	// SELECT B8_DIASCO, B8_XRENESP, B8_GMD
-	BeginSQL alias "TMP"
-		SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO
-			 , AVG(B8_XPESTOT) B8_XPESTOT
-             , COUNT(*) QTD
-	         , SUM(B8_SALDO) SALDO
-		FROM   %table:SB8% SB8 
-		WHERE B8_FILIAL   = %xFilial:SB8%
-		  AND B8_PRODUTO  = %exp:_cProdMB%
-		  AND B8_LOTECTL  = %exp:FwFldGet('Z0D_LOTE')%
-		  AND B8_SALDO > 0 
-		  AND B8_XDATACO<>' '
-		  AND SB8.D_E_L_E_T_= ' '
-		GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO
-	EndSQL
 
-	If !TMP->(Eof())
+	cQry := "SELECT B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO " + CRLF
+	cQry += "		 , AVG(B8_XPESTOT) B8_XPESTOT " + CRLF
+    cQry += "         , COUNT(*) QTD " + CRLF
+	cQry += "         , SUM(B8_SALDO) SALDO " + CRLF
+	cQry += "	FROM   "+RetSqlName("SB8")+" SB8  " + CRLF
+	cQry += "	WHERE B8_FILIAL   = '"+xFilial("SB8")+"' " + CRLF
+	cQry += "	  AND B8_PRODUTO  = '"+_cProdMB+"'  " + CRLF
+	cQry += "	  AND B8_LOTECTL  = '"+FwFldGet('Z0D_LOTE')+"' " + CRLF
+	cQry += "	  AND B8_SALDO > 0  " + CRLF
+	cQry += "	  AND B8_XDATACO<>' ' " + CRLF
+	cQry += "	  AND SB8.D_E_L_E_T_= ' ' " + CRLF
+	cQry += "	GROUP BY B8_LOTECTL, B8_X_CURRA, B8_XDATACO, B8_XPESOCO " + CRLF
+
+	MpSysOpenQuery(cQry,cALias)
+
+	If !(cALias)->(Eof())
 		// If Z0C->Z0C_TPMOV == "5" // Re-Classificação
 		If Z0C->Z0C_TPMOV <> "2" // Apartação
-			oGridZ0E:LoadValue('Z0E_PESTOT', TMP->B8_XPESTOT   )
-			oGridZ0E:LoadValue('Z0E_PESO'  , TMP->B8_XPESOCO   )
+			oGridZ0E:LoadValue('Z0E_PESTOT', (cALias)->B8_XPESTOT   )
+			oGridZ0E:LoadValue('Z0E_PESO'  , (cALias)->B8_XPESOCO   )
 		EndIf
-		oGridZ0E:LoadValue('Z0E_DATACO', sToD(TMP->B8_XDATACO) )
-		//oGridZ0E:LoadValue('Z0E_GMD'   , TMP->B8_GMD           )
-		// oGridZ0E:LoadValue('Z0E_DIASCO', TMP->B8_DIASCO 	   )
-		//oGridZ0E:LoadValue('Z0E_RENESP', TMP->B8_XRENESP 	   )
-		oGridZ0E:LoadValue('Z0E_CURRAL', TMP->B8_X_CURRA )
+		oGridZ0E:LoadValue('Z0E_DATACO', sToD((cALias)->B8_XDATACO) )
+		oGridZ0E:LoadValue('Z0E_CURRAL', (cALias)->B8_X_CURRA )
 	Else
 		oGridZ0E:LoadValue('Z0E_CURRAL', u_SB8Curral( FwFldGet('Z0E_PROD'), FwFldGet('Z0E_LOTE')) ) // FwFldGet('Z0D_CURRAL') )
 	EndIf
-	TMP->(dbCloseArea())
+	(cALias)->(dbCloseArea())
 
-	// oGridZ0E:LoadValue('Z0E_RACA'  , FwFldGet('Z0D_RACA') )
 	oGridZ0E:LoadValue('Z0E_SEXO'  , FwFldGet('Z0D_SEXO') )
-	// oGridZ0E:LoadValue('Z0E_DENTIC', FwFldGet('Z0D_DENTIC') )
-	// oModel:CommitData()
 Return cRaca
 
 

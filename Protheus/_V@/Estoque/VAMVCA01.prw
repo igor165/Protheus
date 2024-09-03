@@ -2635,8 +2635,7 @@ User Function CancMvBv()
 	Local lRet    	:= .T.
 	Local nL      	:= 0
 	Local cQry    	:= ""
-	Local cAlias1  	:= ""
-	Local cAlias2  	:= ""
+	Local cAlias  	:= ""
 	Local cAlias3  	:= ""
 	Local cAlias4  	:= ""
 	Local __nPeso 	:= 0
@@ -2665,10 +2664,10 @@ User Function CancMvBv()
 						oQryC1:SetString(1,aSequen[nL])
 						cAlias := oQryC1:OpenAlias()
 
-						While !(cAlias1)->(Eof())
+						While !(cAlias)->(Eof())
 							
-							oQryC2:SetString(1,(cAlias1)->Z0E_LOTE)
-							oQryC2:SetString(2,(cAlias1)->Z0E_LOTE)
+							oQryC2:SetString(1,(cAlias)->Z0E_LOTE)
+							oQryC2:SetString(2,(cAlias)->Z0E_LOTE)
 							oQryC2:SetString(3,aSequen[nL])
 
 							__nPeso := oQryC2:ExecScalar("MED_ANT")
@@ -2677,7 +2676,7 @@ User Function CancMvBv()
 								cUpd := "update " + RetSQLName("SB8") + CRLF +;
 										"   set B8_XPESOCO = " + cValToChar( ROUND(__nPeso, 3) ) + CRLF +;
 										" where B8_FILIAL  = '" + FWxFilial("SB8")+ "'" + CRLF +;
-										"   and B8_LOTECTL = '" + AllTrim((cAlias1)->Z0E_LOTE)+ "'" + CRLF +;
+										"   and B8_LOTECTL = '" + AllTrim((cAlias)->Z0E_LOTE)+ "'" + CRLF +;
 										"   and B8_SALDO   > 0" + CRLF +;
 										"   and D_E_L_E_T_=' '"
 								If (TCSqlExec(cUpd) < 0)
@@ -2686,9 +2685,9 @@ User Function CancMvBv()
 									ConOut("Peso medio do lote atualizado com sucesso! " + Z0E->Z0E_CODIGO)
 								EndIf
 							EndIf
-							(cAlias1)->(DbSkip())
+							(cAlias)->(DbSkip())
 						EndDo
-						(cAlias1)->(DbCloseArea())
+						(cAlias)->(DbCloseArea())
 					EndIf	
 
 					// If undoTransf(aSequen[nL])
@@ -2730,7 +2729,7 @@ User Function CancMvBv()
 						EndDo
 						(cAlias4)->(dbCloseArea())
 
-						MsgInfo("Movimentos excluído com sucesso!", "OPERAÇƒO CONCLUÍ„A")
+						MsgInfo("Movimentos excluído com sucesso!", "OPERAÇÃO CONCLUIDA")
 					EndIf
 				Next
 
@@ -2875,9 +2874,9 @@ Static Function undoTransf(cSequen)
 
 	cQry := " select SD3.R_E_C_N_O_ REC" + CRLF 
 	cQry += "	from "+retSQLName("SD3")+" SD3" + CRLF 
-	cQry += "	where D3_FILIAL= '"+FWxFilial("SD3")+"" + CRLF 
+	cQry += "	where D3_FILIAL= '"+FWxFilial("SD3")+"'" + CRLF 
 	cQry += "	and D3_OBSERVA= '"+("MOV." + cDoc + "." + cSequen)+"'" + CRLF 
-	cQry += "	and D3_TM= '499' " + CRLF 
+	cQry += "	and D3_TM= '499' " + CRLF
 	cQry += "	and D3_ESTORNO<>'S' " + CRLF
 	cQry += "	and SD3.D_E_L_E_T_=' '" + CRLF 
 	
