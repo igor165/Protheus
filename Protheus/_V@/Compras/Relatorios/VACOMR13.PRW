@@ -29,6 +29,12 @@ User Function VACOMR13()
     Local nBakRow, nRowTotal:= 0
     Local nI := nJ := nX := 0
     Local nTamLin
+    Local cAlias1       := ""
+    Local cDoc    := ""
+    Local cFilDoc := ""
+    Local nValor  := 0
+    Local nTotal  := 0
+    Local __oQry        := nil
     Local cAlias        := GetNextAlias()
     Local aHeaderRel    := {"TRANSPORTADORA",;
                             "LOCAL",;
@@ -86,8 +92,22 @@ User Function VACOMR13()
                     SA2->(DBSELECTAREA("SA2"))
                     SA2->(DBSETORDER(1))
                     
+                    ZFI->(DBSELECTAREA("ZFI"))
+                    ZFI->(DBSETORDER(1)) // ZFI_FILIAL+ZFI_CODIGO+ZFI_PLACA
+                    
                     oExcel := FwPrinterXlsx():New()
                     oExcel:Activate(cArquivo)
+
+                    cQry := " SELECT ZFI_FILDOC " + CRLF
+                    cQry += "		,SUBSTRING(ZFI_DOC, PATINDEX('%[^0]%', ZFI_DOC), LEN(ZFI_DOC)) + '-' + SUBSTRING(ZFI_SERIE, PATINDEX('%[^0]%', ZFI_SERIE), LEN(ZFI_SERIE)) AS ZFI_DOC " + CRLF
+                    cQry += "		,ZFI_VALOR  " + CRLF
+                    cQry += " FROM "+RetSqlName("ZFI")+"  " + CRLF
+                    cQry += " WHERE ZFI_CODIGO = ? " + CRLF
+                    cQry += " AND ZFI_FILIAL = ? " + CRLF
+                    cQry += " AND ZFI_PLACA = ? " + CRLF
+                    cQry += " AND D_E_L_E_T_ = '' " + CRLF
+
+	                __oQry := FwExecStatement():New(cQry)
 
                     nTamTot := Len(aDados)
                     For nI := 1 to nTamTot
@@ -155,11 +175,36 @@ User Function VACOMR13()
                             oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_PEDAGI"})][2] )
                             oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_ICMSF"})][2] )
 
+                            __oQry:SetString(1,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_CODIGO"})][2])
+                            __oQry:SetString(2,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_FILIAL"})][2])
+                            __oQry:SetString(3,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_PLCVL"})][2])
+
+                            cAlias1 := __oQry:OpenAlias()
+                            cDoc    := ""
+                            cFilDoc := ""
+                            nValor  := 0
+                            nReg    := 1
+                            nTotal  := 0
+
+                            (cAlias1)->(DbEval({|| nTotal++ }))
+                            (cAlias1)->(DbGoTop())
+
+                            while !(cAlias1)->(EOF())
+
+                                cFilDoc += SubStr((cAlias1)->ZFI_FILDOC,6,2) + iif(nReg < nTotal," / ","")
+                                cDoc    += Alltrim((cAlias1)->ZFI_DOC) + iif(nReg < nTotal," / ","")
+                                nValor  += (cAlias1)->ZFI_VALOR
+                                nReg += 1
+                                (cAlias1)->(DBSKIP())
+                            EndDo
+
+                            (cAlias1)->(dbCloseArea())
+
                             oExcel:SetCellsFormatConfig(JFLeft)
-                            oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFI_FILDOC"})][2]) 
-                            oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFI_DOC"})][2] )
+                            oExcel:SetValue(nRow, ++nCol, cFilDoc ) 
+                            oExcel:SetValue(nRow, ++nCol, cDoc )
                             oExcel:SetCellsFormatConfig(jFMoeda)
-                            oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "F1_VALBRUT"})][2] )
+                            oExcel:SetValue(nRow, ++nCol, nValor )
 
                             oExcel:SetValue(nRow, ++nCol, aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_VCOMP"})][2] )
 
@@ -263,6 +308,11 @@ User Function VACOMR13()
                         
                     Next nI
                     
+                    IF __oQry <> NIL
+                        __oQry:Destroy()
+                        __oQry := Nil
+				    ENDIF 
+
                     SA2->(DBCLOSEAREA())
 
                     lRet := oExcel:toXlsx() 
@@ -310,6 +360,17 @@ User Function VACOMR13()
                         oExcel:SetValue(nRow, nX, aHeaderRel[nX])
                     Next nX
 
+                    cQry := " SELECT ZFI_FILDOC " + CRLF
+                    cQry += "		,SUBSTRING(ZFI_DOC, PATINDEX('%[^0]%', ZFI_DOC), LEN(ZFI_DOC)) + '-' + SUBSTRING(ZFI_SERIE, PATINDEX('%[^0]%', ZFI_SERIE), LEN(ZFI_SERIE)) AS ZFI_DOC " + CRLF
+                    cQry += "		,ZFI_VALOR  " + CRLF
+                    cQry += " FROM "+RetSqlName("ZFI")+"  " + CRLF
+                    cQry += " WHERE ZFI_CODIGO = ? " + CRLF
+                    cQry += " AND ZFI_FILIAL = ? " + CRLF
+                    cQry += " AND ZFI_PLACA = ? " + CRLF
+                    cQry += " AND D_E_L_E_T_ = '' " + CRLF
+
+	                __oQry := FwExecStatement():New(cQry)
+
                     nTamTot := Len(aDados)
                     For nI := 1 to nTamTot
 
@@ -343,16 +404,46 @@ User Function VACOMR13()
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_ADICIO"})][2] )
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_PEDAGI"})][2] )
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_ICMSF"})][2] )
+                        
+                        __oQry:SetString(1,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_CODIGO"})][2])
+                        __oQry:SetString(2,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_FILIAL"})][2])
+                        __oQry:SetString(3,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_PLCVL"})][2])
+                        
+                        cAlias1 := __oQry:OpenAlias()
+                        cDoc    := ""
+                        cFilDoc := ""
+                        nValor  := 0
+                        nReg    := 1
+                        nTotal  := 0
+
+                        (cAlias1)->(DbEval({|| nTotal++ }))
+                        (cAlias1)->(DbGoTop())
+
+                        while !(cAlias1)->(EOF())
+
+                            cFilDoc += SubStr((cAlias1)->ZFI_FILDOC,6,2) + iif(nReg < nTotal," / ","")
+                            cDoc    += Alltrim((cAlias1)->ZFI_DOC) + iif(nReg < nTotal," / ","")
+                            nValor  += (cAlias1)->ZFI_VALOR
+                            nReg += 1
+                            (cAlias1)->(DBSKIP())
+                        EndDo
+
+                        (cAlias1)->(dbCloseArea())
 
                         oExcel:SetCellsFormatConfig(JFLeft)
-                        oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFI_FILDOC"})][2]) 
-                        oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFI_DOC"})][2] )
+                        oExcel:SetValue(nRow, ++nCol, cFilDoc )
+                        oExcel:SetValue(nRow, ++nCol, cDoc )
                         oExcel:SetCellsFormatConfig(jFMoeda)
-                        oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "F1_VALBRUT"})][2] )
+                        oExcel:SetValue(nRow, ++nCol, nValor )
 
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_VCOMP"})][2] )
 
                     Next nI
+
+                    IF __oQry <> NIL
+                        __oQry:Destroy()
+                        __oQry := Nil
+				    ENDIF 
 
                     oExcel:ApplyAutoFilter(2,1,nRow,Len(aHeaderRel))
                     oExcel:SetCellsFormatConfig(jFormatTot)
@@ -427,11 +518,11 @@ Static Function LoadQuery(_cAlias)
     cQry += " 	,	ZFF.ZFF_VCOMP		            --Complemento " + CRLF
     cQry += " 	,	ZFF.ZFF_ICMSF		            --ICMS " + CRLF
     cQry += " 	,	ZFF.ZFF_VFRETE		            --Valor do Frete " + CRLF
-    cQry += "   ,	SUBSTRING(ZFI.ZFI_DOC, PATINDEX('%[^0]%', ZFI.ZFI_DOC), LEN(ZFI.ZFI_DOC)) AS ZFI_DOC		--DOC CTE  " + CRLF 
-	cQry += "   ,	SUBSTRING(ZFI.ZFI_SERIE, PATINDEX('%[^0]%', ZFI.ZFI_SERIE), LEN(ZFI.ZFI_SERIE)) AS ZFI_SERIE--SERIE CTE " + CRLF 
-    cQry += " 	,	SF1.F1_VALBRUT		            --Valor CTE " + CRLF
+    //cQry += "   ,	SUBSTRING(ZFI.ZFI_DOC, PATINDEX('%[^0]%', ZFI.ZFI_DOC), LEN(ZFI.ZFI_DOC)) AS ZFI_DOC		--DOC CTE  " + CRLF 
+	//cQry += "   ,	SUBSTRING(ZFI.ZFI_SERIE, PATINDEX('%[^0]%', ZFI.ZFI_SERIE), LEN(ZFI.ZFI_SERIE)) AS ZFI_SERIE--SERIE CTE " + CRLF 
+    //cQry += " 	,	SF1.F1_VALBRUT		            --Valor CTE " + CRLF
     cQry += " 	,	ZFF.ZFF_ADICIO		            --Valor Adicional " + CRLF
-    cQry += " 	,	ZFI.ZFI_FILDOC		            --FILIAL DOC " + CRLF
+    //cQry += " 	,	ZFI.ZFI_FILDOC		            --FILIAL DOC " + CRLF
     cQry += " 	,	ZFF.R_E_C_N_O_		            --RECNO ZFF " + CRLF
     cQry += " FROM "+RetSqlName("ZFF")+" ZFF " + CRLF  
     cQry += "  LEFT JOIN "+RetSqlName("DA4")+" DA4 ON ZFF.ZFF_MOTOR = DA4.DA4_COD " + CRLF
@@ -448,15 +539,15 @@ Static Function LoadQuery(_cAlias)
     cQry += "  LEFT JOIN "+RetSqlName("CC2")+" C2 ON C2.CC2_CODMUN = ZFF.ZFF_MUN " + CRLF
     cQry += " AND C2.CC2_EST = ZFF.ZFF_EST " + CRLF
     cQry += " AND C2.D_E_L_E_T_ = '' " + CRLF
-    cQry += "  LEFT JOIN "+RetSqlName("ZFI")+" ZFI ON ZFI.ZFI_FILIAL = ZFF.ZFF_FILIAL " + CRLF
-    cQry += " AND ZFI.ZFI_CODIGO = ZFF.ZFF_CODIGO " + CRLF
-    cQry += "  AND ZFI.ZFI_PLACA = ZFF.ZFF_PLCVL " + CRLF
-    cQry += " AND ZFI.D_E_L_E_T_ = '' " + CRLF
-    cQry += "  LEFT JOIN "+RetSqlName("SF1")+" SF1 ON ZFI.ZFI_FILDOC = SF1.F1_FILIAL 
-    cQry += " AND SF1.F1_FORNECE = ZFI.ZFI_FORNEC " + CRLF
-    cQry += " AND SF1.F1_LOJA = ZFI.ZFI_LOJA " + CRLF
-    cQry += " AND SF1.F1_DOC = ZFI.ZFI_DOC " + CRLF
-    cQry += " AND SF1.D_E_L_E_T_ = '' " + CRLF
+    //cQry += "  LEFT JOIN "+RetSqlName("ZFI")+" ZFI ON ZFI.ZFI_FILIAL = ZFF.ZFF_FILIAL " + CRLF
+    //cQry += " AND ZFI.ZFI_CODIGO = ZFF.ZFF_CODIGO " + CRLF
+    //cQry += "  AND ZFI.ZFI_PLACA = ZFF.ZFF_PLCVL " + CRLF
+    //cQry += " AND ZFI.D_E_L_E_T_ = '' " + CRLF
+    //cQry += "  LEFT JOIN "+RetSqlName("SF1")+" SF1 ON ZFI.ZFI_FILDOC = SF1.F1_FILIAL 
+    //cQry += " AND SF1.F1_FORNECE = ZFI.ZFI_FORNEC " + CRLF
+    //cQry += " AND SF1.F1_LOJA = ZFI.ZFI_LOJA " + CRLF
+    //cQry += " AND SF1.F1_DOC = ZFI.ZFI_DOC " + CRLF
+    //cQry += " AND SF1.D_E_L_E_T_ = '' " + CRLF
     cQry += " WHERE ZFF.ZFF_DTDESE BETWEEN '"+dToS(mv_par01)+"' AND '"+dToS(mv_par02)+"'" + CRLF 
     if !EMPTY( mv_par03 ) .and. !EMPTY( mv_par04 )
         cQry += " AND ZFF.ZFF_ORIGEM BETWEEN '"+mv_par03+"' AND '"+mv_par04+"' " + CRLF 
@@ -506,10 +597,8 @@ Static Function LoadQuery(_cAlias)
                                 {"ZFF_ADICIO"       ,(_cAliasG)->ZFF_ADICIO},;
                                 {"ZFF_PEDAGI"       ,(_cAliasG)->ZFF_PEDAGI},;
                                 {"ZFF_ICMSF"        ,(_cAliasG)->ZFF_ICMSF},;
-                                {"ZFI_FILDOC"       ,SubStr((_cAliasG)->ZFI_FILDOC,6,2)},;
-                                {"ZFI_DOC"          ,AllTrim((_cAliasG)->ZFI_DOC) + "-" + (_cAliasG)->ZFI_SERIE},;
-                                {"F1_VALBRUT"       ,(_cAliasG)->F1_VALBRUT},;
                                 {"ZFF_VCOMP"        ,(_cAliasG)->ZFF_VCOMP},;
+                                {"ZFF_FILIAL"        ,(_cAliasG)->ZFF_FILIAL},;
                                 {"DA4_NOME"         ,AllTrim((_cAliasG)->DA4_NOME)}}}})
             else 
                 aAdd(aDados[nPosD][2], {   {"TRANSPORTADORA"   ,AllTrim((_cAliasG)->Transportadora)},;
@@ -541,10 +630,8 @@ Static Function LoadQuery(_cAlias)
                                             {"ZFF_ADICIO"       ,(_cAliasG)->ZFF_ADICIO},;
                                             {"ZFF_PEDAGI"       ,(_cAliasG)->ZFF_PEDAGI},;
                                             {"ZFF_ICMSF"        ,(_cAliasG)->ZFF_ICMSF},;
-                                            {"ZFI_FILDOC"       ,SubStr((_cAliasG)->ZFI_FILDOC,6,2)},;
-                                            {"ZFI_DOC"          ,AllTrim((_cAliasG)->ZFI_DOC) + "-" + (_cAliasG)->ZFI_SERIE},;
-                                            {"F1_VALBRUT"       ,(_cAliasG)->F1_VALBRUT},;
                                             {"ZFF_VCOMP"        ,(_cAliasG)->ZFF_VCOMP},;
+                                            {"ZFF_FILIAL"        ,(_cAliasG)->ZFF_FILIAL},;
                                             {"DA4_NOME"         ,AllTrim((_cAliasG)->DA4_NOME)}})
             endif 
             (_cAliasG)->(DBSKIP(  ))
@@ -580,10 +667,8 @@ Static Function LoadQuery(_cAlias)
                             {"ZFF_ADICIO"       ,(_cAliasG)->ZFF_ADICIO},;
                             {"ZFF_PEDAGI"       ,(_cAliasG)->ZFF_PEDAGI},;
                             {"ZFF_ICMSF"        ,(_cAliasG)->ZFF_ICMSF},;
-                            {"ZFI_FILDOC"       ,SubStr((_cAliasG)->ZFI_FILDOC,6,2)},;
-                            {"ZFI_DOC"          ,AllTrim((_cAliasG)->ZFI_DOC) + "-" + (_cAliasG)->ZFI_SERIE},;
-                            {"F1_VALBRUT"       ,(_cAliasG)->F1_VALBRUT},;
                             {"ZFF_VCOMP"        ,(_cAliasG)->ZFF_VCOMP},;
+                            {"ZFF_FILIAL"        ,(_cAliasG)->ZFF_FILIAL},;
                             {"DA4_NOME"         ,AllTrim((_cAliasG)->DA4_NOME)}})
 
             (_cAliasG)->(DBSKIP())
