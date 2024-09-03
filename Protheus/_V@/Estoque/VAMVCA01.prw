@@ -1021,7 +1021,7 @@ Static Function ModelDef()
 	oStruZ0D:SetProperty('Z0D_DESC'		, MODEL_FIELD_WHEN, bVldAUX)
 	oStruZ0D:SetProperty('Z0D_LOCAL'	, MODEL_FIELD_WHEN, bVldAUX)
 	oStruZ0D:SetProperty('Z0D_QTDORI'	, MODEL_FIELD_WHEN, bVldAUX)
-	oStruZ0D:SetProperty('Z0D_RACA'		, MODEL_FIELD_WHEN, bVldAUX)
+	//oStruZ0D:SetProperty('Z0D_RACA'		, MODEL_FIELD_WHEN, bVldAUX)
 	oStruZ0D:SetProperty('Z0D_SEXO'		, MODEL_FIELD_WHEN, bVldAUX)
 	oStruZ0D:SetProperty('Z0D_DENTIC'	, MODEL_FIELD_WHEN, bVldAUX)
 
@@ -3568,7 +3568,7 @@ static function Selecao(oModel, oView)
 			for nJ := 1 to len(aHeadOri)
 				aColsOri[len(aColsOri), nJ] := oGridOri:GetValue(aHeadOri[nJ, 2], nI)
 
-				If aHeadOri[nJ,2] = "Z0D_QUANT"
+				If AllTrim(aHeadOri[nJ,2]) == "Z0D_QUANT"
 					nQtdOri += oGridOri:GetValue(aHeadOri[nJ, 2], nI)
 				EndIf
 			endFor
@@ -3578,37 +3578,37 @@ static function Selecao(oModel, oView)
 	aHeadVL := {}
 	/*01*/aAdd(aHeadVL, { "Lote"	   , "VW_LOTE"	, X3Picture("Z0D_LOTE")	  , TamSX3("Z0D_LOTE")[1]		 , 0 ,"AllwaysTrue()", X3Uso("Z0D_LOTE")	, "C", "   ", "V","","","","V","","","" } )
 	/*02*/aAdd(aHeadVL, { "Curral"	   , "VW_CURRAL", X3Picture("Z0D_CURRAL") , 10/*TamSX3("Z0D_CURRAL")[1]*/, 0 ,"AllwaysTrue()", X3Uso("Z0D_CURRAL")	, "C", "   ", "V","","","","V","","","" } )
-	/*03*/aAdd(aHeadVL, { "Raca"	   , "VW_RACA"	, X3Picture("Z0D_RACA")   , TamSX3("Z0D_RACA")[1]        , 0 ,"AllwaysTrue()", X3Uso("Z0D_RACA")	, "C", "   ", "V","","","","V","","","" } )
-	/*04*/aAdd(aHeadVL, { "Sexo"	   , "VW_SEXO"	, X3Picture("Z0D_SEXO")   , TamSX3("Z0D_SEXO")[1]+5 	 , 0 ,"AllwaysTrue()", X3Uso("Z0D_SEXO")	, "C", "   ", "V","","","","V","","","" } )
+	///*03*/aAdd(aHeadVL, { "Raca"	   , "VW_RACA"	, X3Picture("Z0D_RACA")   , TamSX3("Z0D_RACA")[1]        , 0 ,"AllwaysTrue()", X3Uso("Z0D_RACA")	, "C", "   ", "V","","","","V","","","" } )
+	///*04*/aAdd(aHeadVL, { "Sexo"	   , "VW_SEXO"	, X3Picture("Z0D_SEXO")   , TamSX3("Z0D_SEXO")[1]+5 	 , 0 ,"AllwaysTrue()", X3Uso("Z0D_SEXO")	, "C", "   ", "V","","","","V","","","" } )
 	/*05*/aAdd(aHeadVL, { "Qtd Animais", "VW_QUANT"	, X3Picture("Z0D_QUANT")  , TamSX3("Z0D_QUANT")[1]	     , 0 ,"AllwaysTrue()", X3Uso("Z0D_QUANT")	, "N", "   ", "V","","","","V","","","" } )
 	/*06*/aAdd(aHeadVL, { "Qtd Pesada" , "VW_QTDPES", X3Picture("Z0D_QUANT")  , TamSX3("Z0D_QUANT")[1]	     , 0 ,"AllwaysTrue()", X3Uso("Z0D_QUANT")	, "N", "   ", "V","","","","V","","","" } )
 	nUsadVL := len(aHeadVL)
 
 	nPosVW_LOTE   := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_LOTE"})
 	nPosVW_CURRAL := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_CURRAL"})
-	nPosVW_RACA   := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_RACA"})
-	nPosVW_SEXO   := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_SEXO"})
+	//nPosVW_RACA   := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_RACA"})
+	//nPosVW_SEXO   := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_SEXO"})
 	nPosVW_QUANT  := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_QUANT"})
 	nPosVW_QTDPES := aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_QTDPES"})
 
 	aColsVL := {}
 	for nI := 1 to len(aColsOri)
 		nPos := aScan(aColsVL, { |x| x[1]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_LOTE"})] ;
-			.AND. x[3]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_RACA"})]   ;
-			.AND. x[4]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_SEXO"})]   ;
 			                   /* .AND. x[5]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_DENTIC"})] */ })
+			//.AND. x[4]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_SEXO"})]   ;
+			//.AND. x[3]==aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_RACA"})]   ;
 		If nPos == 0
 			aAdd(aColsVL, Array(nUsadVL+1))
 			aColsVL[len(aColsVL),1] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_LOTE"})]
 			aColsVL[len(aColsVL),2] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_CURRAL"})]
-			aColsVL[len(aColsVL),3] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_RACA"})]
-			aColsVL[len(aColsVL),4] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_SEXO"})]
-			// aColsVL[len(aColsVL),5] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_DENTIC"})]
-			aColsVL[len(aColsVL),5] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_QUANT"})]
-			aColsVL[len(aColsVL),6] := 0
+			//aColsVL[len(aColsVL),3] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_RACA"})]
+			//aColsVL[len(aColsVL),4] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_SEXO"})]
+			//aColsVL[len(aColsVL),5] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_DENTIC"})]
+			aColsVL[len(aColsVL),3] := aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_QUANT"})]
+			aColsVL[len(aColsVL),4] := 0
 			aColsVL[len(aColsVL), nUsadVL+1] := .F.
 		else
-			aColsVL[nPos,5] += aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_QUANT"})]
+			aColsVL[nPos,3] += aColsOri[nI, aScan( aHeadOri,{ |x| AllTrim(x[2]) == "Z0D_QUANT"})]
 		EndIf
 	Next
 
@@ -3907,15 +3907,15 @@ User Function ForceOri()
 
 		cLoteOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_LOTE]
 		cCurrOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_CURRAL]
-		cRacaOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]
-		cSexoOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]
+		//cRacaOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]
+		//cSexoOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]
 
 		else
 
 		If cLoteOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_LOTE]    .AND.;
-				cCurrOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_CURRAL] .AND.;
-				cRacaOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]   .AND.;
-				cSexoOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]  
+				cCurrOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_CURRAL] //.AND.;
+				//cRacaOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]   .AND.;
+				//cSexoOri == oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]  
 
 				cLoteOri := ""
 				cCurrOri := ""
@@ -3924,8 +3924,8 @@ User Function ForceOri()
 			else
 				cLoteOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_LOTE]
 				cCurrOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_CURRAL]
-				cRacaOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]
-				cSexoOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]
+				//cRacaOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_RACA]
+				//cSexoOri := oGetDadVL:aCols[oGetDadVL:oBrowse:nAt, nPosVW_SEXO]
 		EndIf
 	EndIf
 
@@ -4366,7 +4366,7 @@ Static Function DefOrigem()
 	Local nI		:= 0
 
 	If !empty(cLoteOri)
-		nPosS := aScan(aSaldos, { |x| x[1]==cLoteOri .and. x[5]==cRacaOri .and. x[6]==cSexoOri /* .and. x[7]==cDentOri */ .and. x[3]>x[4]})
+		nPosS := aScan(aSaldos, { |x| x[1]==cLoteOri  .and. AllTrim(x[5])==IIF(nRadRaca == 1,"NELORE",oRadRaca:aItems[nRadRaca]) /*.and. x[6]==cSexoOri  *//* .and. x[7]==cDentOri */ .and. x[3]>x[4]})
 		If nPosS == 0
 			msgAlert("não existe saldo disponível para o lote de origem selecionado. será utilizado o próprio lote disponível.")
 		else
@@ -4889,10 +4889,10 @@ User Function calcular_destino()
 	Next
 
 	for nJ := 1 to len(oGetDadVL:aCols)
-		oGetDadVL:aCols[nJ, nPosVW_QTDPES] := GetQtdPesadosLote(oGetDadVL:aCols[nJ, nPosVW_LOTE],;
-			oGetDadVL:aCols[nJ, nPosVW_RACA],;
-			oGetDadVL:aCols[nJ, nPosVW_SEXO],;
-			/* oGetDadVL:aCols[nJ, aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_DENTIC"})] */ )
+		oGetDadVL:aCols[nJ, nPosVW_QTDPES] := GetQtdPesadosLote(oGetDadVL:aCols[nJ, nPosVW_LOTE])//,;
+			//oGetDadVL:aCols[nJ, nPosVW_RACA],;
+			//oGetDadVL:aCols[nJ, nPosVW_SEXO],;
+			///* oGetDadVL:aCols[nJ, aScan( aHeadVL, { |x| AllTrim(x[2]) == "VW_DENTIC"})] */ )
 		Next
 
 	for nJ := 1 to len(aColsVw)
