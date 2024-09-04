@@ -1552,6 +1552,8 @@ Static Function ProcGrid( oModel, oView)
 	Local cQryM2	  := ""
 	Local oQryCache   := nil
 	Local oQryMP   	  := nil
+	Local oQryBov  	  := nil
+	Local cBovCom	  := ""
 	Local cCntScalar  := 0
 	
 	Private oGridZ0D  := nil
@@ -1790,8 +1792,20 @@ For nI := 1 To oGridZ0E:Length()
 		cSeqEfe := Soma1(cCntScalar)
 	EndIf
 
+
 if Z0C->Z0C_TPMOV != '6'
 	Begin Transaction
+
+		cQry := " SELECT TOP 1 B1_XLOTCOM " + CRLF
+		cQry += "				, B1_XLOTE " + CRLF
+		cQry += "				, B1_COD " + CRLF
+		cQry += "				, B1_DESC  " + CRLF
+		cQry += "		FROM "+RetSQLName("SB1")+"  " + CRLF
+		cQry += "	WHERE B1_COD = ?   " + CRLF
+		cQry += "	AND B1_DESC = ?   " + CRLF
+		cQry += "	ORDER BY R_E_C_N_O_ DESC " + CRLF
+
+		oQryBov := FwExecStatement():New(cQry)
 
 		If nLinProc == 0
 			nLinProc := 1
@@ -1850,14 +1864,29 @@ if Z0C->Z0C_TPMOV != '6'
 						If Empty(oGridZ0E:GetValue('Z0E_SEQEFE' , nI))
 
 							lCriaBov := .F.
+							cBovCom := ""
 							cChvZ0D := aOrigens[nJ, 5] + aOrigens[nJ, 6] //+ cValToChar(aOrigens[nJ, 7]) // cChvZ0D := oGridZ0D:GetValue('Z0D_RACA',nIZ0D) + oGridZ0D:GetValue('Z0D_SEXO',nIZ0D) + cValToChar(oGridZ0D:GetValue('Z0D_DENTIC',nIZ0D))
 							cChvZ0E := oGridZ0E:GetValue('Z0E_RACA', nI) + oGridZ0E:GetValue('Z0E_SEXO', nI) /* + cValToChar(oGridZ0E:GetValue('Z0E_DENTIC', nI)) */
 							If Z0C->Z0C_TPMOV == "2" // Apartação
-								lCriaBov := .T.
+
+								oQryBov:SetString(1,oGridZ0E:GetValue('Z0E_PROD', nI))
+								oQryBov:SetString(2,AllTrim(oGridZ0E:GetValue('Z0E_DESC', nI)))
+
+								cAlias := oQryBov:OpenAlias()
+								
+								if (cAlias)->(EOF())
+									lCriaBov := .T.
+								else
+									oGridZ0E:LoadValue('Z0E_PRDORI', AllTrim((cAlias)->B1_COD) )
+									oGridZ0E:LoadValue('Z0E_LOTORI', aOrigens[nJ, 2] ) // lote
+								endif
+
+								(cAlias)->(DbCloseArea())
+
 							ElseIf Z0C->Z0C_TPMOV $ "5" // Re-Classificaç£¯
 								If cChvZ0D == cChvZ0E
 									aOrigens[nJ,3] -= oGridZ0E:GetValue('Z0E_QUANT' , nI)
-									lTransf := .F. // nao precisa - apagar depois
+									lTransf := .F. //nao precisa - apagar depois
 									lCriaBov := .F.
 								Else
 									lCriaBov := .T.
@@ -1904,10 +1933,10 @@ if Z0C->Z0C_TPMOV != '6'
 								EndIf
 
 								oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_CODIGO', nI))
-								oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_PROD', nI))
-								oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_LOTE', nI))
-								oQryCache:SetString(4,oGridZ0E:GetValue('Z0E_RACA', nI))
-								oQryCache:SetString(5,oGridZ0E:GetValue('Z0E_SEXO', nI))
+								oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_PROD'  , nI))
+								oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_LOTE'  , nI))
+								oQryCache:SetString(4,oGridZ0E:GetValue('Z0E_RACA'  , nI))
+								oQryCache:SetString(5,oGridZ0E:GetValue('Z0E_SEXO'  , nI))
 
 								cAlias := oQryCache:OpenAlias()
 								
@@ -1975,6 +2004,9 @@ if Z0C->Z0C_TPMOV != '6'
 		oQryCache:Destroy()
 		oQryCache := Nil
 
+		oQryBov:Destroy()
+		oQryBov := Nil
+		
 		oView:Refresh()
 	/*
 		aTransf[][1] = indice da linha de destino
