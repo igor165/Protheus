@@ -4875,8 +4875,10 @@ User Function calcular_destino()
 				dbSetOrder(1)
 				Z08->( dbSeek(xFilial("Z08")+QRYDET->Z0F_CURRAL ) )
 				
-				If Z08->Z08_TIPO == "1"
+				If Z08->Z08_TIPO == "1" .and. Z0C->Z0C_TIPO == "C"
 					nLocal := "06"
+				ElseIf Z08->Z08_TIPO == "1" .and. Z0C->Z0C_TIPO == "S"
+					nLocal := "05"
 				Else
 					nLocal := SB1->B1_LOCPAD
 				EndIf 
@@ -5691,8 +5693,10 @@ Static Function fReLoadZ0E( oModel, oView )
 				dbSetOrder(1)
 				Z08->( dbSeek(xFilial("Z08")+TMPZ0F->Z0F_CURRAL ) )
 				
-				If Z08->Z08_TIPO == "1"
+				If Z08->Z08_TIPO == "1" .and. Z0C->Z0C_TIPO == "C"
 					nLocal := "06"
+				ElseIf Z08->Z08_TIPO == "1" .and. Z0C->Z0C_TIPO == "S"
+					nLocal := "05"
 				Else
 					nLocal := SB1->B1_LOCPAD
 				EndIf
