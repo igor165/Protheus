@@ -66,7 +66,6 @@ User Function LIVIO004()            //  U_LIVIO004()
 	oBrowse:SetMenuDef("LIVIO004")
 	oBrowse:SetDescription( cCadastro )
 
-
 	oBrowse:AddLegend( "SZJ->ZJ_PESOL == 0", "GREEN" , "Aberto"    )
 	oBrowse:AddLegend( "!SZJ->ZJ_PESOL == 0", "RED"   , "Finalizada" )
 
@@ -168,7 +167,6 @@ Private nPZSGCHVNF  := 0
 Private nPZSGEMPFIL := 0
 Private oDlg        := nil
 
-RegToMemory( cAlias, nOpc == 3 )
 
 IF nOpc == 3
 	If !ParamBox({{2,"Tipo de Pesagem",1,{"S=Simples","D=Dupla"},122,".T.",.F.}},"Informe o Tipo de Pesagem")
@@ -183,7 +181,9 @@ if Type( "MV_PAR01" ) == "N"
 	else 
 		MV_PAR01 := "D"
 	endif 
-endif 
+endif
+
+RegToMemory( cAlias, nOpc == 3 )
 
 aSize := MsAdvSize( .T. )
 AAdd( aObjects, { 100 , 50, .T. , .T. , .F. } )
@@ -866,7 +866,7 @@ Return nil
 			1. Validacao total, comparando as 2 tabelas: SZJ x ZSG
 =======================================================================================================================*/
 Static Function fVldOk()
-// Local lRet := U_fZSGLinOk( )
+//Local lRet := U_fZSGLinOk( )
 Local lRet     := .T.
 Local nI       := 0
 Local nTotSZJ  := 0
@@ -1268,6 +1268,7 @@ TryException
 				Else
 					cCC :=  '02.40.01'
 				EndIf 
+
 				if !(cAlias)->(EOF()) .and. (cAlias)->B8_SALDO >= oZSGGtDad:aCols[ nI, nPZSGQUANT ] .and. oZSGGtDad:aCols[ nI, nPZSGQUANT ] > 0
 
 
@@ -1345,7 +1346,7 @@ Static Function LanClassif(cTFil,; // cTipo,
 	Local cAlias 		:= GetNextAlias()
 	Private lMsErroAuto := .F.
 	
-	cQry := " select * " + CRLF 
+	cQry := " select * " + CRLF
 	cQry += " from "+RetSqlName("SD3")+" SD3" + CRLF 
 	cQry += " WHERE SD3.D3_FILIAL = '"+FwxFilial("SD3")+"' " + CRLF 
 	cQry += " AND SD3.D3_DOC = '"+cDocumento+"'" + CRLF 
@@ -2194,4 +2195,7 @@ User Function SB8ZSG()
 		oZSGGtDad:aCols[ oZSGGtDad:nAt, nPZSGEMPFIL ] := ""
 	EndIf
 
+Return lRet
+User Function LV04WH()
+	Local lRet := oSZJGtDad:aCols[ 01, NPZJTPPES  ] == 'D'
 Return lRet

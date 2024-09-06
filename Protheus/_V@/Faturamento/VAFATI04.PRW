@@ -838,10 +838,10 @@ User FUnction FATI04P()
 			Begin Transaction
 				While !(cALias)->(EOF())
 
-					If ZCC->(DBSeek((cALias)->ZFF_FILIAL+(cALias)->ZFF_CONTRA))
+					If ZCC->(DBSeek((cALias)->ZFF_FILCON+(cALias)->ZFF_CONTRA))
 						nVlrUnit := ( (cALias)->FRETE + (cALias)->ADICIONAL + (cALias)->PEDAGIO ) / ZCC->ZCC_QTTTAN
 
-						WHILE (_cAliasG)->ZBC_FILIAL == (cALias)->ZFF_FILIAL .AND. (_cAliasG)->ZBC_CODIGO == (cALias)->ZFF_CONTRA 
+						WHILE (_cAliasG)->ZBC_FILIAL == (cALias)->ZFF_FILCON .AND. (_cAliasG)->ZBC_CODIGO == (cALias)->ZFF_CONTRA 
 							ZBC->(DBSeek((_cAliasG)->ZBC_FILIAL+(_cAliasG)->ZBC_CODIGO+(_cAliasG)->ZBC_VERSAO+(_cAliasG)->ZBC_ITEM))
 								RecLock("ZBC",.F.)
 									ZBC->ZBC_VLFRPG := Round(nVlrUnit * ZBC->ZBC_QUANT,2)
@@ -1165,9 +1165,9 @@ User Function I04CTN()
 			if AllTrim(&(ReadVar())) != ""
 				cQry := " select ISNULL(CAST(CAST(ZFF_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS OBS,* from "+RetSqlName("ZFF")+" ZFF " + CRLF 
 				cQry += " WHERE ZFF_CONTRA = '"+&(ReadVar())+"' " + CRLF 
-				cQry += " AND ZFF_CODIGO <> '' " + CRLF
+				cQry += " AND ZFF_CODIGO <>  '' " + CRLF
 				cQry += " AND ZFF.D_E_L_E_T_ = '' " + CRLF
-				cQry += " order by ZFF_ITEM " + CRLF
+				cQry += " order by ZFF_ITEM  " + CRLF
 
 				MpSysOpenQry(cQry, cAlias)
 
@@ -1179,7 +1179,7 @@ User Function I04CTN()
 					ENDIF
 					cRet:= (cAlias)->ZFF_CODIGO
 					oStru:SetValue("ZFF_CODIGO"	, (cAlias)->ZFF_CODIGO)
-					oStru:SetValue("ZFF_FILCON"	, (cAlias)->ZFF_FILIAL)
+					//oStru:SetValue("ZFF_FILCON"	, (cAlias)->ZFF_FILIAL)
 					oStru:SetValue("ZFF_FORNEC"	, (cAlias)->ZFF_FORNEC)
 					oStru:SetValue("ZFF_FLOJA"	, (cAlias)->ZFF_FLOJA)
 					oStru:SetValue("ZFF_DESTIN"	, (cAlias)->ZFF_DESTIN)
@@ -1576,6 +1576,7 @@ User Function I04ZCC()
 	Local cCodCon 	:= ''
 	Local cConsulta := ''
 	Local QryOpc	:= 1
+
 	if Type("uRetorno") == 'U' 
 		public uRetorno
 	endif
@@ -1593,8 +1594,9 @@ User Function I04ZCC()
 	cQry += " join "+RetSqlName("SA2")+"  A2 on A2_COD = ZCC_CODFOR " + CRLF
 	cQry += " and A2_LOJA = ZCC_LOJFOR " + CRLF
 	cQry += " and A2.D_E_L_E_T_ = '' " + CRLF
-	cQry += " where ZCC_FILIAL = '"+FwxFilial("ZCC")+"' " + CRLF
-	cQry += " AND ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
+	cQry += " where --ZCC_FILIAL = '"+FwxFilial("ZCC")+"' " + CRLF
+	cQry += " --AND ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
+	cQry += " ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
 	cQry += " AND ZCC.D_E_L_E_T_ = '' " + CRLF
 
 	cCodCon 	:= "CODIGO"
@@ -1663,7 +1665,7 @@ Static Function PesqZCC(cQry,nQry)
 
 	DEFINE MSDIALOG oDlg TITLE "Pesquisa - contrato" FROM 000, 000  TO 445, 950 COLORS 0, 16777215 PIXEL
 
-	    @ 004, 005 MSCOMBOBOX oCmbInd VAR cCmbInd ITEMS {"FORNECEDOR","CNPJ","DATA"} SIZE 050, 010 OF oDlg COLORS 0, 16777215 PIXEL
+	    @ 004, 005 MSCOMBOBOX oCmbInd VAR cCmbInd ITEMS {"FORNECEDOR","CNPJ","DATA","FILIAL"} SIZE 050, 010 OF oDlg COLORS 0, 16777215 PIXEL
 	    @ 004, 065 MSGET oTxtBusca VAR cTxtBusca 			SIZE 155, 010 OF oDlg COLORS 0,16777215 PIXEL //Valid(Filtro(3))
 	    
 	    @ 004, 228 BUTTON oBtnPesq PROMPT "Filtrar" 		SIZE 040, 012 OF oDlg PIXEL ACTION Processa({|| Filtro(1) }, "Aguarde...") 
@@ -1746,6 +1748,8 @@ Static Function Filtro(nOPFil)
 	If !Empty(cTxtBusca)
 		If cCmbInd == "FORNECEDOR"
 			cFiltro := " AND UPPER(ZCC_NOMFOR) LIKE '%" + Upper(AllTrim(cTxtBusca)) + "%'"
+		ElseIf cCmbInd == "FILIAL"
+			cFiltro := " AND ZCC_FILIAL = '"+Upper(AllTrim(cTxtBusca))+"' "
 		ElseIf cCmbInd == "CNPJ"
 			If len(aTxtLike)>=1
 			 	for i:=1 to len(aTxtLike)
