@@ -1551,7 +1551,7 @@ Static Function ProcGrid( oModel, oView)
 	Local cQryM1	  := ""
 	Local cQryM2	  := ""
 	Local oQryCache   := nil
-	Local oQryMP   	  := nil
+	Local oQryMP   	  := nil	
 	Local oQryBov  	  := nil
 	Local cBovCom	  := ""
 	Local cCntScalar  := 0
@@ -1801,8 +1801,10 @@ if Z0C->Z0C_TPMOV != '6'
 		cQry += "				, B1_COD " + CRLF
 		cQry += "				, B1_DESC  " + CRLF
 		cQry += "		FROM "+RetSQLName("SB1")+"  " + CRLF
-		cQry += "	WHERE B1_COD = ?   " + CRLF
-		cQry += "	AND B1_DESC = ?   " + CRLF
+		cQry += "	WHERE B1_COD 	= ?   " + CRLF
+		cQry += "	AND B1_XIDADE 	= ?   " + CRLF
+		cQry += "	AND B1_XRACA 	= ?   " + CRLF
+		cQry += "	AND B1_X_SEXO 	= ?   " + CRLF
 		cQry += "	ORDER BY R_E_C_N_O_ DESC " + CRLF
 
 		oQryBov := FwExecStatement():New(cQry)
@@ -2006,7 +2008,7 @@ if Z0C->Z0C_TPMOV != '6'
 
 		oQryBov:Destroy()
 		oQryBov := Nil
-		
+
 		oView:Refresh()
 	/*
 		aTransf[][1] = indice da linha de destino
@@ -5120,7 +5122,7 @@ User Function SalvarGeral( oModel, oView )
 
 Return .T.
 User Function MA01BAL()
- 	Local nPesoRet := 150
+ 	Local nPesoRet := 0
 
     Local nH        := 0
     Local nPos      := 0

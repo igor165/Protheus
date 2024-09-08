@@ -1217,6 +1217,9 @@ Local cCC           := ""
 Local RECNOSD3      := 0
 Local _aAreaSM0     := {}
 Local cAlias 		:= GetNextAlias()
+Local aItem			:= {}
+Local aItens		:= {}
+Local aCab 			:= {}
 // Local _oAppBkp      := oApp //Guardo a variavel resposavel por componentes visuais
 // Local _oMainWndBkp  := oMainWnd //Guardo a variavel resposavel por componentes visuais
 // Local ___numero     := 3
@@ -1233,6 +1236,29 @@ _cFilBkp  := SM0->M0_CODFIL //Guardo a filial atual
 // BeginTran()
 Begin Transaction
 TryException
+
+	For nI := 1 to Len(oZSGGtDad:aCols)
+		If oZSGGtDad:aCols[ nI, Len(oZSGGtDad:aCols[nI]) ]
+			Loop
+		EndIf
+		
+		If oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] ==  0  // If !Empty( oZSGGtDad:aCols[ nLinha, nPZSGRCNOD3 ] )
+			If oZSGGtDad:aCols[ nI, nPZSGLOCAL ]== "06" //GetMV( 'MB_LIVIO4B',, '02.30.01')
+				cCC :=  GetMV( 'MB_LIVIO4B',, '02.30.01')
+				exit
+			Else
+				cCC :=  '02.40.01'
+				exit
+			EndIf
+		EndIf
+	Next nI
+
+	aCab := {{"D3_DOC" 		, NextNumero("SD3",2,"D3_DOC",.T.)	, NIL},;
+          	{"D3_FILIAL"	, xFilial("ZSG")			 		, NIL},;
+          	{"D3_TM" 		, GetMV("MB_TMBAIXA",, "905") 		, NIL},;
+          	{"D3_CC" 		, cCC								, NIL},;
+          	{"D3_EMISSAO" 	, dDataBase							, NIL}}
+			
 	For nI := 1 to Len(oZSGGtDad:aCols)
 		If oZSGGtDad:aCols[ nI, Len(oZSGGtDad:aCols[nI]) ]
 			Loop
@@ -1253,51 +1279,30 @@ TryException
 				If SF5->(DbSeek( xFilial("SF5") + GetMV("MB_TMBAIXA",, "905") ))
 					ConOut("SF5")
 				EndIf
+
 				cQry := " select * " + CRLF 
 				cQry += " from "+RetSqlName("SB8")+" SB8" + CRLF 
 				cQry += " WHERE SB8.B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF 
 				cQry += " AND SB8.B8_PRODUTO = '"+AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ])+"'" + CRLF 
 				cQry += " AND SB8.B8_LOTECTL = '"+oZSGGtDad:aCols[ nI, nPZSGLOTE ]+"' " + CRLF 
 				cQry += " AND SB8.B8_LOCAL = '"+oZSGGtDad:aCols[ nI, nPZSGLOCAL ]+"' " + CRLF 
-				cQry += " AND SB8.D_E_L_E_T_ = ' '" + CRLF 
+				cQry += " AND SB8.D_E_L_E_T_ = ' '" + CRLF
 
 				MpSysOpenQuery(cQry, cAlias)
-				
-				If oZSGGtDad:aCols[ nI, nPZSGLOCAL ]== "06" //GetMV( 'MB_LIVIO4B',, '02.30.01')
-					cCC :=  GetMV( 'MB_LIVIO4B',, '02.30.01')
-				Else
-					cCC :=  '02.40.01'
-				EndIf 
 
 				if !(cAlias)->(EOF()) .and. (cAlias)->B8_SALDO >= oZSGGtDad:aCols[ nI, nPZSGQUANT ] .and. oZSGGtDad:aCols[ nI, nPZSGQUANT ] > 0
 
-
-					/*01*/ lErro := LanClassif( xFilial("ZSG"),; //*02*/ "E",;
-					/*03*/ 			GetMV("MB_TMBAIXA",, "905"),;
-					/*04*/ 			AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ]),;	
-					/*05*/ 			oZSGGtDad:aCols[ nI, nPZSGLOCAL ],; // GetMV("MB_LIVIO4A",, "06"),;
-					/*06*/ 			oZSGGtDad:aCols[ nI, nPZSGQUANT ],;
-					/*07*/ 			/* 0.01 */,;
-					/*08*/ 			dDataBase,;
-					/*09*/ 			'REF. NF' + M->ZJ_DOC+ '-'+ M->ZJ_SERIE+'-EMISSAO ' +DTOC( dDataBase )+ '-FORNECEDOR ' + M->ZJ_FORNEC ,; //+ '-PESO NF: ' +AllTrim(STR(SD1->D1_QUANT))+ ' PESO BALANCA: '+AllTrim(STR(SD1->D1_X_PESOB))+ ' PESO LIQUIDO: '+AllTrim(STR(SD1->D1_X_PESOL))+'',;
-					/*10*/ 			cCC,; //GetMV( 'MB_LIVIO4B',, '02.30.01'),;
-					/*11*/ 			'',;
-					/*12*/ 			'',;
-					/*13*/ 			M->ZJ_FORNEC,;
-					/*14*/ 			SubStr(oZSGGtDad:aCols[ nI, nPZSGCHVNF ],26,9) /* M->ZJ_DOC */ ,;
-					/*15*/ 			oZSGGtDad:aCols[ nI, nPZSGLOTE ],;
-					/*16*/			@RECNOSD3 )
-
-					if lErro
-						MsgInfo('Erro, linha: ' + cValToChar(nI))
-					Else
-
-						oZSGGtDad:aCols[ nI, nPZSGDATASE ] := dDataBase
-						oZSGGtDad:aCols[ nI, nPZSGUSUARI ] := cUserName
-						oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] := RECNOSD3
-
-						MsgInfo('Realizada Baixa de estoque, linha: ' + cValToChar(nI))
-					EndIf
+					aItem := {{"D3_COD" 		, AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ]) 	,NIL},;
+							{"D3_UM" 		, POSICIONE("SB1",1,xFilial("SB1") +;
+											  AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ]),;
+											  "B1_UN")										,NIL},; 
+							{"D3_QUANT" 	, oZSGGtDad:aCols[ nI, nPZSGQUANT ] 			,NIL},;
+							{"D3_LOCAL" 	, oZSGGtDad:aCols[ nI, nPZSGLOCAL ] 			,NIL},;
+							{"D3_LOTECTL" 	, oZSGGtDad:aCols[ nI, nPZSGLOTE ]				,NIL},;
+							{"D3_FORNECE" 	, M->ZJ_FORNEC									,NIL},;
+							{"D3_NOMEFOR" 	, AllTrim(Posicione( 'SA2' , 1, xFilial( 'SA2' )+M->ZJ_FORNEC , 'A2_NOME' ) ),NIL}}
+					
+					aAdd(aItens,aItem)
 				Else
 					FWAlertError("O Produto: '" +AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ])+ "', Lote  '"+oZSGGtDad:aCols[ nI, nPZSGLOTE ]+"'  não possui saldo suficiente parar realizar a baixa do estoque", "Saldo Insuficiente")
 				EndIf
@@ -1305,6 +1310,32 @@ TryException
 			EndIf
 		EndIf
 	Next nI
+
+	if Len(aItens) > 0
+		MSExecAuto({|x,y,z| MATA241(x,y,z)},aCab,aItens,3)
+		
+		if lMsErroAuto
+			Mostraerro() 
+		else 
+			RecnoSD3 := SD3->(Recno())
+			nLinhas := ''
+			For nI := 1 To Len(oZSGGtDad:aCols)
+				If oZSGGtDad:aCols[ nI, Len(oZSGGtDad:aCols[nI]) ]
+					Loop
+				EndIf
+
+				nLinhas += AllTrim(cValToChar(nI)) + ", "
+
+				If oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] ==  0  .and. oZSGGtDad:aCols[ nI, nPZSGQUANT ] >  0
+					oZSGGtDad:aCols[ nI, nPZSGDATASE ] := dDataBase
+					oZSGGtDad:aCols[ nI, nPZSGUSUARI ] := cUserName
+					oZSGGtDad:aCols[ nI, nPZSGRCNOD3 ] := RecnoSD3
+				endif 
+			Next nI 
+			
+			MsgInfo('Realizada Baixa de estoque, linhas: ' + nLinhas)
+		endif
+	endif
 
 CatchException Using oException
 MsgAlert(oException:ErrorStack)
@@ -1315,8 +1346,6 @@ End Transaction
 
 RestArea(aArea)
 Return nil
-
-
 
 /****************************************************************
 Função para lançamento de movimento interno automatico
@@ -1337,7 +1366,7 @@ Função para lançamento de movimento interno automatico
 /*14*/ // cDocumento -> D3_DOC
 /*15*/ // cLoteCTL
 /*16*/ // RECNOSD3
-Static Function LanClassif(cTFil,; // cTipo, 
+Static Function LanClassif(cTFil,; // cTipo,
 						   cTTM, cTProd, cTLocal, nTQtd,;
 		                   nTCusto, dTData, cTObs, cTCC, cTItemCta, cTCLVL,;
 		                   cFornece, cDocumento, cLoteCTL, RECNOSD3 )
@@ -1356,7 +1385,7 @@ Static Function LanClassif(cTFil,; // cTipo,
 	MpSysOpenQuery(cQry,cAlias)
 
 	if !(cAlias)->(EOF()) 
-	FWAlertError("O Documento "+cDocumento+" já existe na tabela SD3 e por isso a baixa do estoque não utilizara o mesmo numero da NF para o campo DOC.", "Numero de Documento")
+		FWAlertError("O Documento "+cDocumento+" já existe na tabela SD3 e por isso a baixa do estoque não utilizara o mesmo numero da NF para o campo DOC.", "Numero de Documento")
 	EndIf
 
 //Analisa os tipos e monta os dois arrays (Entrada e Saída)
