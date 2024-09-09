@@ -1555,6 +1555,7 @@ Static Function ProcGrid( oModel, oView)
 	Local oQryBov  	  := nil
 	Local cBovCom	  := ""
 	Local cCntScalar  := 0
+	Local nIdade  	  := 0
 	
 	Private oGridZ0D  := nil
 	Private oGridZ0E  := nil
@@ -1796,16 +1797,11 @@ For nI := 1 To oGridZ0E:Length()
 if Z0C->Z0C_TPMOV != '6'
 	Begin Transaction
 
-		cQry := " SELECT TOP 1 B1_XLOTCOM " + CRLF
-		cQry += "				, B1_XLOTE " + CRLF
-		cQry += "				, B1_COD " + CRLF
-		cQry += "				, B1_DESC  " + CRLF
-		cQry += "		FROM "+RetSQLName("SB1")+"  " + CRLF
-		cQry += "	WHERE B1_COD 	= ?   " + CRLF
-		cQry += "	AND B1_XIDADE 	= ?   " + CRLF
-		cQry += "	AND B1_XRACA 	= ?   " + CRLF
-		cQry += "	AND B1_X_SEXO 	= ?   " + CRLF
-		cQry += "	ORDER BY R_E_C_N_O_ DESC " + CRLF
+		cQry:= "SELECT B1_XLOTCOM,B1_COD,B1_XLOTE,B1_DESC,B1_XRACA,B1_X_SEXO,B1_XIDADE 
+		cQry += " FROM "+RetSQLName("SB1")+" SB1
+		cQry += " WHERE B1_XLOTCOM = (SELECT B1_XLOTCOM FROM "+RetSQLName("SB1")+" B1 WHERE B1_COD = ? AND B1.D_E_L_E_T_ = '')
+		cQry += " AND B1_GRUPO = 'BOV'
+		cQry += " AND SB1.D_E_L_E_T_ = ''
 
 		oQryBov := FwExecStatement():New(cQry)
 
@@ -1872,15 +1868,33 @@ if Z0C->Z0C_TPMOV != '6'
 							If Z0C->Z0C_TPMOV == "2" // Apartação
 
 								oQryBov:SetString(1,oGridZ0E:GetValue('Z0E_PROD', nI))
-								oQryBov:SetString(2,AllTrim(oGridZ0E:GetValue('Z0E_DESC', nI)))
 
 								cAlias := oQryBov:OpenAlias()
 								
+								nIdade := Posicione("SB1",1,FwxFilial("SB1")+oGridZ0E:GetValue('Z0E_PROD', nI),"B1_XIDADE")
+								
+								lDo := .T.
+
 								if (cAlias)->(EOF())
 									lCriaBov := .T.
 								else
-									oGridZ0E:LoadValue('Z0E_PRDORI', AllTrim((cAlias)->B1_COD) )
-									oGridZ0E:LoadValue('Z0E_LOTORI', aOrigens[nJ, 2] ) // lote
+									while !(cAlias)->(EOF()) .and. lDo
+										if (cAlias)->B1_XIDADE == nIdade .and.;
+											AllTrim((cAlias)->B1_XRACA) == AllTrim(oGridZ0E:GetValue('Z0E_RACA')).and.;
+											AllTrim((cAlias)->B1_X_SEXO) == AllTrim(oGridZ0E:GetValue('Z0E_SEXO'))
+
+											lDo := .F.
+
+											oGridZ0E:LoadValue('Z0E_PRDORI', oGridZ0E:GetValue('Z0E_PROD', nI) )
+											oGridZ0E:LoadValue('Z0E_PROD'  , AllTrim((cAlias)->B1_COD) )
+											oGridZ0E:LoadValue('Z0E_LOTORI', aOrigens[nJ, 2] )
+										endif
+										(cAlias)->(DbSkip())
+									EndDo
+
+									if lDo
+										lCriaBov := .T.
+									endif 
 								endif
 
 								(cAlias)->(DbCloseArea())
@@ -1896,9 +1910,8 @@ if Z0C->Z0C_TPMOV != '6'
 							EndIf
 
 							If aOrigens[nJ,3] > 0
-
+								
 								If Empty(oGridZ0E:GetValue('Z0E_PRDORI', nI))
-									// Guardando SB1 Original
 									oGridZ0E:LoadValue('Z0E_PRDORI', oGridZ0E:GetValue('Z0E_PROD', nI) )
 									oGridZ0E:LoadValue('Z0E_LOTORI', aOrigens[nJ, 2] ) // lote
 								Else
