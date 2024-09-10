@@ -416,8 +416,8 @@ User Function FATI04S()
 						ZFF->ZFF_COMBO  := oStruct:GetValue("ZFF_COMBO")
 						ZFF->ZFF_CODIGO := oStruct:GetValue("ZFF_CODIGO")
 						ZFF->ZFF_CONTRA := oStruct:GetValue("ZFF_CONTRA")
-						ZFF->ZFF_FILCON := FwxFilial("ZFF")
-						ZFF->ZFF_FORNEC := oStruct:GetValue("ZFF_FORNEC")
+						ZFF->ZFF_FILCON := oStruct:GetValue("ZFF_CONTRA")
+						ZFF->ZFF_FORNEC := oStruct:GetValue("ZFF_FILCON")
 						ZFF->ZFF_FLOJA 	:= oStruct:GetValue("ZFF_FLOJA")
 						ZFF->ZFF_DESTIN := oStruct:GetValue("ZFF_DESTIN")
 						ZFF->ZFF_DLOJA 	:= oStruct:GetValue("ZFF_DLOJA")
@@ -784,7 +784,7 @@ User FUnction FATI04P()
 		cQry := " select ZFF_CODIGO, "+ CRLF
 		cQry += " ZFF_FORNEC, "+ CRLF
 		cQry += " ZFF_CONTRA,  "+ CRLF
-		cQry += " ZFF_FILIAL, "+ CRLF
+		cQry += " ZFF_FILCON, "+ CRLF
 		cQry += " SUM(ZFF_VFRETE) AS FRETE, "+ CRLF
 		cQry += " SUM(ZFF_ADICIO) AS ADICIONAL, "+ CRLF
 		cQry += " SUM(ZFF_PEDAGI) AS PEDAGIO "+ CRLF
@@ -798,8 +798,8 @@ User FUnction FATI04P()
 			cQry += " AND ZFF_CONTRA <> ''  "+ CRLF
 		endif 
 		cQry += " AND D_E_L_E_T_ = ''  "+ CRLF
-		cQry += " GROUP BY ZFF_CODIGO, ZFF_FORNEC,ZFF_CONTRA, ZFF_FILIAL "+ CRLF
-		cQry += " ORDER BY ZFF_FILIAL,ZFF_CONTRA "+ CRLF
+		cQry += " GROUP BY ZFF_CODIGO, ZFF_FORNEC,ZFF_CONTRA, ZFF_FILCON "+ CRLF
+		cQry += " ORDER BY ZFF_FILCON,ZFF_CONTRA "+ CRLF
 		
 		MpSysOpenQry(cQry,cALias)
 		
@@ -903,11 +903,11 @@ Static Function GeraRel(_cAliasG,cAlias)
 
 
 		While !(cALias)->(EOF())
-			If ZCC->(DBSeek((cALias)->ZFF_FILIAL+(cALias)->ZFF_CONTRA))
+			If ZCC->(DBSeek((cALias)->ZFF_FILCON+(cALias)->ZFF_CONTRA))
 				nVlrUnit := ( (cALias)->FRETE + (cALias)->ADICIONAL + (cALias)->PEDAGIO ) / ZCC->ZCC_QTTTAN
 
 				nRowIni := nRow + 1
-				WHILE (_cAliasG)->ZBC_FILIAL == (cALias)->ZFF_FILIAL .AND. (_cAliasG)->ZBC_CODIGO == (cALias)->ZFF_CONTRA 
+				WHILE (_cAliasG)->ZBC_FILIAL == (cALias)->ZFF_FILCON .AND. (_cAliasG)->ZBC_CODIGO == (cALias)->ZFF_CONTRA 
 					nCol := 1
 					nRow += 1
 
@@ -957,7 +957,6 @@ Static Function GeraRel(_cAliasG,cAlias)
 		(cALias)->(DBGoTop())
 		(_cAliasG)->(DBGoTop())
 Return 
-
 
 Static Function DefinirFormatacao()
     Local cCVerde       := '00A85A'

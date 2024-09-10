@@ -3892,6 +3892,7 @@ User Function AtualizaZ0F(lGrid)
 	cQry += "   and Z0F_MOVTO='"+Z0C->Z0C_CODIGO+"'" + CRLF
 	cQry += "   and Z0F.D_E_L_E_T_ = '' " + CRLF
 	cQry += " order by Z0F_MOVTO, Z0F_SEQ " + CRLF
+	//cQry += " order by Z0F_MOVTO, Z0F_LOTORI,Z0F_HRPES" + CRLF
 
 	MpSysOpenQuery(cQry, cALias)
 
@@ -4355,8 +4356,9 @@ Static Function GetSldOrigem()
 	cQry += " from "+RetSQLName("Z0F")+" Z0F " + CRLF
 	cQry += " where Z0F_FILIAL = '"+FwxFilial("Z0F")+"' " + CRLF
 	cQry += " and Z0F_MOVTO  = '"+Z0C->Z0C_CODIGO+"' " + CRLF
-	cQry += " and (Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
-	cQry += " or Z0F_PRDORI  =  ? ) " + CRLF//%exp:cVarPrd%)
+	cQry += " and Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
+	//cQry += " and (Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
+	//cQry += " or Z0F_PRDORI  =  ? ) " + CRLF//%exp:cVarPrd%)
 	cQry += " and Z0F_LOTORI =  ? " + CRLF  //exp:cVarLot%
 	cQry += " and Z0F.D_E_L_E_T_ = '' " + CRLF
 
@@ -4367,8 +4369,9 @@ Static Function GetSldOrigem()
 			nQtdPrd := 0
 			
 			oQryC5:SetString(1, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
-			oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
-			oQryC5:SetString(3, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
+			oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
+			//oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
+			//oQryC5:SetString(3, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
 
 			nQtdPrd := oQryC5:ExecScalar("Z0F_QUANT")
 
@@ -4392,7 +4395,7 @@ Static Function GetSldOrigem()
 		EndIf
 		while nAjuste > 0 .and. nI < len(aSaldos)
 			for nJ := nI+1 to len(aSaldos)
-				If aSaldos[nI, 2] = aSaldos[nJ, 2]
+				If aSaldos[nI, 2] == aSaldos[nJ, 2]
 					aSaldos[nJ, 4] := nAjuste
 					If aSaldos[nJ, 4] > aSaldos[nJ, 3]
 						nAjuste := aSaldos[nJ, 4] - aSaldos[nJ, 3]
@@ -4400,9 +4403,9 @@ Static Function GetSldOrigem()
 						nAjuste := 0
 					EndIf
 				EndIf
-			Next
+			Next nJ
 		EndDo
-	Next
+	Next nI
 
 Return aSaldos
 
@@ -4414,9 +4417,7 @@ Static Function DefOrigem()
 
 	If !empty(cLoteOri)
 		nPosS := aScan(aSaldos, { |x| x[1]==cLoteOri  .and. AllTrim(x[5])==IIF(nRadRaca == 1,"NELORE",oRadRaca:aItems[nRadRaca]) /*.and. x[6]==cSexoOri  *//* .and. x[7]==cDentOri */ .and. x[3]>x[4]})
-		If nPosS == 0
-			msgAlert("não existe saldo disponível para o lote de origem selecionado. será utilizado o próprio lote disponível.")
-		else
+		If nPosS > 0
 			aOrigem := oGetDadOri:aCols[ aScan(oGetDadOri:aCols, { |x| x[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})]==aSaldos[nPosS, 1] .and. x[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]==aSaldos[nPosS, 2]}) ]
 			If aSaldos[nPosS, 4]+1 == aSaldos[nPosS, 3]
 
@@ -4457,7 +4458,7 @@ Static Function DefOrigem()
 
 	If empty(aOrigem)
 		for nI := 1 to len(aSaldos)
-			If aSaldos[nI,3] > aSaldos[nI,4]
+			If aSaldos[nI,1] == cLoteOri .and. aSaldos[nI,3] > aSaldos[nI,4]
 				aOrigem := oGetDadOri:aCols[aScan(oGetDadOri:aCols, { |x| x[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})]=aSaldos[nI, 1] .and. x[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]=aSaldos[nI, 2]})]
 				nI := len(aSaldos)
 			EndIf
