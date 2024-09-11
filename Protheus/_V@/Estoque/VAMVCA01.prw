@@ -1831,11 +1831,11 @@ if Z0C->Z0C_TPMOV != '6'
 		cQry := " SELECT  R_E_C_N_O_  " + CRLF 
 		cQry += " FROM	"+RetSqlName("Z0F")+" " + CRLF 
 		cQry += " WHERE	Z0F_FILIAL = "+FwxFilial("Z0F")+" " + CRLF 
-		cQry += " AND Z0F_MOVTO  = ?  " + CRLF 
-		cQry += " AND Z0F_PROD   = ?  " + CRLF 
-		cQry += " AND Z0F_LOTE   = ?  " + CRLF 
-		cQry += " AND Z0F_RACA   = ?  " + CRLF 
-		cQry += " AND Z0F_SEXO   = ?  " + CRLF 
+		cQry += " AND Z0F_MOVTO  = ?  " + CRLF
+		cQry += " AND Z0F_PROD   = ?  " + CRLF
+		cQry += " AND Z0F_LOTE   = ?  " + CRLF
+		cQry += " AND Z0F_RACA   = ?  " + CRLF
+		cQry += " AND Z0F_SEXO   = ?  " + CRLF
 
 		oQryCache := FwExecStatement():New(cQry)
 
@@ -1884,6 +1884,26 @@ if Z0C->Z0C_TPMOV != '6'
 											AllTrim((cAlias)->B1_X_SEXO) == AllTrim(oGridZ0E:GetValue('Z0E_SEXO'))
 
 											lDo := .F.
+
+											oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_CODIGO', nI))
+											oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_PROD'  , nI))
+											oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_LOTE'  , nI))
+											oQryCache:SetString(4,oGridZ0E:GetValue('Z0E_RACA'  , nI))
+											oQryCache:SetString(5,oGridZ0E:GetValue('Z0E_SEXO'  , nI))
+
+											cAlias1 := oQryCache:OpenAlias()
+											
+											while !(cAlias1)->(Eof())
+												Z0F->(DbGoTo((cAlias1)->R_E_C_N_O_))
+												RecLock('Z0F', .F.)
+													Z0F->Z0F_PRDORI := oGridZ0E:GetValue('Z0E_PROD', nI)
+													Z0F->Z0F_PROD   := AllTrim((cAlias)->B1_COD) // oGridZ0E:GetValue('Z0E_PROD', nI)
+													Z0F->Z0F_SEQEFE := cSeqEfe
+												Z0F->(MsUnLock())
+
+												(cAlias1)->(dbSkip())
+											EndDo
+											(cAlias1)->(dbCloseArea())
 
 											oGridZ0E:LoadValue('Z0E_PRDORI', oGridZ0E:GetValue('Z0E_PROD', nI) )
 											oGridZ0E:LoadValue('Z0E_PROD'  , AllTrim((cAlias)->B1_COD) )
@@ -4356,9 +4376,8 @@ Static Function GetSldOrigem()
 	cQry += " from "+RetSQLName("Z0F")+" Z0F " + CRLF
 	cQry += " where Z0F_FILIAL = '"+FwxFilial("Z0F")+"' " + CRLF
 	cQry += " and Z0F_MOVTO  = '"+Z0C->Z0C_CODIGO+"' " + CRLF
-	cQry += " and Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
-	//cQry += " and (Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
-	//cQry += " or Z0F_PRDORI  =  ? ) " + CRLF//%exp:cVarPrd%)
+	cQry += " and (Z0F_PROD  =  ? " + CRLF  // %exp:cVarPrd%
+	cQry += " or Z0F_PRDORI  =  ? ) " + CRLF//%exp:cVarPrd%)
 	cQry += " and Z0F_LOTORI =  ? " + CRLF  //exp:cVarLot%
 	cQry += " and Z0F.D_E_L_E_T_ = '' " + CRLF
 
@@ -4369,9 +4388,8 @@ Static Function GetSldOrigem()
 			nQtdPrd := 0
 			
 			oQryC5:SetString(1, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
-			oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
-			//oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
-			//oQryC5:SetString(3, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
+			oQryC5:SetString(2, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})] )
+			oQryC5:SetString(3, oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})])
 
 			nQtdPrd := oQryC5:ExecScalar("Z0F_QUANT")
 
@@ -4382,7 +4400,7 @@ Static Function GetSldOrigem()
 				oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_RACA"})],;
 				oGetDadOri:aCols[ nI, aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_SEXO"})]})
 		EndIf
-	Next
+	Next nI 
 
 	oQryC5:Destroy()
 	oQryC5 := Nil
@@ -4414,6 +4432,11 @@ Static Function DefOrigem()
 	local aOrigem := {}
 	local aSaldos := GetSldOrigem()
 	Local nI		:= 0
+
+	if empty(cLoteOri) 
+		MsgInfo("Selecione um lote de origem!")
+		return {}
+	endif
 
 	If !empty(cLoteOri)
 		nPosS := aScan(aSaldos, { |x| x[1]==cLoteOri  .and. AllTrim(x[5])==IIF(nRadRaca == 1,"NELORE",oRadRaca:aItems[nRadRaca]) /*.and. x[6]==cSexoOri  *//* .and. x[7]==cDentOri */ .and. x[3]>x[4]})
@@ -4577,130 +4600,131 @@ User Function Registrar( oModel )
 	EndIf
 
 	aLOrigem := DefOrigem()
+	if Len(aLOrigem) > 0
+		aColsDet[len(aColsDet), nPMovto] := Z0C->Z0C_CODIGO
+		aColsDet[len(aColsDet), nPSeq]   := cSeq
+		aColsDet[len(aColsDet), nPProd]  := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]
 
-	aColsDet[len(aColsDet), nPMovto] := Z0C->Z0C_CODIGO
-	aColsDet[len(aColsDet), nPSeq]   := cSeq
-	aColsDet[len(aColsDet), nPProd]  := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_PROD"})]
+		cQry := "select ZBC_CODIGO, ZBC_PEDIDO, A2_NOME " + CRLF 
+		cQry += "	  from "+RetSQLName("ZBC")+" ZBC " + CRLF 
+		cQry += "	  left join "+RetSQLName("SA2")+" SA2 on (SA2.A2_FILIAL='"+FwxFilial("SA2")+"' and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR and SA2.D_E_L_E_T_ = '') " + CRLF 
+		cQry += "	 where ZBC.ZBC_FILIAL='"+FwxFilial("ZBC")+"' " + CRLF 
+		cQry += "	   and ZBC_PRODUT='"+aColsDet[len(aColsDet), nPProd]+"'" + CRLF 
+		cQry += "	   and ZBC_VERSAO=( " + CRLF 
+		cQry += "	   		select max(ZBC_VERSAO) " + CRLF 
+		cQry += "	   		  from "+RetSQLName("ZBC")+" Z2 " + CRLF 
+		cQry += "	   		 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL " + CRLF 
+		cQry += "	   		   and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO " + CRLF 
+		cQry += "			   and Z2.D_E_L_E_T_ = '' " + CRLF 
+		cQry += "	   ) " + CRLF 
+		cQry += "	   and ZBC.D_E_L_E_T_ = '' " + CRLF 
+		
+		cAlias := GetNextAlias()
+		MpSysOpenQuery(cQry,cAlias)
 
-	cQry := "select ZBC_CODIGO, ZBC_PEDIDO, A2_NOME " + CRLF 
-	cQry += "	  from "+RetSQLName("ZBC")+" ZBC " + CRLF 
-	cQry += "	  left join "+RetSQLName("SA2")+" SA2 on (SA2.A2_FILIAL='"+FwxFilial("SA2")+"' and A2_COD=ZBC_CODFOR and A2_LOJA=ZBC_LOJFOR and SA2.D_E_L_E_T_ = '') " + CRLF 
-	cQry += "	 where ZBC.ZBC_FILIAL='"+FwxFilial("ZBC")+"' " + CRLF 
-	cQry += "	   and ZBC_PRODUT='"+aColsDet[len(aColsDet), nPProd]+"'" + CRLF 
-	cQry += "	   and ZBC_VERSAO=( " + CRLF 
-	cQry += "	   		select max(ZBC_VERSAO) " + CRLF 
-	cQry += "	   		  from "+RetSQLName("ZBC")+" Z2 " + CRLF 
-	cQry += "	   		 where Z2.ZBC_FILIAL=ZBC.ZBC_FILIAL " + CRLF 
-	cQry += "	   		   and Z2.ZBC_CODIGO=ZBC.ZBC_CODIGO " + CRLF 
-	cQry += "			   and Z2.D_E_L_E_T_ = '' " + CRLF 
-	cQry += "	   ) " + CRLF 
-	cQry += "	   and ZBC.D_E_L_E_T_ = '' " + CRLF 
-	
-	cAlias := GetNextAlias()
-	MpSysOpenQuery(cQry,cAlias)
+		If !(cALias)->(Eof())
+			aColsDet[len(aColsDet), nPContr] := (cALias)->ZBC_CODIGO
+			aColsDet[len(aColsDet), nPPedid] := (cALias)->ZBC_PEDIDO
+			aColsDet[len(aColsDet), nPForne] := (cALias)->A2_NOME
+		EndIf
+		(cALias)->(dbCloseArea())
 
-	If !(cALias)->(Eof())
-		aColsDet[len(aColsDet), nPContr] := (cALias)->ZBC_CODIGO
-		aColsDet[len(aColsDet), nPPedid] := (cALias)->ZBC_PEDIDO
-		aColsDet[len(aColsDet), nPForne] := (cALias)->A2_NOME
-	EndIf
-	(cALias)->(dbCloseArea())
+		aColsDet[len(aColsDet), nPData] := Date()
+		aColsDet[len(aColsDet), nPHora] := Time()
 
-	aColsDet[len(aColsDet), nPData] := Date()
-	aColsDet[len(aColsDet), nPHora] := Time()
+		aColsDet[len(aColsDet), nPLOri] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})]
+		aColsDet[len(aColsDet), nPSexo] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_SEXO"})]   // AllTrim(posicione("SB1", 1, xFilial("SB1")+aColsDet[len(aColsDet), nPProd], "B1_X_SEXO"))
+		aColsDet[len(aColsDet), nPTag]  := space(tamsx3("Z0F_TAG")[1])
 
-	aColsDet[len(aColsDet), nPLOri] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_LOTE"})]
-	aColsDet[len(aColsDet), nPSexo] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_SEXO"})]   // AllTrim(posicione("SB1", 1, xFilial("SB1")+aColsDet[len(aColsDet), nPProd], "B1_X_SEXO"))
-	aColsDet[len(aColsDet), nPTag]  := space(tamsx3("Z0F_TAG")[1])
+		If nRadRaca >= 2
+			aColsDet[len(aColsDet), nPRaca] := oRadRaca:aItems[nRadRaca]
+		Else
+			aColsDet[len(aColsDet), nPRaca] := AllTrim(aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_RACA"})])   // AllTrim(posicione("SB1", 1, xFilial("SB1")+aColsDet[len(aColsDet), nPProd], "B1_XRACA"))
+		EndIf
 
-	If nRadRaca >= 2
-		aColsDet[len(aColsDet), nPRaca] := oRadRaca:aItems[nRadRaca]
-	Else
-		aColsDet[len(aColsDet), nPRaca] := AllTrim(aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_RACA"})])   // AllTrim(posicione("SB1", 1, xFilial("SB1")+aColsDet[len(aColsDet), nPProd], "B1_XRACA"))
-	EndIf
+		If nRadDent >= 2
+			aColsDet[len(aColsDet), nPDent] := Left(oRadDent:aItems[nRadDent],1)
+		Else
+			aColsDet[len(aColsDet), nPDent] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_DENTIC"})] // "0"
+		EndIf
 
-	If nRadDent >= 2
-		aColsDet[len(aColsDet), nPDent] := Left(oRadDent:aItems[nRadDent],1)
-	Else
-		aColsDet[len(aColsDet), nPDent] := aLOrigem[aScan( aHeadOri, { |x| AllTrim(x[2]) == "Z0D_DENTIC"})] // "0"
-	EndIf
+		cLote := ""
+		cCurral := ""
 
-	cLote := ""
-	cCurral := ""
+		nPosIni := 2
+		nPosFim := 3
+		nPosLote := 4
+		nPosCurral := 5
 
-	nPosIni := 2
-	nPosFim := 3
-	nPosLote := 4
-	nPosCurral := 5
+		If empty(cLoteForce)
 
-	If empty(cLoteForce)
+			for nI := 1 to len(oGetDadRan:aCols)
+				If !oGetDadRan:aCols[ nI, nUsadRan+1]
+					If nPeso >= oGetDadRan:aCols[ nI, nPosIni] .and. nPeso <= oGetDadRan:aCols[ nI, nPosFim]
+						cLote := oGetDadRan:aCols[ nI, nPosLote]
+						cCurral := oGetDadRan:aCols[ nI, nPosCurral]
 
-		for nI := 1 to len(oGetDadRan:aCols)
-			If !oGetDadRan:aCols[ nI, nUsadRan+1]
-				If nPeso >= oGetDadRan:aCols[ nI, nPosIni] .and. nPeso <= oGetDadRan:aCols[ nI, nPosFim]
-					cLote := oGetDadRan:aCols[ nI, nPosLote]
-					cCurral := oGetDadRan:aCols[ nI, nPosCurral]
-
-					nI := len(oGetDadRan:aCols)
+						nI := len(oGetDadRan:aCols)
+					EndIf
 				EndIf
-			EndIf
-		endFor
+			endFor
 
-	else
-		cLote 	   := cLoteForce
-		cCurral    := cCurrForce
+		else
+			cLote 	   := cLoteForce
+			cCurral    := cCurrForce
 
-		cLoteForce := ""
-		cCurrForce := ""
-		oSayForce:SetText("")
-	EndIf
+			cLoteForce := ""
+			cCurrForce := ""
+			oSayForce:SetText("")
+		EndIf
 
-	If empty(cLote)
-		msgAlert("Peso não se encaixa nos parametros especIficados. Informe uma parametrização de pesos válida que permita a escolha do lote e curral adequado.")
-		Return nil
-	EndIf
+		If empty(cLote)
+			msgAlert("Peso não se encaixa nos parametros especIficados. Informe uma parametrização de pesos válida que permita a escolha do lote e curral adequado.")
+			Return nil
+		EndIf
 
-	aColsDet[len(aColsDet), nPLote] 	:= cLote
-	aColsDet[len(aColsDet), nPCurral] 	:= cCurral
-	aColsDet[len(aColsDet), nPPeso] 	:= nPeso
-	aColsDet[len(aColsDet), nPPeBal] 	:= nPesBal
-	aColsDet[len(aColsDet), nUsadDet+1] := .F.
+		aColsDet[len(aColsDet), nPLote] 	:= cLote
+		aColsDet[len(aColsDet), nPCurral] 	:= cCurral
+		aColsDet[len(aColsDet), nPPeso] 	:= nPeso
+		aColsDet[len(aColsDet), nPPeBal] 	:= nPesBal
+		aColsDet[len(aColsDet), nUsadDet+1] := .F.
 
-	RecLock("Z0F", .T.)
-	Z0F->Z0F_FILIAL := FWxFilial("Z0F")
-	Z0F->Z0F_MOVTO 	:= Z0C->Z0C_CODIGO
-	Z0F->Z0F_SEQ 	:= cSeq
-	Z0F->Z0F_PROD 	:= aColsDet[len(aColsDet), nPProd]
-	Z0F->Z0F_LOTE 	:= aColsDet[len(aColsDet), nPLote]
-	Z0F->Z0F_CURRAL := aColsDet[len(aColsDet), nPCurral]
-	Z0F->Z0F_PESO 	:= aColsDet[len(aColsDet), nPPeso]
-	Z0F->Z0F_PESBAL := aColsDet[len(aColsDet), nPPeBal]
-	If valtype(aColsDet[len(aColsDet), nPData]) == "D"
-		Z0F->Z0F_DTPES := aColsDet[len(aColsDet), nPData]
-	else
-		Z0F->Z0F_DTPES := STOD(aColsDet[len(aColsDet), nPData])
-	EndIf
-	Z0F->Z0F_HRPES  := aColsDet[len(aColsDet), nPHora]
-	Z0F->Z0F_RACA   := AllTrim(aColsDet[len(aColsDet), nPRaca])
-	Z0F->Z0F_SEXO   := AllTrim(aColsDet[len(aColsDet), nPSexo])
-	Z0F->Z0F_DENTIC := AllTrim(aColsDet[len(aColsDet), nPDent])
-	Z0F->Z0F_TAG    := AllTrim(aColsDet[len(aColsDet), nPTag])
-	Z0F->Z0F_LOTORI := aColsDet[len(aColsDet), nPLOri]
-	MsUnlock()
+		RecLock("Z0F", .T.)
+		Z0F->Z0F_FILIAL := FWxFilial("Z0F")
+		Z0F->Z0F_MOVTO 	:= Z0C->Z0C_CODIGO
+		Z0F->Z0F_SEQ 	:= cSeq
+		Z0F->Z0F_PROD 	:= aColsDet[len(aColsDet), nPProd]
+		Z0F->Z0F_LOTE 	:= aColsDet[len(aColsDet), nPLote]
+		Z0F->Z0F_CURRAL := aColsDet[len(aColsDet), nPCurral]
+		Z0F->Z0F_PESO 	:= aColsDet[len(aColsDet), nPPeso]
+		Z0F->Z0F_PESBAL := aColsDet[len(aColsDet), nPPeBal]
+		If valtype(aColsDet[len(aColsDet), nPData]) == "D"
+			Z0F->Z0F_DTPES := aColsDet[len(aColsDet), nPData]
+		else
+			Z0F->Z0F_DTPES := STOD(aColsDet[len(aColsDet), nPData])
+		EndIf
+		Z0F->Z0F_HRPES  := aColsDet[len(aColsDet), nPHora]
+		Z0F->Z0F_RACA   := AllTrim(aColsDet[len(aColsDet), nPRaca])
+		Z0F->Z0F_SEXO   := AllTrim(aColsDet[len(aColsDet), nPSexo])
+		Z0F->Z0F_DENTIC := AllTrim(aColsDet[len(aColsDet), nPDent])
+		Z0F->Z0F_TAG    := AllTrim(aColsDet[len(aColsDet), nPTag])
+		Z0F->Z0F_LOTORI := aColsDet[len(aColsDet), nPLOri]
+		MsUnlock()
 
-	aColsDet[len(aColsDet), aScan( aHeadDet, { |x| AllTrim(x[2]) == "NRECNO"})] := Z0F->(RECNO())
+		aColsDet[len(aColsDet), aScan( aHeadDet, { |x| AllTrim(x[2]) == "NRECNO"})] := Z0F->(RECNO())
 
-	nPRecno := aScan( aHeadDet, {|a1| a1[2]=="NRECNO"})
-	aSort(aColsDet,,,{ |x, y| x[nPRecno] > y[nPRecno] })
+		nPRecno := aScan( aHeadDet, {|a1| a1[2]=="NRECNO"})
+		aSort(aColsDet,,,{ |x, y| x[nPRecno] > y[nPRecno] })
 
-	oGetDadDet:setArray(aColsDet)
-	oGetDadDet:oBrowse:Refresh()
-	oDlgPsg:CtrlRefresh()
-	ObjectMethod(oDlgPsg,"Refresh()")
+		oGetDadDet:setArray(aColsDet)
+		oGetDadDet:oBrowse:Refresh()
+		oDlgPsg:CtrlRefresh()
+		ObjectMethod(oDlgPsg,"Refresh()")
 
-	U_calcular_destino()
+		U_calcular_destino()
 
-	nPeso := 0
+		nPeso := 0
+	endif 
 Return
 
 
