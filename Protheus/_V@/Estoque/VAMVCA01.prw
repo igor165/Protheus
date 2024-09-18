@@ -1831,10 +1831,10 @@ if Z0C->Z0C_TPMOV != '6'
 		cQry := " SELECT  R_E_C_N_O_  " + CRLF 
 		cQry += " FROM	"+RetSqlName("Z0F")+" " + CRLF 
 		cQry += " WHERE	Z0F_FILIAL = "+FwxFilial("Z0F")+" " + CRLF 
-		cQry += " AND Z0F_MOVTO  = ?  " + CRLF
-		cQry += " AND Z0F_PROD   = ?  " + CRLF
-		cQry += " AND Z0F_LOTE   = ?  " + CRLF
-		cQry += " AND Z0F_RACA   = ?  " + CRLF
+		cQry += " AND Z0F_MOVTO  = ?  " + CRLF 
+		cQry += " AND Z0F_PROD   = ?  " + CRLF 
+		cQry += " AND Z0F_LOTE   = ?  " + CRLF 
+		cQry += " AND Z0F_RACA   = ?  " + CRLF 
 		cQry += " AND Z0F_SEXO   = ?  " + CRLF
 
 		oQryCache := FwExecStatement():New(cQry)
@@ -1862,9 +1862,9 @@ if Z0C->Z0C_TPMOV != '6'
 						If Empty(oGridZ0E:GetValue('Z0E_SEQEFE' , nI))
 
 							lCriaBov := .F.
-							cBovCom := ""
-							cChvZ0D := aOrigens[nJ, 5] + aOrigens[nJ, 6] //+ cValToChar(aOrigens[nJ, 7]) // cChvZ0D := oGridZ0D:GetValue('Z0D_RACA',nIZ0D) + oGridZ0D:GetValue('Z0D_SEXO',nIZ0D) + cValToChar(oGridZ0D:GetValue('Z0D_DENTIC',nIZ0D))
-							cChvZ0E := oGridZ0E:GetValue('Z0E_RACA', nI) + oGridZ0E:GetValue('Z0E_SEXO', nI) /* + cValToChar(oGridZ0E:GetValue('Z0E_DENTIC', nI)) */
+							cBovCom  := ""
+							cChvZ0D  := aOrigens[nJ, 5] + aOrigens[nJ, 6] //+ cValToChar(aOrigens[nJ, 7]) // cChvZ0D := oGridZ0D:GetValue('Z0D_RACA',nIZ0D) + oGridZ0D:GetValue('Z0D_SEXO',nIZ0D) + cValToChar(oGridZ0D:GetValue('Z0D_DENTIC',nIZ0D))
+							cChvZ0E  := oGridZ0E:GetValue('Z0E_RACA', nI) + oGridZ0E:GetValue('Z0E_SEXO', nI) /* + cValToChar(oGridZ0E:GetValue('Z0E_DENTIC', nI)) */
 							If Z0C->Z0C_TPMOV == "2" // Apartação
 
 								oQryBov:SetString(1,oGridZ0E:GetValue('Z0E_PROD', nI))
@@ -1884,7 +1884,7 @@ if Z0C->Z0C_TPMOV != '6'
 											AllTrim((cAlias)->B1_X_SEXO) == AllTrim(oGridZ0E:GetValue('Z0E_SEXO'))
 
 											lDo := .F.
-
+											
 											oQryCache:SetString(1,oGridZ0E:GetValue('Z0E_CODIGO', nI))
 											oQryCache:SetString(2,oGridZ0E:GetValue('Z0E_PROD'  , nI))
 											oQryCache:SetString(3,oGridZ0E:GetValue('Z0E_LOTE'  , nI))
@@ -4724,7 +4724,7 @@ User Function Registrar( oModel )
 		U_calcular_destino()
 
 		nPeso := 0
-	endif 
+	endif
 Return
 
 

@@ -44,7 +44,7 @@ if (ParamIXB[1] == 3 .or. ParamIXB[1] == 4) .and. !Empty(ParamIXB[4])
                                  " and SG1.G1_COD = '" + cProduto + "'" +;
                                  " and SG1.G1_SEQ = '" + cSeq + "'" +;
                                  " and SG1.D_E_L_E_T_ = ''" ;
-                                         ), "TMPSG1", .f., .t.) 
+                                         ), "TMPSG1", .f., .t.)
         cTime := Time()
         while !TMPSG1->(Eof())
             RecLock("ZG1", .t.)

@@ -1247,14 +1247,14 @@ User Function fBxaAnimais()
 				EndIf
 			Next nI
 			
-			cDocumento := SubStr(oZSGGtDad:aCols[ nI, nPZSGCHVNF ],26,9)
+			cDocumento := SubStr(oZSGGtDad:aCols[ oZSGGtDad:nAt, nPZSGCHVNF ],26,9)
 
-			cQry := " select * " + CRLF 
+			cQry := " select * " + CRLF
 			cQry += " from "+RetSqlName("SD3")+" SD3" + CRLF 
 			cQry += " WHERE SD3.D3_FILIAL = '"+FwxFilial("SD3")+"' " + CRLF 
 			cQry += " AND SD3.D3_DOC = '"+cDocumento+"'" + CRLF 
 			cQry += " AND SD3.D3_ESTORNO = ' ' " + CRLF 
-			cQry += " AND SD3.D_E_L_E_T_ = ' '" + CRLF 
+			cQry += " AND SD3.D_E_L_E_T_ = ' '" + CRLF
 
 			MpSysOpenQuery(cQry,cAlias)
 
@@ -1327,7 +1327,7 @@ User Function fBxaAnimais()
 				MSExecAuto({|x,y,z| MATA241(x,y,z)},aCab,aItens,3)
 				
 				if lMsErroAuto
-					Mostraerro() 
+					Mostraerro()
 				else 
 					RecnoSD3 := SD3->(Recno())
 					nLinhas := ''

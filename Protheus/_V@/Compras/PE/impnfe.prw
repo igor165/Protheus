@@ -106,6 +106,13 @@ User Function MTCOLSE2()
     Local lPula     := .F.
     Local nTamSE2
 
+    Local cChave        := cA100For + cLoja + cNFiscal + RTrim(cSerie) + dToS(ddEmissao)
+    Local cArquivo      := "\mata103-boletos\" + cChave + ".txt"
+    Local oFileWriter   := nil
+    Local oFileReader   := nil
+    Local aFileLines    
+    Local cFullRead
+
     if nOpc == 1 .and. cEmpAnt == '01'
 
         _cQry := " SELECT ZBC_CODIGO,ZBC_VERSAO,ZBC_PEDIDO FROM "+RetSqlName("ZBC")+" " + CRLF
@@ -199,6 +206,33 @@ User Function MTCOLSE2()
             aColsE2 := U_GTPE013()
         endif   
         (cAlias)->(DbCloseArea())
+
+        if Len(aColsE2) > 0 .and. aColsE2[1,3] > 0
+
+            FErase(cArquivo)
+            ConOut("impNfe: U_MTCOLSE2")
+            ConOut("Houve uma falha na exclusão do arquivo, erro #" + cValToChar(FError()))
+
+            oFileWriter := FWFileWriter():New( cArquivo, .F.)
+
+            If !oFileWriter:Create()
+                MsgInfo('Erro ao criar o arquivo de escrita ' ,'Universo do Desenvolvedor')
+            Endif
+
+            cTexto  := ""
+            nTamSE2 := len(aColsE2)
+            For nI := 1 to nTamSE2
+                if !aColsE2[nI,Len(aColsE2[1])]
+                    cTexto += aColsE2[nI,1] + ";" + dToS(aColsE2[nI,2]) + ";" + AllTrim(Str(aColsE2[nI,3])) + IIF(nI<nTamSE2, + chr(13)+chr(10),"")
+                endif
+            next nI
+
+            If !oFileWriter:Write(cTexto)
+                conout('Problema ao escrever')
+            Endif
+
+            oFileWriter:Close()
+        endif 
     endif
 
 Return aColsE2

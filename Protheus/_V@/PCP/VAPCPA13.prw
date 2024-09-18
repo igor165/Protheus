@@ -932,7 +932,7 @@ EndIf
 //separacao da tela
 oView:CreateHorizontalBox( "CABECALHO", 16 )
 oView:CreateHorizontalBox( "BOXTELDV1", 02 )
-oView:CreateHorizontalBox( "FILTRO"   , 22 )
+oView:CreateHorizontalBox( "FILTRO"   , 27 )
 
 oView:CreateVerticalBox("BOXFILROT", 16, "FILTRO")
 oView:CreateVerticalBox("BOXFILDV1", 02, "FILTRO")
@@ -945,7 +945,7 @@ oView:CreateVerticalBox("BOXFILDV4", 18, "FILTRO")
 
 If (_cA13LayOut == "NOVO")
 
-	oView:CreateHorizontalBox("FOLDER", 60 )
+	oView:CreateHorizontalBox("FOLDER", 55 )
 
 	oView:CreateFolder( 'PASTAS', 'FOLDER' )
 

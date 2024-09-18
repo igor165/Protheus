@@ -15,5 +15,5 @@ Public    cObsMT103        := IIF( Inclui, Space(300), SF1->F1_MENNOTA )
     aButtons := U_GTPE014()
     
     aAdd(aBut,{ "NOTE"		, {||u_FSTelaObs("SF1")}, "Observacoes", "Obs.NF"}) 
-//    aAdd(aBut,{ "PRODUTO"	, {||xUserData := ExecBlock( "CAT95DAT", .F., .F. ) }, "Inf.adicionais CAT95" } )  
+    aAdd(aBut,{ "BOLETO"	, {||u_VACOMI01()}       , "Boletos lllll" } )  
 Return( aBut ) 

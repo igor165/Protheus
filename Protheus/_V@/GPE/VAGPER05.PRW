@@ -106,35 +106,46 @@ Static Function fQuadro1()
         oExcel:SetFontConfig(jFontText)
         oExcel:SetValue(nRow, nCol  , (_cAliasG)->FILIAL )
         oExcel:SetValue(nRow, ++nCol, (_cAliasG)->MATRICULA )
-        oExcel:SetValue(nRow, ++nCol, (_cAliasG)->NOME )
+        oExcel:SetValue(nRow, ++nCol, Alltrim((_cAliasG)->NOME) )
         
         oExcel:SetCellsFormatConfig(jFNum)
+        
+        
+        cHoras := AllTrim(Str(IIF(Round((_cAliasG)->SALDO_ANTERIOR,2)==NIL,0,Round((_cAliasG)->SALDO_ANTERIOR,2))))
+        
+        if int(Val(cHoras)) - Val(cHoras) == 0
+            cDecimal    := "0"
+            cSaldo      := cHoras
+        else 
+            cDecimal    := SubStr(cHoras,At(".",cHoras)+1)
 
-        cHoras      := AllTrim(Str(IIF(Round((_cAliasG)->SALDO_ANTERIOR,2)==NIL,0,Round((_cAliasG)->SALDO_ANTERIOR,2))))
-        cDecimal    := SubStr(cHoras,At(".",cHoras)+1)
+            if LEN(cDecimal) == 1
+                cDecimal := cDecimal + "0"
+            endif 
 
-        if Len(cDecimal) == 1
-            cDecimal := cDecimal + "0"
-        endif 
-
-        cSexa  := Round(Val(cDecimal) / 1.67,0)
-        cSaldo := SubStr(cHoras,1,At(".",cHoras))  + iif(LEN(AllTrim(Str(cSexa)))==1,"0"+AllTrim(Str(cSexa)),AllTrim(Str(cSexa)))
-
-        oExcel:SetValue(nRow, ++nCol, Val(cSaldo))
-
-        cHoras      := AllTrim(Str(IIF(Round((_cAliasG)->(SALDO_ANTERIOR + SALDO_ATUAL),2)==NIL,0,Round((_cAliasG)->(SALDO_ANTERIOR + SALDO_ATUAL),2))))
-        cDecimal    := SubStr(cHoras,At(".",cHoras)+1)
-
-        if Len(cDecimal) == 1
-            cDecimal := cDecimal + "0"
-        endif 
-
-        cSexa  := Round(Val(cDecimal) / 1.67,0)
-        cSaldo := SubStr(cHoras,1,At(".",cHoras))  + iif(LEN(AllTrim(Str(cSexa)))==1,"0"+AllTrim(Str(cSexa)),AllTrim(Str(cSexa)))
+            cSexa  := Round(Val(cDecimal) / 1.67,0)
+            cSaldo := SubStr(cHoras,1,At(".",cHoras))  + iif(LEN(AllTrim(Str(cSexa)))==1,"0"+AllTrim(Str(cSexa)),AllTrim(Str(cSexa)))
+        endif
 
         oExcel:SetValue(nRow, ++nCol, Val(cSaldo))
-        //oExcel:SetValue(nRow, ++nCol, Round((_cAliasG)->SALDO_ANTERIOR,2))
-        //oExcel:SetValue(nRow, ++nCol, Round((_cAliasG)->(SALDO_ANTERIOR + SALDO_ATUAL),2))
+        
+        cHoras := AllTrim(Str(IIF(Round((_cAliasG)->(SALDO_ATUAL),2)==NIL,0,Round((_cAliasG)->(SALDO_ATUAL),2))))
+
+        if int(Val(cHoras)) - Val(cHoras) == 0
+            cDecimal    := "0"
+            cSaldo      := cHoras
+        else
+            cDecimal    := SubStr(cHoras,At(".",cHoras)+1)
+
+            if LEN(cDecimal) == 1
+                cDecimal := cDecimal + "0"
+            endif
+
+            cSexa  := Round(Val(cDecimal) / 1.67,0)
+            cSaldo := SubStr(cHoras,1,At(".",cHoras))  + iif(LEN(AllTrim(Str(cSexa)))==1,"0"+AllTrim(Str(cSexa)),AllTrim(Str(cSexa)))
+        endif
+
+        oExcel:SetValue(nRow, ++nCol, Val(cSaldo))
         
         oExcel:SetFontConfig(jFontText)
         oExcel:SetValue(nRow, ++nCol, (_cAliasG)->DESCRI )
@@ -170,12 +181,12 @@ Static Function LoadQuery(_cAliasG)
     cQry += "  												AND SP9.D_E_L_E_T_ = ''  " + CRLF 
     cQry += "  					WHERE SPI.PI_STATUS = ''  " + CRLF 
     cQry += "  					  AND SPI.PI_CC BETWEEN '"+MV_PAR03+"' AND '"+MV_PAR04+"'  " + CRLF 
-    cQry += "  					  AND SPI.PI_DATA <'"+dToS(MV_PAR06)+"'  " + CRLF 
+    cQry += "  					  AND SPI.PI_DATA < '"+dToS(MV_PAR06)+"'  " + CRLF 
     //cQry += "  					  AND SPI.PI_DATA BETWEEN '"+dToS(MV_PAR05)+"' AND '"+dToS(MV_PAR06)+"'  " + CRLF 
-    cQry += "  					  AND SPI.PI_STATUS <> 'B'  " + CRLF 
-    cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF 
+    cQry += "  					  AND SPI.PI_STATUS <> 'B'  " + CRLF
+    cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF
     cQry += " 					  AND SPI.PI_FILIAL = SRA.RA_FILIAL " + CRLF
-    cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ATUAL " + CRLF
+    cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ATUAL " +\ CRLF
     cQry += " 		, ( SELECT SUM(((CASE WHEN P9_TIPOCOD = '2' THEN -1 ELSE 1 END) * (CAST(PI_QUANT AS INT)+((PI_QUANT-CAST(PI_QUANT AS INT))/60*100)))) 	AS PI_QUANT  " + CRLF 
     cQry += "  					FROM "+RetSqlName("SPI")+" SPI  " + CRLF 
     cQry += "  						LEFT JOIN "+RetSqlName("SP9")+" SP9 ON SP9.P9_FILIAL  = ''  " + CRLF 
@@ -183,12 +194,12 @@ Static Function LoadQuery(_cAliasG)
     cQry += "  												AND SP9.D_E_L_E_T_ = ''  " + CRLF 
     cQry += "  					WHERE SPI.PI_STATUS = ''  " + CRLF 
     cQry += "  					  AND SPI.PI_CC BETWEEN '"+MV_PAR03+"' AND '"+MV_PAR04+"'  " + CRLF 
-    cQry += "  					  AND SPI.PI_DATA < '"+dToS(MV_PAR05)+"' " + CRLF 
+    cQry += "  					  AND SPI.PI_DATA <= '"+dToS(MV_PAR05)+"' " + CRLF 
     cQry += "  					  AND SPI.PI_STATUS <> 'B'  " + CRLF
     cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF 
-    cQry += " 					  AND SPI.PI_FILIAL = SRA.RA_FILIAL " + CRLF 
+    cQry += " 					  AND SPI.PI_FILIAL = SRA.RA_FILIAL " + CRLF
     cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ANTERIOR " + CRLF 
-    cQry += " FROM "+RetSqlName("SRA")+" SRA " + CRLF 
+    cQry += " FROM "+RetSqlName("SRA")+" SRA " + CRLF
     cQry += " JOIN "+RetSqlName("SQB")+" SQB ON SQB.QB_DEPTO = SRA.RA_DEPTO  " + CRLF 
     cQry += "  						AND SQB.D_E_L_E_T_ = ''  " + CRLF 
     cQry += " WHERE RA_DEMISSA = ''  " + CRLF 
@@ -196,7 +207,7 @@ Static Function LoadQuery(_cAliasG)
     cQry += " AND SRA.D_E_L_E_T_ = ''  " + CRLF 
     cQry += " ORDER BY RA_FILIAL, QB_DESCRIC , RA_NOME " + CRLF 
 
-    if cUserName $ 'ioliveira'
+    if cUserName $ 'ioliveira,Administrador'
         memowrite("C:\TOTVS_RELATORIOS\VAGPER05.sql", cQry)
     endif
 

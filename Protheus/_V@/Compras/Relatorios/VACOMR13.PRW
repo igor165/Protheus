@@ -325,7 +325,7 @@ User Function VACOMR13()
                     EndIf 
 
                     oExcel:DeActivate()
-                else    
+                else    // NAO SEPARAR TRANSPORTADORAS
                     oExcel := FwPrinterXlsx():New()
                 
                     oExcel:Activate(cArquivo)
@@ -405,9 +405,9 @@ User Function VACOMR13()
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_PEDAGI"})][2] )
                         oExcel:SetValue(nRow, ++nCol, aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_ICMSF"})][2] )
                         
-                        __oQry:SetString(1,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_CODIGO"})][2])
-                        __oQry:SetString(2,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_FILIAL"})][2])
-                        __oQry:SetString(3,aDados[nI][2][nJ][aScan(aDados[nI][2][nJ], {|x| Upper(x[1]) == "ZFF_PLCVL"})][2])
+                        __oQry:SetString(1,aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_CODIGO"})][2])
+                        __oQry:SetString(2,aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_FILIAL"})][2])
+                        __oQry:SetString(3,aDados[nI][aScan(aDados[1], {|x| Upper(x[1]) == "ZFF_PLCVL"})][2])
                         
                         cAlias1 := __oQry:OpenAlias()
                         cDoc    := ""

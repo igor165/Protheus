@@ -24,7 +24,6 @@ User Function VAJOB18()
 		U_JOB18VA()
 	EndIf
 Return
-
 User Function JOB18VA()
     Local aParam    := {}
     Local lAuto     := .T.
