@@ -14,5 +14,4 @@ Local aBut := PARAMIXB[2]
 Public    cObsMT103        := IIF( Inclui, Space(300), SF1->F1_MENNOTA )
 
     aAdd(aBut,{ "NOTE"		, {||u_FSTelaObs("SF1")}, "Observacoes", "Obs.NF"}) 
-    aAdd(aBut,{ "NOTE"		, {||u_zCOMI01()}, "Boletos", "Boletos.NF"}) 
-Return( aBut )           
+Return( aBut )

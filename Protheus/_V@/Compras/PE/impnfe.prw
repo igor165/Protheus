@@ -110,7 +110,7 @@ User Function MTCOLSE2()
     Local cArquivo      := "\mata103-boletos\" + cChave + ".txt"
     Local oFileWriter   := nil
     Local oFileReader   := nil
-    Local aFileLines    
+    Local aFileLines
     Local cFullRead
 
     if nOpc == 1 .and. cEmpAnt == '01'
@@ -207,7 +207,16 @@ User Function MTCOLSE2()
         endif   
         (cAlias)->(DbCloseArea())
 
-        if Len(aColsE2) > 0 .and. aColsE2[1,3] > 0
+        aCBrMT103 := {}
+        For nI := 1 To Len(aColsE2)
+            aAdd(aCBrMT103,AllTrim(aColsE2[nI,17]))
+
+/*             if aColsE2[nI,3] > 0 .and. AllTrim(aColsE2[nI,17]) == ''
+                loop
+            endif
+
+            cChave        := cA100For + cLoja + cNFiscal + RTrim(cSerie) + aColsE2[nI,1]
+            cArquivo      := "\mata103-boletos\" + cChave + ".txt"
 
             FErase(cArquivo)
             ConOut("impNfe: U_MTCOLSE2")
@@ -219,20 +228,16 @@ User Function MTCOLSE2()
                 MsgInfo('Erro ao criar o arquivo de escrita ' ,'Universo do Desenvolvedor')
             Endif
 
-            cTexto  := ""
-            nTamSE2 := len(aColsE2)
-            For nI := 1 to nTamSE2
-                if !aColsE2[nI,Len(aColsE2[1])]
-                    cTexto += aColsE2[nI,1] + ";" + dToS(aColsE2[nI,2]) + ";" + AllTrim(Str(aColsE2[nI,3])) + IIF(nI<nTamSE2, + chr(13)+chr(10),"")
-                endif
-            next nI
+            cTexto := AllTrim(aColsE2[nI,17])
 
             If !oFileWriter:Write(cTexto)
                 conout('Problema ao escrever')
             Endif
 
             oFileWriter:Close()
-        endif 
+            oFileWriter := nil */
+        Next nI
+
     endif
 
 Return aColsE2

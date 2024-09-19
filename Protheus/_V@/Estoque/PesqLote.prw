@@ -168,15 +168,23 @@ Static Function Filtro(nOPFil)
 
 		if nOpcQry == 1
 			cOrdem :=  " ORDER BY B8_LOTECTL"
-		elseif nOpcQry == 2 
+		elseif nOpcQry == 2
 			cOrdem :=  " ORDER BY B8_DATA"
 		else
-			cOrdem :=  " ORDER BY B8_DATA"
+			if IsInCallStack("U_VAESTI03")
+				cOrdem :=  " ORDER BY B1_DESC"
+			else 
+				cOrdem :=  " ORDER BY B8_DATA"
+			endif
 		endif
 
 	else 
+		if IsInCallStack("U_VAESTI03") .and. nOpcQry == 3
+			cOrdem :=  " ORDER BY B1_DESC"
+		else
+			cOrdem :=  " ORDER BY B8_LOTECTL"
+		endif
 	    cFiltro := " "
-		cOrdem  := " "
 	endif
 
 	If select("_QRY1") > 0

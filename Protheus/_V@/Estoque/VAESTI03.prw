@@ -647,7 +647,6 @@ User Function BovEstI4()
 					_cQry += "			AND B8_SALDO > 0  " + CRLF
 					_cQry += "			and B8_X_CURRA != ''  " + CRLF
 					_cQry += " 			and SB8.D_E_L_E_T_ = '' " + CRLF
-					_cQry += " 			ORDER BY B1_DESC " + CRLF
 					
 					QryOpc		:= 3
 					cCodCon 	:= 'PRODUTO'

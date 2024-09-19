@@ -20,7 +20,7 @@
 /* NfeCond2    (MATA103X)
 /* NfeTotFin   (MATA103X)
 /* A103CalcRt  (MATA103X)
-/* A103Radio   (MATA103X)
+/* A103Radio   (MATAsss103X)
 /* A103Recal   (MATA103X)
 /* A103ValNat  (MATA103X)
 /* A103VencSE2 (MATA103X)
