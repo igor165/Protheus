@@ -22,12 +22,12 @@ User Function MT100GE2()
 		SE2->E2_HIST :=  cObsMT103 //SF1->F1_MENNOTA //cObsMT103 //
 	EndIf
 
-	//if Type("aCBrMT103") <> "U" .and. !Empty( aCBrMT103 ) .and. AllTrim(aCBrMT103[1]) != ""
-	//	SE2->E2_CODBAR := aCBrMT103[1]
-	//	
-	//	aDel(aCBrMT103, 1) 
-	//	aSize(aCBrMT103, Len(aCBrMT103) - 1)
-	//endif
+	if Type("aCBrMT103") <> "U" .and. !Empty( aCBrMT103 ) .and. AllTrim(aCBrMT103[1]) != ""
+		SE2->E2_CODBAR := aCBrMT103[1]
+		
+		aDel(aCBrMT103, 1) 
+		aSize(aCBrMT103, Len(aCBrMT103) - 1)
+	endif
 
  	If SE2->(FieldPos("E2_XXDTDIG"))>0
 		SE2->E2_XXDTDIG := DATE()

@@ -210,32 +210,6 @@ User Function MTCOLSE2()
         aCBrMT103 := {}
         For nI := 1 To Len(aColsE2)
             aAdd(aCBrMT103,AllTrim(aColsE2[nI,17]))
-
-/*             if aColsE2[nI,3] > 0 .and. AllTrim(aColsE2[nI,17]) == ''
-                loop
-            endif
-
-            cChave        := cA100For + cLoja + cNFiscal + RTrim(cSerie) + aColsE2[nI,1]
-            cArquivo      := "\mata103-boletos\" + cChave + ".txt"
-
-            FErase(cArquivo)
-            ConOut("impNfe: U_MTCOLSE2")
-            ConOut("Houve uma falha na exclusão do arquivo, erro #" + cValToChar(FError()))
-
-            oFileWriter := FWFileWriter():New( cArquivo, .F.)
-
-            If !oFileWriter:Create()
-                MsgInfo('Erro ao criar o arquivo de escrita ' ,'Universo do Desenvolvedor')
-            Endif
-
-            cTexto := AllTrim(aColsE2[nI,17])
-
-            If !oFileWriter:Write(cTexto)
-                conout('Problema ao escrever')
-            Endif
-
-            oFileWriter:Close()
-            oFileWriter := nil */
         Next nI
 
     endif
