@@ -291,7 +291,6 @@ nPZSGEMPFIL := aScan( oZSGGtDad:aHeader, { |x| AllTrim(x[2]) == "ZSG_EMPFIL"  } 
 If  Len(aZSGCols)==1 .AND. Empty( aZSGCols[ 01, nPZSGITEM ] )
 	oZSGGtDad:aCols[ 01, nPZSGCODIGO ] 	:= oSZJGtDad:aCols[ 01, nPZJCODIGO]
 	oZSGGtDad:aCols[ 01, nPZSGITEM ]	:= StrZero( 1, TamSX3('ZSG_ITEM')[1])
-	oZSGGtDad:aCols[ 01, NPZJTPPES ]	:= MV_PAR01
 EndIf
 
 AAdd( aButtons, { "AUTOM", { || U_EstornoBaixa() }, "Realizar Estorno da Baixa dos Animais (F7)" } )
@@ -468,17 +467,20 @@ Return lRet
 User Function fSZJFieldOK( )
 Local nPos     := oSZJGtDad:nAt, nAux := 0
 Local cCodigo  := ""
+Local cTpPes  := ""
 Local _cQry    := ""
 Local cAlias   := GetNextAlias()
 Local cAliasX  := GetNextAlias()
 Local cAliasZ  := GetNextAlias()
 Local cAliasY  := GetNextAlias()
 
-
-
 	If nPos > 1 .and. Empty(oSZJGtDad:aCols[ nPos, nPZJCODIGO])
 		If !Empty( cCodigo := oSZJGtDad:aCols[ nPos-1, nPZJCODIGO] )
 			oSZJGtDad:aCols[ nPos, nPZJCODIGO] := cCodigo
+		EndIf
+		
+		If !Empty( cTpPes := oSZJGtDad:aCols[ nPos-1, NPZJTPPES] )
+			oSZJGtDad:aCols[ nPos, NPZJTPPES] := cTpPes
 		EndIf
 	EndIf
 
@@ -1210,6 +1212,7 @@ User Function fBxaAnimais()
 	Local aArea         := GetArea()
 	Local cMsg          := ""
 	Local nI            := 0
+	Local nJ            := 0
 	Local cQry          := ""
 	Local cCC           := ""
 	Local RECNOSD3      := 0
@@ -1226,7 +1229,39 @@ User Function fBxaAnimais()
 	_aAreaSM0 := SM0->(GetArea())
 	_cEmpBkp  := SM0->M0_CODIGO //Guardo a empresa atual
 	_cFilBkp  := SM0->M0_CODFIL //Guardo a filial atual
+	
+	For nI := 1 to Len(oZSGGtDad:aCols)
+		If oZSGGtDad:aCols[ nI, Len(oZSGGtDad:aCols[nI]) ]
+			Loop
+		EndIf
 		
+		For nJ := 1 To Len(oZSGGtDad:aCols)
+			If oZSGGtDad:aCols[ nJ, Len(oZSGGtDad:aCols[nJ]) ]
+				Loop
+			EndIf
+
+			if nJ == nI
+				Loop 
+			endif
+
+			if oZSGGtDad:aCols[ nJ, nPZSGLOTE ] == oZSGGtDad:aCols[ nI, nPZSGLOTE ] .AND.;
+				oZSGGtDad:aCols[ nJ, nPZSGPRODUT ] == oZSGGtDad:aCols[ nI, nPZSGPRODUT ] 
+
+				cMsg := "Produto e Lote repetidos!" + CRLF
+				cMsg += "Lote: " + AllTrim(oZSGGtDad:aCols[ nJ, nPZSGLOTE ]) + CRLF
+				cMsg += "Produto: " + AllTrim(oZSGGtDad:aCols[ nJ, nPZSGPRODUT ]) + CRLF
+				cMsg += "Linha: " + AllTrim(Str(nI)) + " e " + AllTrim(Str(nJ)) + CRLF
+
+				exit
+			endif
+		Next nJ 
+
+		if !Empty(cMsg)
+			MsgStop(cMsg,"Operação cancelada!")
+			return nil
+		endif
+	Next nI
+
 	// BeginTran()
 	Begin Transaction
 		TryException
@@ -1313,6 +1348,8 @@ User Function fBxaAnimais()
 							aAdd(aItens,aClone(aItem))
 						Else
 							FWAlertError("O Produto: '" +AllTrim(oZSGGtDad:aCols[ nI, nPZSGPRODUT ])+ "', Lote  '"+oZSGGtDad:aCols[ nI, nPZSGLOTE ]+"'  não possui saldo suficiente parar realizar a baixa do estoque", "Saldo Insuficiente")
+							DisarmTransaction()
+							Return nil
 						EndIf
 						(cAlias)->(DBCLOSEAREA(  ))
 					EndIf
@@ -1323,7 +1360,7 @@ User Function fBxaAnimais()
 				MsgInfo(cMsg)
 			EndIf
 			
-			if Len(aItens) > 0
+			if Len(aItens) > 0 
 				MSExecAuto({|x,y,z| MATA241(x,y,z)},aCab,aItens,3)
 				
 				if lMsErroAuto
@@ -1872,6 +1909,7 @@ User Function SF2PSB()
 	Local aDados	 := {}
 	Local _cCampos := ""
 	Local nI       := 0
+	Local nPos     := oSZJGtDad:nAt
 
 	Public __cChaveNF  := ""
 	Public __cDoc      := ""
