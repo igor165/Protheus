@@ -106,12 +106,12 @@ User Function MTCOLSE2()
     Local lPula     := .F.
     Local nTamSE2
 
-    Local cChave        := cA100For + cLoja + cNFiscal + RTrim(cSerie) + dToS(ddEmissao)
-    Local cArquivo      := "\mata103-boletos\" + cChave + ".txt"
-    Local oFileWriter   := nil
-    Local oFileReader   := nil
-    Local aFileLines
-    Local cFullRead
+   // Local cChave        := cA100For + cLoja + cNFiscal + RTrim(cSerie) + dToS(ddEmissao)
+   // Local cArquivo      := "\mata103-boletos\" + cChave + ".txt"
+   // Local oFileWriter   := nil
+   // Local oFileReader   := nil
+   // Local aFileLines
+   // Local cFullRead
 
     if nOpc == 1 .and. cEmpAnt == '01'
 
@@ -206,10 +206,71 @@ User Function MTCOLSE2()
             aColsE2 := U_GTPE013()
         endif   
         (cAlias)->(DbCloseArea())
+        
+        cMsg := ""
+        For nI := 1 to Len(aColsE2)
+			IF aColsE2[nI,20]
+				loop
+			endif
+
+            if AllTrim(aColsE2[nI,17]) != ''
+                For nJ := 1 to Len(aColsE2)
+                    IF nI == nJ .or. aColsE2[nJ,20] .or. AllTrim(aColsE2[nJ,17]) == ""
+                        loop
+                    endif
+                                    
+                    if AllTrim(aColsE2[nJ,17]) == AllTrim(aColsE2[nI,17])
+                        cMsg := "Boleto repetido nas " 
+                        cMsg += "linhas : " + AllTrim(Str(nI)) + " e " + AllTrim(Str(nJ)) + CRLF
+                        cMsg += "Códigos inseridos serão apagadas!"
+                        aColsE2[nJ,17] := ""
+                        aColsE2[nI,17] := ""
+                        exit
+                    endif
+                next nJ
+            endif 
+			
+			if !Empty(cMsg)
+				exit 
+			endif 
+		Next nI
+
+		if !Empty(cMsg)
+			MsgStop(cMsg,"Boleto Invalido!")
+		else
+            For nI := 1 to Len(aColsE2)
+                IF aColsE2[nI,20] 
+                    loop
+                endif
+
+                if AllTrim(aColsE2[nI,17]) != ""
+                    cLinDig := AllTrim(aColsE2[nI,17])
+                    
+                    nValBol := SubStr(cLinDig,Len(cLinDig)-9,Len(cLinDig))
+                    nValBol := SubStr(nValBol,1,8) + '.' + SubStr(nValBol,9,2)
+                    nValBol := Val(nValBol)
+
+                    if aColsE2[nI,3] <> nValBol
+                        cMsg := "Código de boleto inválido!" + CRLF
+                        cMsg += "Valor do boleto não corresponde ao valor do titulo!"+ CRLF
+                        cMsg += "Valor do boleto: " + cValToChar(nValBol) + CRLF
+                        cMsg += "Valor do titulo: " + cValToChar(aColsE2[nI,3]) + CRLF
+                        cMsg += "Linha será apagada!"
+
+                        aColsE2[nI,17] := ""
+                        exit
+                    endif
+                endif
+    		Next nI
+			
+			if !Empty(cMsg)
+				MsgStop(cMsg,"Boleto Invalido!")
+			endif
+		endif
 
         aCBrMT103 := {}
         For nI := 1 To Len(aColsE2)
-            aAdd(aCBrMT103,AllTrim(aColsE2[nI,17]))
+            aAdd(aCBrMT103,{ aColsE2[nI,3], AllTrim(aColsE2[nI,17])})
         Next nI
 
     endif

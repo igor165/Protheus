@@ -642,7 +642,7 @@ User Function BovEstI4()
 					_cQry += " 			JOIN " +RetSqlName("SB1") + " SB1 ON B1_COD = B8_PRODUTO " + CRLF
 					_cQry += "			where B8_FILIAL = '" +FwXFilial("SB8") + "'" + CRLF
 					if oCab:GetValue("ZMS_TIPO") == 'N'
-						_cQry += "		AND B1_DESC in ('BOVINO MACHO DE 0 A 8 MESES','BOVINO FEMEA DE 0 A 8 MESES') " + CRLF
+						_cQry += "		AND B1_DESC in ('BOVINO MACHO DE 0 A 08 MESES','BOVINO MACHO DE 0 A 8 MESES','BOVINO FEMEA DE 0 A 8 MESES','BOVINO FEMEA DE 0 A 08 MESES','BOVINO FEMEA DE 0 A 03 MESES','BOVINO MACHO DE 0 A 03 MESES') " + CRLF
 					endif
 					_cQry += "			AND B8_SALDO > 0  " + CRLF
 					_cQry += "			and B8_X_CURRA != ''  " + CRLF
@@ -652,7 +652,7 @@ User Function BovEstI4()
 					cCodCon 	:= 'PRODUTO'
 					cConsulta 	:= 'B8_PRODUTO'
 				endif 
-			endif 
+			endif
 
 			If lower(cUserName) $ 'ioliveira,bernardo,mbernardo,atoshio,admin,administrador'
 				MemoWrite("C:\totvs_relatorios\SQL_B8_VAESTI03.sql" , _cQry)

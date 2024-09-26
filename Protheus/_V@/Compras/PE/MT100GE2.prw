@@ -54,4 +54,4 @@ User Function MT100GE2()
 		
 	TcSqlExec(cQryUpd)
 
-Return Nil  
+Return Nil 

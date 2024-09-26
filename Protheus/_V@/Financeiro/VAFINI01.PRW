@@ -11,7 +11,7 @@ User Function VAFINI01()
     oBrowse := FWMBrowse():New()
 	oBrowse:SetAlias( "SE2" )
 	oBrowse:SetDescription( cTitulo )
-	oBrowse:SetFilterDefault( "E2_XRCNZE2 > 0" )
+	//oBrowse:SetFilterDefault( "E2_XRCNZE2 > 0" )
     
     oBrowse:AddLegend( "E2_XSTAPI == 'ER'"          , "RED"     , "ERRO INTEGRACAO COM O BANCO")
     oBrowse:AddLegend( "E2_XSTAPI == 'OK'"          , "GREEN"   , "FINALIZADO COM SUCESSO")
@@ -44,7 +44,8 @@ Static Function ModelDef()
     oStField:addTable("", {"C_STRING1"}, "Visualização", {|| ""})
     oStField:addField("String 01", "texto", "C_STRING1", "C", 15)
 	
-	oStSE5:AddField('OK', ' ', 'OK', 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+	oStSE5:AddField('OK' , ' ', 'OK' , 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+	oStSE2:AddField('SEL', ' ', 'SEL', 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
 	
 	aCpSE5 := oStSE5:aFields
 	For nI := 1 to Len(aCpSE5)
@@ -61,10 +62,8 @@ Static Function ModelDef()
 	oModel:AddGrid('SE2DETAIL',"FAKEM"    ,oStSE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,{|oModel| LoadSE2(oModel)}/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
 	oModel:AddGrid('ZE2DETAIL','SE2DETAIL',oStZE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
 	oModel:AddGrid('SE5DETAIL','SE2DETAIL',oStSE5,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
+	oModel:AddCalc('CALC_TOT' , 'FAKEM', 'SE2DETAIL', "E2_VALOR", "TOT_CALC", "SUM",,, "Total a Pagar")
 	
-	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
-	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
-
 	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('SE5DETAIL'):SetOptional(.T.)
@@ -105,11 +104,13 @@ Static Function ViewDef()
 	Local oStSE2 	    := FWFormStruct(2, 'SE2')
 	Local oStZE2 	    := FWFormStruct(2, 'ZE2')
 	Local oStSE5 	    := FWFormStruct(2, 'SE5')
-
-    oStField := FWFormViewStruct():New()
+	Local oStrTot 		:= FWCalcStruct( oModel:GetModel('CALC_TOT') )
+    
+	oStField := FWFormViewStruct():New()
     oStField:addField("C_STRING1", "01" , "String 01", "texto", , "C" )
 
-	oStSE5:AddField( 'OK','01','OK','OK',, 'Check')
+	oStSE5:AddField( 'OK' ,'01','OK' ,'OK' ,, 'Check')
+	oStSE2:AddField( 'SEL','01','SEL','SEL',, 'Check')
 
 	//Criando a View
 	oView := FWFormView():New()
@@ -120,6 +121,7 @@ Static Function ViewDef()
 	oView:AddGrid( 'VIEW_SE2'   , oStSE2 , 'SE2DETAIL' )
 	oView:AddGrid( 'VIEW_ZE2'   , oStZE2 , 'ZE2DETAIL' )
 	oView:AddGrid( 'VIEW_SE5'   , oStSE5 , 'SE5DETAIL' )
+	oView:AddField('VIEW_TOT'   , oStrTot , 'CALC_TOT' )
 	
 	//Setando o dimensionamento de tamanho
 	oView:CreateHorizontalBox('BOX_HIDE'  , 0 )
@@ -128,16 +130,20 @@ Static Function ViewDef()
 	
     oView:CreateVerticalBox( 'BOX_ZE2', 50, 'BOX_GRID' )
     oView:CreateVerticalBox( 'BOX_BTN', 5 , 'BOX_GRID' )
-    oView:CreateVerticalBox( 'BOX_SE5', 45, 'BOX_GRID' )
+    oView:CreateVerticalBox( 'BOX_DIR', 45, 'BOX_GRID' )
+
+	oView:CreateHorizontalBox('BOX_SE5' , 90, 'BOX_DIR' )
+	oView:CreateHorizontalBox('BOX_TOT' , 10, 'BOX_DIR' )
 
 	oView:AddOtherObject("BUTTON",{|o1Panel,o1OtherObject| CriaBtn(o1Panel,o1OtherObject)})
 	
 	//Amarrando a view com as box
 	oView:SetOwnerView('CAB'	    ,'BOX_HIDE' )
-	oView:SetOwnerView('BUTTON'		,'BOX_BTN' )
-	oView:SetOwnerView('VIEW_SE2'	,'BOX_SE2' )
-	oView:SetOwnerView('VIEW_ZE2'	,'BOX_ZE2' )
-	oView:SetOwnerView('VIEW_SE5'	,'BOX_SE5')
+	oView:SetOwnerView('BUTTON'		,'BOX_BTN'  )
+	oView:SetOwnerView('VIEW_SE2'	,'BOX_SE2'  )
+	oView:SetOwnerView('VIEW_ZE2'	,'BOX_ZE2'  )
+	oView:SetOwnerView('VIEW_SE5'	,'BOX_SE5'  )
+	oView:SetOwnerView('VIEW_TOT'	,'BOX_TOT'  )
 
 	oView:EnableTitleView('BUTTON'  ,'_________________________')
 	oView:EnableTitleView('VIEW_SE2','Titulos a Pagar')
@@ -158,7 +164,11 @@ Static Function LoadSE2(oModel)
 
 	For nI := 1 to Len(aAux)
 		if !(aAux[nI][14])
-			aAdd(aData[Len(aData)][2],SE2->&(aAux[nI][3]))
+			if aAux[nI][3] != 'SEL'
+				aAdd(aData[Len(aData)][2],SE2->&(aAux[nI][3]))
+			else 
+				aAdd(aData[Len(aData)][2],.F.)
+			endif 
 		else //CAMPO VIRTUAL
 			if aAux[nI][4] == 'C'
 				aAdd(aData[Len(aData)][2],"")
