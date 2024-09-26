@@ -6,12 +6,18 @@ User Function VAFINI01()
     Local aArea   		:= FwGetArea()
     Local oBrowse  		:= NIL
 
+	Private oBtn	:= Array(3)
+	Private oTfSay  := TFont():New('ARIAL',,22,,.T.)
+	Private oTfTot  := TFont():New('ARIAL',,24,,.T.)
+	Private oSay 	:= nil
+	Private oSayTot := nil
+
     SetFunName("VAFINI01")
 	
     oBrowse := FWMBrowse():New()
 	oBrowse:SetAlias( "SE2" )
 	oBrowse:SetDescription( cTitulo )
-	//oBrowse:SetFilterDefault( "E2_XRCNZE2 > 0" )
+	oBrowse:SetFilterDefault( "E2_XSTAPI <> '  ' .AND. D_E_L_E_T_ = '' " )
     
     oBrowse:AddLegend( "E2_XSTAPI == 'ER'"          , "RED"     , "ERRO INTEGRACAO COM O BANCO")
     oBrowse:AddLegend( "E2_XSTAPI == 'OK'"          , "GREEN"   , "FINALIZADO COM SUCESSO")
@@ -43,16 +49,16 @@ Static Function ModelDef()
 
     oStField:addTable("", {"C_STRING1"}, "Visualização", {|| ""})
     oStField:addField("String 01", "texto", "C_STRING1", "C", 15)
-	
+
 	oStSE5:AddField('OK' , ' ', 'OK' , 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
-	oStSE2:AddField('SEL', ' ', 'SEL', 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+	oStSE2:AddField('SEL', ' ', 'SEL', 'L', 1, 0, {|| VldSel()} , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
 	
 	aCpSE5 := oStSE5:aFields
 	For nI := 1 to Len(aCpSE5)
 		if oStSE5:aFields[nI][03] != 'OK'
 			oStSE5:aFields[nI][08] := {|| .F.}
 			oStSE5:aFields[nI][10] := .F.
-		endif 
+		endif
 	next nI
     
     //Criando o modelo e os relacionamentos
@@ -62,7 +68,6 @@ Static Function ModelDef()
 	oModel:AddGrid('SE2DETAIL',"FAKEM"    ,oStSE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,{|oModel| LoadSE2(oModel)}/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
 	oModel:AddGrid('ZE2DETAIL','SE2DETAIL',oStZE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
 	oModel:AddGrid('SE5DETAIL','SE2DETAIL',oStSE5,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
-	oModel:AddCalc('CALC_TOT' , 'FAKEM', 'SE2DETAIL', "E2_VALOR", "TOT_CALC", "SUM",,, "Total a Pagar")
 	
 	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
@@ -104,7 +109,6 @@ Static Function ViewDef()
 	Local oStSE2 	    := FWFormStruct(2, 'SE2')
 	Local oStZE2 	    := FWFormStruct(2, 'ZE2')
 	Local oStSE5 	    := FWFormStruct(2, 'SE5')
-	Local oStrTot 		:= FWCalcStruct( oModel:GetModel('CALC_TOT') )
     
 	oStField := FWFormViewStruct():New()
     oStField:addField("C_STRING1", "01" , "String 01", "texto", , "C" )
@@ -121,7 +125,6 @@ Static Function ViewDef()
 	oView:AddGrid( 'VIEW_SE2'   , oStSE2 , 'SE2DETAIL' )
 	oView:AddGrid( 'VIEW_ZE2'   , oStZE2 , 'ZE2DETAIL' )
 	oView:AddGrid( 'VIEW_SE5'   , oStSE5 , 'SE5DETAIL' )
-	oView:AddField('VIEW_TOT'   , oStrTot , 'CALC_TOT' )
 	
 	//Setando o dimensionamento de tamanho
 	oView:CreateHorizontalBox('BOX_HIDE'  , 0 )
@@ -133,8 +136,9 @@ Static Function ViewDef()
     oView:CreateVerticalBox( 'BOX_DIR', 45, 'BOX_GRID' )
 
 	oView:CreateHorizontalBox('BOX_SE5' , 90, 'BOX_DIR' )
-	oView:CreateHorizontalBox('BOX_TOT' , 10, 'BOX_DIR' )
+	oView:CreateHorizontalBox('BOX_TOT' , 10, 'BOX_DIR' )  
 
+	oView:AddOtherObject("TOTAL" ,{|o1Panel,o1OtherObject| CalcTot(o1Panel,o1OtherObject)})
 	oView:AddOtherObject("BUTTON",{|o1Panel,o1OtherObject| CriaBtn(o1Panel,o1OtherObject)})
 	
 	//Amarrando a view com as box
@@ -143,12 +147,14 @@ Static Function ViewDef()
 	oView:SetOwnerView('VIEW_SE2'	,'BOX_SE2'  )
 	oView:SetOwnerView('VIEW_ZE2'	,'BOX_ZE2'  )
 	oView:SetOwnerView('VIEW_SE5'	,'BOX_SE5'  )
-	oView:SetOwnerView('VIEW_TOT'	,'BOX_TOT'  )
+	oView:SetOwnerView('TOTAL'		,'BOX_TOT'  )
 
 	oView:EnableTitleView('BUTTON'  ,'_________________________')
-	oView:EnableTitleView('VIEW_SE2','Titulos a Pagar')
-	oView:EnableTitleView('VIEW_ZE2','Log Integração')
+	oView:EnableTitleView('VIEW_SE2','Titulos a Pagar' )
+	oView:EnableTitleView('VIEW_ZE2','Log Integração'  )
 	oView:EnableTitleView('VIEW_SE5','Baixa de Titulos')
+
+	SetKey( VK_F5 , { || InverteSelecao() } )
 
 Return oView
 Static Function LoadFake()
@@ -159,26 +165,48 @@ Static Function LoadSE2(oModel)
     Local aData     := {}
     Local nI 
     Local aAux		:= oStruct:GetFields()
-    
-	aAdd(aData,{{SE2->(Recno())},{}})
+    Local cQry 		:= ""
+	Local cAlias 	:= GetNextAlias()
 
-	For nI := 1 to Len(aAux)
-		if !(aAux[nI][14])
-			if aAux[nI][3] != 'SEL'
-				aAdd(aData[Len(aData)][2],SE2->&(aAux[nI][3]))
-			else 
-				aAdd(aData[Len(aData)][2],.F.)
-			endif 
-		else //CAMPO VIRTUAL
-			if aAux[nI][4] == 'C'
-				aAdd(aData[Len(aData)][2],"")
-			elseif aAux[nI][4] == 'D'
-				aAdd(aData[Len(aData)][2],cToD("//"))
-			elseif aAux[nI][4] == 'N'
-				aAdd(aData[Len(aData)][2],0)
+	cQry := " select *" + CRLF
+	cQry += " from "+RetSqlName("SE2")+"  " + CRLF
+	cQry += " WHERE  E2_FILIAL = '"+SE2->E2_FILIAL+"' " + CRLF
+	cQry += " AND E2_PREFIXO  = '"+SE2->E2_PREFIXO+"' " + CRLF
+	cQry += " AND E2_NUM		= '"+SE2->E2_NUM+"'  " + CRLF
+	cQry += " AND E2_FORNECE  = '"+SE2->E2_FORNECE+"'  " + CRLF
+	cQry += " AND E2_LOJA		= '"+SE2->E2_LOJA+"' " + CRLF
+	cQry += " AND E2_TIPO		= '"+SE2->E2_TIPO+"' " + CRLF
+	cQry += " AND E2_XSTAPI <> '  ' " + CRLF
+	cQry += " AND D_E_L_E_T_ = '' " + CRLF
+
+	MpSysOpenQry(cQry, cAlias)
+
+	While !(cAlias)->(EOF())
+		aAdd(aData,{{(cALias)->R_E_C_N_O_},{}})
+	
+		For nI := 1 to Len(aAux)
+			if !(aAux[nI][14])
+				if aAux[nI][4] == 'C' .OR. aAux[nI][4] == 'N'
+					aAdd(aData[Len(aData)][2],(cALias)->&(aAux[nI][3]))
+				elseif aAux[nI][4] == 'D'
+					aAdd(aData[Len(aData)][2],sToD((cALias)->&(aAux[nI][3])))
+				elseif aAux[nI][4] == 'L' .and. aAux[nI][3] == 'SEL'
+					aAdd(aData[Len(aData)][2],.F.)
+				else
+				endif
+			else //CAMPO VIRTUAL
+				if aAux[nI][4] == 'C'
+					aAdd(aData[Len(aData)][2],"")
+				elseif aAux[nI][4] == 'D'
+					aAdd(aData[Len(aData)][2],cToD("//"))
+				elseif aAux[nI][4] == 'N'
+					aAdd(aData[Len(aData)][2],0)
+				endif
 			endif
-		endif
-	Next nI
+		Next nI
+
+		(cAlias)->(DbSkip())
+	endDo
 
     FwRestArea(aArea)
 Return aData
@@ -187,16 +215,63 @@ Static Function CriaBtn(o1Panel,o1OtherObject)
 	Local nWidth  := o1Panel:NCLIENTWIDTH / 2
 	Local nHeight := o1Panel:NHEIGHT / 2
 	
-	Private oBtn := Array(2)
+	@(nHeight - 75),nWidth - 10 BTNBMP oBtn[1]  RESOURCE "LBOK"		SIZE 25,25 ACTION InverteSelecao() OF o1Panel
+	@(nHeight - 25),nWidth - 10 BTNBMP oBtn[2]  RESOURCE "PESQUISA" SIZE 25,25 ACTION Enviar() OF o1Panel
+	@(nHeight + 25),nWidth - 10 BTNBMP oBtn[3]  RESOURCE "ENVIAR" 	SIZE 25,25 ACTION Consultar() OF o1Panel
 
-	@(nHeight - 25),nWidth - 10 BTNBMP oBtn[1]  RESOURCE "PESQUISA" 	SIZE 25,25 ACTION Enviar() OF o1Panel
-	@(nHeight + 25),nWidth - 10 BTNBMP oBtn[2]  RESOURCE "ENVIAR" 		SIZE 25,25 ACTION Consultar() OF o1Panel
+	oBtn[1]:cToolTip := "Inverter Seleção"
+	oBtn[2]:cToolTip := "Consultar"
+	oBtn[3]:cToolTip := "Enviar"
 
-	oBtn[1]:cToolTip := "Consultar"
-	oBtn[2]:cToolTip := "Enviar"
+Return
 
+Static Function CalcTot(o1Panel,o1OtherObject)
+	Local nWidth  := 0
+	Local nHeight := 5
+	
+	oSay 	:= TSay():New(nHeight ,nWidth     , {||''},o1Panel,,oTfSay,,,,.T.,CLR_BLACK,CLR_WHITE,200,30)
+	oSayTot := TSay():New(nHeight ,nWidth + 60, {||''},o1Panel,,oTfTot,,,,.T.,CLR_RED,CLR_WHITE,200,30)
+
+Return
+
+Static Function VldSel()
+	Local oModel := FwModelActivate()
+	Local oMSe2	 := oModel:GetModel("SE2DETAIL")
+	Local nI
+	Local nSoma  := 0
+
+	For nI := 1 to oMSe2:Length()
+		oMSe2:GoLine(nI)
+		if !oMSe2:IsDeleted() .and. oMSe2:GetValue("SEL")
+			nSoma +=  oMSe2:GetValue("E2_VALOR")
+		endif
+	next nI
+
+	if nSoma == 0
+		oSay:SetText("")
+		oSayTot:SetText("")
+	else
+		oSay:SetText("Total a Pagar: ")
+		oSayTot:SetText(AllTrim(Transform(nSoma,Alltrim(X3Picture("E2_VALOR")))))
+	endif 
+
+Return .T. 
+
+Static Function InverteSelecao()
+	Local oModel := FwModelActivate()
+	Local oMSe2	 := oModel:GetModel("SE2DETAIL")
+	Local oView	 := FWViewActive()
+	Local nI
+	Local aSaveLines := FWSaveRows()
+
+	For nI := 1 to oMSe2:Length()
+		oMSe2:GoLine(nI)
+		oMSe2:SetValue("SEL",!oMSe2:GetValue("SEL"))
+	next nI
+
+	FWRestRows(aSaveLines)
+	oView:refresh()
 Return 
-
 Static Function Enviar()
 	Local oModel 	:= FwModelActivate()
 	Local oMdlSE5	:= oModel:GetModel("SE5DETAIL")
