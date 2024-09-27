@@ -421,7 +421,7 @@ User Function I08TELA1()
                 FWExecView('Incluir', 'VAESTI08', MODEL_OPERATION_INSERT,,{||.T.})
             SetFunName(cFunBkp)
 
-        endif 
+        endif
 
     EndIf
     RestArea(aArea)
