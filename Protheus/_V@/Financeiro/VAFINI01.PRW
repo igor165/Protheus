@@ -45,7 +45,7 @@ User Function VAFINI01()
 		
 		if cFiltro != "" //.and. aParametros[4] == 1
 			cQry += " AND  E2_XSTAPI IN ("+cFiltro+") " + CRLF
-		else 
+		else
 			cQry += " AND  E2_XSTAPI <> '  ' " + CRLF
 		endif
 
@@ -77,24 +77,21 @@ Return aRotina
 
 Static Function ModelDef()
 	Local oModel 		:= Nil
-	Local oStField 		:= nil
-	Local oStSE2 		:= FWFormStruct(1, 'SE2')
-	Local oStZE2 		:= FWFormStruct(1, 'ZE2')
-	Local oStSE5 		:= FWFormStruct(1, 'SE5')
+	Local oStField 		:= FWFormStruct(1, "TMPFAKE")
+	Local oStSE2 		:= FWFormStruct(1, "TMPSE2")
+	Local oStZE2 		:= FWFormStruct(1, "TMPZE2")
+	Local oStSE5 		:= FWFormStruct(1, "TMPSE5")
  	Local aCpSE5		:= {}
 	Local aZE2Rel		:= {}
 	Local aSE5Rel		:= {}
 	Local nI
-
-    oStField := FWFormModelStruct():New()
-
-    oStField:addTable("", {"C_STRING1"}, "Visualização", {|| ""})
+    
     oStField:addField("String 01", "texto", "C_STRING1", "C", 15)
-
-	oStSE5:AddField('OK' , ' ', 'OK' , 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
-	
-	oStSE2:AddField('LEG', ' ', 'LEG', 'C', 50, 0,  , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, "BR_BRANCO"))
-	oStSE2:AddField('SEL', ' ', 'SEL', 'L', 1, 0, {|| VldSel()} , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+		
+	//CARREGAR CAMPOS TEMPORARIOS
+	GetMField(oModel,@oStSE2,"SE2")
+	GetMField(oModel,@oStZE2,"ZE2")
+	GetMField(oModel,@oStSE5,"SE5")
 
 	aCpSE5 := oStSE5:aFields
 	For nI := 1 to Len(aCpSE5)
@@ -109,32 +106,32 @@ Static Function ModelDef()
 	
 	oModel:AddFields('FAKEM',/*cOwner*/   ,oStField, /* <bPre > */, /* <bPost > */, {|| LoadFake()}/* <bLoad > */)
 	oModel:AddGrid('SE2DETAIL',"FAKEM"    ,oStSE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,{|oModel| LoadSE2(oModel)}/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
-	oModel:AddGrid('ZE2DETAIL','SE2DETAIL',oStZE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
-	oModel:AddGrid('SE5DETAIL','SE2DETAIL',oStSE5,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
+	oModel:AddGrid('ZE2DETAIL','SE2DETAIL',oStZE2,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,{|oModel| LoadZE2(oModel)}/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
+	oModel:AddGrid('SE5DETAIL','SE2DETAIL',oStSE5,/*bLinePre*/,/*bLinePost*/,/*bPre - Grid Inteiro*/,/*bPos - Grid Inteiro*/,{|oModel| LoadSE5(oModel)}/*bLoad - Carga do modelo manualmente*/)  //cOwner Ã© para quem pertence
 	
 	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
 	oModel:GetModel('SE5DETAIL'):SetOptional(.T.)
 
-	aadd(aZE2Rel, {'ZE2_FILIAL' ,'E2_FILIAL' })
-	aadd(aZE2Rel, {'ZE2_PREFIX' ,'E2_PREFIXO'})
-	aadd(aZE2Rel, {'ZE2_NUM'    ,'E2_NUM'    })
-	aadd(aZE2Rel, {'ZE2_PARCEL' ,'E2_PARCELA'})
-	aadd(aZE2Rel, {'ZE2_TIPO'   ,'E2_TIPO'   })
-	aadd(aZE2Rel, {'ZE2_FORNEC' ,'E2_FORNECE'})
-	aadd(aZE2Rel, {'ZE2_LOJA'   ,'E2_LOJA'   })
-
-	aadd(aSE5Rel, {'E5_FILIAL'  ,'E2_FILIAL' })
-	aadd(aSE5Rel, {'E5_PREFIXO' ,'E2_PREFIXO'})
-	aadd(aSE5Rel, {'E5_NUMERO'  ,'E2_NUM'    })
-	aadd(aSE5Rel, {'E5_PARCELA' ,'E2_PARCELA'})
-	aadd(aSE5Rel, {'E5_TIPO'    ,'E2_TIPO'   })
-	aadd(aSE5Rel, {'E5_CLIFOR'  ,'E2_FORNECE'})
-	aadd(aSE5Rel, {'E5_LOJA'    ,'E2_LOJA'   })
-
-    oModel:SetRelation('ZE2DETAIL', aZE2Rel, ZE2->(IndexKey(1)))
-    
-    oModel:SetRelation('SE5DETAIL', aSE5Rel, SE5->(IndexKey(7)))
+	//aadd(aZE2Rel, {'ZE2_FILIAL' ,'E2_FILIAL' })
+	//aadd(aZE2Rel, {'ZE2_PREFIX' ,'E2_PREFIXO'})
+	//aadd(aZE2Rel, {'ZE2_NUM'    ,'E2_NUM'    })
+	//aadd(aZE2Rel, {'ZE2_PARCEL' ,'E2_PARCELA'})
+	//aadd(aZE2Rel, {'ZE2_TIPO'   ,'E2_TIPO'   })
+	//aadd(aZE2Rel, {'ZE2_FORNEC' ,'E2_FORNECE'})
+	//aadd(aZE2Rel, {'ZE2_LOJA'   ,'E2_LOJA'   })
+//
+	//aadd(aSE5Rel, {'E5_FILIAL'  ,'E2_FILIAL' })
+	//aadd(aSE5Rel, {'E5_PREFIXO' ,'E2_PREFIXO'})
+	//aadd(aSE5Rel, {'E5_NUMERO'  ,'E2_NUM'    })
+	//aadd(aSE5Rel, {'E5_PARCELA' ,'E2_PARCELA'})
+	//aadd(aSE5Rel, {'E5_TIPO'    ,'E2_TIPO'   })
+	//aadd(aSE5Rel, {'E5_CLIFOR'  ,'E2_FORNECE'})
+	//aadd(aSE5Rel, {'E5_LOJA'    ,'E2_LOJA'   })
+//
+    //oModel:SetRelation('ZE2DETAIL', aZE2Rel, ZE2->(IndexKey(1)))
+    //
+    //oModel:SetRelation('SE5DETAIL', aSE5Rel, SE5->(IndexKey(7)))
 	
 	oModel:SetPrimaryKey( {"E2_FILIAL","E2_PREFIXO","E2_NUM","E2_PARCELA","E2_TIPO","E2_FORNECE","E2_LOJA"} )
 
@@ -147,6 +144,10 @@ Static Function ModelDef()
 	oModel:GetModel('ZE2DETAIL'):SetNoDeleteLine(.T.)
 	oModel:GetModel('SE5DETAIL'):SetNoDeleteLine(.T.)
 
+	oModel:GetModel('SE2DETAIL'):SetOptional(.T.)
+	oModel:GetModel('ZE2DETAIL'):SetOptional(.T.)
+	oModel:GetModel('SE5DETAIL'):SetOptional(.T.)
+
 	oModel:GetModel('FAKEM'):SetDescription('Hide')
 	oModel:GetModel('SE2DETAIL'):SetDescription('Titulos a Pagar')
 	oModel:GetModel('ZE2DETAIL'):SetDescription('Log Integração')
@@ -156,18 +157,17 @@ Return oModel
 Static Function ViewDef()
 	Local oView		    := Nil
 	Local oModel	    := FWLoadModel("VAFINI01")
-	Local oStField 		:= nil
-	Local oStSE2 	    := FWFormStruct(2, 'SE2')
-	Local oStZE2 	    := FWFormStruct(2, 'ZE2')
-	Local oStSE5 	    := FWFormStruct(2, 'SE5')
+	Local oStField 		:= FWFormStruct(2, "TMPFAKE")
+	Local oStSE2 	    := FWFormStruct(2, "TMPSE2")
+	Local oStZE2 	    := FWFormStruct(2, "TMPZE2")
+	Local oStSE5 	    := FWFormStruct(2, "TMPSE5")
     
-	oStField := FWFormViewStruct():New()
+	//oStField := FWFormViewStruct():New()
     oStField:addField("C_STRING1", "01" , "String 01", "texto", , "C" )
 
-	oStSE5:AddField( 'OK' ,'01','OK' ,'OK' ,, 'Check')
-	
-	oStSE2:AddField( 'LEG','01','','',, 'C','@BMP',,'',.F.)
-	oStSE2:AddField( 'SEL','02','','',, 'Check')
+	GetVField(oModel,@oStSE2,"SE2")
+	GetVField(oModel,@oStZE2,"ZE2")
+	GetVField(oModel,@oStSE5,"SE5")
 
 	//Criando a View
 	oView := FWFormView():New()
@@ -252,6 +252,70 @@ Static Function LoadSE2(oModel)
 
 		(cAlias)->(DbSkip())
 	endDo
+
+    FwRestArea(aArea)
+Return aData
+
+Static Function LoadZE2(oModel)
+    Local aArea     := FwGetArea()
+    Local oStruct   := oModel:GetStruct()
+    Local aData     := {}
+    Local nI 
+    Local aAux		:= oStruct:GetFields()
+
+	aAdd(aData,{1,{}})
+
+	For nI := 1 to Len(aAux)
+		//if !(aAux[nI][14])
+/* 				if aAux[nI][4] == 'C' .OR. aAux[nI][4] == 'N'
+				aAdd(aData[Len(aData)][2],(cALias)->&(aAux[nI][3]))
+			elseif aAux[nI][4] == 'D'
+				aAdd(aData[Len(aData)][2],sToD((cALias)->&(aAux[nI][3])))
+			elseif aAux[nI][4] == 'L' .and. aAux[nI][3] == 'SEL'
+				aAdd(aData[Len(aData)][2],.F.)
+			endif
+		else //CAMPO VIRTUAL */
+			if aAux[nI][4] == 'C'
+				aAdd(aData[Len(aData)][2],"")
+			elseif aAux[nI][4] == 'D'
+				aAdd(aData[Len(aData)][2],cToD("//"))
+			elseif aAux[nI][4] == 'N'
+				aAdd(aData[Len(aData)][2],0)
+			endif
+		//endif
+	Next nI
+
+    FwRestArea(aArea)
+Return aData
+
+Static Function LoadSE5(oModel)
+    Local aArea     := FwGetArea()
+    Local oStruct   := oModel:GetStruct()
+    Local aData     := {}
+    Local nI 
+    Local aAux		:= oStruct:GetFields()
+
+	aAdd(aData,{1,{}})
+
+	For nI := 1 to Len(aAux)
+		//if !(aAux[nI][14])
+/* 				if aAux[nI][4] == 'C' .OR. aAux[nI][4] == 'N'
+				aAdd(aData[Len(aData)][2],(cALias)->&(aAux[nI][3]))
+			elseif aAux[nI][4] == 'D'
+				aAdd(aData[Len(aData)][2],sToD((cALias)->&(aAux[nI][3])))
+			elseif aAux[nI][4] == 'L' .and. aAux[nI][3] == 'SEL'
+				aAdd(aData[Len(aData)][2],.F.)
+			endif
+		else //CAMPO VIRTUAL */
+			if aAux[nI][4] == 'C'
+				aAdd(aData[Len(aData)][2],"")
+			elseif aAux[nI][4] == 'D'
+				aAdd(aData[Len(aData)][2],cToD("//"))
+			elseif aAux[nI][4] == 'N'
+				aAdd(aData[Len(aData)][2],0)
+			endif
+		//endif
+	Next nI
 
     FwRestArea(aArea)
 Return aData
@@ -408,3 +472,91 @@ Return
 Static Function criaButtonSel(oPanel,oOtherObject)
     TButton():New( 01, 10, "OK Todos",oPanel,{|| SelGrid(oOtherObject)}, 60,10,,,.F.,.T.,.F.,,.F.,,,.F. )
 Return
+
+Static Function GetMField(oModel,oStruct,cTab)
+	Local aArea := GetArea()
+	Local aCBox := {}
+	Local cQry  := ""
+	Local cAlias := GetNextAlias()
+
+	if cTab == 'SE2'
+		oStruct:AddField('LEG', ' ', 'LEG', 'C', 50, 0,  , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, "BR_BRANCO"))
+		oStruct:AddField('SEL', ' ', 'SEL', 'L', 1, 0, {|| VldSel()} , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+	elseif cTab == 'SE5'
+		oStruct:AddField('OK' , ' ', 'OK' , 'L', 1, 0, , , {}, .F.,FWBuildFeature( STRUCT_FEATURE_INIPAD, ".F."))
+	endif
+
+	cQry := "SELECT * FROM "+RetSqlName("SX3")+" WHERE X3_ARQUIVO = '"+cTab+"' AND D_E_L_E_T_ = '' ORDER BY 2"
+	MpSysOpenQry(cQry,cAlias)
+
+	While !(cALias)->(EOF())
+
+		aCBox := StrToKarr(AllTrim((cALias)->X3_CBOX),';')
+
+		oStruct:AddField( Alltrim((cALias)->X3_TITULO),; //Titulo do campo
+						 Alltrim((cALias)->X3_TITULO),; //Tooltip do campo
+						 Alltrim((cALias)->X3_CAMPO),;  //Id do Field
+						 Alltrim((cALias)->X3_TIPO),;  //Tipo do campo
+						 (cALias)->X3_TAMANHO,;//Tamanho do campo
+						 (cALias)->X3_DECIMAL,;//Decimal
+						 FwBuildFeature( STRUCT_FEATURE_VALID,AllTrim((cALias)->X3_VALID)) ,;//Validacao
+						 FwBuildFeature( STRUCT_FEATURE_VALID,AllTrim((cALias)->X3_WHEN) ),; //Bloco de código de validação when do campo
+						 aCBox,; //Lista de valores permitido do campo
+						 .F.,; //Indica se o campo tem preenchimento obrigatório
+						 FwBuildFeature( STRUCT_FEATURE_INIPAD, AllTrim((cALias)->X3_RELACAO) ) ,; //Bloco de código de inicialização do campo	
+						 .F.,; //Indica se trata-se de um campo chave
+						 .F.,; //Indica se o campo não pode receber valor em uma operação de update
+						 .T.) //ndica se o campo é virtual
+		(cAlias)->(DbSkip())
+	endDo
+	(cAlias)->(DbCloseArea())
+
+	RestArea(aArea)
+Return 
+
+Static Function GetVField(oModel,oStruct,cTab)
+	Local aArea := GetArea()
+	Local aCBox := {}
+	Local cQry  := ""
+	Local cAlias := GetNextAlias()
+
+	if cTab == 'SE2'
+		oStruct:AddField( 'LEG','01','','',, 'C','@BMP',,'',.F.)
+		oStruct:AddField( 'SEL','02','','',, 'Check')
+	elseif cTab == 'SE5'
+		oStruct:AddField( 'OK' ,'01','OK' ,'OK' ,, 'Check')
+	endif
+
+	cQry := "SELECT * FROM "+RetSqlName("SX3")+" WHERE X3_ARQUIVO = '"+cTab+"' AND X3_CONTEXT = 'R' AND D_E_L_E_T_ = '' ORDER BY 2"
+	MpSysOpenQry(cQry,cAlias)
+
+	While !(cALias)->(EOF())
+
+		aCBox := StrToKarr(AllTrim((cALias)->X3_CBOX),';')
+
+		oStruct:AddField(Alltrim((cALias)->X3_CAMPO),;
+						 Alltrim((cALias)->X3_ORDEM),;
+						 Alltrim((cALias)->X3_TITULO),;
+						 Alltrim((cALias)->X3_TITULO),;
+						 {},;
+						 Alltrim((cALias)->X3_TIPO),;
+						 Alltrim((cALias)->X3_PICTURE),;
+						 ,;
+						 ,;
+						 .F.,;
+						 ,;
+						 ,;
+						 aCBox,;
+						 (cALias)->X3_TAMANHO,;
+						 AllTrim((cALias)->X3_RELACAO),;
+						 .T.,;
+						 ,;
+						 ,;
+						 )
+						 
+		(cAlias)->(DbSkip())
+	endDo
+	(cAlias)->(DbCloseArea())
+
+	RestArea(aArea)
+Return 
