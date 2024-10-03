@@ -9,7 +9,9 @@
 // Observacao da Nota no Titulo Financeiro na Inclusao da NF de Entrada
 User Function MT100GE2()
 	Local nParc		:= iIf(Empty(SE2->E2_PARCELA),1,Val(SE2->E2_PARCELA))
-	
+	Local cMsg, cLinDig
+	Local nValBol
+
 	If Type("aTitSE2") <> "U" .and. !Empty( aTitSE2 ) .and. PARAMIXB[1,2] <> aTitSE2[ nParc, 3]
 		SE2->E2_VENCTO  := DataValida( aTitSE2[ nParc, 3], .T.)
 		SE2->E2_VENCREA := DataValida( aTitSE2[ nParc, 3], .T.)
@@ -22,11 +24,32 @@ User Function MT100GE2()
 		SE2->E2_HIST :=  cObsMT103 //SF1->F1_MENNOTA //cObsMT103 //
 	EndIf
 
-	if Type("aCBrMT103") <> "U" .and. !Empty( aCBrMT103 ) .and. AllTrim(aCBrMT103[1]) != ""
-		SE2->E2_CODBAR := aCBrMT103[1]
+	if Type("aCBrMT103") <> "U" .and. !Empty( aCBrMT103 ) .and. AllTrim(aCBrMT103[1,1]) != ""
 		
-		aDel(aCBrMT103, 1) 
-		aSize(aCBrMT103, Len(aCBrMT103) - 1)
+		cLinDig := aCBrMT103[1,1]
+		nValBol := SubStr(cLinDig,Len(cLinDig)-9,Len(cLinDig))
+		nValBol := SubStr(nValBol,1,8) + '.' + SubStr(nValBol,9,2)
+		nValBol := Val(nValBol)
+
+		if SE2->E2_VALOR != nValBol
+			cMsg := "Código de boleto inválido!" + CRLF
+			cMsg += "Código não será salvo!"+ CRLF
+			cMsg += ""+ CRLF
+			cMsg += "Titulo : " + ALLTRIM(SE2->E2_NUM) + iif(SE2->E2_PARCELA != "  "," Parcela: " + SE2->E2_PARCELA, "") + CRLF
+			cMsg += "Valor do boleto não corresponde ao valor do titulo!"+ CRLF
+			cMsg += "Valor do boleto: " + cValToChar(nValBol) + CRLF
+			cMsg += "Valor do titulo: " + cValToChar(SE2->E2_VALOR)+ CRLF
+
+			MsgAlert(cMsg,"ATENÇÃO!")
+		else 
+			SE2->E2_LINDIG := aCBrMT103[1,1]
+			SE2->E2_CODBAR := aCBrMT103[1,2]
+		endif 	
+		
+		if Len(aCBrMT103) > 1
+			aDel(aCBrMT103, 1) 
+			aSize(aCBrMT103, Len(aCBrMT103) - 1)
+		endif
 	endif
 
  	If SE2->(FieldPos("E2_XXDTDIG"))>0

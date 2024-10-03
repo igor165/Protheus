@@ -18,7 +18,7 @@ Static cTitulo := "Fechamento de Frete"
     @see (links_or_references)
     /*/ 	
 User Function VAFATI04()
-	Local aArea		:= FWGetArea()
+	Local aArea			:= FWGetArea()
 	Local oBrowse
 	Private nTotEmb 	:= 0 //Total embarque
 	Private nTotDes 	:= 0 //Total desembarque
@@ -33,6 +33,7 @@ User Function VAFATI04()
     Private jFormatTit,jFormatTot,jFormatHead,jFormatGD,JFLeft,JFRight,jFData,jFNum,jFMoeda //Formato de Celula
     Private jFontHeader,jFontTitulo,jFontText //Fontes
     Private jBHeaderLeft,jBHeaderRight,jBorderLeft,jBorderCenter,jBorderRight,jBottomLeft,jBottomRight,jNoBorder  // Bordas
+	Private cFilcont 	:= ""
 
 	oBrowse := FWMBrowse():New()
 	oBrowse:SetAlias("ZFF")
@@ -84,7 +85,8 @@ Static Function ModelDef()
                             aGatilhos[nI][04])  //Bloco de código de execução do gatilho
     Next
 
-    oStru:SetProperty('ZFF_CONTRA'	, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID , 'ExistCpo("ZCC", &(ReadVar())) .and. M->ZFF_COMBO != "T"'))//Iniciador de Campo
+    //oStru:SetProperty('ZFF_CONTRA'	, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID , 'ExistCpo("ZCC", &(ReadVar())) .and. M->ZFF_COMBO != "T"'))//Iniciador de Campo
+    oStru:SetProperty('ZFF_CONTRA'	, MODEL_FIELD_VALID	,   FwBuildFeature(STRUCT_FEATURE_VALID , 'U_I04VCON()'))//Iniciador de Campo
     oStru:SetProperty('ZFF_NMUN'	, MODEL_FIELD_INIT	,   FwBuildFeature(STRUCT_FEATURE_INIPAD, 'Iif(!Inclui,Posicione("CC2",1,FWxFilial("CC2")+ZFF->ZFF_EST+ZFF->ZFF_MUN,"CC2_MUN"),"")'))//Iniciador de Campo
     
     oGrid:SetProperty('ZFF_KM'		, MODEL_FIELD_INIT	,   FwBuildFeature(STRUCT_FEATURE_INIPAD, 'U_I04INI()'))//Iniciador de Campo
@@ -796,7 +798,7 @@ User FUnction FATI04P()
 			cQry += " AND ZFF_CONTRA = '"+mv_par07+"'  "+ CRLF
 		else
 			cQry += " AND ZFF_CONTRA <> ''  "+ CRLF
-		endif 
+		endif
 		cQry += " AND D_E_L_E_T_ = ''  "+ CRLF
 		cQry += " GROUP BY ZFF_CODIGO, ZFF_FORNEC,ZFF_CONTRA, ZFF_FILCON "+ CRLF
 		cQry += " ORDER BY ZFF_FILCON,ZFF_CONTRA "+ CRLF
@@ -805,7 +807,7 @@ User FUnction FATI04P()
 		
 		_cQry := "" + CRLF
 		_cQry += "SELECT * FROM "+RetSqlName("ZBC")+" ZBC WHERE ZBC_CODIGO+ZBC_FILIAL IN ( " + CRLF
-		_cQry += "											SELECT DISTINCT ZFF_CONTRA+ZFF_FILIAL " + CRLF
+		_cQry += "											SELECT DISTINCT ZFF_CONTRA+ZFF_FILCON " + CRLF
 		_cQry += "											FROM "+RetSqlName("ZFF")+" ZFF 
 		_cQry += " 											WHERE ZFF_FILIAL  BETWEEN '"+MV_PAR01+"' AND '"+MV_PAR02+"' "+ CRLF
 		_cQry += " 											AND ZFF_FORNEC BETWEEN '"+MV_PAR03+"' AND '"+MV_PAR04+"' "+ CRLF
@@ -1164,6 +1166,7 @@ User Function I04CTN()
 			if AllTrim(&(ReadVar())) != ""
 				cQry := " select ISNULL(CAST(CAST(ZFF_OBS AS VARBINARY(8000)) AS VARCHAR(8000)),'') AS OBS,* from "+RetSqlName("ZFF")+" ZFF " + CRLF 
 				cQry += " WHERE ZFF_CONTRA = '"+&(ReadVar())+"' " + CRLF 
+				cQry += " AND ZFF_FILCON =  '"+fwxFilial("ZFF")+"' " + CRLF
 				cQry += " AND ZFF_CODIGO <>  '' " + CRLF
 				cQry += " AND ZFF.D_E_L_E_T_ = '' " + CRLF
 				cQry += " order by ZFF_ITEM  " + CRLF
@@ -1171,14 +1174,13 @@ User Function I04CTN()
 				MpSysOpenQry(cQry, cAlias)
 
 				ZFI->(DBSETORDER(3))
-
+				cRet := cFilcont
 				WHILE !(cAlias)->(EOF())
 					if (cAlias)->ZFF_FILIAL != cFilAnt
 						cFilAnt := (cAlias)->ZFF_FILIAL
 					ENDIF
-					cRet:= (cAlias)->ZFF_CODIGO
 					oStru:SetValue("ZFF_CODIGO"	, (cAlias)->ZFF_CODIGO)
-					//oStru:SetValue("ZFF_FILCON"	, (cAlias)->ZFF_FILIAL)
+					oStru:SetValue("ZFF_FILCON"	, (cAlias)->ZFF_FILCON)
 					oStru:SetValue("ZFF_FORNEC"	, (cAlias)->ZFF_FORNEC)
 					oStru:SetValue("ZFF_FLOJA"	, (cAlias)->ZFF_FLOJA)
 					oStru:SetValue("ZFF_DESTIN"	, (cAlias)->ZFF_DESTIN)
@@ -1570,6 +1572,7 @@ User Function I04ZCC()
 	Local aArea 	:= GetArea()
 	Local oModel	:= FWModelActive()
 	Local oStruct	:= oModel:GetModel("ZFFMASTER")
+	Local oView 	:= FWViewActive()
 	Local lRet 		:= .T.
 	Local cQry  	:= ''
 	Local cCodCon 	:= ''
@@ -1594,7 +1597,7 @@ User Function I04ZCC()
 	cQry += " and A2_LOJA = ZCC_LOJFOR " + CRLF
 	cQry += " and A2.D_E_L_E_T_ = '' " + CRLF
 	cQry += " where --ZCC_FILIAL = '"+FwxFilial("ZCC")+"' " + CRLF
-	cQry += " --AND ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
+	//cQry += " --AND ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
 	cQry += " ZCC_DTCONT > DATEADD(DAY, -60, GETDATE()) " + CRLF
 	cQry += " AND ZCC.D_E_L_E_T_ = '' " + CRLF
 
@@ -1614,17 +1617,22 @@ User Function I04ZCC()
 			ZCC->(DbGoto( uRetorno ))
 
 			__cRet := ZCC->ZCC_CODIGO
-			oStruct:SetValue("ZFF_FILCON"	,ZCC->ZCC_FILIAL)
+			
+			cFilcont := ZCC->ZCC_FILIAL
+			oStruct:LoadValue("ZFF_FILCON"	,ZCC->ZCC_FILIAL)
 			oStruct:SetValue("ZFF_FORNEC"	,ZCC->ZCC_CODFOR)
 			oStruct:SetValue("ZFF_FLOJA"	,ZCC->ZCC_LOJFOR)
 		else 
 			MSGINFO( "Não foi possível filtrar o contrato", "Atenção!" )
 			__cRet := ""
 		endif
-	endif 
+	endif
+
 	if aArea[1] <> "ZCC"
 		RestArea( aArea )
 	endif
+
+	oView:Refresh()
 Return lRet
 
 Static Function PesqZCC(cQry,nQry)
@@ -1893,3 +1901,28 @@ Static Function FilWord(cWord)
               
 Return aRetTxt
 
+User Function I04VCON()
+	Local aArea		:= GetArea()
+	Local oModel	:= FWModelActive()
+	Local oStruct 	:= oModel:GetModel("ZFFMASTER")
+	Local lRet 		:= .T. 
+	Local cQry 		:= ""
+
+	if oStruct:GetValue("ZFF_COMBO") != "T"
+		if !Empty(oStruct:GetValue("ZFF_FILCON"))
+			cQry := "SELECT * FROM "+RetSqlName("ZCC")+" WHERE ZCC_FILIAL = '"+oStruct:GetValue("ZFF_FILCON")+"' AND ZCC_CODIGO = '"+oStruct:GetValue("ZFF_CONTRA")+"' AND D_E_L_E_T_ = '' "
+			mpSysOpenQuery(cQry, cAlias := GetNextAlias())
+
+			if (cALias)->(EOF())
+				oModel:SetErrorMessage("","","","","Contrato invalido", 'Contrato não existe para essa filial', "") 
+				lRet := .F.
+			endif 
+			(cALias)->(DbCloseArea())
+		else 
+			oModel:SetErrorMessage("","","","","Contrato invalido", 'Preencha o contrato pela consulta', "") 
+			lRet := .F.
+		endif
+	endif 
+
+	RestArea(aArea)
+Return lRet
