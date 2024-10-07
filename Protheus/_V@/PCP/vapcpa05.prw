@@ -38,6 +38,12 @@
  N
  Parâmetro Customizado. Usado pela função vapcpa05. Numero de tratos a considerar para mostrar na legenda de dias sem modificação.
  padrão: 3
+
+ VA_TRTCOP
+ C
+ Parâmetro Customizado. Define a Cópia do Dia anterior considera calculado trato a trato, ou pela soma do trato do dia anterior
+ Valores T=Total; I= Individual
+ Padrão T
  */
 
 #include "Protheus.ch"
@@ -50,30 +56,32 @@
 #define MODEL_FIELD 1
 #define MODEL_GRID 2
 
+
 #IFNDEF _ENTER_
 	#DEFINE _ENTER_ (Chr(13)+Chr(10))
 	// Alert("miguel")
 #ENDIF
 
+Static MIN_TRATO  := GETMV( 'MB_MINTRAT' ,, 300)
 static nNroTratos := 0
-static aIMS := {}
-static dDtIMS := SToD("")
-static aFldBrw := {}
-static cFldBrw := ""
+static aIMS       := {}
+static dDtIMS     := SToD("")
+static aFldBrw    := {}
+static cFldBrw    := ""
 
-static nQtdUltTrt := GetMV("VA_TRTCNHG",,3) 
+static nQtdUltTrt := GetMV("VA_TRTCNHG",,3)
 
 static cPath      := "C:\totvs_relatorios\"
 static lDebug     := ExistDir(cPath) .and. GetMV("VA_DBGTRTO",,.T.)
 
-static aCpoMdZ05F := { "Z05_DATA",   "Z05_VERSAO", "Z05_CURRAL", "Z05_LOTE",   "Z05_CABECA", "Z05_ORIGEM";
+static aCpoMdZ05F := { "Z05_DATA", "Z05_VERSAO", "Z05_CURRAL", "Z05_LOTE", "Z05_CABECA", "Z05_ORIGEM";
                      , "Z05_DIAPRO", "Z05_DIASDI", "Z05_MANUAL", "Z05_TOTMSC", "Z05_TOTMNC", "Z05_TOTMSI";
-                     , "Z05_TOTMNI", "Z05_PESMAT", "Z05_CMSPN",  "Z05_PESOCO";
+                     , "Z05_TOTMNI", "Z05_PESMAT", "Z05_CMSPN", "Z05_PESOCO";
                      , "Z05_MEGCAL", "Z05_MCALPR" }
-static aCpoMdZ0IG := { "Z0I_DATA",   "Z0I_NOTMAN", "Z0I_NOTTAR", "Z0I_NOTNOI" }
-static aCpoMdZ05G := { "Z05_DATA",   "Z05_DIETA",  "Z05_CABECA", "Z05_KGMSDI", "Z05_KGMNDI", "Z04_KGMSRE" ;
+static aCpoMdZ0IG := {"Z0I_DATA" , "Z0I_NOTMAN", "Z0I_NOTTAR", "Z0I_NOTNOI"}
+static aCpoMdZ05G := { "Z05_DATA", "Z05_DIETA", "Z05_CABECA", "Z05_KGMSDI", "Z05_KGMNDI", "Z04_KGMSRE" ;
                      , "Z04_KGMNRE", "Z05_MEGCAL" }
-static aCpoMdZ06G := { "Z06_TRATO",  "Z06_DIETA",  "Z06_KGMSTR", "Z06_KGMNTR", "Z06_MEGCAL","Z06_KGMNT", "Z06_RECNO" }
+static aCpoMdZ06G :={"Z06_TRATO", "Z06_DIETA" , "Z06_KGMSTR", "Z06_KGMNTR", "Z06_MEGCAL", "Z06_KGMNT", "Z06_RECNO"}
 
 static nMaxDiasDi := (10^TamSX3("Z05_DIASDI")[1])-1
 
@@ -730,6 +738,8 @@ local cCposSel   := ""
 local cCurraDupl := ""
 local cLoteDupl  := ""
 local cLoteSBov  := ""
+Local cAlias     := ""
+Local cMsg       := ""
 
     DbSelectArea("Z0R")
     DbSetOrder(1) // Z0R_FILIAL+DToS(Z0R_DATA)+Z0R_VERSAO
@@ -743,8 +753,33 @@ local cLoteSBov  := ""
     DbSelectArea("Z0G")
     DbSetOrder(2) // Z0G_FILIAL+Z0G_DIETA+Z0G_CODIGO
 
-    // Avalia se pode ser recriado o trato sem versionar 
+    cSql := "SELECT B8_LOTECTL, B8_X_CURRA, SUM(B8_SALDO) SALDO, Z05_CABECA, Z05_CABECA - sum(B8_SALDO) DIFERENCA " + CRLF
+	cSql += "  FROM "+RetSqlName("SB8")+" SB8  " + CRLF
+	cSql += "  JOIN "+RetSqlName("SB8")+" Z05 ON  " + CRLF
+	cSql += "       Z05_FILIAL = '"+FwxFilial("Z05")+"'  " + CRLF
+	cSql += "   AND Z05_LOTE = B8_LOTECTL " + CRLF
+	cSql += "   AND Z05_DATA = '"+dToS(dDataBase)+"'  --DATEADD(DAY, -1, Z0R_DATA) " + CRLF
+	cSql += "   AND Z05.D_E_L_E_T_ = ' '  " + CRLF
+	cSql += " WHERE B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF
+	cSql += "   AND B8_SALDO > 0 " + CRLF
+	cSql += "   AND B8_X_CURRA <> ' '  " + CRLF
+	cSql += "   AND SB8.D_E_L_E_T_ = ' '  " + CRLF
+	cSql += "   GROUP BY B8_LOTECTL, B8_X_CURRA, Z05_CABECA " + CRLF
+	cSql += "   HAVING abs(Z05_CABECA - SUM(B8_SALDO)) > 5 " + CRLF
 
+    MpSysOpenQuery(cSql, cAlias := GetNextAlias())
+
+    while !(cAlias)->(EOF())    
+        cMsg1 += ""+(cAlias)->B8_LOTECTL+"      |       "+(cAlias)->B8_X_CURRA+"        |"
+        cMsg1 += "       "+(cAlias)->SALDO+"      |       "+(cAlias)->Z05_CABECA+"        |       "+(cAlias)->DIFERENCA
+    enddo
+    
+    IF cMsg1 != ''
+        cMsg += "|      LOTE        |       CURRAL      |       SALDO       |       DIFERENÇA       |"
+
+        ShowLog(cMsg + CRLF + cMsg1)
+    endif
+    // Avalia se pode ser recriado o trato sem versionar 
     DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                             _cSql := " with LOTES as (" +;
                                       " select B8_LOTECTL, B8_X_CURRA" +;
@@ -1361,7 +1396,9 @@ local nRecno     := 0
 local cCurraDupl := ""
 local cLoteDupl  := ""
 local cLoteSBov  := ""
-
+Local lTemDados  := .F. 
+Local aDadosZ0O  := {}
+Local nI, nJ 
 default lRecria  := .F.
 
 DbSelectArea("Z0R")
@@ -1463,6 +1500,36 @@ else
         Help(/*Descontinuado*/,/*Descontinuado*/,"CRIAÇÃO DO TRATO",/**/,"O trato já foi criado na data " + DToC(dDtTrato) + "." , 1, 1,/*Descontinuado*/,/*Descontinuado*/,/*Descontinuado*/,/*Descontinuado*/,.F.,{"Para recriar o trato use o botão recriar."})
     else
 
+		lTemDados := LoadSB8()
+
+        if lTemDados
+            Z0O->(DBSELECTAREA("Z0O"))
+
+            While !TMPSB83->(EOF())
+		        aAdd(aDadosZ0O, LoadZ0O())
+                TMPSB83->(DBSKIP())
+            EndDo
+
+            For nJ := 1 to Len(aDadosZ0O)
+                Z0O->(DBGOTO( aDadosZ0O[nJ][1]))
+                RecLock("Z0O",.F.)
+                    For nI := 1 to Len(aDadosZ0O[nJ][3])
+                        if ValType(aDadosZ0O[nJ][2][nI]) == "D"
+                            &("Z0O->"+aDadosZ0O[nJ][3][nI] + " := " + "cToD('" +dToC(aDadosZ0O[nJ][2][nI]) + "')")
+                        elseif ValType(aDadosZ0O[nJ][2][nI]) == "C"
+                            &("Z0O->"+aDadosZ0O[nJ][3][nI] + " := " + "'" + aDadosZ0O[nJ][2][nI] + "'")
+                        elseif ValType(aDadosZ0O[nJ][2][nI]) == "N"
+                            &("Z0O->"+aDadosZ0O[nJ][3][nI] + " := " + STR(aDadosZ0O[nJ][2][nI]))
+                        endif
+                    Next nI
+                Z0O->(MSUNLOCK())
+            Next nJ
+            Z0O->(DBCLOSEAREA())
+            TMPSB83->(DBCLOSEAREA())
+        else
+            TMPSB83->(DBCLOSEAREA())
+        Endif
+
         begin sequence
         BeginTran()
 
@@ -1549,7 +1616,7 @@ else
                                 " join (" + CRLF +;
                                       " select Z0O_FILIAL, Z0O_LOTE, min(Z0O_DATAIN) Z0O_DATAIN" + CRLF +;
                                       " from " + RetSqlName("Z0O") + CRLF +;
-                                      " where D_E_L_E_T_ = ' '" + CRLF +;
+                                      " where Z0O_FILIAL = '" + FWxFilial("Z0O") + "' AND  D_E_L_E_T_ = ' '" + CRLF +;
                                       " group by Z0O_FILIAL, Z0O_LOTE" + CRLF +;
                                      " ) MinReg" + CRLF +;
                                   " on MinReg.Z0O_FILIAL = Z0O.Z0O_FILIAL" + CRLF +;
@@ -1664,9 +1731,404 @@ endif
 
 return nil
 
+Static Function LoadSB8()
+    Local _cQry := ''
+    
+    _cQry := "with DADOS as ( " + CRLF
+    _cQry += "      SELECT DISTINCT B8_FILIAL, B8_LOTECTL, SUM(B8_SALDO) B8_SALDO, B8_X_CURRA, B1_X_SEXO, B1_XRACA, B8_XPESOCO " + CRLF
+    _cQry += " 	   FROM "+RetSqlName("SB8")+" (NOLOCK) SB8  " + CRLF
+    _cQry += " 	   JOIN "+RetSqlName("SB1")+" (NOLOCK) SB1 ON  " + CRLF
+    _cQry += " 	        B1_COD = B8_PRODUTO  " + CRLF
+    _cQry += " 		AND SB1.D_E_L_E_T_ = ' '  " + CRLF
+    _cQry += " 	  WHERE B8_LOTECTL NOT IN (SELECT Z0O_LOTE FROM "+RetSqlName("Z0O")+" WHERE Z0O_FILIAL = B8_FILIAL AND Z0O_LOTE = B8_LOTECTL AND D_E_L_E_T_ =' ' ) " + CRLF
+    _cQry += " 	    AND B8_LOTECTL IN (SELECT DISTINCT Z0F_LOTE FROM "+RetSqlName("Z0F")+" WHERE Z0F_FILIAL = B8_FILIAL AND Z0F_LOTE = B8_LOTECTL AND D_E_L_E_T_ =' ' ) " + CRLF
+    _cQry += " 		and B8_FILIAL = '"+FWxFilial("SB8")+"' AND B8_SALDO > 0  " + CRLF
+    _cQry += " 		AND SB8.D_E_L_E_T_ =' '  " + CRLF
+    _cQry += " 	   GROUP BY B8_FILIAL, B8_LOTECTL, B8_X_CURRA, B8_LOTECTL, B1_X_SEXO, B1_XRACA, B8_XPESOCO " + CRLF
+    _cQry += " ) " + CRLF
+    _cQry += " SELECT B8_FILIAL, B8_LOTECTL, SUM(B8_SALDO) SALDO, B8_X_CURRA, B8_XPESOCO " + CRLF
+    _cQry += "      , ISNULL((SELECT TOP(1) B1_X_SEXO  " + CRLF
+    _cQry += " 	             FROM DADOS DA  " + CRLF
+    _cQry += " 				WHERE DA.B8_FILIAL = D.B8_FILIAL  " + CRLF
+    _cQry += " 				  AND DA.B8_LOTECTL = D.B8_LOTECTL  " + CRLF
+    _cQry += " 				  ORDER BY DA.B8_SALDO DESC),'') SEXO " + CRLF
+    _cQry += " 	, ISNULL((SELECT TOP(1) B1_XRACA " + CRLF
+    _cQry += " 	             FROM DADOS DA  " + CRLF
+    _cQry += " 				WHERE DA.B8_FILIAL = D.B8_FILIAL  " + CRLF
+    _cQry += " 				  AND DA.B8_LOTECTL = D.B8_LOTECTL  " + CRLF
+    _cQry += " 				  ORDER BY DA.B8_SALDO DESC),'') RACA " + CRLF
+    _cQry += "   FROM DADOS D " + CRLF
+    _cQry += " GROUP BY B8_FILIAL, B8_LOTECTL, B8_X_CURRA, B8_XPESOCO " + CRLF
+
+    MpSysOpenQuery(_cQry, "TMPSB83")
+
+Return !TMPSB83->(EOF())
+
+/*/{Protheus.doc} LoadZ0O
+Grava Registros na Z0O
+@author Igor Oliveira
+@since 
+@version 1.0
+@return nil
+@type function
+/*/
+Static Function LoadZ0O(aDadosB8)
+    local aArea      := GetArea()
+    local oView      := FWViewActive()
+    local aRet       := {}
+    local aDados     := {}
+    local i, nLen
+    Local nPos       := 0
+
+    Local _cSql      := ""
+    Local nPSexo     := 0
+    Local nPesoIni   := 0, nPPesoMedio := 0
+    Local nPTAMCAR   := 0
+    Local nPCMSPRE   := 0
+    Local nPGORDUR   := 0
+    Local nPFS       := 0
+    Local nPPESOPR   := 0
+    Local nPRaca     := 0
+    Local nPMCAPV    := 0
+    Local nPGMD      := 0
+    Local nPDCESP    := 0
+    Local nPDTABAT   := 0
+    Local nPDIARIA   := 0
+    Local dB8XDATACO := SToD("")
+    Local nB8SALDO   := 0
+    Local aCamposZ0O := FWSX3Util():GetAllFields( "Z0O" , .F. )
+
+    DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                                " SELECT *" +; 
+                                " FROM " + RetSqlName("Z0O") + " Z0O" +; 
+                                " WHERE Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
+                                " AND Z0O.Z0O_LOTE   = '" + TMPSB83->B8_LOTECTL + "'" +;
+                                " AND Z0O.D_E_L_E_T_ = ' '" ;
+                                                            ),"TMPZ0O", .f., .f.)
+    nLen := TMPZ0O->(fCount())
+    for i := 1 to nLen
+        cCpo := FieldName(i)
+        if !cCpo$"R_E_C_N_O_|R_E_C_D_E_L_|D_E_L_E_T_" .and. !TamSX3(cCpo)[3]$'CM' 
+            TCSetField("TMPZ0O", cCpo, TamSX3(cCpo)[3], TamSX3(cCpo)[1], TamSX3(cCpo)[2])
+        endif
+    next
+
+    If TMPZ0O->(Eof())
+        TMPZ0O->(DbCloseArea())
+
+        RecLock("Z0O", .T.)
+            Z0O->Z0O_FILIAL := xFilial("Z0O")
+            Z0O->Z0O_LOTE   := TMPSB83->B8_LOTECTL
+            Z0O->Z0O_CODPLA := GetMV("VA_CODPLA1",,"999999")
+            Z0O->Z0O_DIAIN  := StrZero(1, TamSX3("Z0O_DIAIN")[1])
+            Z0O->Z0O_DATAIN := MsDate() - GetMV("VA_CODPLA2",, 100)
+        Z0O->(MsUnLock())
+
+        DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                                    " SELECT *" +; 
+                                    " FROM " + RetSqlName("Z0O") + " Z0O" +; 
+                                    " WHERE Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
+                                    " AND Z0O.Z0O_LOTE   = '" + TMPSB83->B8_LOTECTL + "'" +;
+                                    " AND Z0O.D_E_L_E_T_ = ' '" ;
+                                                                ),"TMPZ0O", .f., .f.)
+        nLen := TMPZ0O->(fCount())
+        for i := 1 to nLen
+            cCpo := FieldName(i)
+            if !cCpo$"R_E_C_N_O_|R_E_C_D_E_L_|D_E_L_E_T_" .and. !TamSX3(cCpo)[3]$'CM' 
+                TCSetField("TMPZ0O", cCpo, TamSX3(cCpo)[3], TamSX3(cCpo)[1], TamSX3(cCpo)[2])
+            endif
+        next
+    EndIf
+
+    while !TMPZ0O->(Eof())
+        aDados := {}
+        nLen   := Len(aCamposZ0O)
+        for i := 1 to nLen
+        If aCamposZ0O[i] $ "Z0O_DESPLA"
+                AAdd(aDados, Iif(Inclui,"",Posicione("Z0M",1,FWxFilial("Z0M")+&("TMPZ0O->Z0O_CODPLA"),"Z0M_DESCRI")))
+            elseif aCamposZ0O[i] $ "Z0O_PESO"
+                AAdd(aDados, 0 /* Iif(Inclui,"",Posicione("Z0M",1,FWxFilial("Z0M")+&("TMPZ0O->Z0O_CODPLA"),"Z0M_PESO")) */ )
+            else
+                AAdd(aDados, &("TMPZ0O->"+aCamposZ0O[i]))
+            endif
+        next i
+
+        /* MB : 28.07.2021
+            -> Inclusão de calculos e informação de MCal;
+                -> Demanda sugerida pelo consultor Toninho;
+
+            # INICIALIZAÇÃO DOS CAMPOS
+        */
+        If(nPSexo:=aScan( aCamposZ0O, { |x| x == "Z0O_SEXO" } )) > 0
+                        /* _cSql := " SELECT B1_X_SEXO, B8_XPESOCO, SUM(B8_SALDO) B8_SALDO "+CRLF+;
+                                    " FROM SB1010 SB1"+CRLF+;
+                                    " JOIN SB8010 SB8 ON B8_FILIAL = '" + xFilial("SB8") + "'"+CRLF+;
+                                    "              AND B1_COD = B8_PRODUTO"+CRLF+;
+                                    " 			   AND B8_LOTECTL = '" + AllTrim( &("TMPZ0O->Z0O_LOTE") ) + "'"+CRLF+;
+                                    " 			   AND SB1.D_E_L_E_T_ = ' ' "+CRLF+;
+                                    " 			   AND SB8.D_E_L_E_T_ = ' '"+CRLF+;
+                                    " GROUP BY B1_DESC, B1_X_SEXO, B8_XPESOCO"+CRLF+;
+                                    " ORDER BY 3 DESC" ; */
+            DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                        _cSql := " WITH DATACO AS ("+CRLF+;
+                                    "       SELECT	B8_FILIAL FILIAL , B8_LOTECTL LOTE, MIN(B8_XDATACO) DATACO "+CRLF+;
+                                    " 	    FROM	"+RetSqlName("SB8")+" "+CRLF+;
+                                    " 	    WHERE	B8_FILIAL  = '" + xFilial("SB8") + "' "+CRLF+;
+                                    " 	        AND B8_LOTECTL = '" + AllTrim( &("TMPZ0O->Z0O_LOTE") ) + "' "+CRLF+;
+                                    " 	        AND D_E_L_E_T_ = ' '"+CRLF+;
+                                    " 	    GROUP BY B8_FILIAL, B8_LOTECTL"+CRLF+;
+                                    " )"+CRLF+;
+                                    " SELECT SB8.B8_LOTECTL, B1_X_SEXO, SUM(CASE WHEN B8_SALDO > 0 THEN B8_SALDO ELSE B8_QTDORI END ) SALDO, D.DATACO B8_XDATACO, B8_XPESOCO"+CRLF+;
+                                    " FROM "+RetSqlName("SB8")+" SB8"+CRLF+;
+                                    " JOIN DATACO D   ON SB8.B8_FILIAL = D.FILIAL"+CRLF+;
+                                    " 				 AND SB8.B8_LOTECTL = D.LOTE"+CRLF+;
+                                    " JOIN "+RetSqlName("SB1")+" B1 ON B1_COD = B8_PRODUTO "+CRLF+;
+                                    "         AND B1.D_E_L_E_T_ = ' ' "+CRLF+;
+                                    " GROUP BY SB8.B8_LOTECTL, B1_X_SEXO, DATACO, B8_XPESOCO"+CRLF+;
+                                    " ORDER BY 3 DESC";
+                                            ),"TMPsexo", .f., .f.)
+            if (!TMPsexo->(Eof()))
+                If Empty( aDados[nPSexo] )
+                    aDados[nPSexo] := Left(TMPsexo->B1_X_SEXO,1)
+                EndIf
+                nPesoIni       := TMPsexo->B8_XPESOCO
+                dB8XDATACO     := TMPsexo->B8_XDATACO
+                While (!TMPsexo->(Eof()))
+                    nB8SALDO   += TMPsexo->SALDO
+                    TMPsexo->(DbSkip())
+                EndDo
+            EndIf
+            TMPsexo->(DbCloseArea())
+        EndIf
+
+        If (nPTAMCAR:=aScan( aCamposZ0O, { |x| x == "Z0O_TAMCAR" } )) > 0;
+            .AND. Empty( aDados[nPTAMCAR] )
+            // AAdd(aDados, Randomize( 4, 8) )
+            DO CASE
+                CASE (nPesoIni/30) <= 11
+                    aDados[nPTAMCAR] := 4
+                CASE (nPesoIni/30) <= 13
+                    aDados[nPTAMCAR] := 5
+                CASE (nPesoIni/30) <= 15
+                    aDados[nPTAMCAR] := 6
+                CASE (nPesoIni/30) <= 17
+                    aDados[nPTAMCAR] := 7
+                OTHERWISE
+                    aDados[nPTAMCAR] := 8
+            ENDCASE
+        EndIf
+
+        If (nPCMSPRE:=aScan( aCamposZ0O, { |x| x == "Z0O_CMSPRE" } )) > 0;
+            .AND. Empty( aDados[nPCMSPRE] )
+            aDados[nPCMSPRE] := 2.2
+        EndIf
+
+        If (nPGORDUR:=aScan( aCamposZ0O, { |x| x == "Z0O_GORDUR" } )) > 0;
+            .AND. Empty( aDados[nPGORDUR] )
+            aDados[nPGORDUR] := 27
+        EndIf
+
+        If (nPFS:=aScan( aCamposZ0O, { |x| x == "Z0O_FS" } )) > 0;
+            .AND. Empty( aDados[nPFS] )
+            // aDados[nPFS] := iIf( AllTrim(Upper(aDados[nPSexo]))=="MACHO",-0.12,0) + (1.33+0.0036 * (nPesoIni*0.96))
+            aDados[nPFS] := iIf( Left(Upper(aDados[nPSexo]),1)=="M",-0.12,0) + (1.33+(0.0036 * (nPesoIni*0.96)))
+        EndIf
+
+        If (nPPESOPR:=aScan( aCamposZ0O, { |x| x == "Z0O_PESOPR" } )) > 0;
+            .AND. Empty( aDados[nPPESOPR] )
+            // Peso Final Previsto
+            If( Left(Upper(aDados[nPSexo]),1)=="F" )
+                aDados[nPPESOPR] := (;
+                                            551.5-0.2482*(nPesoIni*0.96)+(0.00119*((nPesoIni*0.96)^2))-(39.84*aDados[nPFS]);
+                                    );
+                                    *;
+                                    ( ;
+                                        (aDados[nPGORDUR]/100) / (28/100);
+                                    );
+                                    +;
+                                    (;
+                                        iIf(aDados[nPTAMCAR]==4,;
+                                                -33.2, ;
+                                                iIf(aDados[nPTAMCAR]==5,;
+                                                    0,;
+                                                    iIf(aDados[nPTAMCAR]==6,;
+                                                        33.2, ;
+                                                        0);
+                                                );
+                                        );
+                                    )
+            Else // sexo = MACHO
+                aDados[nPPESOPR] := (;
+                                        (;
+                                            (509.6+(0.4697*(nPesoIni*0.96)-(46.54*aDados[nPFS])));
+                                        );
+                                        * ;
+                                        ( ;
+                                            (aDados[nPGORDUR]/100) / (28/100);
+                                        );
+                                    );
+                                    +;
+                                    (;
+                                        iIf(aDados[nPTAMCAR]==3,;
+                                            -66.4, ;
+                                            iIf(aDados[nPTAMCAR]==4,;
+                                                -33.2, ;
+                                                iIf(aDados[nPTAMCAR]==5,;
+                                                    0,;
+                                                    iIf(aDados[nPTAMCAR]==6,;
+                                                        33.2, ;
+                                                        iIf(aDados[nPTAMCAR]==7,;
+                                                            66.4, ;
+                                                            iIf(aDados[nPTAMCAR]==8,;
+                                                                99.6,;
+                                                                0);
+                                                        );
+                                                    );
+                                                );
+                                            );
+                                        );
+                                    )
+            EndIf
+            // Peso Final Previsto
+        EndIf
+
+        If (nPPesoMedio:=aScan( aCamposZ0O, { |x| x == "Z0O_PESO" } ))>0;
+            .AND. Empty( aDados[nPPesoMedio] )
+            aDados[nPPesoMedio] := (aDados[nPPESOPR] + (nPesoIni * 0.96) ) / 2
+        EndIf
+
+        If (nPos:=aScan( aCamposZ0O, { |x| x == "Z0O_MCALPR" } )) > 0;
+            .AND. Empty( aDados[nPos] )
+            DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                                    _cSql := " SELECT distinct " + cValToChar(aDados[nPPesoMedio] ) +;
+                                            " * G1_ENERG * (" + cValToChar(aDados[nPCMSPRE]) + "/100) AS MEGACAL"+CRLF+;
+                                            " FROM "+RetSqlName("SG1")+" "+CRLF+;
+                                            " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
+                                            "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
+                                            "   AND D_E_L_E_T_ = ' '";
+                                        ),"TMPmgCal", .f., .f.)
+            MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa07_Z0O_MCALPR.SQL", _cSql)
+            if (!TMPmgCal->(Eof()))
+                aDados[nPos] := TMPmgCal->MEGACAL
+            EndIf
+            TMPmgCal->(DbCloseArea())    
+        EndIf
+
+        If (nPRaca:=aScan( aCamposZ0O, { |x| x == "Z0O_RACA" } )) > 0;
+            .AND. Empty( aDados[nPRaca] )
+                    // VERIFICA SE O LOTE VEIO A PARTIR DA Z0F E PEGA A RA?A DA Z0F
+            /*
+                ARTHUR TOSHIO 
+            */
+            DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                        _cSqlR := " SELECT Z0F_LOTE, Z0F_RACA, COUNT(Z0F_SEQ) QTDE " +CRLF +; 
+                                " FROM "+ RetSqlName("Z0F") +" Z0F " +CRLF +;
+                                " WHERE Z0F_FILIAL = '"+ xFilial("Z0F") + "' " +CRLF +;
+                                    " AND Z0F_LOTE = '" + AllTrim( &("TMPZ0O->Z0O_LOTE") ) + "'  " +CRLF +;
+                                    " AND D_E_L_E_T_ = ' ' " +CRLF +;
+                                    " GROUP BY Z0F_LOTE, Z0F_RACA " +CRLF +;
+                                    " ORDER BY 3 DESC, 2 DESC";
+                                ),"TMPQryR", .F., .F.)
+            MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa07_Z0O_Z0FRACA.SQL", _cSqlR)
+
+            // SE RETORNAR + DE 1, CONSIDERAR O QUE TEM MAIOR QUANTIDADE
+            DbUseArea(.t., "TOPCONN", TCGenQry(,,;
+                        _cSql := " SELECT		B8_LOTECTL, B1_XRACA, SUM(B8_SALDO) QTDE"+CRLF+;
+                                " FROM "+RetSqlName("SB8")+" B8"+CRLF+;
+                                " JOIN "+RetSqlName("SB1")+" B1 ON B1_COD = B8_PRODUTO "+CRLF+;
+                                "             AND B1.D_E_L_E_T_ = ' ' "+CRLF+;
+                                " WHERE	 B8_FILIAL = " +xFilial("SB8") + " AND B8_LOTECTL ='" + AllTrim( &("TMPZ0O->Z0O_LOTE") ) + "' AND "+CRLF+;
+                                "             B8.D_E_L_E_T_ = ' ' "+CRLF+;
+                                " GROUP BY	B8_LOTECTL, "+CRLF+;
+                                "             B1_XRACA"+CRLF+;
+                                " ORDER BY 3 DESC";
+                        ),"TMPQry", .F., .F.)
+            MEMOWRITE("C:\TOTVS_RELATORIOS\vaPCPa07_Z0O_MCALPR.SQL", _cSql)
+            if (!TMPQry->(Eof()))
+            If (!TMPQryR->(Eof()))
+                    aDados[nPRaca] := TMPQryR->Z0F_RACA
+                Else 
+                    aDados[nPRaca] := TMPQry->B1_XRACA
+                EndIf
+            EndIf
+            TMPQryR->(DbCloseArea())  
+            TMPQry->(DbCloseArea())    
+        EndIf
+
+        If (nPMCAPV:=aScan( aCamposZ0O, { |x| x == "Z0O_MCAPV" } )) > 0;
+            .AND. Empty( aDados[nPMCAPV] )
+            If aDados[nPRaca] == "RAÇA"
+                aDados[nPMCAPV] := 6.23
+            Else
+                If Left(Upper(aDados[nPSexo]),1)=="M"
+                    aDados[nPMCAPV] := 6.21
+                Else
+                    aDados[nPMCAPV] := 6.25
+                EndIf
+            EndIf
+        EndIf
+
+        If (nPDCESP:=aScan( aCamposZ0O, { |x| x == "Z0O_DCESP" } )) > 0;
+            .AND. Empty( aDados[nPDCESP] )
+            //               = (Z0O_PESOPR - B8_XPESOCO) / Z0O_GMD
+            // aDados[nPDCESP] := NoRound( ( aDados[nPPESOPR] - nPesoIni ) / aDados[nPGMD], 0 )
+            aDados[nPDCESP] := 100
+        EndIf
+
+        If (nPGMD:=aScan( aCamposZ0O, { |x| x == "Z0O_GMD" } )) > 0;
+            .AND. Empty( aDados[nPGMD] )
+            If Left(Upper(aDados[nPSexo]),1)=="M"
+                aDados[nPGMD] := 1.7
+            Else
+                aDados[nPGMD] := 1.4
+            EndIf
+            //aDados[nPGMD] := Round( ( aDados[nPPESOPR] - nPesoIni ) / aDados[nPDCESP], 3 )
+            /*If Left(Upper(aDados[nPSexo]),1)=="F" // =SE(SEXO =""F"";-0,0000011*(Z0O_MCALPV)^2+27,508*(Z0O_MCALPV/100)-0,47;
+                aDados[nPGMD] := -0.0000011*( (aDados[nPMCAPV]/100) )^2 + 27.508 * (aDados[nPMCAPV]/100) - 0.47
+            Else
+                If aDados[nPRaca] == "CRUZADOS" // SE(RAÇA=""CRUZADOS"";-74,073*(Z0O_MCALPV/100)^2+36,573*(O4)-0,6323;
+                    aDados[nPGMD] := -74.073*(aDados[nPMCAPV]/100)^2+36.573*(aDados[nPMCAPV]/100)-0.6323
+                ElseIf aDados[nPRaca] == "ANGUS" // SE(RAÇA=""ANGUS"";(-147,35*(Z0O_MCALPV/100)^2)+56,249*(Z0O_MCALPV/100)-1,2206;
+                    aDados[nPGMD] := (-147.35*(aDados[nPMCAPV]/100)^2)+56.249*(aDados[nPMCAPV]/100)-1.2206
+                Else
+                    aDados[nPGMD] := (-74.073*((aDados[nPMCAPV]/100)^2))+36.573*(aDados[nPMCAPV]/100)-0.5623
+                EndIf
+            EndIf
+            */
+        EndIf
+        
+
+        If (nPDTABAT:=aScan( aCamposZ0O, { |x| x == "Z0O_DTABAT" } )) > 0;
+            .AND. Empty( aDados[nPDTABAT] )
+                            // B8_XDATACO + Z0O_DCESP
+            aDados[nPDTABAT] := sToD(dB8XDATACO) + aDados[nPDCESP]
+        EndIf
+
+        If (nPDIARIA:=aScan( aCamposZ0O, { |x| x == "Z0O_DIARIA" } )) > 0;
+            .AND. Empty( aDados[nPDIARIA] )
+                        // SUM(B8_SALDO) X Z0O_DCESP
+            aDados[nPDIARIA] := nB8SALDO * aDados[nPDCESP]
+        EndIf
+
+        aRet := {TMPZ0O->R_E_C_N_O_, aClone(aDados),aClone(aCamposZ0O)}
+
+        TMPZ0O->(DbSkip())
+    end
+    TMPZ0O->(DbCloseArea())
+
+    /* if oView:IsActive()
+        oView:Refresh("VwGridZ0O")
+        oView:Refresh("VwFieldSB8")
+    endif */
+    if !Empty(aArea)
+        RestArea(aArea)
+    endif
+return aRet
+
+Return nil
 
 /*/{Protheus.doc} CriaZ05
-Cria os registros de trato na Z05 e Z06 para o currap posicionado
+Cria os registros de trato na Z05 e Z06 para o curraL posicionado
 @author jr.andre
 @since 13/09/2019
 @version 1.0
@@ -1674,22 +2136,28 @@ Cria os registros de trato na Z05 e Z06 para o currap posicionado
 @type function
 /*/
 static function CriaZ05()
-local aChave     := {}
-local cDtTrAnt   := ""
-local cVerTrAnt  := ""
-local nTotMS     := 0
-local nTotMN     := 0
-local cNroTrato  := ""
-local cDieta     := ""
-local nQtdTrato  := 0
-local nQuantMN   := 0
-local nTotTrtClc := 0
-local cSeq       := ""
-local nMegaCal   := 0
-local nMCalTrat  := 0
-local nTotMCal   := 0
-local i          := 0
-Local _nMCALPR   := 0
+local aChave        := {}
+local cDtTrAnt      := ""
+local cVerTrAnt     := ""
+local nTotMS        := 0
+local nTotMN        := 0
+local cNroTrato     := ""
+local cDieta        := ""
+local nQtdTrato     := 0
+local nTrtTotal     := 0
+local nQuantMN      := 0
+local nTotTrtClc    := 0
+local cSeq          := ""
+local nMegaCal      := 0
+local nMCalTrat     := 0
+local nTotMCal      := 0
+local i             := 0
+Local _nMCALPR      := 0
+Local nDif          := 0
+Local nQtdAux       := 0
+Local lMaior        := .T.
+Local lSobra        := .T.
+Local nBKPnTrtTotal := 0
 
     // Verifica se não existe plano de trato associado ao lote 
     if Empty(LOTES->Z0O_CODPLA)
@@ -1713,97 +2181,349 @@ Local _nMCALPR   := 0
                 cNroTrato := ""
                 cDieta    := ""
 
+                Z0G->(DBSETORDER( 2 ))
                 // quando existir mais de uma dieta considerar a ultima para calculo do ajuste
                 Z0G->(DbSeek(FWxFilial("Z0G")+PadR(AllTrim(Iif(','$TMPZ05->Z05_DIETA,SubStr(TMPZ05->Z05_DIETA,RAt(',', TMPZ05->Z05_DIETA)+1),TMPZ05->Z05_DIETA)),TamSX3("B1_COD")[1])+LOTES->NOTA_MANHA))
 
-                DbUseArea(.T., "TOPCONN", TCGenQry(,,;
-                                          " with QTDTRAT as (" +;
-                                            " select Z06.Z06_FILIAL" +;
-                                                   ", Z06.Z06_DATA" +;
-                                                   ", Z06.Z06_VERSAO" +;
-                                                   ", Z06.Z06_LOTE" +;
-                                                   ", count(*) QTD" +;
-                                             " from " + RetSqlName("Z06") + " Z06" +; 
-                                            " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
-                                              " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
-                                              " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
-                                              " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                              " and Z06.D_E_L_E_T_ = ' '" +;
-                                         " group by Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE" +;
-                                          " )" +;
-                                           " select Z06.*, QTDTRAT.QTD" +; 
-                                             " from " + RetSqlName("Z06") + " Z06" +;
-                                             " join QTDTRAT" +;
-                                               " on QTDTRAT.Z06_FILIAL = Z06.Z06_FILIAL" +;
-                                              " and QTDTRAT.Z06_DATA   = Z06.Z06_DATA" +;
-                                              " and QTDTRAT.Z06_VERSAO = Z06.Z06_VERSAO" +;
-                                              " and QTDTRAT.Z06_LOTE   = Z06.Z06_LOTE" +;
-                                            " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
-                                              " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
-                                              " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
-                                              " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                              " and Z06.D_E_L_E_T_ = ' '" +;
-                                         " order by Z06.Z06_FILIAL" +;
-                                                 ", Z06.Z06_DATA" +;
-                                                 ", Z06.Z06_VERSAO" +;
-                                                 ", Z06.Z06_LOTE" +;
-                                                 ", Z06.Z06_TRATO " ;
-                                                      ), "TMPZ06", .F., .F.)
 
-                    /*05-08-2020 
+                // Busca quantidade de tratos do dia anterior
+                    DbUseArea(.T., "TOPCONN", TCGenQry(,,;
+                                            " with QTDTRAT as (" +;
+                                                " select Z06.Z06_FILIAL" +;
+                                                    ", Z06.Z06_DATA" +;
+                                                    ", Z06.Z06_VERSAO" +;
+                                                    ", Z06.Z06_LOTE" +;
+                                                    ", count(*) QTD" +;
+                                                    ", Z0I.Z0I_NOTMAN" +;
+                                                    ", Z0G.Z0G_ZERTRT" +;
+                                                    ", Z0I.Z0I_AJUSTE" +;
+                                                " from " + RetSqlName("Z06") + " Z06" +; 
+                                           " left join " + RetSqlName("Z0I") + " Z0I ON " +;  
+                                                "     Z0I.Z0I_FILIAL = Z06.Z06_FILIAL" +; 
+                                                " AND Z0I.Z0I_DATA = Z06.Z06_DATA" +; 
+                                                " AND Z0I.Z0I_LOTE = Z06.Z06_LOTE " +; 
+                                                " AND Z0I.D_E_L_E_T_ =' ' " +;
+                                          " left join " + RetSqlName("Z0G") + " Z0G ON " +;
+                                                "     Z0G.Z0G_FILIAL = Z0I.Z0I_FILIAL " +;
+                                                " and Z0G.Z0G_CODIGO = Z0I.Z0I_NOTMAN " +;
+                                                " and Z06.Z06_DIETA = Z0G.Z0G_DIETA " +;
+                                                " and Z0G.D_E_L_E_T_ = ' ' " +;
+                                                " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
+                                                " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
+                                                " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
+                                                " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
+                                                " and Z06.D_E_L_E_T_ = ' '" +;
+                                            " group by Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE, Z0I.Z0I_NOTMAN, Z0G.Z0G_ZERTRT, Z0I.Z0I_AJUSTE" +;
+                                            " )" +;
+                                            " select Z06.*, QTDTRAT.QTD, QTDTRAT.Z0I_NOTMAN, QTDTRAT.Z0G_ZERTRT, QTDTRAT.Z0I_AJUSTE" +; 
+                                                " from " + RetSqlName("Z06") + " Z06" +;
+                                                " join QTDTRAT" +;
+                                                " on QTDTRAT.Z06_FILIAL = Z06.Z06_FILIAL" +;
+                                                " and QTDTRAT.Z06_DATA   = Z06.Z06_DATA" +;
+                                                " and QTDTRAT.Z06_VERSAO = Z06.Z06_VERSAO" +;
+                                                " and QTDTRAT.Z06_LOTE   = Z06.Z06_LOTE" +;
+                                                " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
+                                                " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
+                                                " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
+                                                " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
+                                                " and Z06.D_E_L_E_T_ = ' '" +;
+                                            " order by Z06.Z06_FILIAL" +;
+                                                    ", Z06.Z06_DATA" +;
+                                                    ", Z06.Z06_VERSAO" +;
+                                                    ", Z06.Z06_LOTE" +;
+                                                    ", Z06.Z06_TRATO " ;
+                                                        ), "TMPZ06", .F., .F.)
+
+                    
+                    
+                    /*
+                    05-08-2020 
                     Alteração Arthur Toshio
                     Ajuste do KG da matéria seca considerando o ganho de peso do animal
                     */ 
-                    
-                    
                     If GetMV("VA_AJUDAN") == "K" // Ajuste da nota de Cocho em KG (Z0G_AJSTKG)
                         nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
                     ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*Z0G->Z0G_PERAJU)/100))/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*Z0G->Z0G_PERAJU)/100)),TamSX3("Z06_KGMSTR")[2])///TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    ElseIf GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*TMPZ06->Z0I_AJUSTE)/100)),TamSX3("Z06_KGMSTR")[2])///TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
                     EndIf
-                    nQuantMN := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato)
-                                
-                    while !TMPZ06->(Eof())
-                        if (++i == TMPZ06->QTD)
-                            If GetMV("VA_AJUDAN") == "K"
-                                nQtdTrato := TMPZ05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
-                            ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                                nQtdTrato := TMPZ05->Z05_KGMSDI + ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100) - nTotTrtClc
-                            EndIf
-                        endif
-                        cSeq := GetSeq(TMPZ06->Z06_DIETA)
-                        nMegaCal := GetMegaCal(TMPZ06->Z06_DIETA)
-                        nMCalTrat := Round(nMegaCal * nQtdTrato,2)
+                    nTrtTotal := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato) * LOTES->B8_SALDO
+
+
+                    // MB : 23.02.2023 = Zera Trato quantidade menor que 300
+                    if !TMPZ06->(Eof())
                         
-                        RecLock("Z06", .T.)
-                            Z06->Z06_FILIAL := FWxFilial("Z06")
-                            Z06->Z06_DATA   := Z0R->Z0R_DATA    
-                            Z06->Z06_VERSAO := Z0R->Z0R_VERSAO
-                            Z06->Z06_CURRAL := LOTES->Z08_CODIGO
-                            Z06->Z06_LOTE   := LOTES->B8_LOTECTL  
-                            Z06->Z06_TRATO  := TMPZ06->Z06_TRATO 
-                            Z06->Z06_DIETA  := TMPZ06->Z06_DIETA 
-                            Z06->Z06_KGMSTR := nQtdTrato
-                            Z06->Z06_KGMNTR := nQuantMN
-                            Z06->Z06_DIAPRO := LOTES->DIA_PLNUTRI
-                            Z06->Z06_HORA   := TMPZ06->Z06_HORA
-                            Z06->Z06_MEGCAL := nMcalTrat
-                            Z06->Z06_KGMNT  := nQuantMN * LOTES->B8_SALDO
-                            Z06->Z06_SEQ    := cSeq
-                        MsUnlock()
+                        nQtdAux       := TMPZ06->QTD
+                        nDif          := 0
+                        lMaior        := (nTrtTotal / nQtdAux) > MIN_TRATO
+                        lSobra        := Z0G->Z0G_ZERTRT == "S"
+                        nBKPnTrtTotal := Round(nTrtTotal, TamSX3('Z06_KGMNT')[2])
 
-                        nTotTrtClc += nQtdTrato
-                        nTotMS += Z06->Z06_KGMSTR
-                        nTotMCal += Z06->Z06_MEGCAL
-                        nTotMN += Z06->Z06_KGMNTR
-                        cNroTrato := Iif(cNroTrato < Z06->Z06_TRATO, Z06->Z06_TRATO, cNroTrato)
-                        if !AllTrim(Z06->Z06_DIETA)$cDieta
-                            cDieta += Iif(Empty(cDieta), "", ",") + AllTrim(Z06->Z06_DIETA)
-                        endif
+                        While !TMPZ06->(Eof())
+                        
+                            /* MB : 23.02.2023  
+                                    Funcao para fazer o calculo do toshio;
+                                    nao pode ter trato com menos de 300 kgs, definido no parametro [MB_MINTRAT] */
+                            If ( lSobra .and. TMPZ06->Z06_TRATO == "1" ) .OR. nBKPnTrtTotal <= 0
+                                nQtdTrato := 0
+                                // --nQtdAux
+                            Else
 
-                        TMPZ06->(DbSkip())
-                    end
-                TMPZ06->(DbCloseArea())
+                                If lMaior // (nTrtTotal / nQtdAux) > MIN_TRATO     
+
+                                    If GetMV("VA_AJUDAN") == "K"
+                                        nQtdTrato := TMPZ05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
+
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        // Dividir trato do dia anterior pelos tratos restantes (sem considerar ) o primeiro
+                                        nQtdRes := TMPZ05->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * Z0G->Z0G_PERAJU ) / 100)
+                                    
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdRes := TMPZ05->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * TMPZ06->Z0I_AJUSTE ) / 100)
+                                    // D I A   A N T E R I O R 
+                                    // Quando no DIA ANTERIOR zerar o trato, no dia seguinte, gerar normalmente 
+                                    
+                                    ElseIf !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P"
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / TMPZ06->QTD
+                                    
+                                    ElseIf !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A"
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * TMPZ06->Z0I_AJUSTE ) / 100)) / TMPZ06->QTD
+                                    //Else
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        //nQtdTrato := TMPZ06->Z06_KGMSTR + ((TMPZ06->Z06_KGMSTR * Z0G->Z0G_PERAJU ) / 100) //- nTotTrtClc
+                                    EndIf 
+
+                                Else // If (nTrtTotal / nQtdAux) < MIN_TRATO
+                                    
+                                    If nDif == 0 // (nQtdAux+1) >= TMPZ06->QTD
+                                        While nQtdAux>0 .AND. (nQtdTrato := (nTrtTotal / (nQtdAux-iif(lSobra,1,0)))) < MIN_TRATO
+                                            --nQtdAux
+                                        EndDo
+                                        If !(nQtdAux == 0 .and. ((nQtdTrato := (nTrtTotal / 1)) < MIN_TRATO)) // lSobra .and.
+                                            nDif := TMPZ06->QTD - nQtdAux  
+                                        Else
+                                            nDif := TMPZ06->QTD - 1
+
+                                        EndIf
+                                    EndIf
+
+                                    nQtdTrato := 999 // variavel fixa, nao mecher :)
+                                    If TMPZ06->QTD == 6 // tratos
+                                       If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('346')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 5 // Corta 5
+                                                    If TMPZ06->Z06_TRATO $ ('23456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('5')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('25')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('246')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('2356')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 5// Corta 5
+                                                    If TMPZ06->Z06_TRATO $ ('23456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 5 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('345')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('345')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('235')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 4 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('34')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('234')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('234')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 3 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('23')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 2 // tratos
+                                        If !lSobra // Sem sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+                                    EndIf
+                                    If nQtdTrato > 0
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / (iif(TMPZ06->QTD==nDif, 1,TMPZ06->QTD-nDif)-iif(lSobra .and. (!nQtdAux == 0),1,0))
+                                    EndIf
+                                EndIf
+                            EndIf 
+                            // FIM MB : 23.02.2023  
+
+                            cSeq := GetSeq(TMPZ06->Z06_DIETA)
+                            nMegaCal := GetMegaCal(TMPZ06->Z06_DIETA)
+                            nMCalTrat := Round(nMegaCal * nQtdTrato,2)
+                            nQuantMN := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato)
+                            
+                            RecLock("Z06", .T.)
+                                Z06->Z06_FILIAL := FWxFilial("Z06")
+                                Z06->Z06_DATA   := Z0R->Z0R_DATA    
+                                Z06->Z06_VERSAO := Z0R->Z0R_VERSAO
+                                Z06->Z06_CURRAL := LOTES->Z08_CODIGO
+                                Z06->Z06_LOTE   := LOTES->B8_LOTECTL  
+                                Z06->Z06_TRATO  := TMPZ06->Z06_TRATO 
+                                Z06->Z06_DIETA  := TMPZ06->Z06_DIETA 
+                                Z06->Z06_KGMSTR := nQtdTrato
+                                Z06->Z06_KGMNTR := nQuantMN
+                                Z06->Z06_DIAPRO := LOTES->DIA_PLNUTRI
+                                Z06->Z06_HORA   := TMPZ06->Z06_HORA
+                                Z06->Z06_MEGCAL := nMcalTrat
+                                Z06->Z06_KGMNT  := nQuantMN * LOTES->B8_SALDO
+                                Z06->Z06_SEQ    := cSeq
+                            MsUnlock()
+
+                            nBKPnTrtTotal -= Z06->Z06_KGMNT
+
+                            nTotTrtClc += nQtdTrato
+                            nTotMS     += Z06->Z06_KGMSTR
+                            nTotMCal   += Z06->Z06_MEGCAL
+                            nTotMN     += Z06->Z06_KGMNTR
+                            cNroTrato  := Iif(cNroTrato < Z06->Z06_TRATO, Z06->Z06_TRATO, cNroTrato)
+                            if !AllTrim(Z06->Z06_DIETA)$cDieta
+                                cDieta += Iif(Empty(cDieta), "", ",") + AllTrim(Z06->Z06_DIETA)
+                            endif
+
+                            TMPZ06->(DbSkip())
+                        EndDo
+                    EndIf
+                    TMPZ06->(DbCloseArea())
 
                 if !TMPZ05->(Eof())
                     cRoteiro := UlrRoteiro(Z0R->Z0R_DATA, Z0R->Z0R_VERSAO, LOTES->B8_LOTECTL, LOTES->Z08_CODIGO)
@@ -1817,7 +2537,7 @@ Local _nMCALPR   := 0
                      DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                                  _cSql := " SELECT distinct " + cValToChar( LOTES->Z0O_PESO ) +;
                                           " * G1_ENERG * (" + cValToChar( LOTES->Z0O_CMSPRE ) + "/100) AS MEGACAL"+CRLF+;
-                                          " FROM SG1010 "+CRLF+;
+                                          " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                           " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                           "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                           "   AND D_E_L_E_T_ = ' '";
@@ -1866,47 +2586,48 @@ Local _nMCALPR   := 0
         if LOTES->DIAS_NO_PLANO <= LOTES->MAIORDIAPL
             // verifica se o trato será criado com base na quantidade de trato do ultimo dia + nota de cocho, mesmo nos casos onde exista o plano nutricional.
             if GetMV("VA_CRTRDAN",,.F.) .and. !Empty(aChave := MaxVerTrat(LOTES->B8_LOTECTL, Z0R->Z0R_DATA))
-
-                DbUseArea(.T., "TOPCONN", TCGenQry(,,;
-                                          " with QTDTRAT as (" +;
-                                            " select Z0M.Z0M_CODIGO, Z0O.Z0O_LOTE, count(*) QTD" +;
-                                              " from " + RetSqlName("Z0O") + " Z0O" +;
-                                              " join " + RetSqlName("Z0M") + " Z0M" +;
+                //If GetMV("VA_TRTCOP",,"I") == "T"
+                    DbUseArea(.T., "TOPCONN", TCGenQry(,,;
+                                     cQry:=" with QTDTRAT as (" +;
+                                                " select Z0M.Z0M_CODIGO, Z0O.Z0O_LOTE, count(*) QTD" +;
+                                                " from " + RetSqlName("Z0O") + " Z0O" +;
+                                                " join " + RetSqlName("Z0M") + " Z0M" +;
+                                                    " on Z0M.Z0M_FILIAL = '" + FWxFilial("Z0M") + "'" +;
+                                                " and Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA" +;
+                                                " and Z0M.Z0M_VERSAO = (SELECT MAX(Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0MV WHERE Z0MV.Z0M_FILIAL = '" + FWxFilial("Z0M") + "' AND  Z0MV.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0MV.D_E_L_E_T_ = ' ' )" +;
+                                                " and Z0M.Z0M_DIA    = '" + LOTES->DIA_PLNUTRI + "'" +;
+                                                " and Z0M.D_E_L_E_T_ = ' '" +;
+                                                " where Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
+                                                " and Z0O.Z0O_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
+                                                " and (('" + DToS(Z0R->Z0R_DATA) + "' between Z0O.Z0O_DATAIN and Z0O.Z0O_DATATR) or (Z0O.Z0O_DATAIN <= '" + DToS(Z0R->Z0R_DATA) + "' and Z0O.Z0O_DATATR = '        '))" +;
+                                                " and Z0O.D_E_L_E_T_ = ' '" +;
+                                            " group by Z0M.Z0M_CODIGO, Z0O.Z0O_LOTE" +;
+                                            " )" +;
+                                            " select Z0O.*, Z0M.*, QTDTRAT.QTD, Z05.Z05_KGMSDI" +;
+                                            " from " + RetSqlName("Z0O") + " Z0O" +;
+                                            " join " + RetSqlName("Z0M") + " Z0M" +;
                                                 " on Z0M.Z0M_FILIAL = '" + FWxFilial("Z0M") + "'" +;
-                                               " and Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA" +;
-                                               " and Z0M.Z0M_VERSAO = (SELECT MAX(Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0MV WHERE Z0MV.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0MV.D_E_L_E_T_ = ' ' )" +;
-                                               " and Z0M.Z0M_DIA    = '" + LOTES->DIA_PLNUTRI + "'" +;
-                                               " and Z0M.D_E_L_E_T_ = ' '" +;
-                                             " where Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
-                                               " and Z0O.Z0O_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                               " and (('" + DToS(Z0R->Z0R_DATA) + "' between Z0O.Z0O_DATAIN and Z0O.Z0O_DATATR) or (Z0O.Z0O_DATAIN <= '" + DToS(Z0R->Z0R_DATA) + "' and Z0O.Z0O_DATATR = '        '))" +;
-                                               " and Z0O.D_E_L_E_T_ = ' '" +;
-                                          " group by Z0M.Z0M_CODIGO, Z0O.Z0O_LOTE" +;
-                                        " )" +;
-                                        " select Z0O.*, Z0M.*, QTDTRAT.QTD, Z05.Z05_KGMSDI QTDTRATO" +;
-                                          " from " + RetSqlName("Z0O") + " Z0O" +;
-                                          " join " + RetSqlName("Z0M") + " Z0M" +;
-                                            " on Z0M.Z0M_FILIAL = '" + FWxFilial("Z0M") + "'" +;
-                                           " and Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA" +;
-                                           " and Z0M.Z0M_VERSAO = (SELECT MAX(Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0M1 WHERE Z0M1.Z0M_FILIAL = Z0M.Z0M_FILIAL AND Z0M1.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0M1.D_E_L_E_T_ = ' ' )" +;
-                                           " and Z0M.Z0M_DIA    = '" + LOTES->DIA_PLNUTRI + "'" +;
-                                           " and Z0M.D_E_L_E_T_ = ' '" +;
-                                          " join QTDTRAT" +;
-                                            " on Z0M.Z0M_CODIGO = QTDTRAT.Z0M_CODIGO" +;
-                                           " and Z0O.Z0O_LOTE   = QTDTRAT.Z0O_LOTE" +;
-                                          " join " + RetSqlName("Z05") + " Z05" +;
-                                            " on Z05.Z05_FILIAL = '" + FWxFilial("Z05") + "'" +;
-                                           " and Z05.Z05_DATA   = '" + aChave[1] + "'" +;
-                                           " and Z05.Z05_VERSAO = '" + aChave[2] + "'" +;
-                                           " and Z05.Z05_LOTE   = QTDTRAT.Z0O_LOTE" +;
-                                           " and Z05.D_E_L_E_T_ = ' '" +;
-                                         " where Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
-                                           " and Z0O.Z0O_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                           " and (('" + DToS(Z0R->Z0R_DATA) + "' between Z0O.Z0O_DATAIN and Z0O.Z0O_DATATR) or (Z0O.Z0O_DATAIN <= '" + DToS(Z0R->Z0R_DATA) + "' and Z0O.Z0O_DATATR = '        '))" +;
-                                           " and Z0O.D_E_L_E_T_ = ' '" +;
-                                      " order by Z0M.Z0M_TRATO ";
-                                                     ), "TMPZ0M", .F., .F.)
-
+                                            " and Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA" +;
+                                            " and Z0M.Z0M_VERSAO = (SELECT MAX(Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0M1 WHERE Z0M1.Z0M_FILIAL = Z0M.Z0M_FILIAL AND Z0M1.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0M1.D_E_L_E_T_ = ' ' )" +;
+                                            " and Z0M.Z0M_DIA    = '" + LOTES->DIA_PLNUTRI + "'" +;
+                                            " and Z0M.D_E_L_E_T_ = ' '" +;
+                                            " join QTDTRAT" +;
+                                                " on Z0M.Z0M_CODIGO = QTDTRAT.Z0M_CODIGO" +;
+                                            " and Z0O.Z0O_LOTE   = QTDTRAT.Z0O_LOTE" +;
+                                            " join " + RetSqlName("Z05") + " Z05" +;
+                                                " on Z05.Z05_FILIAL = '" + FWxFilial("Z05") + "'" +;
+                                            " and Z05.Z05_DATA   = '" + aChave[1] + "'" +;
+                                            " and Z05.Z05_VERSAO = '" + aChave[2] + "'" +;
+                                            " and Z05.Z05_LOTE   = QTDTRAT.Z0O_LOTE" +;
+                                            " and Z05.D_E_L_E_T_ = ' '" +;
+                                            " where Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
+                                            " and Z0O.Z0O_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
+                                            " and (('" + DToS(Z0R->Z0R_DATA) + "' between Z0O.Z0O_DATAIN and Z0O.Z0O_DATATR) or (Z0O.Z0O_DATAIN <= '" + DToS(Z0R->Z0R_DATA) + "' and Z0O.Z0O_DATATR = '        '))" +;
+                                            " and Z0O.D_E_L_E_T_ = ' '" +;
+                                        " order by Z0M.Z0M_TRATO ";
+                                                        ), "TMPZ0M", .F., .F.)
+                
+                    // Z0G_FILIAL+Z0G_CODIGO+Z0G_DISPON                                                                                                                                
                     Z0G->(DbSeek(FWxFilial("Z0G")+TMPZ0M->Z0M_DIETA+LOTES->NOTA_MANHA))
 
                     nTotMS := 0
@@ -1914,24 +2635,245 @@ Local _nMCALPR   := 0
                     nTotTrtClc := 0
                     nMegaCal := 0
                     nMCalTrat := 0
-                    i := 0
                     If GetMV("VA_AJUDAN") == "K" // Ajuste da nota de Cocho em KG (Z0G_AJSTKG)
-                        nQtdTrato := Noround((TMPZ0M->QTDTRATO+Z0G->Z0G_AJSTKG)/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
+                        nQtdTrato := NoRound((TMPZ0M->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
                     ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                        nQtdTrato := Noround((TMPZ0M->QTDTRATO+(TMPZ0M->QTDTRATO*Z0G->Z0G_PERAJU)/100)/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
+                        nQtdTrato := NoRound((TMPZ0M->Z05_KGMSDI+((TMPZ0M->Z05_KGMSDI*Z0G->Z0G_PERAJU)/100)),TamSX3("Z06_KGMSTR")[2])///TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    ElseIf GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                        //Z0I_FILIAL+Z0I_DATA+Z0I_CURRAL+Z0I_LOTE                                                                                                                         
+                        Z0I->(DbSeek(FWxFilial("Z0I")+DToS(Z0R->Z0R_DATA)+LOTES->B8_X_CURRA+LOTES->B8_LOTECTL))
+                        nQtdTrato := NoRound((TMPZ0M->Z05_KGMSDI+((TMPZ0M->Z05_KGMSDI*Z0I->Z0I_AJUSTE)/100)),TamSX3("Z06_KGMSTR")[2])///TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
                     EndIf
+                    nTrtTotal := u_CalcQtMN(TMPZ0M->Z0M_DIETA, nQtdTrato) * LOTES->B8_SALDO
+
                     cDieta := ""
                     cNroTrato := ""
 
                     while !TMPZ0M->(Eof())
-                        // Remove o erro de arredontamento
-                        if (++i == TMPZ0M->QTD)
-                            If GetMV("VA_AJUDAN") == "K"
-                                nQtdTrato := TMPZ0M->QTDTRATO + Z0G->Z0G_AJSTKG - nTotTrtClc
-                            ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                                nQtdTrato := TMPZ0M->QTDTRATO + ((TMPZ0M->QTDTRATO * Z0G->Z0G_PERAJU ) / 100) - nTotTrtClc
-                            EndIf
-                        endif
+                        nQtdAux       := TMPZ0M->QTD        
+                        nDif          := 0
+                        lMaior        := (nTrtTotal / nQtdAux) > MIN_TRATO
+                        lSobra        := Z0G->Z0G_ZERTRT == "S"
+                        nBKPnTrtTotal := Round(nTrtTotal, TamSX3('Z06_KGMNT')[2])
+                        /* MB : 23.02.2023  
+                                Funcao para fazer o calculo do toshio;
+                                nao pode ter trato com menos de 300 kgs, definido no parametro [MB_MINTRAT] */
+                            If ( lSobra .and. cValToChar(TMPZ0M->Z0M_TRATO) == "1" ) .OR. nBKPnTrtTotal <= 0
+                                nQtdTrato := 0
+                                // --nQtdAux
+                            Else
+
+                                If lMaior // (nTrtTotal / nQtdAux) > MIN_TRATO     
+
+                                    If GetMV("VA_AJUDAN") == "K"
+                                        nQtdTrato := TMPZ0M->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
+
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        // Dividir trato do dia anterior pelos tratos restantes (sem considerar ) o primeiro
+                                        nQtdRes := TMPZ0M->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * Z0G->Z0G_PERAJU ) / 100)
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdRes := TMPZ0M->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * Z0I->Z0I_AJUSTE ) / 100)
+
+                                    //Arthur Toshio - 15-03-2023
+                                    // D I A   A N T E R I O R 
+                                    // Quando no DIA ANTERIOR zerar o trato, no dia seguinte, gerar normalmente 
+                                    Elseif !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P"
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdTrato := (TMPZ0M->Z05_KGMSDI +  ((TMPZ0M->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / TMPZ0M->QTD
+                                    
+                                    ElseIf !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdTrato := (TMPZ0M->Z05_KGMSDI +  ((TMPZ0M->Z05_KGMSDI * Z0I->Z0I_AJUSTE ) / 100)) / TMPZ0M->QTD
+                                        
+                                    //Else
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        //nQtdTrato := TMPZ06->Z06_KGMSTR + ((TMPZ06->Z06_KGMSTR * Z0G->Z0G_PERAJU ) / 100) //- nTotTrtClc
+                                    EndIf 
+
+                                Else // If (nTrtTotal / nQtdAux) < MIN_TRATO
+                                    
+                                    If nDif == 0 // (nQtdAux+1) >= TMPZ06->QTD
+                                        While nQtdAux>0 .AND. (nQtdTrato := (nTrtTotal / (nQtdAux-iif(lSobra,1,0)))) < MIN_TRATO
+                                            --nQtdAux
+                                        EndDo
+                                        If !(nQtdAux == 0 .and. ((nQtdTrato := (nTrtTotal / 1)) < MIN_TRATO))
+                                            nDif := TMPZ0M->QTD - nQtdAux  
+                                        Else
+                                            nDif := TMPZ0M->QTD - 1
+                                        EndIf
+                                    EndIf
+
+                                    nQtdTrato := 999 // variavel fixa, nao mecher :)
+                                    If TMPZ0M->QTD == 6 // tratos
+                                       If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ0M->Z0M_TRATO $ ('346')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 3
+                                                    If TMPZ06->Z0M_TRATO $ ('3456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('5')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('25')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ0M->Z0M_TRATO $ ('246')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ0M->Z0M_TRATO $ ('2356')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 5 // Corta 4
+                                                    If TMPZ0M->Z0M_TRATO $ ('23456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ0M->QTD == 5 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ0M->Z0M_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ0M->Z0M_TRATO $ ('235')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 3
+                                                    If TMPZ0M->Z0M_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ0M->QTD == 4 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('34')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ0M->Z0M_TRATO $ ('134')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ0M->Z0M_TRATO $ ('234')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ0M->QTD == 3 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ0M->Z0M_TRATO $ ('23')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ0M->QTD == 2 // tratos
+
+                                        If !lSobra // Sem sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ0M->Z0M_TRATO $ ('2')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf 
+
+                                    EndIf
+
+                                    If nQtdTrato > 0
+                                        nQtdTrato := (TMPZ0M->Z05_KGMSDI +  ((TMPZ0M->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / (iif(TMPZ0M->QTD==nDif, 1,TMPZ0M->QTD-nDif)-iif(lSobra .and. (!nQtdAux == 0),1,0))
+                                    EndIf
+                                EndIf
+                            EndIf 
+                            // FIM MB : 23.02.2023  
                         
                         nQuantMN := u_CalcQtMN(TMPZ0M->Z0M_DIETA, nQtdTrato)
                         cSeq := GetSeq(TMPZ0M->Z0M_DIETA)
@@ -1955,10 +2897,10 @@ Local _nMCALPR   := 0
                         MsUnlock()
                     
                         nTotTrtClc += nQtdTrato
-                        nTotMS += Z06->Z06_KGMSTR
-                        nTotMCal += Z06->Z06_MEGCAL
-                        nTotMN += Z06->Z06_KGMNTR
-                        cNroTrato := Iif(cNroTrato < Z06->Z06_TRATO, Z06->Z06_TRATO, cNroTrato)
+                        nTotMS     += Z06->Z06_KGMSTR
+                        nTotMCal   += Z06->Z06_MEGCAL
+                        nTotMN     += Z06->Z06_KGMNTR
+                        cNroTrato  := Iif(cNroTrato < Z06->Z06_TRATO, Z06->Z06_TRATO, cNroTrato)
                         if !AllTrim(Z06->Z06_DIETA)$cDieta
                             cDieta += Iif(Empty(cDieta), "", ",") + AllTrim(Z06->Z06_DIETA) 
                         endif
@@ -1979,7 +2921,7 @@ Local _nMCALPR   := 0
                 DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                             _cSql := " SELECT distinct " + cValToChar( LOTES->Z0O_PESO ) +;
                                     " * G1_ENERG * (" + cValToChar( LOTES->Z0O_CMSPRE ) + "/100) AS MEGACAL"+CRLF+;
-                                    " FROM SG1010 "+CRLF+;
+                                    " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                     " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                     "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                     "   AND D_E_L_E_T_ = ' '";
@@ -2026,7 +2968,7 @@ Local _nMCALPR   := 0
                                               " join " + RetSqlName("Z0M") + " Z0M" +;
                                                 " on Z0M.Z0M_FILIAL = '" + FWxFilial("Z0M") + "'" +;
                                                " and Z0M.Z0M_CODIGO = Z0O.Z0O_CODPLA" +;
-                                               " and Z0M_VERSAO = (SELECT MAX(Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0MV WHERE Z0MV.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0MV.D_E_L_E_T_ = ' ' )" +;
+                                               " and Z0M_VERSAO = (SELECT MAX(Z0MV.Z0M_VERSAO) FROM " + RetSqlName("Z0M") + " Z0MV WHERE Z0MV.Z0M_FILIAL = '" + FWxFilial("Z0M") + "' AND Z0MV.Z0M_CODIGO = Z0M.Z0M_CODIGO AND Z0MV.D_E_L_E_T_ = ' ' )" +;
                                                " and Z0M.Z0M_DIA    = '" + LOTES->DIA_PLNUTRI + "'" +;
                                                " and Z0M.D_E_L_E_T_ = ' '" +;
                                              " where Z0O.Z0O_FILIAL = '" + FWxFilial("Z0O") + "'" +;
@@ -2035,7 +2977,7 @@ Local _nMCALPR   := 0
                                                " and Z0O.D_E_L_E_T_ = ' '" +;
                                           " group by Z0M.Z0M_CODIGO, Z0O.Z0O_LOTE" +;
                                         " )" +;
-                                        " select Z0O.*, Z0M.*, QTDTRAT.QTD" +;
+                                        " select Z0O.*, Z0M.*, QTDTRAT.QTD " +;
                                           " from " + RetSqlName("Z0O") + " Z0O" +;
                                           " join " + RetSqlName("Z0M") + " Z0M" +;
                                             " on Z0M.Z0M_FILIAL = '" + FWxFilial("Z0M") + "'" +;
@@ -2062,6 +3004,9 @@ Local _nMCALPR   := 0
                         nQtdTrato := NoRound((TMPZ0M->Z0M_QUANT+Z0G->Z0G_AJSTKG)/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
                     ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
                         nQtdTrato := NoRound((TMPZ0M->Z0M_QUANT+((TMPZ0M->Z0M_QUANT*Z0G->Z0G_PERAJU)/100))/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
+                    ElseIf GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                        Z0I->(DbSeek(FWxFilial("Z0I")+DToS(Z0R->Z0R_DATA)+LOTES->B8_X_CURRA+LOTES->B8_LOTECTL))
+                        nQtdTrato := NoRound((TMPZ0M->Z0M_QUANT+((TMPZ0M->Z0M_QUANT*Z0I->Z0I_AJUSTE)/100))/TMPZ0M->QTD, TamSX3("Z06_KGMSTR")[2])
                     EndIf
 
                     
@@ -2114,7 +3059,7 @@ Local _nMCALPR   := 0
                 DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                             _cSql := " SELECT distinct " + cValToChar( LOTES->Z0O_PESO ) +;
                                     " * G1_ENERG * (" + cValToChar( LOTES->Z0O_CMSPRE ) + "/100) AS MEGACAL"+CRLF+;
-                                    " FROM SG1010 "+CRLF+;
+                                    " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                     " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                     "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                     "   AND D_E_L_E_T_ = ' '";
@@ -2175,63 +3120,300 @@ Local _nMCALPR   := 0
                 if !TMPZ05->(Eof())
                 
                     DbUseArea(.T., "TOPCONN", TCGenQry(,,;
-                                              " with QTDTRAT as (" +;
-                                                " select Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE, count(*) QTD" +;
-                                                 " from " + RetSqlName("Z06") + " Z06" +; 
-                                                " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
-                                                  " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
-                                                  " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
-                                                  " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                                  " and Z06.D_E_L_E_T_ = ' '" +;
-                                             " group by Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE" +;
-                                              " )" +;
-                                               " select Z06.*, QTDTRAT.QTD" +; 
-                                                 " from " + RetSqlName("Z06") + " Z06" +;
-                                                 " join QTDTRAT" +;
-                                                   " on QTDTRAT.Z06_FILIAL = Z06.Z06_FILIAL" +;
-                                                  " and QTDTRAT.Z06_DATA   = Z06.Z06_DATA" +;
-                                                  " and QTDTRAT.Z06_VERSAO = Z06.Z06_VERSAO" +;
-                                                  " and QTDTRAT.Z06_LOTE   = Z06.Z06_LOTE" +;
-                                                " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" +; 
-                                                  " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" +;
-                                                  " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" +;
-                                                  " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" +;
-                                                  " and Z06.D_E_L_E_T_ = ' '" +;
-                                             " order by Z06.Z06_FILIAL" +;
-                                                     ", Z06.Z06_DATA" +;
-                                                     ", Z06.Z06_VERSAO" +;
-                                                     ", Z06.Z06_LOTE" +;
-                                                     ", Z06.Z06_TRATO " ;
+                                            _cQry := " with QTDTRAT as (" + CRLF +;
+                                                " select Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE, count(*) QTD, Z0I.Z0I_NOTMAN, Z0G.Z0G_ZERTRT, Z0I.Z0I_AJUSTE" + CRLF +;
+                                                 " from " + RetSqlName("Z06") + " Z06" + CRLF +;
+                                                 " left join " + RetSqlName("Z0I") + " Z0I ON " + CRLF +;
+                                                  "     Z0I.Z0I_FILIAL = Z06.Z06_FILIAL" + CRLF +;
+                                                  " AND Z0I.Z0I_DATA = Z06.Z06_DATA" + CRLF +;
+                                                  " AND Z0I.Z0I_LOTE = Z06.Z06_LOTE " + CRLF +;
+                                                  " AND Z0I.D_E_L_E_T_ =' ' " + CRLF +;
+                                                  " left join " + RetSqlName("Z0G") + " Z0G ON " + CRLF +;
+										          "     Z0G.Z0G_FILIAL = Z0I.Z0I_FILIAL " + CRLF +;
+												  " and Z0G.Z0G_CODIGO = Z0I.Z0I_NOTMAN " + CRLF +;
+												  " and Z06.Z06_DIETA = Z0G.Z0G_DIETA " + CRLF +;
+												  " and Z0G.D_E_L_E_T_ = ' ' " + CRLF +;
+                                                  " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" + CRLF +;
+                                                  " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" + CRLF +;
+                                                  " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" + CRLF +;
+                                                  " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" + CRLF +;
+                                                  " and Z06.D_E_L_E_T_ = ' '" + CRLF +;
+                                             " group by Z06.Z06_FILIAL, Z06.Z06_DATA, Z06.Z06_VERSAO, Z06.Z06_LOTE, Z0I.Z0I_NOTMAN, Z0G.Z0G_ZERTRT, Z0I.Z0I_AJUSTE" + CRLF +;
+                                              " )" + CRLF +;
+                                               " select Z06.*, QTDTRAT.QTD, QTDTRAT.Z0I_NOTMAN, QTDTRAT.Z0G_ZERTRT, Z0I_AJUSTE " + CRLF +;
+                                                 " from " + RetSqlName("Z06") + " Z06" + CRLF +;
+                                                 " join QTDTRAT" + CRLF +;
+                                                   " on QTDTRAT.Z06_FILIAL = Z06.Z06_FILIAL" + CRLF +;
+                                                  " and QTDTRAT.Z06_DATA   = Z06.Z06_DATA" + CRLF +;
+                                                  " and QTDTRAT.Z06_VERSAO = Z06.Z06_VERSAO" + CRLF +;
+                                                  " and QTDTRAT.Z06_LOTE   = Z06.Z06_LOTE" + CRLF +;
+                                                " where Z06.Z06_FILIAL = '" + FWxFilial("Z06") + "'" + CRLF +;
+                                                  " and Z06.Z06_DATA   = '" + cDtTrAnt + "'" + CRLF +;
+                                                  " and Z06.Z06_VERSAO = '" + cVerTrAnt + "'" + CRLF +;
+                                                  " and Z06.Z06_LOTE   = '" + LOTES->B8_LOTECTL + "'" + CRLF +;
+                                                  " and Z06.D_E_L_E_T_ = ' '" + CRLF +;
+                                             " order by Z06.Z06_FILIAL" + CRLF +;
+                                                     ", Z06.Z06_DATA" + CRLF +;
+                                                     ", Z06.Z06_VERSAO" + CRLF +;
+                                                     ", Z06.Z06_LOTE" + CRLF +;
+                                                     ", Z06.Z06_TRATO ";
                                                           ), "TMPZ06", .F., .F.)
                     
-                        Z0G->(DbSeek(FWxFilial("Z0G")+TMPZ06->Z06_DIETA+LOTES->NOTA_MANHA))
+                    Z0G->(DbSeek(FWxFilial("Z0G")+TMPZ06->Z06_DIETA+LOTES->NOTA_MANHA))
 
-                        nTotMS := 0
-                        nTotMN := 0
-                        cNroTrato := ""
-                        cDieta := ""
+                    nTotMS := 0
+                    nTotMN := 0
+                    cNroTrato := ""
+                    cDieta := ""
+                    
+                    If GetMV("VA_AJUDAN") == "K" // Ajuste da nota de Cocho em KG (Z0G_AJSTKG)
+                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*Z0G->Z0G_PERAJU)/100)), TamSX3("Z06_KGMSTR")[2])//TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    ElseIf GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                        nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*TMPZ06->Z0I_AJUSTE)/100)), TamSX3("Z06_KGMSTR")[2])//TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    EndIf
+                    //nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
+                    nTrtTotal := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato) * LOTES->B8_SALDO
+
+                    // MB : 23.02.2023 = Zera Trato quantidade menor que 300
+                    if !TMPZ06->(Eof())
                         
-                        If GetMV("VA_AJUDAN") == "K" // Ajuste da nota de Cocho em KG (Z0G_AJSTKG)
-                            nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
-                        ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                            nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+((TMPZ05->Z05_KGMSDI*Z0G->Z0G_PERAJU)/100))/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
-                        EndIf
-                        //nQtdTrato := NoRound((TMPZ05->Z05_KGMSDI+Z0G->Z0G_AJSTKG)/TMPZ06->QTD, TamSX3("Z06_KGMSTR")[2])
-                        
+                        nQtdAux       := TMPZ06->QTD
+                        nDif          := 0
+                        lMaior        := (nTrtTotal / nQtdAux) > MIN_TRATO
+                        lSobra        := Z0G->Z0G_ZERTRT == "S"
+                        nBKPnTrtTotal := Round(nTrtTotal, TamSX3( 'Z06_KGMNT' )[2])
+
                         while !TMPZ06->(Eof())
-                            if (++i == TMPZ06->QTD)
-                                If GetMV("VA_AJUDAN") == "K"
-                                    nQtdTrato := TMPZ05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
-                                ElseIf GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
-                                    nQtdTrato := TMPZ05->Z05_KGMSDI + ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100) - nTotTrtClc
-                                EndIf
-                                //nQtdTrato := TMPZ05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
-                            endif
 
-                            nQuantMN := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato)
-                            cSeq := GetSeq(TMPZ06->Z06_DIETA)
-                            nMegaCal := GetMegaCal(TMPZ06->Z06_DIETA)
+                            /* MB : 23.02.2023  
+                                Funcao para fazer o calculo do toshio;
+                                nao pode ter trato com menos de 300 kgs, definido no parametro [MB_MINTRAT] */
+                            If ( lSobra .and. TMPZ06->Z06_TRATO == "1" ) .OR. nBKPnTrtTotal <= 0
+                                nQtdTrato := 0
+                                // --nQtdAux
+                            Else
+
+                                If lMaior // (nTrtTotal / nQtdAux) > MIN_TRATO     
+
+                                    If GetMV("VA_AJUDAN") == "K"
+                                        nQtdTrato := TMPZ05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
+
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        // Dividir trato do dia anterior pelos tratos restantes (sem considerar ) o primeiro
+                                        nQtdRes := TMPZ05->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * Z0G->Z0G_PERAJU ) / 100)
+                                    
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdRes := TMPZ05->Z05_KGMSDI / (nQtdAux-1)
+                                        nQtdTrato := nQtdRes + ((nQtdRes * TMPZ06->Z0I_AJUSTE ) / 100)
+
+                                    //Arthur Toshio - 15-03-2023
+                                    // D I A   A N T E R I O R 
+                                    // Quando no DIA ANTERIOR zerar o trato, no dia seguinte, gerar normalmente 
+                                    ElseIf !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P"
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / TMPZ06->QTD
+                                    ElseIf !Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "A"
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * TMPZ06->Z0I_AJUSTE ) / 100)) / TMPZ06->QTD
+                                    //Else
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        //nQtdTrato := TMPZ06->Z06_KGMSTR + ((TMPZ06->Z06_KGMSTR * Z0G->Z0G_PERAJU ) / 100) //- nTotTrtClc
+                                    EndIf 
+
+                                Else // If (nTrtTotal / nQtdAux) < MIN_TRATO
+                                    
+                                    If nDif == 0 // (nQtdAux+1) >= TMPZ06->QTD
+                                        While nQtdAux>0 .AND. (nQtdTrato := (nTrtTotal / (nQtdAux-iif(lSobra,1,0)))) < MIN_TRATO
+                                            --nQtdAux
+                                        EndDo
+                                        If !(nQtdAux == 0 .and. ((nQtdTrato := (nTrtTotal / 1)) < MIN_TRATO))
+                                            nDif := TMPZ06->QTD - nQtdAux  
+                                        Else
+                                            nDif := TMPZ06->QTD - 1
+
+                                        EndIf
+                                    EndIf
+
+                                    nQtdTrato := 999 // variavel fixa, nao mecher :)
+                                    If TMPZ06->QTD == 6 // tratos
+                                       If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('346')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('3456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 5 // Corta 5
+                                                    If TMPZ06->Z06_TRATO $ ('3456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('5')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('25')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('246')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('2356')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 5 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('23456')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 5 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('35')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('4')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('235')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('2345')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 4 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('34')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('3')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('24')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If TMPZ06->Z06_TRATO $ ('234')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If TMPZ06->Z06_TRATO $ ('234')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 3 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If TMPZ06->Z06_TRATO $ ('23')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase 
+                                        EndIf
+
+                                    ElseIf TMPZ06->QTD == 2 // tratos
+                                        If !lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If TMPZ06->Z06_TRATO $ ('2')
+                                                        nQtdTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+                                    EndIf
+
+                                    If nQtdTrato > 0
+                                        nQtdTrato := (TMPZ05->Z05_KGMSDI +  ((TMPZ05->Z05_KGMSDI * Z0G->Z0G_PERAJU ) / 100)) / (iif(TMPZ06->QTD==nDif, 1,TMPZ06->QTD-nDif)-iif(lSobra .and. (!nQtdAux == 0),1,0))
+                                    EndIf
+                                EndIf
+                            EndIf 
+                            // FIM MB : 23.02.2023  
+
+                            cSeq      := GetSeq(TMPZ06->Z06_DIETA)
+                            nMegaCal  := GetMegaCal(TMPZ06->Z06_DIETA)
                             nMCalTrat := Round(nMegaCal * nQtdTrato,2)
+                            
+                            nQuantMN  := u_CalcQtMN(TMPZ06->Z06_DIETA, nQtdTrato)
 
                             RecLock("Z06", .T.)
                                 Z06->Z06_FILIAL := FWxFilial("Z06")
@@ -2249,6 +3431,8 @@ Local _nMCALPR   := 0
                                 Z06->Z06_MEGCAL := nMCalTrat
                                 Z06->Z06_KGMNT  := nQuantMN * LOTES->B8_SALDO
                             MsUnlock()
+
+                            nBKPnTrtTotal -= Z06->Z06_KGMNT
                 
                             nTotTrtClc += nQtdTrato
                             nTotMS += Z06->Z06_KGMSTR
@@ -2260,7 +3444,8 @@ Local _nMCALPR   := 0
                             endif
                     
                             TMPZ06->(DbSkip())
-                        end
+                        EndDo
+                    EndIf
                     TMPZ06->(DbCloseArea())
                 
                     if !TMPZ05->(Eof())
@@ -2275,7 +3460,7 @@ Local _nMCALPR   := 0
                         DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                                     _cSql := " SELECT distinct " + cValToChar( LOTES->Z0O_PESO ) +;
                                             " * G1_ENERG * (" + cValToChar( LOTES->Z0O_CMSPRE ) + "/100) AS MEGACAL"+CRLF+;
-                                            " FROM SG1010 "+CRLF+;
+                                            " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                             " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                             "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                             "   AND D_E_L_E_T_ = ' '";
@@ -2336,6 +3521,7 @@ Preenche com quantidade 0 os tratos menores que o ultimo trato que não foram cri
 static function FillEmpty()
 local nMaxTrato := u_GetNroTrato()
 local i
+Local cQry      := ""
 local cSql      := ""
 
     for i := 1 to nMaxTrato
@@ -2344,7 +3530,7 @@ local cSql      := ""
     cSql := "(values " + cSql + ") as TRT (TRATO)"
 
     DbUseArea(.T., "TOPCONN", TCGenQry(,,;
-                              " select *" +;
+                    cQry:=  " select *" +;
                                 " from (" +;
                                   " select '" + FWxFilial("Z06") + "' Z06_FILIAL" +;
                                        " , '" + DToS(Z0R->Z0R_DATA) + "' Z06_DATA" +;
@@ -2781,6 +3967,10 @@ local aRotina := {}
     ADD OPTION aRotina TITLE OemToAnsi("Incluir")             ACTION "u_vap05nov" OPERATION 4 ACCESS 0 // "Alterar"
     ADD OPTION aRotina TITLE OemToAnsi("Excluir")             ACTION "u_vap05rem" OPERATION 5 ACCESS 0 // "Alterar"
     ADD OPTION aRotina TITLE OemToAnsi("Transf. Curral")      ACTION "u_vap05tcu" OPERATION 4 ACCESS 0 // "Alterar"
+    ADD OPTION aRotina TITLE OemToAnsi("Alt Cabeca Lote")     ACTION "u_AltQtdCab" OPERATION 4 ACCESS 0 // "Alterar"
+    ADD OPTION aRotina TITLE OemToAnsi("Ocorrencia Geral")    ACTION "u_vap05OcG" OPERATION 4 ACCESS 0
+    ADD OPTION aRotina TITLE OemToAnsi("Ocorrencia Lote")     ACTION "u_vap05OcL" OPERATION 4 ACCESS 0
+    ADD OPTION aRotina TITLE OemToAnsi("Cadastro Ocor. Lote") ACTION "u_vap05OcC" OPERATION 4 ACCESS 0
 
 return aRotina
 
@@ -4746,6 +5936,8 @@ if !SX1->( DbSeek( cPerg ) )
     elseif cPerg == "VAPCPA05A "
         AAdd( aDados, {cPerg,'01','Curral de?                    ','Curral de?                    ','Curral de?                    ','mv_ch1','C',20,0,0,'G','','mv_par01','','','','','','','','','','','','','','','','','','','','','','','','','Z08   ','S','','','','', {"Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>", "Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>", "Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>"}} )
         AAdd( aDados, {cPerg,'02','Curral Ate?                   ','Curral de?                    ','Curral de?                    ','mv_ch2','C',20,0,0,'G','','mv_par02','','','','','','','','','','','','','','','','','','','','','','','','','Z08   ','S','','','','', {"Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>", "Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>", "Informe o curral inicial para o filtro." + CRLF + "<F3 Disponível>"}} )
+    elseif cPerg == "VAPCPA05B "
+        AAdd( aDados, {cPerg,'01','Qtde Cabecas?                 ','                              ','                              ','MV_CH1','N', 6,0,0,'G','','mv_par01','','','','','','','','','','','','','','','','','','','','','','','','','      ','S','','','@E 999,999','', {"Informe a quantidade total de cabecas.", "", ""}} )
         
     endif
 
@@ -5117,23 +6309,35 @@ default cVersao  := Z0R->Z0R_VERSAO
 
     if !Empty(aIMS)
         // calcula o indice de matéria seca baseado na SG1
+        DbUseArea(.T., "TOPCONN", TCGenQry(,,;
+                               _cQry := " select SUM(G1_QUANT) QTDE " + _ENTER_ +;
+                                       "    from "+RetSqlName("SG1")+" SG1" + _ENTER_ +;
+                                       "   where G1_FILIAL = "+FWxFilial("SG1")+" "+ _ENTER_ +;
+                                       "     and G1_COD = '"+cDieta+"' "  + _ENTER_ +;
+                                       "     and SG1.D_E_L_E_T_ = ' ' "   ;
+                         ), "cAliasDie", .F., .F.)
+        If (!cAliasDie->(EoF()))
 
-        DbSelectArea("SG1")
-        DbSetOrder(1) // G1_FILIAL+G1_COD+G1_COMP+G1_TRT
-        SG1->(DbSeek(FWxFilial("SG1") + cDieta))
-        while !SG1->(Eof()) .and. SG1->G1_FILIAL == FWxFilial("SG1") .and. SG1->G1_COD == cDieta
-            nPosReg := SG1->(RecNo())
+            DbSelectArea("SG1")
+            DbSetOrder(1) // G1_FILIAL+G1_COD+G1_COMP+G1_TRT
+            SG1->(DbSeek(FWxFilial("SG1") + cDieta))
+            while !SG1->(Eof()) .and. SG1->G1_FILIAL == FWxFilial("SG1") .and. SG1->G1_COD == cDieta
+                nPosReg := SG1->(RecNo())
 
-            if (nPosSG1 := aScan(aIMS, {|aMat| aMat[1] == SG1->G1_COMP})) <> 0
-                nQtdMN += (SG1->G1_QUANT * nQtdMS)/(aIMS[nPosSG1][4]/100)
-            else
-                nQtdMN += u_CalcQtMN(SG1->G1_COMP, nQtdMS)
-            endif
+                if (nPosSG1 := aScan(aIMS, {|aMat| aMat[1] == SG1->G1_COMP})) <> 0
+                    nQtdMN += ((SG1->G1_QUANT/cAliasDie->QTDE) * nQtdMS)/(aIMS[nPosSG1][4]/100)
+                    //nQtdMN += (SG1->G1_QUANT * nQtdMS)/(aIMS[nPosSG1][4]/100)
+                else
+                    nQtdMN += u_CalcQtMN(SG1->G1_COMP, nQtdMS)
+                endif
 
-            SG1->(DbGoTo(nPosReg))
-            SG1->(DbSkip())
-        end
+                SG1->(DbGoTo(nPosReg))
+                SG1->(DbSkip())
+            end
+        EndIf
     endif
+
+    cAliasDie->(DbCloseArea())  
 
 if !Empty(aArea)
     RestArea(aArea)
@@ -5485,7 +6689,7 @@ default cLote :=  Iif(FunName() == 'VAPCPA09', Z05->Z05_LOTE, (cTrbBrowse)->B8_L
                     DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                                 _cSql := " SELECT distinct " + cValToChar( (cTrbAlias)->Z0O_PESO ) +;
                                          " * G1_ENERG * (" + cValToChar( (cTrbAlias)->Z0O_CMSPRE ) + "/100) AS MEGACAL"+_ENTER_+;
-                                         " FROM SG1010 "+CRLF+;
+                                         " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                          " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                          "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                          "   AND D_E_L_E_T_ = ' '";
@@ -5529,6 +6733,7 @@ default cLote :=  Iif(FunName() == 'VAPCPA09', Z05->Z05_LOTE, (cTrbBrowse)->B8_L
                 Z05->Z05_KGMSDI := mv_par02
                 Z05->Z05_KGMNDI := u_CalcQtMN(mv_par01, mv_par02)
                 Z05->Z05_TOTMSI := Z05->Z05_KGMSDI
+                Z05->Z05_CMSPN  := (mv_par02 / Z05->Z05_PESMAT)*100//(Z05->Z05_PESOCO + Z05->Z05_DIASDI * nGMD)
                 Z05->Z05_TOTMNI := Z05->Z05_KGMNDI
                 Z05->Z05_NROTRA := mv_par03
                 Z05->Z05_MEGCAL := GetMegaCal(mv_par01) * mv_par02
@@ -6215,10 +7420,12 @@ private cCodDieta := ""
 
 EnableKey(.T.)
 
-    if !Z0R->Z0R_LOCK == '1'
+    If Z0R->Z0R_LOCK == '3' 
+        Help(,, "OPERACAO NAO PERMITDA.",, "Não é possível alterar o trato de "+dToC(Z0R->Z0R_DATA)+" pois ele foi Encerrado.", 1, 0,,,,,, {"Operação não permitida."})
+    Else //if Z0R->Z0R_LOCK == '1'
         
-        Help(,, "ATENÇÃO.",, "A operação de Transferencia NÃO atualiza os arquivos de Meta do trato.. Caso Necessário, deve-se exportar/gerar novamente o arquivo ", 1, 0,,,,,, {"Será atualizado apenas a Localização do Lote, Roteirização e Planejaento de Trato"})
-    EndIf 
+        Help(,, "ATENÇÃO.",, "A operação de Transferencia NÃO atualiza os arquivos de Meta do trato.. Caso Necessário, deve-se exportar/gerar novamente o arquivo ", 1, 0,,,,,, {"Será atualizado apenas a Localização do Lote, Roteirização e Planejaento de Trato"})        
+    
         AtuSX1(@cFillPerg)
         U_PosSX1(aPosSX1)
         if Pergunte(cFillPerg)
@@ -6231,6 +7438,8 @@ EnableKey(.T.)
             endif
         endif
         mv_par01 := aParam[1]; mv_par02 := aParam[2]
+    
+    EndIf
     /*
     elseif Z0R->Z0R_LOCK = '2' 
         Help(,, "OPERACAO NAO PERMITDA.",, "Não é possível alterar o trato pois ele já foi Publicado.", 1, 0,,,,,, {"Operação não permitida."})
@@ -6507,6 +7716,14 @@ local aKgMS   := {}
 local i       := 0
 local cSeq    := ""
 local nMegCal := 0
+local nQuantTrato   := 0
+local nTotTrtClc    := 0
+Local nDif          := 0
+Local nQtdAux       := 0
+Local lMaior        := .T.
+Local lSobra        := .T.
+Local nBKPnTrtTotal := 0
+
 
     DbSelectArea("Z05")
     DbsetOrder(1) // Z05_FILIAL+DToS(Z05_DATA)+Z05_VERSAO+Z05_CURRAL+Z05_LOTE
@@ -6567,10 +7784,254 @@ local nMegCal := 0
             endif
 
             if lRet
-                aKgMS := DivTrato(Z05->Z05_KGMSDI, nQtdTrato)
-                for i := 1 to nQtdTrato
-                    nQuantMN := u_CalcQtMN(cCodDieta, aKgMS[i])
-                    nMegCal := GetMegaCal(cCodDieta) * aKgMS[i]
+
+                Z0G->(DBSETORDER( 2 ))
+                Z0G->(DbSeek(FWxFilial("Z0G")+PadR(AllTrim(Iif(','$Z05->Z05_DIETA,SubStr(Z05->Z05_DIETA,RAt(',', Z05->Z05_DIETA)+1),Z05->Z05_DIETA)),TamSX3("B1_COD")[1]) + (cTrbBrowse)->NOTA_MANHA /* LOTES->NOTA_MANHA */ ))
+
+                //aKgMS := DivTrato(Z05->Z05_KGMSDI, nQtdTrato)
+                for i  := 1 to nQtdTrato
+
+                    // MB : 23.02.2023 = Zera Trato quantidade menor que 300
+                    // if !TMPZ06->(Eof())
+
+                        nTrtTotal := u_CalcQtMN( cCodDieta, Z05->Z05_KGMSDI) * (cTrbBrowse)->B8_SALDO/* LOTES->B8_SALDO */
+
+                        nQuantTrato := nQtdAux       := nQtdTrato
+                        nDif          := 0
+                        lMaior        := (nTrtTotal / nQtdAux) > MIN_TRATO
+                        lSobra        := Z0G->Z0G_ZERTRT == "S"
+                        nBKPnTrtTotal := Round(nTrtTotal, TamSX3('Z06_KGMNT')[2])
+
+                        // While !TMPZ06->(Eof())
+                        
+                            /* MB : 23.02.2023  
+                                    Funcao para fazer o calculo do toshio;
+                                    nao pode ter trato com menos de 300 kgs, definido no parametro [MB_MINTRAT] */
+                            If ( lSobra .and. cValtoChar(i) == "1" ) .OR. nBKPnTrtTotal <= 0
+                                nQuantTrato := 0
+                                // --nQtdAux
+                            Else
+
+                                If lMaior // (nTrtTotal / nQtdAux) > MIN_TRATO     
+
+
+                                    If GetMV("VA_AJUDAN") == "K"
+                                        nQuantTrato := Z05->Z05_KGMSDI + Z0G->Z0G_AJSTKG - nTotTrtClc
+
+                                    ElseIf Z0G->Z0G_ZERTRT == "S" .AND. GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        // Dividir trato do dia anterior pelos tratos restantes (sem considerar ) o primeiro
+                                        nQuantTrato := Z05->Z05_KGMSDI / (nQtdAux-1)
+                                        //nQuantTrato := nQtdRes + ((nQtdRes * Z0G->Z0G_PERAJU ) / 100)
+
+                                    // D I A   A N T E R I O R 
+                                    // Quando no DIA ANTERIOR zerar o trato, no dia seguinte, gerar normalmente 
+                                    Else//If TMPZ06->Z0G_ZERTRT == "S" 
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        nQuantTrato := Z05->Z05_KGMSDI  / nQuantTrato
+                                    //Else
+                                        // If GetMV("VA_AJUDAN") == "P" // Se Ajuste for em Percentual (Z0G_PERAJU)
+                                        //nQuantTrato := TMPZ06->Z06_KGMSTR + ((TMPZ06->Z06_KGMSTR * Z0G->Z0G_PERAJU ) / 100) //- nTotTrtClc
+                                    EndIf 
+
+                                Else // If (nTrtTotal / nQtdAux) < MIN_TRATO
+                                    
+                                    If nDif == 0 // (nQtdAux+1) >= nQtdTrato
+                                        While nQtdAux>0 .AND. (nQuantTrato := (nTrtTotal / (nQtdAux-iif(lSobra,1,0)))) < MIN_TRATO
+                                            --nQtdAux
+                                        EndDo
+                                        If !(nQtdAux == 0 .and. ((nQuantTrato := (nTrtTotal / 1)) < MIN_TRATO)) //lSobra .and.
+                                            nDif := nQtdTrato - nQtdAux  
+                                        Else
+                                            nDif := nQtdTrato - 1
+
+                                        EndIf
+                                        //nDif := nQtdTrato - nQtdAux
+                                    EndIf
+
+                                    nQuantTrato := 999 // variavel fixa, nao mecher :)
+                                    If nQtdTrato == 6 // tratos
+                                       If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('4')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('35')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('346')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 3
+                                                    If cValtoChar(i) $ ('3456')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                  Case nDif == 5 // Corta 4
+                                                    If cValtoChar(i) $ ('23456')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('5')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('25')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('246')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If cValtoChar(i) $ ('2456')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 5 // Corta 5
+                                                    If cValtoChar(i) $ ('23456')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf nQtdTrato == 5 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 2
+                                                    If cValtoChar(i) $ ('4')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('35')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('345')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If cValtoChar(i) $ ('345')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        
+                                        Else // SEM sobra do dia anterior
+
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('4')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('24')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('235')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If cValtoChar(i) $ ('2345')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf nQtdTrato == 4 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('3')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('34')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('24')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('3')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('24')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 3 // Corta 3
+                                                    If cValtoChar(i) $ ('234')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 4 // Corta 4
+                                                    If cValtoChar(i) $ ('234')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    ElseIf nQtdTrato == 3 // tratos
+                                       
+                                        If lSobra // com sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('2')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('2')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        Else 
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('2')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                                Case nDif == 2 // Corta 2
+                                                    If cValtoChar(i) $ ('23')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+                                    ElseIf nQtdTrato == 2 // tratos
+                                        
+                                        If !lSobra // Sem sobra do dia anterior
+                                            Do Case 
+                                                Case nDif == 1 // Corta 1
+                                                    If cValtoChar(i) $ ('2')
+                                                        nQuantTrato := 0
+                                                    EndIf
+                                            EndCase
+                                        EndIf
+
+                                    EndIf
+                                    If nQuantTrato > 0
+                                        nQuantTrato := Z05->Z05_KGMSDI  / (iIf(nQtdTrato==nDif,1,nQtdTrato-nDif)-iif(lSobra .and. (!nQtdAux == 0),1,0))
+                                    EndIf
+                                EndIf
+                            EndIf 
+                            // FIM MB : 23.02.2023  
+
+
+
+
+
+
+                    nQuantMN := u_CalcQtMN(cCodDieta,  nQuantTrato/*aKgMS[i]*/)
+                    nMegCal := GetMegaCal(cCodDieta) * nQuantTrato/*aKgMS[i]*/
                     cSeq := GetSeq(cCodDieta)
                     
                     RecLock("Z06", .T.)
@@ -6581,7 +8042,7 @@ local nMegCal := 0
                         Z06->Z06_LOTE   := (cTrbBrowse)->B8_LOTECTL
                         Z06->Z06_TRATO  := StrZero(i, TamSX3("Z06_TRATO")[1]) 
                         Z06->Z06_DIETA  := cCodDieta 
-                        Z06->Z06_KGMSTR := aKgMS[i]
+                        Z06->Z06_KGMSTR := nQuantTrato// aKgMS[i]
                         Z06->Z06_KGMNTR := nQuantMN
                         Z06->Z06_MEGCAL := nMegCal
                         Z06->Z06_KGMNT  := nQuantMN * Z05->Z05_CABECA
@@ -7033,7 +8494,7 @@ local nKgMnTot  := 0
                 DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                             _cSql := " SELECT distinct " + cValToChar( LOTES->Z0O_PESO ) +;
                                     " * G1_ENERG * (" + cValToChar( LOTES->Z0O_CMSPRE ) + "/100) AS MEGACAL"+CRLF+;
-                                    " FROM SG1010 "+CRLF+;
+                                    " FROM "+RetSqlName("SG1")+" "+CRLF+;
                                     " WHERE G1_FILIAL = '" + xFilial('SG1') + "' "+CRLF+;
                                     "   AND G1_COD = '" + GetMV("VA_PCP07MC",,'FINAL') + "'"+CRLF+;
                                     "   AND D_E_L_E_T_ = ' '";
@@ -7528,3 +8989,132 @@ local cAliasCmpQry := GetNextAlias()
 
 RestArea(aArea)
 Return nil
+
+
+User Function AltQtdCab()
+// local nPos      := oBrowse:nAt
+local aAreaTrb  := (cTrbBrowse)->(GetArea())
+local aAreaZ05  := Z05->(GetArea())
+Local cFillPerg := "VAPCPA05B "
+Local _cMsg     := ""
+
+    AtuSX1(@cFillPerg)
+    if Pergunte(cFillPerg)
+        if Z05->(DbSeek(FWxFilial("Z05")+DToS(Z0R->Z0R_DATA)+Z0R->Z0R_VERSAO+(cTrbBrowse)->Z08_CODIGO+(cTrbBrowse)->B8_LOTECTL)) 
+                // ConOut("Z05_CABECA")
+            _cMsg := cValToChar(Z05->Z05_CABECA) + " / " + cValToChar(MV_PAR01)
+            RecLock("Z05")
+                Z05->Z05_CABECA := MV_PAR01
+            Z05->(MsUnLock())
+            (cTrbBrowse)->B8_SALDO := Z05->Z05_CABECA
+
+            MsgInfo("Atualização de cabeças realizada com sucesso: " + _cMsg , "Atenção")
+        Endif
+    EndIf
+
+   (cTrbBrowse)->(RestArea(aAreaTrb))
+   Z05->(RestArea(aAreaZ05))
+
+Return
+
+/* 
+    MB : 26.07.2023
+*/
+User Function vap05OcG()
+    // Alert("vap05OcG")
+
+    Local oDlgObs
+    Local cTitulo := "Observacoes"
+    Local oMemo
+    Local cMemo   := Z0R->Z0R_OCORRE
+	Local oFont6  := TFont():New("Arial", 0, -13, , .T., 0, , 700, .F., .F., , , , , ,)
+
+    DEFINE MSDIALOG oDlgObs TITLE cTitulo From 003,000 to 300,450 PIXEL 
+    @ 001, 001 GET oMemo var cMemo MEMO Size 210,110
+    DEFINE SBUTTON  FROM 130,190 TYPE 1 ACTION Close(oDlgObs) ENABLE OF oDlgObs PIXEL 
+
+    oMemo:bRClicked := {||AllwaysTrue()}
+    oMemo:oFont     := oFont6
+
+    ACTIVATE MSDIALOG oDlgObs CENTER
+
+    RecLock("Z0R")
+        Z0R->Z0R_OCORRE := cMemo
+    Z0R->(MsUnLock())
+Return
+
+/* 
+    MB : 26.07.2023
+*/
+User Function vap05OcC()
+Local aArea   := GetArea()
+Local cVldAlt := ".T." // Validacao para permitir a alteracao. Pode-se utilizar ExecBlock.
+Local cVldExc := ".T." // Validacao para permitir a exclusao. Pode-se utilizar ExecBlock.
+
+Dbselectarea("SX5")
+DbSetOrder(1)
+
+SX5->(DbSetfilter({|| X5_TABELA = "ZC" }, 'X5_TABELA = "ZC"'))
+AxCadastro("SX5","Tipo de Ocorrencias no Lote",cVldExc,cVldAlt)
+Set Filter to
+RestArea(aArea)
+Return
+
+/* 
+    MB : 26.07.2023
+*/
+User Function vap05OcL()
+
+local aAreaTrb  := (cTrbBrowse)->(GetArea())
+local aAreaZ05  := Z05->(GetArea())
+
+Local oDlgObs
+Local cTitulo := "Observacoes"
+
+Private _oCodigo := nil, _cCodigo := Space(2)
+Private _oDescri := nil, _cDescri := Space(30)
+
+Dbselectarea("SX5")
+DbSetOrder(1)
+
+    if Z05->(DbSeek(FWxFilial("Z05")+DToS(Z0R->Z0R_DATA)+Z0R->Z0R_VERSAO+(cTrbBrowse)->Z08_CODIGO+(cTrbBrowse)->B8_LOTECTL)) 
+        
+        If !Empty(Z05->Z05_OCORRE)
+            _cCodigo := Z05->Z05_OCORRE
+            _cDescri := POSICIONE( "SX5", 1, XFILIAL("SX5")+ "ZC" + _cCodigo, "X5_DESCRI" )
+        EndIf
+
+        DEFINE MSDIALOG oDlgObs TITLE cTitulo From 003,000 to 150,450 PIXEL
+
+        @ 001, 001 SAY   "Codigo" 		SIZE 070,001 OF oDlgObs
+		@ 002, 001 MSGET _oCodigo VAR _cCodigo SIZE 050,010 F3 "ZC" VALID { || fsVldCpo() }
+		@ 002, 008 MSGET _oDescri VAR _cDescri SIZE 155,010 WHEN .F.
+
+		DEFINE SBUTTON  FROM 050,190 TYPE 1 ACTION Close(oDlgObs) ENABLE OF oDlgObs PIXEL 
+
+    	ACTIVATE MSDIALOG oDlgObs CENTER
+
+        RecLock("Z05")
+            Z05->Z05_OCORRE := _cCodigo
+        Z05->(MsUnLock())
+
+        // MsgInfo("Informação do Lote Gravada com Sucesso" , "Atenção")
+    Endif
+
+    (cTrbBrowse)->(RestArea(aAreaTrb))
+    Z05->(RestArea(aAreaZ05))
+Return
+
+
+Static Function fsVldCpo()
+    _cDescri := Space(30)
+    If !Empty(&(ReadVar()))
+        SX5->(DBSETORDER( 1 ))
+        If SX5->( DbSeek( XFILIAL("SX5")+ "ZC" + &(ReadVar()) ) )
+            _cCodigo := &(ReadVar())
+            _cDescri := SX5->X5_DESCRI
+        Else
+            _cCodigo := Space(2)
+        EndIf
+    EndIf
+Return .T.

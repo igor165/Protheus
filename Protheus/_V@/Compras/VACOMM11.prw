@@ -98,14 +98,15 @@ Return aRotina
  |         vel por validar o pedido e preenchiar alguns campos automaticamente;     |
  | Obs.:     -                                                                      |
  '----------------------------------------------------------------------------------*/
-User Function fChvITEM(cTab, cCpoSlc, cCpoMAX, cWhreCpo, cInfo, cNotNull )
-Local cCod       := StrZero( 1, TamSX3(cCpoMAX)[1] )
-Local _cQry      := ""
-Local cAlias     := Iif( Left(cTab,1)=="S", SubS(cTab,2), cTab )
-Default cCpoSlc  := ""
-Default cWhreCpo := ""
-Default cInfo    := ""
-Default cNotNull := ""
+User Function fChvITEM(cTab, cCpoSlc, cCpoMAX, cWhreCpo, cInfo, cNotNull, __cFilial )
+Local cCod        := StrZero( 1, TamSX3(cCpoMAX)[1] )
+Local _cQry       := ""
+Local cAlias      := Iif( Left(cTab,1)=="S", SubS(cTab,2), cTab )
+Default cCpoSlc   := ""
+Default cWhreCpo  := ""
+Default cInfo     := ""
+Default cNotNull  := ""
+Default __cFilial := xFilial(cTab)
 
 _cQry := " SELECT " + cAlias + "_FILIAL, "
 
@@ -115,15 +116,15 @@ EndIf
 
 _cQry += " MAX("+cCpoMAX+ ") SEQUEN " + CRLF
 _cQry += " FROM " + RetSQLName(cTab) + CRLF
-_cQry += " WHERE " + cAlias + "_FILIAL='"+FWxFilial(cTab)+ "' " + CRLF
+_cQry += " WHERE " + cAlias + "_FILIAL='"+ __cFilial + "' " + CRLF
 If !Empty(cWhreCpo)
-	_cQry += " and " + cWhreCpo + "='" + cInfo + "'" + CRLF
-EndIf
+	_cQry += " AND " + cWhreCpo + "='" + cInfo + "'" + CRLF
+EndIf            
 If !Empty(cNotNull)
 	_cQry += cNotNull + CRLF
 EndIf
-// _cQry += " and  D_E_L_E_T_ = ' ' " + CRLF
-_cQry += " group by " + cAlias + "_FILIAL "
+// cQry += " and  D_E_L_E_T = ' ' " + CRLF
+_cQry += " GROUP BY " + cAlias + "_FILIAL "
 
 If !Empty(cCpoSlc)
 	_cQry += ", " + cCpoSlc + CRLF
@@ -137,7 +138,6 @@ EndIf
 
 TMPQRY->(DbCloseArea())
 Return cCod
-
 
 /*----------------------------------------------------------------------------------,
  | Analista: Miguel Martins Bernardo Junior                                         |

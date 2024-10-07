@@ -170,8 +170,8 @@ Return
 Static Function LoadQuery(_cAliasG)
     Local cQry  := ""
     
-    cQry := " SELECT RA_FILIAL AS FILIAL " + CRLF 
-    cQry += " 		, RA_MAT AS MATRICULA " + CRLF 
+    cQry := " SELECT RA_FILIAL AS FILIAL " + CRLF
+    cQry += " 		, RA_MAT AS MATRICULA " + CRLF
     cQry += " 		, RA_NOME AS NOME " + CRLF 
     cQry += " 		, QB_DESCRIC AS DESCRI " + CRLF 
     cQry += " 		, ( SELECT SUM(((CASE WHEN P9_TIPOCOD = '2' THEN -1 ELSE 1 END) * (CAST(PI_QUANT AS INT)+((PI_QUANT-CAST(PI_QUANT AS INT))/60*100)))) 	AS PI_QUANT  " + CRLF 
@@ -181,22 +181,22 @@ Static Function LoadQuery(_cAliasG)
     cQry += "  												AND SP9.D_E_L_E_T_ = ''  " + CRLF 
     cQry += "  					WHERE SPI.PI_STATUS = ''  " + CRLF 
     cQry += "  					  AND SPI.PI_CC BETWEEN '"+MV_PAR03+"' AND '"+MV_PAR04+"'  " + CRLF 
-    cQry += "  					  AND SPI.PI_DATA < '"+dToS(MV_PAR06)+"'  " + CRLF 
+    cQry += "  					  AND SPI.PI_DATA <= '"+dToS(MV_PAR06)+"'  " + CRLF 
     //cQry += "  					  AND SPI.PI_DATA BETWEEN '"+dToS(MV_PAR05)+"' AND '"+dToS(MV_PAR06)+"'  " + CRLF 
     cQry += "  					  AND SPI.PI_STATUS <> 'B'  " + CRLF
     cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF
     cQry += " 					  AND SPI.PI_FILIAL = SRA.RA_FILIAL " + CRLF
-    cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ATUAL " +\ CRLF
+    cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ATUAL " + CRLF
     cQry += " 		, ( SELECT SUM(((CASE WHEN P9_TIPOCOD = '2' THEN -1 ELSE 1 END) * (CAST(PI_QUANT AS INT)+((PI_QUANT-CAST(PI_QUANT AS INT))/60*100)))) 	AS PI_QUANT  " + CRLF 
     cQry += "  					FROM "+RetSqlName("SPI")+" SPI  " + CRLF 
     cQry += "  						LEFT JOIN "+RetSqlName("SP9")+" SP9 ON SP9.P9_FILIAL  = ''  " + CRLF 
     cQry += "  												AND SP9.P9_CODIGO = SPI.PI_PD  " + CRLF 
     cQry += "  												AND SP9.D_E_L_E_T_ = ''  " + CRLF 
-    cQry += "  					WHERE SPI.PI_STATUS = ''  " + CRLF 
+    cQry += "  					WHERE SPI.PI_STATUS = ''  " + CRLF
     cQry += "  					  AND SPI.PI_CC BETWEEN '"+MV_PAR03+"' AND '"+MV_PAR04+"'  " + CRLF 
-    cQry += "  					  AND SPI.PI_DATA <= '"+dToS(MV_PAR05)+"' " + CRLF 
+    cQry += "  					  AND SPI.PI_DATA < '"+dToS(MV_PAR05)+"' " + CRLF 
     cQry += "  					  AND SPI.PI_STATUS <> 'B'  " + CRLF
-    cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF 
+    cQry += " 					  AND SPI.PI_MAT = SRA.RA_MAT " + CRLF
     cQry += " 					  AND SPI.PI_FILIAL = SRA.RA_FILIAL " + CRLF
     cQry += "  					  AND SPI.D_E_L_E_T_ = '') AS SALDO_ANTERIOR " + CRLF 
     cQry += " FROM "+RetSqlName("SRA")+" SRA " + CRLF
@@ -204,8 +204,8 @@ Static Function LoadQuery(_cAliasG)
     cQry += "  						AND SQB.D_E_L_E_T_ = ''  " + CRLF 
     cQry += " WHERE RA_DEMISSA = ''  " + CRLF 
     cQry += " AND SRA.RA_FILIAL BETWEEN '"+MV_PAR01+"' AND '"+MV_PAR02+"'  " + CRLF 
-    cQry += " AND SRA.D_E_L_E_T_ = ''  " + CRLF 
-    cQry += " ORDER BY RA_FILIAL, QB_DESCRIC , RA_NOME " + CRLF 
+    cQry += " AND SRA.D_E_L_E_T_ = ''  " + CRLF
+    cQry += " ORDER BY RA_FILIAL, QB_DESCRIC , RA_NOME " + CRLF
 
     if cUserName $ 'ioliveira,Administrador'
         memowrite("C:\TOTVS_RELATORIOS\VAGPER05.sql", cQry)

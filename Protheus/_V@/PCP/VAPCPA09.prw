@@ -102,7 +102,7 @@ Local cChvCnf, cChvLin
 //Local cSktBox, cSktCur
 Local cShwZer              := ""
 //Local cShwVis := ""
-Local aSize                :={}, aObjects := {}, aInfo := {}, aPObjs := {}
+Local aSize                := {}, aObjects := {}, aInfo := {}, aPObjs := {}
 Local aTFldr               := {}
 Local oTFldr
 Local oTFntGr              := TFont():New('Courier new', , 16, .T., .T.)
