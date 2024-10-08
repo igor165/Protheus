@@ -79,7 +79,7 @@ Static Function fQuadro1()
                         "Matricula",;
                         "Nome",;
                         "Centro de Custo",;
-                        "Centro de Custo",;
+                        "Departamento",;
                         "CPF",;
                         "Sexo",;
                         "Data Nasc.",;
@@ -110,9 +110,9 @@ Static Function fQuadro1()
         oExcel:SetFontConfig(jFontText)
         oExcel:SetValue(nRow, nCol  , (_cAliasG)->RD_FILIAL )
         oExcel:SetValue(nRow, ++nCol, (_cAliasG)->RD_MAT )
-        oExcel:SetValue(nRow, ++nCol, (_cAliasG)->RA_NOME )
+        oExcel:SetValue(nRow, ++nCol, ALLTRIM((_cAliasG)->RA_NOME) )
         oExcel:SetValue(nRow, ++nCol, RTRIM((_cAliasG)->RD_CC) )
-        oExcel:SetValue(nRow, ++nCol, RTRIM((_cAliasG)->CTT_DESC01) )
+        oExcel:SetValue(nRow, ++nCol, RTRIM((_cAliasG)->QB_DESCRIC) )
         oExcel:SetValue(nRow, ++nCol, Transform(Alltrim((_cAliasG)->RA_CIC), "@R 999.999.999-99"))
         oExcel:SetValue(nRow, ++nCol, iif((_cAliasG)->RA_SEXO  == 'M','Masculino','Feminino'))
         
@@ -150,48 +150,40 @@ Static Function LoadQuery(_cAliasG)
         cVerbas += "'" + aVerbas[nI] + iif(nI < nTot,"',","'" )
     Next 
 
-    //cQry := " select RD_FILIAL, RD_MAT,RD_CC,CTT_DESC01, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_HORAS, RD_DATARQ  " + CRLF 
-    //cQry += " from "+RetSqlName("SRD")+" RD " + CRLF 
-    //cQry += " JOIN "+RetSqlName("SRA")+" RA ON RD_FILIAL = RA_FILIAL " + CRLF 
-    //cQry += " AND RD_MAT = RA_MAT " + CRLF 
-    //cQry += " AND RA.D_E_L_E_T_ = '' " + CRLF 
-    //cQry += " JOIN "+RetSqlName("CTT")+" CTT ON RD_CC = CTT_CUSTO " + CRLF 
-    //cQry += " AND CTT.D_E_L_E_T_ = '' " + CRLF 
-    //cQry += " where RD_FILIAL BETWEEN '"+MV_PAR01+"' AND '"+mv_par02+"'  " + CRLF 
-    //cQry += " AND RD_DATARQ = '"+MV_PAR03+"'  " + CRLF 
-    //cQry += " AND RD_TIPO1 = 'D'  " + CRLF 
-    //cQry += " AND RD.D_E_L_E_T_ = '' " + CRLF 
-    //cQry += " ORDER BY RD_FILIAL, RD_MAT " + CRLF
-
-    cQry := "select RD_FILIAL, RD_MAT,RD_CC,CTT_DESC01, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_DATARQ,SUM(RD_HORAS) AS RD_HORAS " + CRLF
+    cQry := "select RD_FILIAL, RD_MAT,RD_CC,QB_DESCRIC, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_DATARQ,SUM(RD_HORAS) AS RD_HORAS " + CRLF
     cQry += "  FROM ( " + CRLF
-    cQry += " 	 select RD_FILIAL, RD_MAT,RD_CC,CTT_DESC01, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_HORAS, RD_DATARQ " + CRLF
+    cQry += " 	 select RD_FILIAL, RD_MAT,RD_CC,QB_DESCRIC, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_HORAS, RD_DATARQ " + CRLF
     cQry += " 	 from "+RetSqlName("SRD")+" RD  " + CRLF
     cQry += " 	 JOIN "+RetSqlName("SRA")+" RA ON RD_FILIAL = RA_FILIAL  " + CRLF
     cQry += " 	 AND RD_MAT = RA_MAT  " + CRLF
     cQry += " 	 AND RA.D_E_L_E_T_ = ''  " + CRLF
     cQry += " 	 JOIN "+RetSqlName("CTT")+" CTT ON RD_CC = CTT_CUSTO  " + CRLF
     cQry += " 	 AND CTT.D_E_L_E_T_ = ''  " + CRLF
+    cQry += " 	 JOIN "+RetSqlName("SQB")+" QB ON RA_DEPTO = QB_DEPTO " + CRLF
+	cQry += "    AND QB.D_E_L_E_T_ = ''  " + CRLF
     cQry += " 	 where RD_FILIAL BETWEEN '"+MV_PAR01+"' AND '"+mv_par02+"'   " + CRLF
     cQry += " 	 AND RD_DATARQ = '"+MV_PAR03+"'   " + CRLF
     cQry += " 	 AND RD_PD IN ('101') " + CRLF
     //cQry += " 	 AND RD_TIPO1 = 'D' " + CRLF
     cQry += "  AND RD.D_E_L_E_T_ = ''  " + CRLF
     cQry += "  UNION ALL  " + CRLF
-    cQry += " 	 select RD_FILIAL, RD_MAT,RD_CC,CTT_DESC01, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_HORAS, RD_DATARQ " + CRLF
+    cQry += " 	 select RD_FILIAL, RD_MAT,RD_CC,QB_DESCRIC, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_HORAS, RD_DATARQ " + CRLF
     cQry += " 	 from "+RetSqlName("SRD")+" RD  " + CRLF
     cQry += " 	 JOIN "+RetSqlName("SRA")+" RA ON RD_FILIAL = RA_FILIAL  " + CRLF
     cQry += " 	 AND RD_MAT = RA_MAT  " + CRLF
     cQry += " 	 AND RA.D_E_L_E_T_ = ''  " + CRLF
     cQry += " 	 JOIN "+RetSqlName("CTT")+" CTT ON RD_CC = CTT_CUSTO  " + CRLF
     cQry += " 	 AND CTT.D_E_L_E_T_ = ''  " + CRLF
+    cQry += " 	 JOIN "+RetSqlName("SQB")+" QB ON RA_DEPTO = QB_DEPTO " + CRLF
+	cQry += "    AND QB.D_E_L_E_T_ = ''  " + CRLF
     cQry += " 	 where RD_FILIAL BETWEEN '"+MV_PAR01+"' AND '"+mv_par02+"'   " + CRLF
     cQry += " 	 AND RD_DATARQ = '"+MV_PAR03+"'   " + CRLF
     cQry += " 	 AND RD_PD IN ("+cVerbas+") " + CRLF
     cQry += " 	 AND RD.D_E_L_E_T_ = ''  " + CRLF
     cQry += "  ) TOTAL " + CRLF
-    cQry += "  GROUP BY RD_FILIAL, RD_MAT, RD_CC,CTT_DESC01, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_DATARQ " + CRLF
-    cQry += "  ORDER BY RD_FILIAL,CTT_DESC01, RD_MAT " + CRLF
+    cQry += "  GROUP BY RD_FILIAL, RD_MAT, RD_CC,QB_DESCRIC, RA_NOME, RA_CIC, RA_SEXO,RA_NASC, RD_DATARQ " + CRLF
+    cQry += "  ORDER BY RD_FILIAL,QB_DESCRIC, RD_MAT " + CRLF
+    
     if cUserName $ 'ioliveira'
         memowrite("C:\TOTVS_RELATORIOS\VAGPER04.sql", cQry)
     endif

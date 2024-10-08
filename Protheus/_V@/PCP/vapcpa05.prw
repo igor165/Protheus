@@ -738,8 +738,10 @@ local cCposSel   := ""
 local cCurraDupl := ""
 local cLoteDupl  := ""
 local cLoteSBov  := ""
-Local cAlias     := ""
 Local cMsg       := ""
+Local nI 
+Local aHeader   := {"Lote","Curral","Saldo Atual","Saldo D-1","Diferença"}
+Local cAlias    := GetNextAlias()
 
     DbSelectArea("Z0R")
     DbSetOrder(1) // Z0R_FILIAL+DToS(Z0R_DATA)+Z0R_VERSAO
@@ -755,10 +757,11 @@ Local cMsg       := ""
 
     cSql := "SELECT B8_LOTECTL, B8_X_CURRA, SUM(B8_SALDO) SALDO, Z05_CABECA, Z05_CABECA - sum(B8_SALDO) DIFERENCA " + CRLF
 	cSql += "  FROM "+RetSqlName("SB8")+" SB8  " + CRLF
-	cSql += "  JOIN "+RetSqlName("SB8")+" Z05 ON  " + CRLF
+	cSql += "  JOIN "+RetSqlName("Z05")+" Z05 ON  " + CRLF
 	cSql += "       Z05_FILIAL = '"+FwxFilial("Z05")+"'  " + CRLF
 	cSql += "   AND Z05_LOTE = B8_LOTECTL " + CRLF
-	cSql += "   AND Z05_DATA = '"+dToS(dDataBase)+"'  --DATEADD(DAY, -1, Z0R_DATA) " + CRLF
+	cSql += "   AND Z05_DATA = DATEADD(DAY, -1, '"+dToS(Z0R->Z0R_DATA)+"') " + CRLF
+	//cSql += "   AND Z05_DATA = '20240805'  --DATEADD(DAY, -1, Z0R_DATA) " + CRLF
 	cSql += "   AND Z05.D_E_L_E_T_ = ' '  " + CRLF
 	cSql += " WHERE B8_FILIAL = '"+FwxFilial("SB8")+"' " + CRLF
 	cSql += "   AND B8_SALDO > 0 " + CRLF
@@ -767,18 +770,59 @@ Local cMsg       := ""
 	cSql += "   GROUP BY B8_LOTECTL, B8_X_CURRA, Z05_CABECA " + CRLF
 	cSql += "   HAVING abs(Z05_CABECA - SUM(B8_SALDO)) > 5 " + CRLF
 
-    MpSysOpenQuery(cSql, cAlias := GetNextAlias())
+    MpSysOpenQuery(cSql, cAlias)
 
-    while !(cAlias)->(EOF())    
-        cMsg1 += ""+(cAlias)->B8_LOTECTL+"      |       "+(cAlias)->B8_X_CURRA+"        |"
-        cMsg1 += "       "+(cAlias)->SALDO+"      |       "+(cAlias)->Z05_CABECA+"        |       "+(cAlias)->DIFERENCA
+    while !(cAlias)->(EOF())
+        if cMsg == ""
+
+            For nI := 1 to Len(aHeader)
+                cAux := "| " + aHeader[nI]
+                cAux := cAux + Space(15-Len(cAux))
+
+                cMsg += cAux
+            next nI
+            cMsg += " |"
+            
+            nTamLin := Len(cMsg)
+            cAux := Replicate("-",nTamLin)
+            
+            cMsg += CRLF
+            cMsg += cAux + CRLF
+
+        endif
+
+        cAux := "| " + AllTrim((cAlias)->B8_LOTECTL)
+        cAux := cAux := cAux + Space(15-Len(cAux))
+        cMsg += cAux
+
+        cAux := "| " + AllTrim((cAlias)->B8_X_CURRA)
+        cAux := cAux := cAux + Space(15-Len(cAux))
+        cMsg += cAux
+
+        cAux := "| " + cValToChar((cAlias)->SALDO)
+        cAux := cAux := cAux + Space(15-Len(cAux))
+        cMsg += cAux
+
+        cAux := "| " + cValToChar((cAlias)->Z05_CABECA)
+        cAux := cAux := cAux + Space(15-Len(cAux))
+        cMsg += cAux
+
+        cAux := "| " + cValToChar((cAlias)->DIFERENCA)
+        cAux := cAux := cAux + Space(16-Len(cAux))
+        cMsg += cAux + "|"
+
+        cAux := Replicate("-",nTamLin)
+        cMsg += CRLF
+        cMsg += cAux + CRLF
+
+        (cAlias)->(DBSKIP())
     enddo
+    (cAlias)->(DbCloseArea())
     
-    IF cMsg1 != ''
-        cMsg += "|      LOTE        |       CURRAL      |       SALDO       |       DIFERENÇA       |"
-
-        ShowLog(cMsg + CRLF + cMsg1)
+    IF cMsg != ''
+        ShowLog("Comparativo Saldo Atual e Dia Anterior " + CRLF + CRLF + CRLF + CRLF + cMsg)
     endif
+
     // Avalia se pode ser recriado o trato sem versionar 
     DbUseArea(.T., "TOPCONN", TCGenQry(,,;
                             _cSql := " with LOTES as (" +;
